@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm create:*)",
+      "WebFetch(domain:atl-01.statsplus.net)",
+      "Bash(npm init:*)",
+      "Bash(npm install:*)",
+      "Bash(curl:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npm run dev:*)",
+      "Bash(python tools/analyze_ootp_data.py:*)",
+      "Bash(pip install:*)",
+      "Bash(npm run build:*)",
+      "Bash(python:*)"
+    ]
+  }
+}

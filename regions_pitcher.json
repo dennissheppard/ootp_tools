@@ -1,0 +1,72 @@
+[
+  {
+    "name": "stuff",
+    "x": 1709,
+    "y": 1787,
+    "width": 55,
+    "height": 46
+  },
+  {
+    "name": "control",
+    "x": 3577,
+    "y": 637,
+    "width": 68,
+    "height": 45
+  },
+  {
+    "name": "hra",
+    "x": 3579,
+    "y": 951,
+    "width": 70,
+    "height": 49
+  },
+  {
+    "name": "movement",
+    "x": 3576,
+    "y": 1003,
+    "width": 73,
+    "height": 50
+  },
+  {
+    "name": "babip",
+    "x": 2566,
+    "y": 693,
+    "width": 79,
+    "height": 39
+  },
+  {
+    "name": "hits allowed",
+    "x": 2436,
+    "y": 1165,
+    "width": 81,
+    "height": 42
+  },
+  {
+    "name": "hr",
+    "x": 2560,
+    "y": 1169,
+    "width": 85,
+    "height": 39
+  },
+  {
+    "name": "bb",
+    "x": 2721,
+    "y": 1167,
+    "width": 79,
+    "height": 40
+  },
+  {
+    "name": "k",
+    "x": 3034,
+    "y": 1166,
+    "width": 86,
+    "height": 40
+  },
+  {
+    "name": "ip",
+    "x": 2246,
+    "y": 1166,
+    "width": 75,
+    "height": 41
+  }
+]
