@@ -202,7 +202,7 @@ export class DraftBoardView {
   private sortDirection: 'asc' | 'desc' = 'asc';
   private hitterSortKey?: string;
   private hitterSortDirection: 'asc' | 'desc' = 'asc';
-  private preferences: { hideUploadInfo: boolean; hidePitchRatings: boolean };
+  private preferences: { hideUploadInfo: boolean; hidePitchRatings: boolean; [key: string]: unknown };
   private pendingPitcherSortSave = false;
   private pendingHitterSortSave = false;
   private readonly prefKey = 'wbl-prefs';
@@ -1075,15 +1075,17 @@ export class DraftBoardView {
       setTimeout(() => arrow.remove(), 800);
     }, 900);
   }
-  private loadPreferences(): { hideUploadInfo: boolean; hidePitchRatings: boolean } {
+  private loadPreferences(): { hideUploadInfo: boolean; hidePitchRatings: boolean; [key: string]: unknown } {
     if (typeof window === 'undefined') return { hideUploadInfo: false, hidePitchRatings: false };
     try {
       const raw = localStorage.getItem(this.prefKey);
       if (!raw) return { hideUploadInfo: false, hidePitchRatings: false };
       const parsed = JSON.parse(raw);
+      const normalized = typeof parsed === 'object' && parsed !== null ? parsed : {};
       return {
-        hideUploadInfo: Boolean(parsed.hideUploadInfo),
-        hidePitchRatings: Boolean(parsed.hidePitchRatings),
+        ...normalized,
+        hideUploadInfo: Boolean((normalized as { hideUploadInfo?: unknown }).hideUploadInfo),
+        hidePitchRatings: Boolean((normalized as { hidePitchRatings?: unknown }).hidePitchRatings),
       };
     } catch {
       return { hideUploadInfo: false, hidePitchRatings: false };
@@ -1093,7 +1095,15 @@ export class DraftBoardView {
   private savePreferences(): void {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem(this.prefKey, JSON.stringify(this.preferences));
+      const current = this.loadPreferences();
+      const merged = {
+        ...current,
+        ...this.preferences,
+        hideUploadInfo: this.preferences.hideUploadInfo,
+        hidePitchRatings: this.preferences.hidePitchRatings,
+      };
+      this.preferences = merged;
+      localStorage.setItem(this.prefKey, JSON.stringify(merged));
     } catch {
       // ignore storage errors
     }

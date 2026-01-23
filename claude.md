@@ -22,6 +22,7 @@ src/
 │   ├── PlayerListView.ts   # Search results list
 │   ├── StatsView.ts        # Player stats display
 │   ├── PotentialStatsView.ts # Rating-to-stats calculator UI
+│   ├── RatingEstimatorView.ts # Stats-to-ratings estimator UI
 │   ├── DraftBoardView.ts   # Interactive draft board
 │   ├── TrueRatingsView.ts  # True Ratings page UI
 │   ├── LoadingView.ts      # Loading overlay
@@ -32,6 +33,9 @@ src/
     ├── PlayerService.ts    # Player data fetching
     ├── StatsService.ts     # Stats data fetching
     ├── PotentialStatsService.ts # Rating-to-stats calculations
+    ├── RatingEstimatorService.ts # Stats-to-ratings reverse calculations
+    ├── FipWarService.ts    # Shared FIP/WAR calculations (used by both calculators)
+    ├── LeagueStatsService.ts # League-wide stats and FIP constant calculations
     └── TrueRatingsService.ts # True Ratings data fetching
 ```
 
@@ -83,10 +87,23 @@ Convert OOTP pitcher ratings to projected stats. Located in `PotentialStatsServi
 - **BABIP cannot be estimated from stats** - team defense and park factors dominate
 - Defense is highly correlated with wins in WBL
 
-Derived Stats:
-- FIP: ((13×HR/9) + (3×BB/9) - (2×K/9)) / 9 + 3.47
-- WHIP: (BB + H) / IP
-- WAR: ((5.44 - FIP) / 10) × (IP / 9)
+**Derived Stats** (calculated in `FipWarService.ts`):
+- FIP: ((13×HR/9) + (3×BB/9) - (2×K/9)) / 9 + FIP constant (default 3.47)
+- WAR: ((replacementFIP - playerFIP) / runsPerWin) × (IP / 9)
+
+**Role-Based WAR Parameters** (calibrated from OOTP data regression, Jan 2026):
+
+OOTP uses dynamic runs-per-win and leverage adjustments. These parameters were derived by regression analysis against actual OOTP WAR values:
+
+| Role | IP Range | Replacement FIP | Runs/Win | Notes |
+|------|----------|-----------------|----------|-------|
+| Starters | ≥150 | 5.25 | 9.00 | Default for projections |
+| Middle | 80-149 | 4.90 | 8.50 | Swingmen, long relievers |
+| Relievers | <80 | 4.60 | 9.00 | Leverage adjustment |
+
+The lower replacement FIP for relievers reflects OOTP's leverage adjustment - relievers need to be better to accumulate positive WAR.
+
+**WAR Accuracy**: ~0.35 RMSE vs OOTP values. Remaining variance is due to park factors and other OOTP-specific adjustments we can't replicate.
 
 ### 4. Rating Estimator
 A reverse calculator to estimate pitcher ratings from actual stats, helping to evaluate scout accuracy.
@@ -113,10 +130,10 @@ A reverse calculator to estimate pitcher ratings from actual stats, helping to e
 -   **BABIP/Movement**: These are not displayed as they cannot be reliably estimated from stats due to the large impact of team defense and park factors.
 
 **Derived Stats (FIP & WAR)**:
-The estimator also calculates FIP (Fielding Independent Pitching) and WAR (Wins Above Replacement).
+The estimator calculates FIP and WAR using the shared `FipWarService.ts` (same formulas as the Potential Stats Calculator).
 -   **FIP** is derived from K/9, BB/9, and HR/9 rates.
--   **WAR** builds on FIP and requires **Innings Pitched (IP)** to scale the value. It also uses the league-average ERA to determine the replacement level.
--   The league ERA is calculated by fetching the full league pitching stats for the most recent year (2021) from the same data source as the "True Player Ratings" tab. This data is cached in `localStorage` for 24 hours to ensure the app remains fast and responsive.
+-   **WAR** uses role-based parameters that automatically adjust based on IP (starters vs relievers).
+-   League constants (FIP constant, replacement FIP) can be loaded from `LeagueStatsService` for any year, with results cached in `localStorage`.
 
 ## Tools Directory
 
@@ -139,6 +156,7 @@ Regression analysis script to derive rating-to-stat formulas from collected data
 - `ootp_data_*.csv` - Collected rating/stat data from OOTP calculator (screen reader)
 - `bb_hits_homers_data.csv` - WBL league pitching data (current year)
 - `homer_data.csv` - HR/H9 data with Movement, BABIP, HRA ratings
+- `fip_war.csv` - OOTP FIP/WAR data used to calibrate WAR formula parameters
 - `regions_pitcher.json` - Saved OCR regions for pitcher data collection
 - `RATING_ESTIMATOR_PLAN.md` - Design document for Rating Estimator feature
 
