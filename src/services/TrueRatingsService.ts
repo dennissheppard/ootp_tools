@@ -1,5 +1,6 @@
 import { Player } from '../models/Player';
 import { playerService } from './PlayerService';
+import { LeagueAverages, YearlyPitchingStats } from './TrueRatingsCalculationService';
 
 // From https://statsplus.net/wbl/api/playerpitchstatsv2/?year=2020
 export interface TruePitchingStats {
@@ -282,6 +283,155 @@ class TrueRatingsService {
     const cacheKey = `${CACHE_KEY_PREFIX}${type}_${year}`;
     localStorage.removeItem(cacheKey);
     localStorage.removeItem(timestampKey);
+  }
+
+  /**
+   * Parse IP string to numeric value
+   * OOTP stores IP as "X.Y" where Y is partial innings (0, 1, or 2 outs)
+   * e.g., "150.2" = 150 2/3 innings
+   */
+  public parseIp(ipString: string): number {
+    if (!ipString) return 0;
+    const parts = ipString.split('.');
+    const fullInnings = parseInt(parts[0], 10) || 0;
+    const partialOuts = parts.length > 1 ? parseInt(parts[1], 10) || 0 : 0;
+    // Convert partial outs (0, 1, 2) to fractional innings
+    return fullInnings + (partialOuts / 3);
+  }
+
+  /**
+   * Calculate league-wide averages for regression calculations
+   *
+   * @param year - The year to calculate averages for
+   * @param minIp - Minimum IP to qualify (default 20)
+   * @returns League averages for K/9, BB/9, HR/9
+   */
+  public async getLeagueAverages(year: number, minIp: number = 20): Promise<LeagueAverages & { totalPitchers: number }> {
+    const allStats = await this.getTruePitchingStats(year);
+
+    // Filter to qualified pitchers
+    const qualified = allStats.filter(p => this.parseIp(p.ip) >= minIp);
+
+    if (qualified.length === 0) {
+      // Return defaults if no qualified pitchers
+      return {
+        avgK9: 7.5,
+        avgBb9: 3.0,
+        avgHr9: 0.85,
+        totalPitchers: 0,
+      };
+    }
+
+    // Calculate IP-weighted league averages
+    let totalIp = 0;
+    let totalK = 0;
+    let totalBb = 0;
+    let totalHr = 0;
+
+    for (const pitcher of qualified) {
+      const ip = this.parseIp(pitcher.ip);
+      totalIp += ip;
+      totalK += pitcher.k;
+      totalBb += pitcher.bb;
+      totalHr += pitcher.hra; // Note: 'hra' in the API is home runs allowed (the stat)
+    }
+
+    // Convert to per-9 rates
+    const avgK9 = totalIp > 0 ? (totalK / totalIp) * 9 : 7.5;
+    const avgBb9 = totalIp > 0 ? (totalBb / totalIp) * 9 : 3.0;
+    const avgHr9 = totalIp > 0 ? (totalHr / totalIp) * 9 : 0.85;
+
+    return {
+      avgK9: Math.round(avgK9 * 100) / 100,
+      avgBb9: Math.round(avgBb9 * 100) / 100,
+      avgHr9: Math.round(avgHr9 * 100) / 100,
+      totalPitchers: qualified.length,
+    };
+  }
+
+  /**
+   * Fetch and aggregate pitching stats across multiple years
+   *
+   * Returns a map of playerId → yearly stats array (most recent first)
+   * Handles players who didn't pitch in all years.
+   * Leverages existing caching for each year's data.
+   *
+   * @param endYear - The most recent year to include
+   * @param yearsBack - Number of years to fetch (default 3)
+   * @param minIpPerYear - Minimum IP in a year to include that year's stats (default 1)
+   * @returns Map of playerId → YearlyPitchingStats[]
+   */
+  public async getMultiYearPitchingStats(
+    endYear: number,
+    yearsBack: number = 3,
+    minIpPerYear: number = 1
+  ): Promise<Map<number, YearlyPitchingStats[]>> {
+    // Fetch all years in parallel (leverages existing caching)
+    const years = Array.from({ length: yearsBack }, (_, i) => endYear - i);
+    const yearlyDataPromises = years.map(year => this.getTruePitchingStats(year));
+    const yearlyData = await Promise.all(yearlyDataPromises);
+
+    // Group stats by player ID
+    const playerStatsMap = new Map<number, YearlyPitchingStats[]>();
+
+    for (let i = 0; i < years.length; i++) {
+      const year = years[i];
+      const statsForYear = yearlyData[i];
+
+      for (const pitcher of statsForYear) {
+        const ip = this.parseIp(pitcher.ip);
+
+        // Skip if below minimum IP threshold
+        if (ip < minIpPerYear) continue;
+
+        // Calculate rate stats
+        const k9 = ip > 0 ? (pitcher.k / ip) * 9 : 0;
+        const bb9 = ip > 0 ? (pitcher.bb / ip) * 9 : 0;
+        const hr9 = ip > 0 ? (pitcher.hra / ip) * 9 : 0; // 'hra' is HR allowed stat
+
+        const yearlyStats: YearlyPitchingStats = {
+          year,
+          ip: Math.round(ip * 10) / 10,
+          k9: Math.round(k9 * 100) / 100,
+          bb9: Math.round(bb9 * 100) / 100,
+          hr9: Math.round(hr9 * 100) / 100,
+        };
+
+        // Add to player's stats array
+        if (!playerStatsMap.has(pitcher.player_id)) {
+          playerStatsMap.set(pitcher.player_id, []);
+        }
+        playerStatsMap.get(pitcher.player_id)!.push(yearlyStats);
+      }
+    }
+
+    // Sort each player's stats by year descending (most recent first)
+    playerStatsMap.forEach(stats => {
+      stats.sort((a, b) => b.year - a.year);
+    });
+
+    return playerStatsMap;
+  }
+
+  /**
+   * Get player names for a set of player IDs
+   * Useful for building TrueRatingInput objects
+   *
+   * @param playerIds - Set or array of player IDs
+   * @returns Map of playerId → playerName
+   */
+  public async getPlayerNames(playerIds: Iterable<number>): Promise<Map<number, string>> {
+    const players = await playerService.getAllPlayers();
+    const playerMap = new Map<number, string>();
+
+    const idSet = new Set(playerIds);
+    for (const player of players) {
+      if (idSet.has(player.id)) {
+        playerMap.set(player.id, `${player.firstName} ${player.lastName}`);
+      }
+    }
+
+    return playerMap;
   }
 }
 

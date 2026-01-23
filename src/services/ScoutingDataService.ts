@@ -39,12 +39,12 @@ class ScoutingDataService {
         const control = this.getNumberFromIndex(cells, indexMap.control);
         const hra = this.getNumberFromIndex(cells, indexMap.hra);
 
-        if (!Number.isFinite(stuff) || !Number.isFinite(control) || !Number.isFinite(hra)) {
+        if (!this.isNumber(stuff) || !this.isNumber(control) || !this.isNumber(hra)) {
           continue;
         }
 
         const rawId = this.getNumberFromIndex(cells, indexMap.playerId);
-        const playerId = Number.isFinite(rawId) ? Math.round(rawId) : -1;
+        const playerId = this.isNumber(rawId) ? Math.round(rawId) : -1;
         const playerName = this.getStringFromIndex(cells, indexMap.playerName);
         const age = this.getNumberFromIndex(cells, indexMap.age);
 
@@ -54,7 +54,7 @@ class ScoutingDataService {
           stuff,
           control,
           hra,
-          age: Number.isFinite(age) ? Math.round(age) : undefined,
+          age: this.isNumber(age) ? Math.round(age) : undefined,
         });
       } else {
         const firstCell = this.cleanCell(cells[0] ?? '');
@@ -203,6 +203,10 @@ class ScoutingDataService {
     if (nums.length === 0) return null;
     const avg = nums.reduce((sum, n) => sum + n, 0) / nums.length;
     return avg;
+  }
+
+  private isNumber(value: number | null): value is number {
+    return typeof value === 'number' && Number.isFinite(value);
   }
 }
 
