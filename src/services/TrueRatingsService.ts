@@ -130,14 +130,19 @@ class TrueRatingsService {
 
     const cached = this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
     if (cached) {
-      this.inMemoryPitchingCache.set(year, cached);
-      return cached;
+      const normalized = this.combinePitchingStats(cached);
+      this.inMemoryPitchingCache.set(year, normalized);
+      if (normalized.length !== cached.length) {
+        this.saveToCache(year, normalized, 'pitching');
+      }
+      return normalized;
     }
 
     const playerStats = await this.fetchAndProcessStats(year, 'pitching', 'playerpitchstatsv2') as TruePlayerStats[];
-    this.inMemoryPitchingCache.set(year, playerStats);
-    this.saveToCache(year, playerStats, 'pitching');
-    return playerStats;
+    const normalized = this.combinePitchingStats(playerStats);
+    this.inMemoryPitchingCache.set(year, normalized);
+    this.saveToCache(year, normalized, 'pitching');
+    return normalized;
   }
 
   public async getTrueBattingStats(year: number): Promise<TruePlayerBattingStats[]> {
@@ -147,14 +152,19 @@ class TrueRatingsService {
 
     const cached = this.loadFromCache<TruePlayerBattingStats[]>(year, 'batting');
     if (cached) {
-      this.inMemoryBattingCache.set(year, cached);
-      return cached;
+      const normalized = this.combineBattingStats(cached);
+      this.inMemoryBattingCache.set(year, normalized);
+      if (normalized.length !== cached.length) {
+        this.saveToCache(year, normalized, 'batting');
+      }
+      return normalized;
     }
     
     const playerStats = await this.fetchAndProcessStats(year, 'batting', 'playerbatstatsv2') as TruePlayerBattingStats[];
-    this.inMemoryBattingCache.set(year, playerStats);
-    this.saveToCache(year, playerStats, 'batting');
-    return playerStats;
+    const normalized = this.combineBattingStats(playerStats);
+    this.inMemoryBattingCache.set(year, normalized);
+    this.saveToCache(year, normalized, 'batting');
+    return normalized;
   }
 
   private async fetchAndProcessStats(year: number, type: StatsType, apiEndpoint: string): Promise<(TruePlayerStats | TruePlayerBattingStats)[]> {
@@ -231,6 +241,114 @@ class TrueRatingsService {
     values.push(current);
 
     return values;
+  }
+
+  private combinePitchingStats(stats: TruePlayerStats[]): TruePlayerStats[] {
+    const combined = new Map<number, TruePlayerStats>();
+    const combinedOuts = new Map<number, number>();
+    const skipKeys = new Set([
+      'id',
+      'player_id',
+      'year',
+      'team_id',
+      'game_id',
+      'league_id',
+      'level_id',
+      'split_id',
+      'stint',
+      'outs',
+      'ipf',
+    ]);
+
+    for (const stat of stats) {
+      const playerId = stat.player_id;
+      const existing = combined.get(playerId);
+      const outs = typeof stat.outs === 'number' ? stat.outs : this.ipToOuts(stat.ip);
+
+      if (!existing) {
+        const cloned: TruePlayerStats = { ...stat };
+        combined.set(playerId, cloned);
+        combinedOuts.set(playerId, outs);
+        continue;
+      }
+
+      combinedOuts.set(playerId, (combinedOuts.get(playerId) ?? 0) + outs);
+
+      Object.keys(stat).forEach((key) => {
+        if (key === 'ip' || key === 'playerName') return;
+        if (skipKeys.has(key)) return;
+        const value = (stat as any)[key];
+        if (typeof value === 'number') {
+          const current = (existing as any)[key];
+          (existing as any)[key] = (typeof current === 'number' ? current : 0) + value;
+        }
+      });
+    }
+
+    combined.forEach((stat, playerId) => {
+      const outs = combinedOuts.get(playerId) ?? 0;
+      stat.outs = outs;
+      stat.ip = this.formatOutsToIp(outs);
+      if (typeof stat.ipf === 'number') {
+        stat.ipf = Math.round((outs / 3) * 10) / 10;
+      }
+    });
+
+    return Array.from(combined.values());
+  }
+
+  private combineBattingStats(stats: TruePlayerBattingStats[]): TruePlayerBattingStats[] {
+    const combined = new Map<number, TruePlayerBattingStats>();
+    const skipKeys = new Set([
+      'id',
+      'player_id',
+      'year',
+      'team_id',
+      'game_id',
+      'league_id',
+      'level_id',
+      'split_id',
+      'stint',
+      'position',
+    ]);
+
+    for (const stat of stats) {
+      const playerId = stat.player_id;
+      const existing = combined.get(playerId);
+      if (!existing) {
+        combined.set(playerId, { ...stat });
+        continue;
+      }
+
+      Object.keys(stat).forEach((key) => {
+        if (key === 'playerName') return;
+        if (skipKeys.has(key)) return;
+        const value = (stat as any)[key];
+        if (typeof value === 'number') {
+          const current = (existing as any)[key];
+          (existing as any)[key] = (typeof current === 'number' ? current : 0) + value;
+        }
+      });
+    }
+
+    combined.forEach((stat) => {
+      stat.avg = stat.ab > 0 ? stat.h / stat.ab : 0;
+      stat.obp = stat.pa > 0 ? (stat.h + stat.bb + stat.hp) / stat.pa : 0;
+    });
+
+    return Array.from(combined.values());
+  }
+
+  private ipToOuts(ipValue: string | number): number {
+    const innings = this.parseIp(ipValue);
+    return Math.round(innings * 3);
+  }
+
+  private formatOutsToIp(outs: number): string {
+    if (!Number.isFinite(outs) || outs <= 0) return '0.0';
+    const fullInnings = Math.floor(outs / 3);
+    const partialOuts = outs % 3;
+    return `${fullInnings}.${partialOuts}`;
   }
 
   private loadFromCache<T>(year: number, type: StatsType): T | null {

@@ -1309,6 +1309,68 @@ td.player-cell.player-name {
     transform: translateX(-2px) rotate(135deg);
 }
 
+/* Modal */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(15, 20, 25, 0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1200;
+  padding: 1.5rem;
+}
+
+.modal-overlay.visible {
+  display: flex;
+}
+
+.modal {
+  background-color: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  box-shadow: var(--shadow);
+  width: min(520px, 92vw);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.modal-close {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  color: var(--color-text);
+  cursor: pointer;
+  line-height: 24px;
+  font-weight: 700;
+}
+
+.modal-close:hover {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.modal-body {
+  padding: 1rem 1.25rem 1.25rem;
+  overflow: auto;
+}
+
 
 
 /* Responsive adjustments */

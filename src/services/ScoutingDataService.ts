@@ -7,9 +7,9 @@ const STORAGE_KEY_PREFIX = 'wbl_scouting_ratings_';
 const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   playerId: ['playerid', 'player_id', 'id', 'pid'],
   playerName: ['playername', 'player_name', 'name', 'player'],
-  stuff: ['stuff', 'stu', 'stf'],
-  control: ['control', 'con', 'ctl'],
-  hra: ['hra', 'hr', 'hrr', 'hravoid', 'hravoidance'],
+  stuff: ['stuff', 'stu', 'stf', 'stup', 'stfp', 'stuffp'],
+  control: ['control', 'con', 'ctl', 'conp', 'controlp'],
+  hra: ['hra', 'hr', 'hrr', 'hravoid', 'hravoidance', 'hrrp', 'hrp'],
   age: ['age'],
 };
 

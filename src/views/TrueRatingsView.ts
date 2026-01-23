@@ -37,14 +37,20 @@ interface PitcherColumn {
 }
 
 interface ScoutingMatchSummary {
-  total: number;
-  matched: number;
-  missing: number;
+  totalPitchers: number;
+  matchedPitchers: number;
+  missingPitchers: number;
+  missingPitchersList: MissingPitcher[];
 }
 
 interface ScoutingLookup {
   byId: Map<number, PitcherScoutingRatings>;
   byName: Map<string, PitcherScoutingRatings[]>;
+}
+
+interface MissingPitcher {
+  playerId: number;
+  playerName: string;
 }
 
 const RAW_PITCHER_COLUMNS: PitcherColumn[] = [
@@ -81,6 +87,7 @@ export class TrueRatingsView {
   private isDraggingColumn = false;
   private scoutingRatings: PitcherScoutingRatings[] = [];
   private rawPitcherStats: PitcherRow[] = [];
+  private missingPitchers: MissingPitcher[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -133,7 +140,7 @@ export class TrueRatingsView {
           </div>
         </div>
         <details class="scouting-upload" id="scouting-upload">
-          <summary class="form-title">Upload Scouting Data</summary>
+          <summary class="form-title" id="scouting-upload-label">Upload Scouting Data</summary>
           <div class="csv-upload-container">
             <p class="csv-format">Format: player_id, name, stuff, control, hra [, age]</p>
             <div class="csv-upload-area" id="scouting-drop-zone">
@@ -151,6 +158,15 @@ export class TrueRatingsView {
           <button id="prev-page" disabled>Previous</button>
           <span id="page-info"></span>
           <button id="next-page" disabled>Next</button>
+        </div>
+      </div>
+      <div class="modal-overlay" id="scouting-missing-modal" aria-hidden="true">
+        <div class="modal">
+          <div class="modal-header">
+            <h3 class="modal-title">Missing scouting data</h3>
+            <button type="button" class="modal-close" id="scouting-missing-close" aria-label="Close">x</button>
+          </div>
+          <div class="modal-body" id="scouting-missing-body"></div>
         </div>
       </div>
     `;
@@ -206,6 +222,7 @@ export class TrueRatingsView {
     this.bindRatingsViewToggle();
     this.bindEstimatedRatingsToggle();
     this.bindScoutingUpload();
+    this.bindMissingModal();
     this.updateRatingsControlsVisibility();
   }
 
@@ -921,6 +938,19 @@ export class TrueRatingsView {
     this.updateScoutingUploadVisibility();
   }
 
+  private bindMissingModal(): void {
+    const overlay = this.container.querySelector<HTMLElement>('#scouting-missing-modal');
+    const closeBtn = this.container.querySelector<HTMLButtonElement>('#scouting-missing-close');
+    if (!overlay) return;
+
+    closeBtn?.addEventListener('click', () => this.hideMissingModal());
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) {
+        this.hideMissingModal();
+      }
+    });
+  }
+
   private handleScoutingFile(file: File): void {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -944,6 +974,7 @@ export class TrueRatingsView {
 
   private loadScoutingRatingsForYear(): void {
     this.scoutingRatings = scoutingDataService.getScoutingRatings(this.selectedYear);
+    this.updateScoutingUploadLabel();
     this.updatePitcherColumns();
     this.updateScoutingStatus();
   }
@@ -952,6 +983,12 @@ export class TrueRatingsView {
     const section = this.container.querySelector<HTMLElement>('#scouting-upload');
     if (!section) return;
     section.style.display = this.mode === 'pitchers' ? '' : 'none';
+  }
+
+  private updateScoutingUploadLabel(): void {
+    const label = this.container.querySelector<HTMLElement>('#scouting-upload-label');
+    if (!label) return;
+    label.textContent = this.scoutingRatings.length > 0 ? 'Manage Scouting Data' : 'Upload Scouting Data';
   }
 
   private updateScoutingStatus(): void {
@@ -975,10 +1012,20 @@ export class TrueRatingsView {
     }
 
     const summary = this.matchScoutingToPitchers(this.scoutingRatings, this.stats as PitcherRow[]);
-    status.textContent = `Loaded ${summary.total} players. Matched ${summary.matched}, missing ${summary.missing}.`;
+    this.missingPitchers = summary.missingPitchersList;
+    const missingCount = summary.missingPitchers;
+    const missingLabel = missingCount > 0
+      ? `<button type="button" class="btn-link" id="missing-scouting-link">${missingCount}</button>`
+      : `${missingCount}`;
+    status.innerHTML = `Loaded ${total} scouting rows. Matched ${summary.matchedPitchers}/${summary.totalPitchers} MLB pitchers; missing ${missingLabel}.`;
+    if (missingCount > 0) {
+      const link = status.querySelector<HTMLButtonElement>('#missing-scouting-link');
+      link?.addEventListener('click', () => this.showMissingModal());
+    }
   }
 
   private refreshAfterScoutingChange(): void {
+    this.updateScoutingUploadLabel();
     this.updatePitcherColumns();
     if (this.mode === 'pitchers' && this.ratingsView === 'true') {
       this.fetchAndRenderStats();
@@ -988,48 +1035,79 @@ export class TrueRatingsView {
     this.renderStats();
   }
 
+  private showMissingModal(): void {
+    const overlay = this.container.querySelector<HTMLElement>('#scouting-missing-modal');
+    const body = this.container.querySelector<HTMLElement>('#scouting-missing-body');
+    if (!overlay || !body) return;
+
+    if (this.missingPitchers.length === 0) {
+      body.innerHTML = '<p class="no-results">No missing pitchers.</p>';
+    } else {
+      const rows = this.missingPitchers.map((pitcher) => `
+        <tr>
+          <td>${pitcher.playerId}</td>
+          <td>${this.escapeHtml(pitcher.playerName)}</td>
+        </tr>
+      `).join('');
+
+      body.innerHTML = `
+        <div class="table-wrapper">
+          <table class="stats-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Name</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>
+      `;
+    }
+
+    overlay.classList.add('visible');
+    overlay.setAttribute('aria-hidden', 'false');
+  }
+
+  private hideMissingModal(): void {
+    const overlay = this.container.querySelector<HTMLElement>('#scouting-missing-modal');
+    if (!overlay) return;
+    overlay.classList.remove('visible');
+    overlay.setAttribute('aria-hidden', 'true');
+  }
+
   private matchScoutingToPitchers(
     scoutingRatings: PitcherScoutingRatings[],
     pitchers: PitcherRow[]
   ): ScoutingMatchSummary {
-    const byId = new Map<number, PitcherRow>();
-    const byName = new Map<string, PitcherRow[]>();
+    const lookup = this.buildScoutingLookup(scoutingRatings);
+    let matchedPitchers = 0;
+    const missingPitchersList: MissingPitcher[] = [];
 
     pitchers.forEach((pitcher) => {
-      byId.set(pitcher.player_id, pitcher);
-      const normalizedName = this.normalizeName(pitcher.playerName);
-      if (!normalizedName) return;
-      const list = byName.get(normalizedName) ?? [];
-      list.push(pitcher);
-      byName.set(normalizedName, list);
+      const scouting = this.resolveScoutingRating(pitcher, lookup);
+      if (scouting) {
+        matchedPitchers += 1;
+      } else {
+        missingPitchersList.push({ playerId: pitcher.player_id, playerName: pitcher.playerName });
+      }
     });
 
-    let matched = 0;
-    let missing = 0;
-
-    scoutingRatings.forEach((rating) => {
-      if (rating.playerId > 0 && byId.has(rating.playerId)) {
-        matched += 1;
-        return;
-      }
-
-      if (rating.playerName) {
-        const normalized = this.normalizeName(rating.playerName);
-        const candidates = byName.get(normalized);
-        if (candidates && candidates.length === 1) {
-          matched += 1;
-          return;
-        }
-      }
-
-      missing += 1;
-    });
-
+    const totalPitchers = pitchers.length;
     return {
-      total: scoutingRatings.length,
-      matched,
-      missing,
+      totalPitchers,
+      matchedPitchers,
+      missingPitchers: Math.max(0, totalPitchers - matchedPitchers),
+      missingPitchersList,
     };
+  }
+
+  private escapeHtml(text: string): string {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
   }
 
   private normalizeName(name: string): string {
