@@ -193,7 +193,11 @@ class TrueRatingsService {
         header.forEach((h, i) => {
             const key = h.trim();
             const value = values[i];
-            entry[key] = isNaN(Number(value)) || value === '' ? value : Number(value);
+            if (key === 'ip') {
+                entry[key] = value;
+            } else {
+                entry[key] = isNaN(Number(value)) || value === '' ? value : Number(value);
+            }
         });
 
         if (type === 'batting') {
@@ -236,9 +240,17 @@ class TrueRatingsService {
       const timestamp = localStorage.getItem(timestampKey);
       if (!timestamp) return null;
 
-      const cacheAge = Date.now() - parseInt(timestamp, 10);
+      const parsedTimestamp = parseInt(timestamp, 10);
+
+      // If timestamp is 0, it's a permanent cache, so skip age check
+      if (parsedTimestamp === 0) {
+        const cached = localStorage.getItem(cacheKey);
+        return cached ? JSON.parse(cached) as T : null;
+      }
+
+      const cacheAge = Date.now() - parsedTimestamp;
       if (cacheAge > CACHE_DURATION_MS) {
-        this.clearCache(year, type);
+        this.clearCache(year, type); // Clear expired cache
         return null;
       }
 
@@ -257,7 +269,9 @@ class TrueRatingsService {
       const timestampKey = `${CACHE_TIMESTAMP_KEY_PREFIX}${type}_${year}`;
       const cacheKey = `${CACHE_KEY_PREFIX}${type}_${year}`;
       localStorage.setItem(cacheKey, JSON.stringify(stats));
-      localStorage.setItem(timestampKey, Date.now().toString());
+      // For years before 2020, set a special timestamp (0) to indicate permanent cache
+      // Otherwise, set current timestamp for 24-hour expiration
+      localStorage.setItem(timestampKey, (year < 2020 ? 0 : Date.now()).toString());
     } catch {
       // Cache write failed (e.g., quota exceeded), ignore
     }

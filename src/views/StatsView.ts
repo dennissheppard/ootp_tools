@@ -1,11 +1,27 @@
 import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Player';
 import { PitchingStats, BattingStats } from '../models/Stats';
 
+export interface SendToEstimatorPayload {
+  k9: number;
+  bb9: number;
+  hr9: number;
+  ip: number;
+  year: number;
+  playerName: string;
+}
+
+interface StatsViewOptions {
+  onSendToEstimator?: (payload: SendToEstimatorPayload) => void;
+}
+
 export class StatsView {
   private container: HTMLElement;
+  private onSendToEstimator?: (payload: SendToEstimatorPayload) => void;
+  private selectedPitchingIndex: number | null = null;
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, options?: StatsViewOptions) {
     this.container = container;
+    this.onSendToEstimator = options?.onSendToEstimator;
   }
 
   render(
@@ -14,6 +30,9 @@ export class StatsView {
     battingStats: BattingStats[],
     year?: number
   ): void {
+    this.selectedPitchingIndex = null;
+    const playerName = getFullName(player);
+
     const yearDisplay = year ? ` (${year})` : ' (All Years)';
     const posLabel = getPositionLabel(player.position);
 
@@ -21,8 +40,10 @@ export class StatsView {
     const mainPitching = pitchingStats.filter((s) => s.splitId === 1);
     const mainBatting = battingStats.filter((s) => s.splitId === 1);
 
+    const showSendToEstimator = Boolean(this.onSendToEstimator && isPitcher(player) && mainPitching.length > 0);
+
     const pitchingTable = mainPitching.length > 0
-      ? this.renderPitchingTable(mainPitching)
+      ? this.renderPitchingTable(mainPitching, showSendToEstimator)
       : '';
     const battingTable = mainBatting.length > 0
       ? this.renderBattingTable(mainBatting)
@@ -47,13 +68,17 @@ export class StatsView {
         ${isPitcher(player) ? pitchingTable + battingTable : battingTable + pitchingTable}
       </div>
     `;
+
+    if (showSendToEstimator) {
+      this.bindPitchingSelection(mainPitching, playerName);
+    }
   }
 
-  private renderPitchingTable(stats: PitchingStats[]): string {
+  private renderPitchingTable(stats: PitchingStats[], includeSendAction: boolean): string {
     if (stats.length === 0) return '';
 
-    const rows = stats.map((s) => `
-      <tr>
+    const rows = stats.map((s, index) => `
+      <tr class="pitching-row stats-row-selectable" data-index="${index}">
         <td>${s.year}</td>
         <td>${s.g}</td>
         <td>${s.gs}</td>
@@ -73,9 +98,20 @@ export class StatsView {
       </tr>
     `).join('');
 
+    const actions = includeSendAction
+      ? `
+        <div class="stats-actions">
+          <button class="btn btn-secondary send-to-estimator" disabled>Send to Ratings Estimator</button>
+        </div>
+      `
+      : '';
+
     return `
       <div class="stats-table-container">
-        <h3 class="stats-table-title">Pitching Statistics</h3>
+        <div class="stats-table-header">
+          <h3 class="stats-table-title">Pitching Statistics</h3>
+          ${actions}
+        </div>
         <div class="table-wrapper">
           <table class="stats-table">
             <thead>
@@ -189,5 +225,38 @@ export class StatsView {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+  }
+
+  private bindPitchingSelection(stats: PitchingStats[], playerName: string): void {
+    const rows = Array.from(this.container.querySelectorAll<HTMLTableRowElement>('.pitching-row'));
+    const sendBtn = this.container.querySelector<HTMLButtonElement>('.send-to-estimator');
+
+    if (!rows.length || !sendBtn || !this.onSendToEstimator) return;
+
+    rows.forEach((row, idx) => {
+      row.addEventListener('click', () => {
+        this.selectedPitchingIndex = idx;
+        rows.forEach((r) => r.classList.remove('stats-row-selected'));
+        row.classList.add('stats-row-selected');
+        sendBtn.disabled = false;
+      });
+    });
+
+    sendBtn.addEventListener('click', () => {
+      if (this.selectedPitchingIndex === null) return;
+      const stat = stats[this.selectedPitchingIndex];
+      if (!stat) return;
+
+      const hr9 = stat.ip > 0 ? (stat.hr / stat.ip) * 9 : 0;
+
+      this.onSendToEstimator?.({
+        k9: stat.k9,
+        bb9: stat.bb9,
+        hr9,
+        ip: stat.ip,
+        year: stat.year,
+        playerName: playerName,
+      });
+    });
   }
 }

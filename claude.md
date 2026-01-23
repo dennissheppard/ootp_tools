@@ -83,10 +83,10 @@ Convert OOTP pitcher ratings to projected stats. Located in `PotentialStatsServi
 - **BABIP cannot be estimated from stats** - team defense and park factors dominate
 - Defense is highly correlated with wins in WBL
 
-**Derived Stats**:
-- FIP: ((13×HR) + (3×BB) - (2×K)) / IP + 3.10
+Derived Stats:
+- FIP: ((13×HR/9) + (3×BB/9) - (2×K/9)) / 9 + 3.47
 - WHIP: (BB + H) / IP
-- WAR: ((4.10 - FIP) / 10) × (IP / 9)
+- WAR: ((5.44 - FIP) / 10) × (IP / 9)
 
 ### 4. Rating Estimator
 A reverse calculator to estimate pitcher ratings from actual stats, helping to evaluate scout accuracy.

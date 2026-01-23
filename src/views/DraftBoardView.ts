@@ -1,4 +1,5 @@
-import { PotentialStatsService } from '../services/PotentialStatsService';
+import { PotentialStatsService, LeagueContext } from '../services/PotentialStatsService';
+import { leagueStatsService } from '../services/LeagueStatsService';
 
 type DraftMode = 'pitchers' | 'hitters';
 
@@ -177,6 +178,21 @@ const HITTER_FALLBACK_INDEX: Record<HitterHeaderKey, number> = {
   ste: 20,
   run: 21,
 };
+
+const PITCH_COLUMNS = new Set([
+  'fb',
+  'ch',
+  'cb',
+  'sl',
+  'si',
+  'sp',
+  'ct',
+  'fo',
+  'cc',
+  'sc',
+  'kc',
+  'kn',
+]);
 export class DraftBoardView {
   private container: HTMLElement;
   private mode: DraftMode = 'pitchers';
@@ -186,11 +202,12 @@ export class DraftBoardView {
   private sortDirection: 'asc' | 'desc' = 'asc';
   private hitterSortKey?: string;
   private hitterSortDirection: 'asc' | 'desc' = 'asc';
-  private preferences: { hideUploadInfo: boolean };
+  private preferences: { hideUploadInfo: boolean; hidePitchRatings: boolean };
   private pendingPitcherSortSave = false;
   private pendingHitterSortSave = false;
   private readonly prefKey = 'wbl-prefs';
   private readonly draftKey = 'wbl-draft-board';
+  private leagueContext?: LeagueContext;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -198,10 +215,34 @@ export class DraftBoardView {
     this.loadDraftBoard();
     this.render();
     this.bindModeToggle();
+    this.loadLeagueStats();
     this.bindPitcherUpload();
     this.bindHitterUpload();
     this.bindPitcherInstructionToggles();
     this.bindHitterInstructionToggles();
+  }
+
+  private async loadLeagueStats(): Promise<void> {
+    try {
+      const stats = await leagueStatsService.getLeagueStats(2020);
+      this.leagueContext = {
+        fipConstant: stats.fipConstant,
+        avgFip: stats.avgFip,
+      };
+      // Re-render if we have data to update projections with proper league stats
+      if (this.pitcherRows.length > 0) {
+        this.recalculateProjections();
+        this.renderPitcherTable();
+      }
+    } catch (e) {
+      console.warn('Could not load league stats for draft board, using defaults', e);
+    }
+  }
+
+  private recalculateProjections(): void {
+    for (const row of this.pitcherRows) {
+      row.projection = this.calculateProjection(row.ratings);
+    }
   }
 
   private render(): void {
@@ -561,7 +602,15 @@ export class DraftBoardView {
             <tr>
               <th class="rank-header" data-sort-key="rank">#</th>
               <th data-sort-key="name">Player</th>
-              <th>Details</th>
+              <th>
+                <div class="details-header-content">
+                  <span>Details</span>
+                  <label class="hide-pitches-toggle">
+                    <input type="checkbox" id="toggle-hide-pitches" ${this.preferences.hidePitchRatings ? 'checked' : ''}>
+                    Hide pitches
+                  </label>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody>${body}</tbody>
@@ -572,6 +621,7 @@ export class DraftBoardView {
     this.bindPitcherSortHeaders();
     this.bindPitcherDragAndDrop();
     this.bindPitcherSortSavePrompt();
+    this.bindHidePitchesToggle();
     this.updatePitcherSavedStateUI();
   }
 
@@ -629,8 +679,9 @@ export class DraftBoardView {
       const valueNum = this.parseNumericValue(value) ?? 0;
       const tier = this.getRatingTier(valueNum);
       const isActive = this.sortKey === col.key;
+      const pitchClass = PITCH_COLUMNS.has(col.key) ? 'pitch-column' : '';
       return `
-        <div class="cell rating-cell rating-${tier} ${isActive ? 'sort-active' : ''}">
+        <div class="cell rating-cell rating-${tier} ${pitchClass} ${isActive ? 'sort-active' : ''}">
           <button type="button" class="cell-label" data-sort-key="${col.key}">
             ${this.escape(col.label)}
           </button>
@@ -669,7 +720,7 @@ export class DraftBoardView {
           <div class="cell-value">${this.escape(row.name)}</div>
         </td>
         <td class="details-cell">
-          <div class="grid rating-grid">
+          <div class="grid rating-grid ${this.preferences.hidePitchRatings ? 'pitches-hidden' : ''}">
             ${ratingCells}
           </div>
         </td>
@@ -927,7 +978,7 @@ export class DraftBoardView {
     };
 
     const ip = 180;
-    const stats = PotentialStatsService.calculatePitchingStats(inputs, ip);
+    const stats = PotentialStatsService.calculatePitchingStats(inputs, ip, this.leagueContext);
 
     return {
       proj_ip: ip,
@@ -1024,15 +1075,18 @@ export class DraftBoardView {
       setTimeout(() => arrow.remove(), 800);
     }, 900);
   }
-  private loadPreferences(): { hideUploadInfo: boolean } {
-    if (typeof window === 'undefined') return { hideUploadInfo: false };
+  private loadPreferences(): { hideUploadInfo: boolean; hidePitchRatings: boolean } {
+    if (typeof window === 'undefined') return { hideUploadInfo: false, hidePitchRatings: false };
     try {
       const raw = localStorage.getItem(this.prefKey);
-      if (!raw) return { hideUploadInfo: false };
+      if (!raw) return { hideUploadInfo: false, hidePitchRatings: false };
       const parsed = JSON.parse(raw);
-      return { hideUploadInfo: Boolean(parsed.hideUploadInfo) };
+      return {
+        hideUploadInfo: Boolean(parsed.hideUploadInfo),
+        hidePitchRatings: Boolean(parsed.hidePitchRatings),
+      };
     } catch {
-      return { hideUploadInfo: false };
+      return { hideUploadInfo: false, hidePitchRatings: false };
     }
   }
 
@@ -1261,5 +1315,15 @@ export class DraftBoardView {
     this.pendingHitterSortSave = false;
     this.saveDraftBoard();
     this.renderHitterTable();
+  }
+
+  private bindHidePitchesToggle(): void {
+    const toggle = this.container.querySelector<HTMLInputElement>('#toggle-hide-pitches');
+    toggle?.addEventListener('change', (e) => {
+      const checked = (e.target as HTMLInputElement).checked;
+      this.preferences.hidePitchRatings = checked;
+      this.savePreferences();
+      this.renderPitcherTable();
+    });
   }
 }

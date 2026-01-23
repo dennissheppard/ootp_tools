@@ -10,6 +10,9 @@ export class StatsService {
     }
 
     const response = await fetch(url);
+    if (response.status === 204 || response.status === 404) {
+      return [];
+    }
     if (!response.ok) {
       throw new Error(`Failed to fetch pitching stats: ${response.statusText}`);
     }
@@ -29,6 +32,9 @@ export class StatsService {
     }
 
     const response = await fetch(url);
+    if (response.status === 204 || response.status === 404) {
+      return [];
+    }
     if (!response.ok) {
       throw new Error(`Failed to fetch batting stats: ${response.statusText}`);
     }

@@ -280,6 +280,10 @@ body {
   accent-color: var(--color-primary);
 }
 
+.rating-grid.pitches-hidden .pitch-column {
+  display: none;
+}
+
 .draft-compact th,
 .draft-compact td {
   vertical-align: top;
@@ -683,11 +687,46 @@ body {
   margin-bottom: 0;
 }
 
+.stats-table-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
 .stats-table-title {
   font-size: 1rem;
   font-weight: 600;
   margin: 0 0 1rem 0;
   color: var(--color-text);
+}
+
+.stats-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.send-to-estimator {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background-color: var(--color-surface-hover);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color 0.2s, border-color 0.2s, opacity 0.2s;
+}
+
+.send-to-estimator:hover:not(:disabled) {
+  background-color: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.send-to-estimator:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .table-wrapper {
@@ -730,6 +769,14 @@ td.player-cell.player-name {
   text-align: right;
   white-space: nowrap;
   border-bottom: 1px solid var(--color-border);
+}
+
+.stats-row-selectable {
+  cursor: pointer;
+}
+
+.stats-row-selected {
+  background-color: rgba(29, 155, 240, 0.18);
 }
 
 .stats-table th {
@@ -1019,6 +1066,51 @@ td.player-cell.player-name {
   color: var(--color-text-muted);
   text-align: center;
   padding: 2rem;
+}
+
+.league-context-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  background-color: var(--color-surface);
+  border-radius: var(--border-radius);
+  margin-bottom: 1rem;
+  font-size: 0.875rem;
+}
+
+.league-info-text {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.year-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.year-selector label {
+  color: var(--color-text-muted);
+}
+
+.year-selector select {
+  padding: 0.25rem 0.5rem;
+  background-color: var(--color-surface-hover);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  cursor: pointer;
+}
+
+.year-selector select:hover {
+  border-color: var(--color-primary);
+}
+
+.year-selector select:focus {
+  outline: none;
+  border-color: var(--color-primary);
 }
 
 .potential-stats-table .name-col {

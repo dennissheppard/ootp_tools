@@ -78,15 +78,11 @@ export class PlayerController {
       let pitchingStats: PitchingStats[] = [];
       let battingStats: BattingStats[] = [];
 
-      // Fetch appropriate stats based on position
+      // Fetch stats only from the relevant endpoint to avoid 204 errors on the wrong feed
       if (isPitcher(player)) {
         pitchingStats = await this.statsService.getPitchingStats(playerId, year);
-        // Some pitchers might also have batting stats (NL rules, etc.)
-        battingStats = await this.statsService.getBattingStats(playerId, year);
       } else {
         battingStats = await this.statsService.getBattingStats(playerId, year);
-        // Position players generally don't pitch, but fetch anyway for completeness
-        pitchingStats = await this.statsService.getPitchingStats(playerId, year);
       }
 
       this.onStats?.({

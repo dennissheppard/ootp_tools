@@ -19,8 +19,8 @@ export interface PitcherRatings {
   stuff: number;      // 20-80 scale
   control: number;    // 20-80 scale
   hra: number;        // 20-80 scale (home run avoidance)
-  movement: number;   // 20-80 scale (derived from HRA + BABIP)
-  babip: number;      // 20-80 scale
+  movement: number;   // 20-80 scale (derived from HRA + BABIP, optional input)
+  babip: number;      // 20-80 scale (optional input)
 }
 
 export interface PotentialPitchingStats {
@@ -61,12 +61,19 @@ const WBL_LINEAR = {
   hr9: { intercept: 2.08, slope: -0.024 },
 };
 
-// WBL league averages for derived stat calculations
-const WBL_LEAGUE = {
-  avgFIP: 4.10,
-  fipConstant: 3.10,
+// WBL league defaults for derived stat calculations
+// These are fallback values - use LeagueStatsService.getLeagueStats() for accurate values
+const WBL_LEAGUE_DEFAULTS = {
+  avgFIP: 5.44,       // Approximate - fetch from LeagueStatsService for accuracy
+  fipConstant: 3.47,  // Approximate - fetch from LeagueStatsService for accuracy
   runsPerWin: 10,
 };
+
+export interface LeagueContext {
+  fipConstant: number;
+  avgFip: number;
+  runsPerWin?: number;
+}
 
 // Default IP for projections (typical full season starter)
 const DEFAULT_IP = 180;
@@ -125,11 +132,21 @@ export class PotentialStatsService {
    * - WHIP (depends on H)
    * - ERA (depends on H)
    * - oAVG (depends on H)
+   *
+   * @param ratings - Pitcher ratings (Stuff, Control, HRA, Movement, BABIP)
+   * @param ip - Innings pitched to project (default 180)
+   * @param leagueContext - Optional league stats for accurate FIP/WAR calculation
    */
   static calculatePitchingStats(
     ratings: PitcherRatings,
-    ip: number = DEFAULT_IP
+    ip: number = DEFAULT_IP,
+    leagueContext?: LeagueContext
   ): PotentialPitchingStats {
+    // Use provided league context or fall back to defaults
+    const fipConstant = leagueContext?.fipConstant ?? WBL_LEAGUE_DEFAULTS.fipConstant;
+    const avgFip = leagueContext?.avgFip ?? WBL_LEAGUE_DEFAULTS.avgFIP;
+    const runsPerWin = leagueContext?.runsPerWin ?? WBL_LEAGUE_DEFAULTS.runsPerWin;
+
     // Calculate rate stats - "Three True Outcomes"
     const k9 = this.calculateK9(ratings.stuff);
     const bb9 = this.calculateBB9(ratings.control);
@@ -142,10 +159,10 @@ export class PotentialStatsService {
 
     // FIP = ((13*HR) + (3*BB) - (2*K)) / IP + constant
     // FIP only uses K, BB, HR - all of which we can predict
-    const fip = ((13 * hr) + (3 * bb) - (2 * k)) / ip + WBL_LEAGUE.fipConstant;
+    const fip = ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + fipConstant;
 
     // WAR = ((lgFIP - FIP) / runsPerWin) * (IP / 9)
-    const war = ((WBL_LEAGUE.avgFIP - fip) / WBL_LEAGUE.runsPerWin) * (ip / 9);
+    const war = ((avgFip - fip) / runsPerWin) * (ip / 9);
 
     return {
       k9: Math.round(k9 * 10) / 10,
@@ -205,18 +222,20 @@ export class PotentialStatsService {
    * Calculate stats for multiple pitchers from CSV data
    */
   static calculateBulkStats(
-    pitchers: Array<{ name?: string; ip?: number } & PitcherRatings>
+    pitchers: Array<{ name?: string; ip?: number } & PitcherRatings>,
+    leagueContext?: LeagueContext
   ): Array<{ name: string } & PotentialPitchingStats & PitcherRatings> {
     return pitchers.map((pitcher, index) => ({
       name: pitcher.name || `Pitcher ${index + 1}`,
       ...pitcher,
-      ...this.calculatePitchingStats(pitcher, pitcher.ip || DEFAULT_IP),
+      ...this.calculatePitchingStats(pitcher, pitcher.ip || DEFAULT_IP, leagueContext),
     }));
   }
 
   /**
    * Parse CSV content into pitcher ratings
-   * Expected format: name, stuff, control, hra, movement, babip [, ip]
+   * Expected format: name, stuff, control, hra [, ip]
+   * Backward compatible with older format that included movement and BABIP.
    */
   static parseCSV(csvContent: string): Array<{ name: string; ip?: number } & PitcherRatings> {
     const lines = csvContent.trim().split('\n');
@@ -242,15 +261,25 @@ export class PotentialStatsService {
         values = parts.map(Number);
       }
 
-      if (values.length >= 5 && values.slice(0, 5).every(v => !isNaN(v))) {
+      if (values.length >= 3 && values.slice(0, 3).every(v => !isNaN(v))) {
+        const hasLegacyFields = values.length >= 5 && values.slice(3, 5).every(v => !isNaN(v));
+        const movement = hasLegacyFields ? values[3] : 50;
+        const babip = hasLegacyFields ? values[4] : 50;
+        const ip =
+          hasLegacyFields && values.length >= 6
+            ? values[5] || undefined
+            : values.length >= 4
+              ? values[3] || undefined
+              : undefined;
+
         pitchers.push({
           name,
           stuff: values[0],
           control: values[1],
           hra: values[2],
-          movement: values[3],
-          babip: values[4],
-          ip: values[5] || undefined,
+          movement,
+          babip,
+          ip,
         });
       }
     }

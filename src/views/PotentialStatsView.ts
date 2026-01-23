@@ -2,17 +2,67 @@ import {
   PotentialStatsService,
   PitcherRatings,
   PotentialPitchingStats,
+  LeagueContext,
 } from '../services/PotentialStatsService';
+import { leagueStatsService } from '../services/LeagueStatsService';
 
 type ResultRow = { name: string } & PotentialPitchingStats & PitcherRatings;
+
+// Available years for league stats (most recent first)
+const AVAILABLE_YEARS = [2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010];
 
 export class PotentialStatsView {
   private container: HTMLElement;
   private results: ResultRow[] = [];
+  private leagueContext: LeagueContext | undefined;
+  private selectedYear: number = 2020;
+  private leagueEra: number | undefined;
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.render();
+    this.loadLeagueStats();
+  }
+
+  private async loadLeagueStats(): Promise<void> {
+    try {
+      const stats = await leagueStatsService.getLeagueStats(this.selectedYear);
+      this.leagueContext = {
+        fipConstant: stats.fipConstant,
+        avgFip: stats.avgFip,
+      };
+      this.leagueEra = stats.era;
+      this.updateLeagueInfo();
+      // Recalculate existing results with new league context
+      if (this.results.length > 0) {
+        this.recalculateResults();
+      }
+    } catch (e) {
+      console.warn('Could not load league stats, using defaults', e);
+    }
+  }
+
+  private recalculateResults(): void {
+    // Recalculate all results with the new league context
+    this.results = this.results.map(r => {
+      const ratings: PitcherRatings = {
+        stuff: r.stuff,
+        control: r.control,
+        hra: r.hra,
+        movement: r.movement,
+        babip: r.babip,
+      };
+      const stats = PotentialStatsService.calculatePitchingStats(ratings, r.ip);
+      return { name: r.name, ...ratings, ...stats };
+    });
+    this.renderResults();
+  }
+
+  private updateLeagueInfo(): void {
+    const infoEl = this.container.querySelector<HTMLElement>('#league-info');
+    if (infoEl && this.leagueEra !== undefined && this.leagueContext) {
+      infoEl.innerHTML = `Using ${this.selectedYear} league data (ERA: ${this.leagueEra.toFixed(2)}, FIP constant: ${this.leagueContext.fipConstant.toFixed(2)})`;
+    }
   }
 
   private render(): void {
@@ -31,27 +81,19 @@ export class PotentialStatsView {
                   <label for="rating-stuff">Stuff</label>
                   <input type="number" id="rating-stuff" min="20" max="80" value="50" required>
                 </div>
-                <div class="rating-field">
-                  <label for="rating-control">Control</label>
-                  <input type="number" id="rating-control" min="20" max="80" value="50" required>
-                </div>
-                <div class="rating-field">
-                  <label for="rating-hra">HRA</label>
-                  <input type="number" id="rating-hra" min="20" max="80" value="50" required>
-                </div>
-                <div class="rating-field">
-                  <label for="rating-movement">Movement</label>
-                  <input type="number" id="rating-movement" min="20" max="80" value="50" required>
-                </div>
-                <div class="rating-field">
-                  <label for="rating-babip">BABIP</label>
-                  <input type="number" id="rating-babip" min="20" max="80" value="50" required>
-                </div>
+              <div class="rating-field">
+                <label for="rating-control">Control</label>
+                <input type="number" id="rating-control" min="20" max="80" value="50" required>
               </div>
-              <div class="form-actions">
-                <input type="text" id="rating-name" placeholder="Player name (optional)" class="name-input">
-                <div class="ip-input-wrapper">
-                  <label for="rating-ip">IP:</label>
+              <div class="rating-field">
+                <label for="rating-hra">HRA</label>
+                <input type="number" id="rating-hra" min="20" max="80" value="50" required>
+              </div>
+            </div>
+            <div class="form-actions">
+              <input type="text" id="rating-name" placeholder="Player name (optional)" class="name-input">
+              <div class="ip-input-wrapper">
+                <label for="rating-ip">IP:</label>
                   <input type="number" id="rating-ip" min="10" max="250" value="180" class="ip-input">
                 </div>
                 <button type="submit" class="btn btn-primary">Calculate & Add</button>
@@ -62,7 +104,7 @@ export class PotentialStatsView {
           <!-- CSV Upload -->
           <div class="csv-upload-container">
             <h3 class="form-title">Or Upload CSV</h3>
-            <p class="csv-format">Format: name, stuff, control, hra, movement, babip [, ip]</p>
+            <p class="csv-format">Format: name, stuff, control, hra [, ip]</p>
             <div class="csv-upload-area" id="csv-drop-zone">
               <input type="file" id="csv-file-input" accept=".csv" hidden>
               <p>Drop CSV file here or <button type="button" class="btn-link" id="csv-browse-btn">browse</button></p>
@@ -81,6 +123,15 @@ export class PotentialStatsView {
           <div class="results-header">
             <h3 class="form-title">Projected WBL Stats</h3>
             <button type="button" class="btn btn-secondary" id="clear-results-btn" style="display: none;">Clear All</button>
+          </div>
+          <div class="league-context-info">
+            <p id="league-info" class="league-info-text">Loading league data...</p>
+            <div class="year-selector">
+              <label for="league-year">FIP/WAR based on:</label>
+              <select id="league-year">
+                ${AVAILABLE_YEARS.map(y => `<option value="${y}" ${y === this.selectedYear ? 'selected' : ''}>${y}</option>`).join('')}
+              </select>
+            </div>
           </div>
           <div id="results-table-wrapper"></div>
         </div>
@@ -131,6 +182,12 @@ export class PotentialStatsView {
       this.results = [];
       this.renderResults();
     });
+
+    const yearSelect = this.container.querySelector<HTMLSelectElement>('#league-year');
+    yearSelect?.addEventListener('change', (e) => {
+      this.selectedYear = Number((e.target as HTMLSelectElement).value);
+      this.loadLeagueStats();
+    });
   }
 
   private handleManualEntry(): void {
@@ -142,12 +199,13 @@ export class PotentialStatsView {
     const nameInput = this.container.querySelector<HTMLInputElement>('#rating-name');
     const name = nameInput?.value.trim() || `Pitcher ${this.results.length + 1}`;
 
+    const defaultSecondary = 50;
     const ratings: PitcherRatings = {
       stuff: getValue('rating-stuff'),
       control: getValue('rating-control'),
       hra: getValue('rating-hra'),
-      movement: getValue('rating-movement'),
-      babip: getValue('rating-babip'),
+      movement: defaultSecondary,
+      babip: defaultSecondary,
     };
 
     const ip = getValue('rating-ip');
@@ -216,8 +274,6 @@ export class PotentialStatsView {
         <td>${r.stuff}</td>
         <td>${r.control}</td>
         <td>${r.hra}</td>
-        <td>${r.movement}</td>
-        <td>${r.babip}</td>
         <td class="divider"></td>
         <td>${r.ip.toFixed(0)}</td>
         <td>${r.k}</td>
@@ -242,8 +298,6 @@ export class PotentialStatsView {
               <th title="Stuff">STF</th>
               <th title="Control">CON</th>
               <th title="HR Avoidance">HRA</th>
-              <th title="Movement">MOV</th>
-              <th title="BABIP">BAB</th>
               <th class="divider"></th>
               <th>IP</th>
               <th>K</th>

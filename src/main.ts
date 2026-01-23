@@ -1,7 +1,8 @@
 import './styles.css';
 import { Player } from './models';
 import { PlayerController } from './controllers';
-import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, PotentialStatsView, DraftBoardView, TrueRatingsView, RatingEstimatorView } from './views';
+import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, PotentialStatsView, DraftBoardView, TrueRatingsView, RatingEstimatorView, FarmRankingsView, TeamRatingsView } from './views';
+import type { SendToEstimatorPayload } from './views/StatsView';
 
 class App {
   private controller: PlayerController;
@@ -11,6 +12,7 @@ class App {
   private loadingView!: LoadingView;
   private errorView!: ErrorView;
   private activeTabId = 'tab-search';
+  private ratingEstimatorView!: RatingEstimatorView;
 
   private selectedYear?: number;
 
@@ -54,6 +56,14 @@ class App {
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
           <span>True Ratings</span>
         </button>
+        <button class="tab-button" data-tab-target="tab-farm-rankings">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <span>Farm Rankings</span>
+        </button>
+        <button class="tab-button" data-tab-target="tab-team-ratings">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <span>Team Ratings</span>
+        </button>
       </nav>
 
       <div class="tab-panels">
@@ -79,6 +89,14 @@ class App {
         <section id="tab-true-ratings" class="tab-panel">
           <div id="true-ratings-container"></div>
         </section>
+
+        <section id="tab-farm-rankings" class="tab-panel">
+          <div id="farm-rankings-container">Farm Rankings Content Here</div>
+        </section>
+
+        <section id="tab-team-ratings" class="tab-panel">
+          <div id="team-ratings-container">Team Ratings Content Here</div>
+        </section>
       </div>
       <div id="loading-container"></div>
     `;
@@ -92,6 +110,8 @@ class App {
     const ratingEstimatorContainer = document.querySelector<HTMLElement>('#rating-estimator-container')!;
     const draftBoardContainer = document.querySelector<HTMLElement>('#draft-board-container')!;
     const trueRatingsContainer = document.querySelector<HTMLElement>('#true-ratings-container')!;
+    const farmRankingsContainer = document.querySelector<HTMLElement>('#farm-rankings-container')!;
+    const teamRatingsContainer = document.querySelector<HTMLElement>('#team-ratings-container')!;
     const loadingContainer = document.querySelector<HTMLElement>('#loading-container')!;
     const errorContainer = document.querySelector<HTMLElement>('#error-container')!;
 
@@ -104,11 +124,15 @@ class App {
       onPlayerSelect: (player) => this.handlePlayerSelect(player),
     });
 
-    this.statsView = new StatsView(statsContainer);
+    this.statsView = new StatsView(statsContainer, {
+      onSendToEstimator: (payload) => this.handleSendToEstimator(payload),
+    });
     new PotentialStatsView(potentialStatsContainer);
-    new RatingEstimatorView(ratingEstimatorContainer);
+    this.ratingEstimatorView = new RatingEstimatorView(ratingEstimatorContainer);
     new DraftBoardView(draftBoardContainer);
     new TrueRatingsView(trueRatingsContainer);
+    new FarmRankingsView(farmRankingsContainer);
+    new TeamRatingsView(teamRatingsContainer);
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
   }
@@ -183,6 +207,17 @@ class App {
 
   private handlePlayerSelect(player: Player): void {
     this.controller.getPlayerStats(player.id, this.selectedYear);
+  }
+
+  private async handleSendToEstimator(payload: SendToEstimatorPayload): Promise<void> {
+    this.setActiveTab('tab-estimator');
+    await this.ratingEstimatorView.prefillAndEstimate({
+      ip: payload.ip,
+      k9: payload.k9,
+      bb9: payload.bb9,
+      hr9: payload.hr9,
+      year: payload.year,
+    });
   }
 
   private preloadPlayers(): void {

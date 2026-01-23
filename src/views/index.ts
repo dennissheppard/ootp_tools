@@ -7,3 +7,5 @@ export * from './LoadingView';
 export * from './ErrorView';
 export * from './TrueRatingsView';
 export * from './RatingEstimatorView';
+export * from './FarmRankingsView';
+export * from './TeamRatingsView';

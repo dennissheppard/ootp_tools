@@ -3,31 +3,54 @@ import { RatingEstimatorService } from './RatingEstimatorService';
 describe('RatingEstimatorService', () => {
     describe('estimateControl', () => {
         it('should have high confidence for high IP', () => {
-            const { confidence, low, high } = RatingEstimatorService.estimateControl(2.5, 200);
+            const { confidence, rating, low, high } = RatingEstimatorService.estimateControl(2.5, 200);
             expect(confidence).toBe('high');
-            expect(low).toBe(47); // 52.4 - 5 = 47.4 -> 47
-            expect(high).toBe(57); // 52.4 + 5 = 57.4 -> 57
+            expect(rating).toBe(50);
+            expect(low).toBe(45);
+            expect(high).toBe(55);
         });
 
         it('should have moderate confidence for medium IP', () => {
-            const { confidence, low, high } = RatingEstimatorService.estimateControl(2.5, 150);
+            const { confidence, rating, low, high } = RatingEstimatorService.estimateControl(2.5, 150);
             expect(confidence).toBe('moderate');
-            expect(low).toBe(45); // 52.4 - 7.5 = 44.9 -> 45
-            expect(high).toBe(60); // 52.4 + 7.5 = 59.9 -> 60
+            expect(rating).toBe(50);
+            expect(low).toBe(45);
+            expect(high).toBe(60);
         });
 
         it('should have low confidence for low IP', () => {
-            const { confidence, low, high } = RatingEstimatorService.estimateControl(2.5, 50);
+            const { confidence, rating, low, high } = RatingEstimatorService.estimateControl(2.5, 50);
             expect(confidence).toBe('low');
-            expect(low).toBe(42); // 52.4 - 10 = 42.4 -> 42
-            expect(high).toBe(62); // 52.4 + 10 = 62.4 -> 62
+            expect(rating).toBe(50);
+            expect(low).toBe(40);
+            expect(high).toBe(60);
+        });
+
+        it('should handle low BB/9', () => {
+            const { rating } = RatingEstimatorService.estimateControl(1.5, 200);
+            expect(rating).toBe(70);
+        });
+
+        it('should handle high BB/9', () => {
+            const { rating } = RatingEstimatorService.estimateControl(3.5, 200);
+            expect(rating).toBe(35);
+        });
+
+        it('should cap control rating at 80 for impossibly low BB/9', () => {
+            const { rating } = RatingEstimatorService.estimateControl(0.5, 200);
+            expect(rating).toBe(80);
+        });
+
+        it('should cap control rating at 20 for impossibly high BB/9', () => {
+            const { rating } = RatingEstimatorService.estimateControl(5.0, 200);
+            expect(rating).toBe(20);
         });
     });
 
     describe('estimateStuff', () => {
         it('should estimate stuff rating correctly for a typical K/9', () => {
             const { rating } = RatingEstimatorService.estimateStuff(7.0, 200);
-            expect(rating).toBe(67);
+            expect(rating).toBe(65);
         });
 
         it('should handle low K/9', () => {
@@ -44,20 +67,19 @@ describe('RatingEstimatorService', () => {
     describe('estimateHRA', () => {
         it('should estimate HRA rating correctly for a typical HR/9', () => {
             const { rating } = RatingEstimatorService.estimateHRA(0.85, 200);
-            expect(rating).toBe(51);
+            expect(rating).toBe(50);
         });
 
         it('should handle low HR/9', () => {
             const { rating } = RatingEstimatorService.estimateHRA(0.5, 200);
-            expect(rating).toBe(66);
+            expect(rating).toBe(65);
         });
 
         it('should handle high HR/9', () => {
             const { rating } = RatingEstimatorService.estimateHRA(1.2, 200);
-            expect(rating).toBe(37);
+            expect(rating).toBe(35);
         });
     });
-
     describe('compareToScout', () => {
         const estimated = { rating: 60, low: 55, high: 65, confidence: 'high' as const };
 
