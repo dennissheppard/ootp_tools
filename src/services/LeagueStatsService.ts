@@ -4,6 +4,7 @@ export interface LeagueStats {
     era: number;
     fipConstant: number;
     avgFip: number;
+    replacementFip: number;  // Replacement level FIP for WAR calculations (~lgERA)
     ip: number;
     k: number;
     bb: number;
@@ -65,10 +66,16 @@ class LeagueStatsService {
         // Calculate league average FIP (should equal ERA with correct constant)
         const avgFip = rawFipComponent + fipConstant;
 
+        // Replacement level FIP for WAR calculations
+        // In WBL, replacement level ≈ league average (avgFip = era by construction)
+        // This is the baseline used to calculate WAR: (replacementFip - playerFip) / runsPerWin * (IP/9)
+        const replacementFip = avgFip;
+
         const stats: LeagueStats = {
             era: leagueEra,
             fipConstant,
             avgFip,
+            replacementFip,
             ip: totalIp,
             k: totalK,
             bb: totalBb,

@@ -11,7 +11,9 @@
       "Bash(python tools/analyze_ootp_data.py:*)",
       "Bash(pip install:*)",
       "Bash(npm run build:*)",
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(npm test:*)",
+      "Bash(node -e:*)"
     ]
   }
 }

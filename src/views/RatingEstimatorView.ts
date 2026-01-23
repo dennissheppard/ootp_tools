@@ -1,5 +1,6 @@
 import { RatingEstimatorService, StatInput, EstimatedRatings } from '../services/RatingEstimatorService';
 import { leagueStatsService } from '../services/LeagueStatsService';
+import { LeagueConstants } from '../services/FipWarService';
 
 type ComparisonInputs = {
     stuff: { scout?: number; osa?: number };
@@ -8,15 +9,12 @@ type ComparisonInputs = {
 };
 
 const AVAILABLE_YEARS = [2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010];
-const DEFAULT_LEAGUE_ERA = 5.44;
-const DEFAULT_FIP_CONSTANT = 3.47;
 
 export class RatingEstimatorView {
     private container: HTMLElement;
     private selectedYear: number = 2020;
     private loadedLeagueYear: number | null = null;
-    private leagueEra: number = DEFAULT_LEAGUE_ERA;
-    private fipConstant: number = DEFAULT_FIP_CONSTANT;
+    private leagueConstants: Partial<LeagueConstants> = {};
     private lastStats: StatInput | null = null;
     private lastComparison: ComparisonInputs | null = null;
 
@@ -149,7 +147,7 @@ export class RatingEstimatorView {
         this.lastStats = stats;
         this.lastComparison = comparison;
 
-        const estimatedRatings = RatingEstimatorService.estimateAll(stats, this.leagueEra, this.fipConstant);
+        const estimatedRatings = RatingEstimatorService.estimateAll(stats, this.leagueConstants);
         this.renderResults(estimatedRatings, comparison);
     }
 
@@ -203,7 +201,7 @@ export class RatingEstimatorView {
                 ${ratings.fip !== undefined ? `<div><label>Est. FIP</label><div class="value">${ratings.fip.toFixed(2)}</div></div>` : ''}
                 ${ratings.war !== undefined ? `<div><label>Est. WAR</label><div class="value">${ratings.war.toFixed(1)}</div></div>` : ''}
             </div>
-            <p class="league-info-text" style="margin-top: 0.5rem;">Using ${this.selectedYear} league context (ERA: ${this.leagueEra.toFixed(2)}, FIP constant: ${this.fipConstant.toFixed(2)})</p>
+            <p class="league-info-text" style="margin-top: 0.5rem;">Using ${this.selectedYear} league context (Replacement FIP: ${(this.leagueConstants.replacementFip ?? 5.25).toFixed(2)}, FIP constant: ${(this.leagueConstants.fipConstant ?? 3.47).toFixed(2)})</p>
         `;
     }
 
@@ -213,17 +211,18 @@ export class RatingEstimatorView {
 
         try {
             const stats = await leagueStatsService.getLeagueStats(year);
-            this.leagueEra = stats.era;
-            this.fipConstant = stats.fipConstant;
+            this.leagueConstants = {
+                fipConstant: stats.fipConstant,
+                replacementFip: stats.replacementFip,
+            };
             this.loadedLeagueYear = year;
             this.updateLeagueInfo();
             this.recomputeIfPossible();
         } catch (e) {
             console.warn('Could not load league stats, using defaults', e);
-            this.leagueEra = DEFAULT_LEAGUE_ERA;
-            this.fipConstant = DEFAULT_FIP_CONSTANT;
+            this.leagueConstants = {};  // Will use FipWarService defaults
             this.loadedLeagueYear = null;
-            this.updateLeagueInfo('Using default 2020 league context (ERA: 5.44, FIP constant: 3.47)');
+            this.updateLeagueInfo('Using default league context (Replacement FIP: 5.25, FIP constant: 3.47)');
             this.recomputeIfPossible();
         }
     }
@@ -238,12 +237,14 @@ export class RatingEstimatorView {
         }
 
         const displayYear = this.loadedLeagueYear ?? this.selectedYear;
-        infoEl.textContent = `Using ${displayYear} league data (ERA: ${this.leagueEra.toFixed(2)}, FIP constant: ${this.fipConstant.toFixed(2)})`;
+        const replacementFip = this.leagueConstants.replacementFip ?? 5.25;
+        const fipConstant = this.leagueConstants.fipConstant ?? 3.47;
+        infoEl.textContent = `Using ${displayYear} league data (Replacement FIP: ${replacementFip.toFixed(2)}, FIP constant: ${fipConstant.toFixed(2)})`;
     }
 
     private recomputeIfPossible(): void {
         if (!this.lastStats || !this.lastComparison) return;
-        const estimatedRatings = RatingEstimatorService.estimateAll(this.lastStats, this.leagueEra, this.fipConstant);
+        const estimatedRatings = RatingEstimatorService.estimateAll(this.lastStats, this.leagueConstants);
         this.renderResults(estimatedRatings, this.lastComparison);
     }
 
@@ -277,7 +278,7 @@ export class RatingEstimatorView {
             return; // loadLeagueStats will recompute using lastStats/lastComparison
         }
 
-        const estimatedRatings = RatingEstimatorService.estimateAll(stats, this.leagueEra, this.fipConstant);
+        const estimatedRatings = RatingEstimatorService.estimateAll(stats, this.leagueConstants);
         this.renderResults(estimatedRatings, comparison);
     }
 

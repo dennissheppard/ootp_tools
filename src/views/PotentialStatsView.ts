@@ -52,7 +52,7 @@ export class PotentialStatsView {
         movement: r.movement,
         babip: r.babip,
       };
-      const stats = PotentialStatsService.calculatePitchingStats(ratings, r.ip);
+      const stats = PotentialStatsService.calculatePitchingStats(ratings, r.ip, this.leagueContext);
       return { name: r.name, ...ratings, ...stats };
     });
     this.renderResults();
@@ -216,7 +216,7 @@ export class PotentialStatsView {
       return;
     }
 
-    const stats = PotentialStatsService.calculatePitchingStats(ratings, ip);
+    const stats = PotentialStatsService.calculatePitchingStats(ratings, ip, this.leagueContext);
 
     this.results.push({
       name,
@@ -240,7 +240,7 @@ export class PotentialStatsView {
           return;
         }
 
-        const newResults = PotentialStatsService.calculateBulkStats(pitchers);
+        const newResults = PotentialStatsService.calculateBulkStats(pitchers, this.leagueContext);
         this.results.push(...newResults);
         this.renderResults();
       } catch (err) {

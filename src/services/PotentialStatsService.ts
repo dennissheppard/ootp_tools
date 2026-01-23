@@ -15,6 +15,8 @@
  * - Home runs (HRA rating)
  */
 
+import { fipWarService, LeagueConstants } from './FipWarService';
+
 export interface PitcherRatings {
   stuff: number;      // 20-80 scale
   control: number;    // 20-80 scale
@@ -61,17 +63,9 @@ const WBL_LINEAR = {
   hr9: { intercept: 2.08, slope: -0.024 },
 };
 
-// WBL league defaults for derived stat calculations
-// These are fallback values - use LeagueStatsService.getLeagueStats() for accurate values
-const WBL_LEAGUE_DEFAULTS = {
-  avgFIP: 5.44,       // Approximate - fetch from LeagueStatsService for accuracy
-  fipConstant: 3.47,  // Approximate - fetch from LeagueStatsService for accuracy
-  runsPerWin: 10,
-};
-
 export interface LeagueContext {
   fipConstant: number;
-  avgFip: number;
+  avgFip: number;  // This is used as replacementFip for WAR calculation
   runsPerWin?: number;
 }
 
@@ -142,11 +136,6 @@ export class PotentialStatsService {
     ip: number = DEFAULT_IP,
     leagueContext?: LeagueContext
   ): PotentialPitchingStats {
-    // Use provided league context or fall back to defaults
-    const fipConstant = leagueContext?.fipConstant ?? WBL_LEAGUE_DEFAULTS.fipConstant;
-    const avgFip = leagueContext?.avgFip ?? WBL_LEAGUE_DEFAULTS.avgFIP;
-    const runsPerWin = leagueContext?.runsPerWin ?? WBL_LEAGUE_DEFAULTS.runsPerWin;
-
     // Calculate rate stats - "Three True Outcomes"
     const k9 = this.calculateK9(ratings.stuff);
     const bb9 = this.calculateBB9(ratings.control);
@@ -157,12 +146,14 @@ export class PotentialStatsService {
     const bb = Math.round((bb9 / 9) * ip);
     const hr = Math.round((hr9 / 9) * ip);
 
-    // FIP = ((13*HR) + (3*BB) - (2*K)) / IP + constant
-    // FIP only uses K, BB, HR - all of which we can predict
-    const fip = ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + fipConstant;
+    // Use shared FIP/WAR service for consistent calculations
+    const leagueConstants: Partial<LeagueConstants> = leagueContext ? {
+      fipConstant: leagueContext.fipConstant,
+      replacementFip: leagueContext.avgFip,
+      runsPerWin: leagueContext.runsPerWin,
+    } : {};
 
-    // WAR = ((lgFIP - FIP) / runsPerWin) * (IP / 9)
-    const war = ((avgFip - fip) / runsPerWin) * (ip / 9);
+    const { fip, war } = fipWarService.calculate({ ip, k9, bb9, hr9 }, leagueConstants);
 
     return {
       k9: Math.round(k9 * 10) / 10,
@@ -172,8 +163,8 @@ export class PotentialStatsService {
       hr,
       bb,
       k,
-      fip: Math.round(Math.max(0, fip) * 100) / 100,
-      war: Math.round(war * 10) / 10,
+      fip,
+      war,
     };
   }
 

@@ -1,3 +1,5 @@
+import { fipWarService, LeagueConstants } from './FipWarService';
+
 interface StatInput {
     ip: number;
     k9: number;
@@ -81,14 +83,9 @@ class RatingEstimatorService {
         };
     }
 
-    static estimateFipAndWar(stats: StatInput, lgEra: number, fipConstant: number): { fip: number, war: number } {
-        const fip = (13 * stats.hr9 + 3 * stats.bb9 - 2 * stats.k9) / 9 + fipConstant;
-        const war = ((lgEra - fip) / 10) * (stats.ip / 9);
-        return { fip, war };
-    }
-
-    static estimateAll(stats: StatInput, lgEra: number, fipConstant: number = 3.10): EstimatedRatings {
-        const { fip, war } = this.estimateFipAndWar(stats, lgEra, fipConstant);
+    static estimateAll(stats: StatInput, leagueConstants: Partial<LeagueConstants> = {}): EstimatedRatings {
+        // Use shared FIP/WAR service for consistent calculations
+        const { fip, war } = fipWarService.calculate(stats, leagueConstants);
         return {
             control: this.estimateControl(stats.bb9, stats.ip),
             stuff: this.estimateStuff(stats.k9, stats.ip),
