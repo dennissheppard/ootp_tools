@@ -290,9 +290,9 @@ class TrueRatingsService {
    * OOTP stores IP as "X.Y" where Y is partial innings (0, 1, or 2 outs)
    * e.g., "150.2" = 150 2/3 innings
    */
-  public parseIp(ipString: string): number {
-    if (!ipString) return 0;
-    const parts = ipString.split('.');
+  public parseIp(ipValue: string | number): number {
+    if (ipValue === null || ipValue === undefined) return 0;
+    const parts = String(ipValue).split('.');
     const fullInnings = parseInt(parts[0], 10) || 0;
     const partialOuts = parts.length > 1 ? parseInt(parts[1], 10) || 0 : 0;
     // Convert partial outs (0, 1, 2) to fractional innings
