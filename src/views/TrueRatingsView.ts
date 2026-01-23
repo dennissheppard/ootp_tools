@@ -1,3 +1,5 @@
+import { PitcherScoutingRatings } from '../models/ScoutingData';
+import { scoutingDataService } from '../services/ScoutingDataService';
 import { TruePlayerStats, TruePlayerBattingStats, trueRatingsService } from '../services/TrueRatingsService';
 
 type StatsMode = 'pitchers' | 'batters';
@@ -20,6 +22,12 @@ interface PitcherColumn {
   accessor?: (row: PitcherRow) => any;
 }
 
+interface ScoutingMatchSummary {
+  total: number;
+  matched: number;
+  missing: number;
+}
+
 const DEFAULT_PITCHER_COLUMNS: PitcherColumn[] = [
   { key: 'playerName', label: 'Name' },
   { key: 'ip', label: 'IP', sortKey: 'ipOuts' },
@@ -28,6 +36,7 @@ const DEFAULT_PITCHER_COLUMNS: PitcherColumn[] = [
   { key: 'hra', label: 'HR' },
   { key: 'r', label: 'R' },
   { key: 'er', label: 'ER' },
+  { key: 'war', label: 'WAR' },
   { key: 'ra9war', label: 'Ra9WAR' },
   { key: 'wpa', label: 'WPA' },
   { key: 'kPer9', label: 'K/9' },
@@ -49,12 +58,14 @@ export class TrueRatingsView {
   private preferences: Record<string, unknown> = {};
   private pitcherColumns: PitcherColumn[] = [];
   private isDraggingColumn = false;
+  private scoutingRatings: PitcherScoutingRatings[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.preferences = this.loadPreferences();
     this.pitcherColumns = this.applyPitcherColumnOrder(DEFAULT_PITCHER_COLUMNS);
     this.renderLayout();
+    this.loadScoutingRatingsForYear();
     this.fetchAndRenderStats();
   }
 
@@ -85,6 +96,20 @@ export class TrueRatingsView {
             </select>
           </div>
         </div>
+        <details class="scouting-upload" id="scouting-upload">
+          <summary class="form-title">Upload Scouting Data</summary>
+          <div class="csv-upload-container">
+            <p class="csv-format">Format: player_id, name, stuff, control, hra [, age]</p>
+            <div class="csv-upload-area" id="scouting-drop-zone">
+              <input type="file" id="scouting-file-input" accept=".csv" hidden>
+              <p>Drop CSV file here or <button type="button" class="btn-link" id="scouting-browse-btn">browse</button></p>
+            </div>
+            <div class="upload-actions">
+              <span class="saved-note" id="scouting-upload-status">No scouting data loaded for this year.</span>
+              <button type="button" class="btn-link" id="scouting-clear-btn">Clear scouting data</button>
+            </div>
+          </div>
+        </details>
         <div id="true-ratings-table-container"></div>
         <div class="pagination-controls">
           <button id="prev-page" disabled>Previous</button>
@@ -101,6 +126,7 @@ export class TrueRatingsView {
     this.container.querySelector('#true-ratings-year')?.addEventListener('change', (e) => {
       this.selectedYear = parseInt((e.target as HTMLSelectElement).value, 10);
       this.currentPage = 1;
+      this.loadScoutingRatingsForYear();
       this.fetchAndRenderStats();
     });
 
@@ -135,10 +161,13 @@ export class TrueRatingsView {
           this.sortDirection = 'desc';
           this.container.querySelectorAll<HTMLButtonElement>('.toggle-btn').forEach(b => b.classList.remove('active'));
           btn.classList.add('active');
+          this.updateScoutingUploadVisibility();
           this.fetchAndRenderStats();
         }
       });
     });
+
+    this.bindScoutingUpload();
   }
 
   private async fetchAndRenderStats(): Promise<void> {
@@ -157,6 +186,7 @@ export class TrueRatingsView {
           this.itemsPerPage = this.stats.length;
       }
       this.sortStats();
+      this.updateScoutingStatus();
       this.renderStats();
     } catch (error) {
       tableContainer.innerHTML = `<div class="error-message">Failed to load stats. ${error}</div>`;
@@ -591,5 +621,153 @@ export class TrueRatingsView {
     pageInfo.textContent = `Page ${this.currentPage} of ${totalPages}`;
     prevButton.disabled = this.currentPage === 1;
     nextButton.disabled = this.currentPage === totalPages;
+  }
+
+  private bindScoutingUpload(): void {
+    const fileInput = this.container.querySelector<HTMLInputElement>('#scouting-file-input');
+    const browseBtn = this.container.querySelector<HTMLButtonElement>('#scouting-browse-btn');
+    const dropZone = this.container.querySelector<HTMLDivElement>('#scouting-drop-zone');
+    const clearBtn = this.container.querySelector<HTMLButtonElement>('#scouting-clear-btn');
+
+    browseBtn?.addEventListener('click', () => fileInput?.click());
+
+    fileInput?.addEventListener('change', (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) this.handleScoutingFile(file);
+      (e.target as HTMLInputElement).value = '';
+    });
+
+    dropZone?.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag-over');
+    });
+
+    dropZone?.addEventListener('dragleave', () => {
+      dropZone.classList.remove('drag-over');
+    });
+
+    dropZone?.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const file = e.dataTransfer?.files[0];
+      if (file && file.name.toLowerCase().endsWith('.csv')) {
+        this.handleScoutingFile(file);
+      }
+    });
+
+    clearBtn?.addEventListener('click', () => {
+      scoutingDataService.clearScoutingRatings(this.selectedYear);
+      this.scoutingRatings = [];
+      this.updateScoutingStatus();
+    });
+
+    this.updateScoutingUploadVisibility();
+  }
+
+  private handleScoutingFile(file: File): void {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target?.result as string;
+      try {
+        const ratings = scoutingDataService.parseScoutingCsv(content);
+        if (ratings.length === 0) {
+          alert('No valid scouting data found in CSV');
+          return;
+        }
+        this.scoutingRatings = ratings;
+        scoutingDataService.saveScoutingRatings(this.selectedYear, ratings);
+        this.updateScoutingStatus();
+      } catch (err) {
+        alert('Error parsing scouting CSV file');
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  private loadScoutingRatingsForYear(): void {
+    this.scoutingRatings = scoutingDataService.getScoutingRatings(this.selectedYear);
+    this.updateScoutingStatus();
+  }
+
+  private updateScoutingUploadVisibility(): void {
+    const section = this.container.querySelector<HTMLElement>('#scouting-upload');
+    if (!section) return;
+    section.style.display = this.mode === 'pitchers' ? '' : 'none';
+  }
+
+  private updateScoutingStatus(): void {
+    const status = this.container.querySelector<HTMLElement>('#scouting-upload-status');
+    if (!status) return;
+
+    const total = this.scoutingRatings.length;
+    if (total === 0) {
+      status.textContent = 'No scouting data loaded for this year.';
+      return;
+    }
+
+    if (this.mode !== 'pitchers') {
+      status.textContent = `Loaded ${total} players. Switch to pitchers to match.`;
+      return;
+    }
+
+    if (this.stats.length === 0) {
+      status.textContent = `Loaded ${total} players. Waiting for pitcher stats to match.`;
+      return;
+    }
+
+    const summary = this.matchScoutingToPitchers(this.scoutingRatings, this.stats as PitcherRow[]);
+    status.textContent = `Loaded ${summary.total} players. Matched ${summary.matched}, missing ${summary.missing}.`;
+  }
+
+  private matchScoutingToPitchers(
+    scoutingRatings: PitcherScoutingRatings[],
+    pitchers: PitcherRow[]
+  ): ScoutingMatchSummary {
+    const byId = new Map<number, PitcherRow>();
+    const byName = new Map<string, PitcherRow[]>();
+
+    pitchers.forEach((pitcher) => {
+      byId.set(pitcher.player_id, pitcher);
+      const normalizedName = this.normalizeName(pitcher.playerName);
+      if (!normalizedName) return;
+      const list = byName.get(normalizedName) ?? [];
+      list.push(pitcher);
+      byName.set(normalizedName, list);
+    });
+
+    let matched = 0;
+    let missing = 0;
+
+    scoutingRatings.forEach((rating) => {
+      if (rating.playerId > 0 && byId.has(rating.playerId)) {
+        matched += 1;
+        return;
+      }
+
+      if (rating.playerName) {
+        const normalized = this.normalizeName(rating.playerName);
+        const candidates = byName.get(normalized);
+        if (candidates && candidates.length === 1) {
+          matched += 1;
+          return;
+        }
+      }
+
+      missing += 1;
+    });
+
+    return {
+      total: scoutingRatings.length,
+      matched,
+      missing,
+    };
+  }
+
+  private normalizeName(name: string): string {
+    const suffixes = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
+    const cleaned = name.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+    const tokens = cleaned.split(/\s+/).filter((token) => token && !suffixes.has(token));
+    return tokens.join('');
   }
 }
