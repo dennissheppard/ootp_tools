@@ -181,6 +181,39 @@ body {
   overflow-x: auto;
 }
 
+.upload-info {
+  position: relative;
+}
+
+.upload-info.collapsed {
+  display: none;
+}
+
+.instructions-dismiss {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  line-height: 20px;
+  font-weight: 700;
+  padding: 0;
+}
+
+.instructions-dismiss:hover {
+  color: var(--color-text);
+  border-color: var(--color-primary);
+}
+
+.show-instructions {
+  margin-top: 0.35rem;
+}
+
 .draft-results .stats-table th,
 .draft-results .stats-table td {
   white-space: nowrap;
@@ -201,8 +234,30 @@ body {
   font-size: 0.75rem;
 }
 
+.sort-fade-hint {
+  position: fixed;
+  pointer-events: none;
+  color: var(--color-primary);
+  font-size: 1.4rem;
+  opacity: 0;
+  transform: translateY(-6px);
+  transition: opacity 0.55s ease, transform 0.55s ease;
+  z-index: 2000;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.45);
+}
+
+.sort-fade-hint.visible {
+  opacity: 1;
+  transform: translateY(-12px);
+}
+
+.sort-fade-hint.fade {
+  opacity: 0;
+  transform: translateY(-22px);
+}
+
 .rank-header {
-  width: 48px;
+  width: 42px;
 }
 
 .rank-badge {
@@ -214,6 +269,10 @@ body {
 .rank-top {
   font-size: 1.25rem;
   color: var(--color-primary);
+}
+
+.player-cell {
+  width: 120px;
 }
 
 .draft-row {
@@ -230,6 +289,11 @@ body {
 
 .draft-row:hover {
   background-color: var(--color-surface-hover);
+}
+
+.draft-table th,
+.draft-table td {
+  padding: 0.25rem 0.3rem;
 }
 
 .projection-label {
@@ -255,30 +319,28 @@ body {
 }
 
 .grid {
-  display: grid;
-  gap: 0.5rem;
-}
-
-.rating-grid {
-  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
-}
-
-.projection-grid {
-  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.08rem;
 }
 
 .cell {
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--color-border);
   border-radius: 6px;
-  padding: 0.4rem 0.5rem;
+  padding: 0.1rem 0.15rem;
+  width: 45px;
+  min-width: 45px;
+  max-width: 45px;
+  text-align: center;
+  overflow: hidden;
 }
 
 .cell-label {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
-  font-size: 0.75rem;
+  font-size: 0.65rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.02em;
@@ -286,8 +348,11 @@ body {
   background: none;
   border: none;
   padding: 0;
-  margin: 0 0 0.15rem 0;
+  margin: 0 0 0.05rem 0;
   cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .cell-label .sort-indicator {
@@ -295,9 +360,44 @@ body {
 }
 
 .cell-value {
-  font-size: 0.95rem;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--color-text);
+  
+}
+
+.rating-cell {
+  color: var(--color-text);
+}
+
+.rating-elite {
+  background: linear-gradient(135deg, rgba(29, 155, 240, 0.25), rgba(29, 155, 240, 0.12));
+  border-color: rgba(29, 155, 240, 0.5);
+}
+
+.rating-plus {
+  background: linear-gradient(135deg, rgba(0, 186, 124, 0.22), rgba(0, 186, 124, 0.1));
+  border-color: rgba(0, 186, 124, 0.45);
+}
+
+.rating-avg {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.2), rgba(255, 193, 7, 0.1));
+  border-color: rgba(255, 193, 7, 0.35);
+}
+
+.rating-fringe {
+  background: linear-gradient(135deg, rgba(244, 162, 97, 0.2), rgba(244, 162, 97, 0.1));
+  border-color: rgba(244, 162, 97, 0.35);
+}
+
+.rating-poor {
+  background: linear-gradient(135deg, rgba(244, 33, 46, 0.2), rgba(244, 33, 46, 0.1));
+  border-color: rgba(244, 33, 46, 0.4);
+}
+
+.sort-active {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px rgba(29, 155, 240, 0.35);
 }
 /* Search container */
 .search-container {
@@ -515,6 +615,30 @@ body {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.875rem;
+  table-layout: auto;
+}
+
+.draft-table {
+  table-layout: fixed;
+}
+
+.draft-compact th:nth-child(1),
+.draft-compact td:nth-child(1) {
+  width: 30px;
+}
+
+.draft-compact th:nth-child(2),
+.draft-compact td:nth-child(2) {
+  width: 75px;
+}
+
+td.player-cell.player-name {
+  white-space: normal;
+}
+
+.draft-compact th:nth-child(3),
+.draft-compact td:nth-child(3) {
+  width: auto;
 }
 
 .stats-table th,

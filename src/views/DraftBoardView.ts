@@ -4,6 +4,9 @@ type DraftMode = 'pitchers' | 'hitters';
 
 type RatingColumn = { key: string; label: string };
 type ProjectionColumn = { key: keyof ProjectionStats; label: string };
+type UserPreferences = {
+  hideUploadInfo: boolean;
+};
 
 type ProjectionStats = {
   proj_ip: number;
@@ -70,12 +73,16 @@ export class DraftBoardView {
   private pitcherRows: PitcherRow[] = [];
   private sortKey?: string;
   private sortDirection: 'asc' | 'desc' = 'asc';
+  private preferences: UserPreferences;
+  private readonly prefKey = 'wbl-prefs';
 
   constructor(container: HTMLElement) {
     this.container = container;
+    this.preferences = this.loadPreferences();
     this.render();
     this.bindModeToggle();
     this.bindUpload();
+    this.bindInstructionToggles();
   }
 
   private render(): void {
@@ -91,7 +98,8 @@ export class DraftBoardView {
 
         <div class="draft-section" data-section="pitchers">
           <div class="draft-upload">
-            <div class="upload-info">
+            <div class="upload-info ${this.preferences.hideUploadInfo ? 'collapsed' : ''}" id="upload-info">
+              <button type="button" class="instructions-dismiss" data-dismiss-instructions aria-label="Hide instructions">×</button>
               <p class="draft-subtitle">Upload pitcher CSV (one row per player)</p>
               <pre class="csv-sample"><code>${this.sampleCsv()}</code></pre>
             </div>
@@ -100,6 +108,9 @@ export class DraftBoardView {
                 <input type="file" id="draft-file-input" accept=".csv" hidden>
                 <p>Drop CSV here or <button type="button" class="btn-link" id="draft-browse-btn">browse</button></p>
               </div>
+              <button type="button" class="btn-link show-instructions" id="show-instructions" ${this.preferences.hideUploadInfo ? '' : 'style="display:none;"'}>
+                Show instructions
+              </button>
             </div>
           </div>
 
@@ -174,6 +185,22 @@ export class DraftBoardView {
         this.handleFile(file);
       }
     });
+  }
+
+  private bindInstructionToggles(): void {
+    const info = this.container.querySelector<HTMLDivElement>('#upload-info');
+    const dismiss = this.container.querySelector<HTMLButtonElement>('[data-dismiss-instructions]');
+    const showBtn = this.container.querySelector<HTMLButtonElement>('#show-instructions');
+
+    const applyVisibility = (hidden: boolean) => {
+      if (info) info.classList.toggle('collapsed', hidden);
+      if (showBtn) showBtn.style.display = hidden ? 'inline-block' : 'none';
+      this.preferences.hideUploadInfo = hidden;
+      this.savePreferences();
+    };
+
+    dismiss?.addEventListener('click', () => applyVisibility(true));
+    showBtn?.addEventListener('click', () => applyVisibility(false));
   }
 
   private handleFile(file: File): void {
@@ -257,12 +284,20 @@ export class DraftBoardView {
     const rankClass = rank <= 10 ? 'rank-badge rank-top' : 'rank-badge';
 
     const projection = this.ensureProjection(row);
-    const ratingCells = RATING_COLUMNS.map((col) => `
-      <div class="cell">
-        <button type="button" class="cell-label" data-sort-key="${col.key}">${this.escape(col.label)}</button>
-        <div class="cell-value">${this.escape(row.ratings[col.key] ?? '-')}</div>
-      </div>
-    `).join('');
+    const ratingCells = RATING_COLUMNS.map((col) => {
+      const value = row.ratings[col.key] ?? '-';
+      const valueNum = this.parseNumericValue(value) ?? 0;
+      const tier = this.getRatingTier(valueNum);
+      const isActive = this.sortKey === col.key;
+      return `
+        <div class="cell rating-cell rating-${tier} ${isActive ? 'sort-active' : ''}">
+          <button type="button" class="cell-label" data-sort-key="${col.key}">
+            ${this.escape(col.label)}
+          </button>
+          <div class="cell-value">${this.escape(value)}</div>
+        </div>
+      `;
+    }).join('');
     const projectionCells = [
       ['proj_ip', 0],
       ['proj_k', 0],
@@ -278,9 +313,12 @@ export class DraftBoardView {
       ['proj_war', 1],
     ].map(([key, digits]) => {
       const value = projection[key as keyof ProjectionStats];
+      const isActive = this.sortKey === key;
       return `
-        <div class="cell">
-          <button type="button" class="cell-label" data-sort-key="${key}">${this.escape(this.getProjectionLabel(key as keyof ProjectionStats))}</button>
+        <div class="cell ${isActive ? 'sort-active' : ''}">
+          <button type="button" class="cell-label" data-sort-key="${key}">
+            ${this.escape(this.getProjectionLabel(key as keyof ProjectionStats))}
+          </button>
           <div class="cell-value">${this.formatNumber(value, digits as number)}</div>
         </div>
       `;
@@ -289,11 +327,11 @@ export class DraftBoardView {
     return `
       <tr class="draft-row rating-row" draggable="true" data-index="${displayIndex}">
         <td class="${rankClass}">${rank}.</td>
-        <td class="player-name">
-          <div class="cell-label">Name</div>
+        <td class="player-cell player-name">
+          <div class="cell-label" data-sort-key="name">Name</div>
           <div class="cell-value">${this.escape(row.name)}</div>
         </td>
-        <td>
+        <td class="details-cell">
           <div class="grid rating-grid">
             ${ratingCells}
           </div>
@@ -301,11 +339,11 @@ export class DraftBoardView {
       </tr>
       <tr class="draft-row projection-row" draggable="true" data-index="${displayIndex}">
         <td></td>
-        <td class="projection-label">
+        <td class="player-cell projection-label">
           <div class="cell-label">Projected</div>
           <div class="cell-value">Stats</div>
         </td>
-        <td>
+        <td class="details-cell">
           <div class="grid projection-grid">
             ${projectionCells}
           </div>
@@ -315,10 +353,10 @@ export class DraftBoardView {
   }
 
   private bindSortHeaders(): void {
-    const headers = this.container.querySelectorAll<HTMLTableCellElement>('th[data-sort-key]');
-    headers.forEach((header) => {
-      header.addEventListener('click', () => {
-        const key = header.dataset.sortKey;
+    const clickable = this.container.querySelectorAll<HTMLElement>('[data-sort-key]');
+    clickable.forEach((el) => {
+      el.addEventListener('click', (event) => {
+        const key = el.dataset.sortKey;
         if (!key) return;
         if (this.sortKey === key) {
           this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
@@ -326,6 +364,7 @@ export class DraftBoardView {
           this.sortKey = key;
           this.sortDirection = 'asc';
         }
+        this.showSortHint(event as MouseEvent);
         this.renderPitcherTable();
       });
     });
@@ -504,6 +543,57 @@ export class DraftBoardView {
     return mapping[key] ?? key;
   }
 
+  private getRatingTier(value: number): string {
+    if (value >= 70) return 'elite';
+    if (value >= 60) return 'plus';
+    if (value >= 50) return 'avg';
+    if (value >= 40) return 'fringe';
+    return 'poor';
+  }
+
+  private showSortHint(event: MouseEvent): void {
+    const arrow = document.createElement('div');
+    arrow.className = 'sort-fade-hint';
+    arrow.textContent = this.sortDirection === 'asc' ? '⬆️' : '⬇️';
+    const offset = 16;
+    arrow.style.left = `${event.clientX + offset}px`;
+    arrow.style.top = `${event.clientY - offset}px`;
+    document.body.appendChild(arrow);
+
+    requestAnimationFrame(() => {
+      arrow.classList.add('visible');
+    });
+
+    setTimeout(() => {
+      arrow.classList.add('fade');
+      arrow.addEventListener('transitionend', () => arrow.remove(), { once: true });
+      setTimeout(() => arrow.remove(), 800);
+    }, 900);
+  }
+
+  private loadPreferences(): UserPreferences {
+    if (typeof window === 'undefined') return { hideUploadInfo: false };
+    try {
+      const raw = localStorage.getItem(this.prefKey);
+      if (!raw) return { hideUploadInfo: false };
+      const parsed = JSON.parse(raw);
+      return {
+        hideUploadInfo: Boolean(parsed.hideUploadInfo),
+      };
+    } catch {
+      return { hideUploadInfo: false };
+    }
+  }
+
+  private savePreferences(): void {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(this.prefKey, JSON.stringify(this.preferences));
+    } catch {
+      // ignore storage errors
+    }
+  }
+
   private sampleCsv(): string {
     return [
       'Name,STU P,MOV P,CON P,PBABIP P,HRR P,FBP,CHP,CBP,SLP,SIP,SPP,CTP,FOP,CCP,SCP,KCP,KNP,VT,STM',
@@ -513,3 +603,7 @@ export class DraftBoardView {
     ].join('\n');
   }
 }
+
+
+
+
