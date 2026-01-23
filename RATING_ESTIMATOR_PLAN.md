@@ -11,120 +11,166 @@ This answers the question: "How accurate is my scout?"
 
 ---
 
-## The Math
+## Important: How OOTP Ratings Actually Work
 
-### Inverting the Formulas
+### The Hidden 500-Point Scale
 
-We have forward formulas (Rating → Stat). We need to solve for Rating given Stat.
+OOTP uses a **hidden 500-point scale** internally, which gets converted to the visible 20-80 scale and rounded to the nearest 5. This means:
 
-#### BB/9 → Control (Highest confidence, R² = 0.43)
+- A displayed "50" could be anywhere from ~47.5 to ~52.5 on the true scale
+- A displayed "60" could be ~57.5 to ~62.5
+- **Two pitchers with the same displayed rating can have different true ratings**
 
+### 1:1 Correlations (Per Game Engine)
+
+The game engine uses **direct 1:1 correlations**:
+- **Control → BB**: Walks are directly determined by Control
+- **Stuff → K**: Strikeouts are directly determined by Stuff
+- **HRA → HR**: Home runs are directly determined by HRA
+
+The variance we see in the data (R² < 1.0) is **not prediction error** - it's the rounding noise from the 500→20-80 conversion.
+
+### The Movement/BABIP/HRA Relationship
+
+In the OOTP editor:
+- **Movement** is the "primary" rating (what you see and edit)
+- **BABIP** can be directly edited
+- **HRA** is derived/calculated - you cannot directly edit it
+
+Movement appears to be derived from BABIP and HRA combined, but since you edit Movement and BABIP, the game back-calculates HRA.
+
+---
+
+## The Math (Verified Jan 2026)
+
+### Final WBL-Calibrated Linear Formulas
+
+These are **1:1 relationships** in the game engine. All variance comes from the hidden 500-point scale being rounded to 20-80.
+
+#### Control ↔ BB/9
+
+**Forward (Rating → Stat):**
 ```
-BB/9 = 8.267 - 0.16971*Control + 0.0010962*Control²
-```
-
-Rearranging to standard quadratic form `ax² + bx + c = 0`:
-```
-0.0010962*Control² - 0.16971*Control + (8.267 - BB/9) = 0
-```
-
-Using quadratic formula:
-```
-a = 0.0010962
-b = -0.16971
-c = 8.267 - BB/9
-
-Control = (0.16971 - sqrt(0.16971² - 4*0.0010962*(8.267 - BB/9))) / (2*0.0010962)
-```
-*(We use the minus branch because Control increases as BB/9 decreases)*
-
-**Example**: BB/9 = 1.4 → Control ≈ 75
-
-#### K/9 → Stuff (Moderate confidence, R² = 0.22)
-
-```
-K/9 = -1.654 + 0.22275*Stuff - 0.0014204*Stuff²
-```
-
-Rearranging:
-```
-0.0014204*Stuff² - 0.22275*Stuff + (1.654 + K/9) = 0
-```
-
-```
-a = 0.0014204
-b = -0.22275
-c = 1.654 + K/9
-
-Stuff = (0.22275 - sqrt(0.22275² - 4*0.0014204*(1.654 + K/9))) / (2*0.0014204)
+BB/9 = 5.22 - 0.052 × Control
 ```
 
-**Example**: K/9 = 7.2 → Stuff ≈ 52
-
-#### HR/9 → HRA (Moderate confidence, R² = 0.20)
-
+**Inverse (Stat → Rating):**
 ```
-HR/9 = 3.989 - 0.09810*HRA + 0.0007065*HRA²
+Control = (5.22 - BB/9) / 0.052
+Control = 100.4 - 19.2 × BB/9
 ```
 
-Rearranging:
-```
-0.0007065*HRA² - 0.09810*HRA + (3.989 - HR/9) = 0
-```
+| BB/9 | Estimated Control |
+|------|-------------------|
+| 1.5  | 71 |
+| 2.0  | 62 |
+| 2.5  | 52 |
+| 3.0  | 43 |
+| 3.5  | 33 |
 
+**Accuracy**: ±5 rating points (rounding + sample variance)
+
+#### Stuff ↔ K/9
+
+**Forward (Rating → Stat):**
 ```
-a = 0.0007065
-b = -0.09810
-c = 3.989 - HR/9
-
-HRA = (0.09810 - sqrt(0.09810² - 4*0.0007065*(3.989 - HR/9))) / (2*0.0007065)
-```
-
-**Example**: HR/9 = 0.7 → HRA ≈ 57
-
-#### H/9 → BABIP/Movement (Low confidence, R² = 0.06)
-
-```
-H/9 = 12.914 - 0.06536*BABIP - 0.03712*Movement
+K/9 = 2.07 + 0.074 × Stuff
 ```
 
-**Problem**: Two unknowns, one equation. Options:
-1. Show a "combined" rating estimate (assume equal contribution)
-2. Let user fix one rating and solve for the other
-3. Skip this estimate due to low predictive power
-4. Show a range of possible combinations
+**Inverse (Stat → Rating):**
+```
+Stuff = (K/9 - 2.07) / 0.074
+Stuff = -28.0 + 13.5 × K/9
+```
 
-**Recommendation**: Option 3 or show with heavy caveats. R² = 0.06 means 94% of variance is unexplained.
+| K/9 | Estimated Stuff |
+|-----|-----------------|
+| 5.0 | 40 |
+| 6.0 | 53 |
+| 7.0 | 67 |
+| 8.0 | 80 |
+
+**Accuracy**: ±8 rating points
+
+#### HRA ↔ HR/9 (Verified from OOTP Calculator)
+
+**Forward (Rating → Stat):**
+```
+HR/9 = 2.08 - 0.024 × HRA
+```
+*Note: WBL is ~64% of neutral MLB HR rates*
+
+**Inverse (Stat → Rating):**
+```
+HRA = (2.08 - HR/9) / 0.024
+HRA = 86.7 - 41.7 × HR/9
+```
+
+| HR/9 | Estimated HRA |
+|------|---------------|
+| 0.50 | 66 |
+| 0.70 | 58 |
+| 0.85 | 51 |
+| 1.00 | 45 |
+| 1.20 | 37 |
+
+**Accuracy**: ±11 rating points (HRs are rare events with high variance)
+
+#### BABIP ↔ H/9: NOT ESTIMABLE
+
+**Why it fails**: Calculator shows perfect 1:1, but league data shows R² = 0.02
+
+- Team defense dominates hit outcomes
+- Park factors vary significantly
+- BABIP is the most "luck-dependent" stat
+
+**Recommendation**: Do not estimate BABIP from stats. Show message:
+> "BABIP cannot be estimated from stats due to defense and park factors"
 
 ---
 
 ## Confidence Bands
 
+### Two Sources of Uncertainty
+
+1. **Rounding uncertainty**: ±2.5 rating points (always present due to 500→20-80 conversion)
+2. **Sample size uncertainty**: Small IP means stat might not reflect true talent yet
+
 ### Sample Size Adjustment
 
-Small sample sizes mean more uncertainty. We can estimate standard error:
+Stats stabilize over innings. Rough stabilization points:
+- **BB/9**: ~200 IP (walks stabilize relatively quickly)
+- **K/9**: ~150 IP (strikeouts stabilize quickly)
+- **HR/9**: ~300+ IP (home runs are rare events, high variance)
 
+For sample sizes below stabilization:
 ```
-Standard Error ≈ Base_SE / sqrt(IP / 180)
+Additional_Uncertainty ≈ Base_Variance * sqrt(Stabilization_IP / Actual_IP)
 ```
 
-Where `Base_SE` is derived from the regression residuals:
-- Control: ±5 rating points (at 180 IP)
-- Stuff: ±8 rating points
-- HRA: ±7 rating points
+**Example for HR/9**:
+- 300 IP → ±2.5 (just rounding)
+- 150 IP → ±3.5 (rounding + sample noise)
+- 75 IP → ±5.0 (high uncertainty)
 
-**Example**:
-- 180 IP → ±5 for Control
-- 90 IP → ±7 for Control (wider band)
-- 360 IP → ±3.5 for Control (tighter band)
+### Display Approach
 
-### Confidence Levels Display
+Instead of R²-based confidence (which was misleading), show:
 
-| R² | Confidence Label | Color |
-|----|------------------|-------|
-| 0.40+ | High | Green |
-| 0.20-0.39 | Moderate | Yellow |
-| < 0.20 | Low | Red/Gray |
+| IP Range | Confidence Label | Note |
+|----------|------------------|------|
+| 200+ IP  | High | "Estimate reliable" |
+| 100-200  | Moderate | "Estimate may vary ±5" |
+| < 100 IP | Low | "Small sample - treat as rough guide" |
+
+### The ±2.5 Rounding Band
+
+Since we can't know the true 500-point rating, always show:
+```
+Estimated: 65 (could be 62-67 on true scale)
+```
+
+This helps users understand why their "60 Control" pitcher might perform like a 58 or 62.
 
 ---
 
@@ -265,9 +311,70 @@ class RatingEstimatorService {
 
 ---
 
+---
+
+## Verified Formulas (Jan 2026)
+
+### From OOTP Calculator (Perfect 1:1 Relationships)
+
+Using fresh screen reader data from the in-game calculator:
+
+**HRA → HR (R² = 1.000)**
+```
+HR = 72.27 - 0.823 * HRA  (for ~200 IP, neutral environment)
+```
+
+**PBABIP → Non-HR Hits (R² = 0.999)**
+```
+Non-HR Hits = 225.9 - 0.351 * PBABIP_hidden  (hidden 500-point scale)
+```
+
+Note: PBABIP in calculator uses hidden 20-250 scale, not display 20-80.
+
+### WBL Environment Adjustment
+
+WBL is a **low-HR environment** - approximately **0.64× neutral** HR rates.
+
+**WBL-Adjusted HR/9 Formula:**
+```
+HR/9 (WBL) = 2.08 - 0.024 * HRA
+```
+
+**Inverted for Rating Estimator:**
+```
+HRA = 86.7 - 41.7 * HR/9
+```
+
+Accuracy: ±11 rating points (1 sigma), works best for HRA 45-65 range.
+
+| HR/9 | Estimated HRA |
+|------|---------------|
+| 0.50 | 66 |
+| 0.70 | 58 |
+| 0.85 | 51 |
+| 1.00 | 45 |
+| 1.20 | 37 |
+
+### BABIP: The Problem Child
+
+**Calculator shows perfect 1:1**, but **league data shows R² = 0.018** (almost zero correlation).
+
+Why BABIP doesn't translate to league stats:
+1. **Team defense** affects hits allowed significantly
+2. **Park factors** vary across the league
+3. **Rating drift** - BABIP ratings may have changed since stats were accrued
+4. **High variance** - BABIP outcomes are notoriously "lucky" even in real baseball
+
+**Recommendation**: Skip BABIP estimation, or show with heavy caveat:
+> "BABIP cannot be reliably estimated from stats due to defense and park factors"
+
+---
+
 ## Questions to Resolve
 
 1. **Naming**: "Rating Estimator", "Scout Checker", "True Talent Calculator"?
-2. **H/9 handling**: Skip entirely, or show with heavy caveats?
+2. ~~**H/9 handling**: Skip entirely, or show with heavy caveats?~~ **RESOLVED: Skip BABIP estimation**
 3. **Tab vs Section**: New tab in nav, or section below Potential Stats Calculator?
 4. **OSA availability**: Does OSA provide all 5 ratings or just some?
+5. ~~**Movement/BABIP/HRA triangle**~~ **RESOLVED: Movement = 2.3 + 0.24×BABIP + 0.71×HRA (R²=0.92)**
+6. ~~**Linear vs Polynomial**~~ **RESOLVED: Use linear, polynomials were overfitting noise**

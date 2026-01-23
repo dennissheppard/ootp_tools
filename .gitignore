@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+
+# Testing
+coverage/
+
+# Environment
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Editor/OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json
+*.swp
+*.swo
+*.swn
+*.sw?
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+world_baseball_league_draft_pool_-_draft_pool_pitching_potential.csv
+world_baseball_league_draft_pool_-_draft_pool_batting_potential.csv
+ootp_data_20260122.csv
+homer_data.csv
+homers.json

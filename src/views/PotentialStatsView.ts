@@ -68,10 +68,10 @@ export class PotentialStatsView {
               <p>Drop CSV file here or <button type="button" class="btn-link" id="csv-browse-btn">browse</button></p>
             </div>
             <div class="formula-note">
-              <strong>WBL-Calibrated Formulas:</strong><br>
-              K/9: R²=0.22 (diminishing returns at high Stuff)<br>
-              BB/9: R²=0.43 (strongest predictor)<br>
-              HR/9: R²=0.20 | H/9: R²=0.06 (high variance)
+              <strong>WBL "Three True Outcomes":</strong><br>
+              K/9 = 2.07 + 0.074 × Stuff<br>
+              BB/9 = 5.22 - 0.052 × Control<br>
+              HR/9 = 2.08 - 0.024 × HRA (WBL = 0.64× neutral)
             </div>
           </div>
         </div>
@@ -223,15 +223,12 @@ export class PotentialStatsView {
         <td>${r.k}</td>
         <td>${r.bb}</td>
         <td>${r.hr}</td>
-        <td>${r.ha}</td>
         <td class="divider"></td>
         <td>${r.k9.toFixed(1)}</td>
         <td>${r.bb9.toFixed(1)}</td>
         <td>${r.hr9.toFixed(2)}</td>
-        <td>${r.h9.toFixed(1)}</td>
         <td class="divider"></td>
         <td>${r.fip.toFixed(2)}</td>
-        <td>${r.whip.toFixed(2)}</td>
         <td class="${r.war >= 0 ? 'war-positive' : 'war-negative'}">${r.war.toFixed(1)}</td>
       </tr>
     `).join('');
@@ -252,15 +249,12 @@ export class PotentialStatsView {
               <th>K</th>
               <th>BB</th>
               <th>HR</th>
-              <th>H</th>
               <th class="divider"></th>
               <th>K/9</th>
               <th>BB/9</th>
               <th>HR/9</th>
-              <th>H/9</th>
               <th class="divider"></th>
               <th>FIP</th>
-              <th>WHIP</th>
               <th>WAR</th>
             </tr>
           </thead>

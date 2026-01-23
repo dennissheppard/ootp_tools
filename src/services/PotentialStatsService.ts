@@ -2,79 +2,67 @@
  * Service for calculating potential stats from OOTP ratings.
  *
  * CALIBRATED FOR WBL (World Baseball League) environment.
- * Formulas derived from regression analysis of 440+ WBL pitcher-seasons.
  *
- * Note: WBL has significantly lower K rates than neutral MLB environment,
- * especially at high Stuff ratings (diminishing returns).
+ * Key findings from analysis:
+ * - OOTP uses 1:1 linear relationships between ratings and stats
+ * - The game uses a hidden 500-point scale, displayed as 20-80 (rounded to 5)
+ * - WBL is a low-HR environment (~64% of neutral MLB rates)
+ * - BABIP does not reliably predict H/9 due to defense/park factors
+ *
+ * "Three True Outcomes" - stats a pitcher controls:
+ * - Strikeouts (Stuff rating)
+ * - Walks (Control rating)
+ * - Home runs (HRA rating)
  */
 
 export interface PitcherRatings {
   stuff: number;      // 20-80 scale
   control: number;    // 20-80 scale
   hra: number;        // 20-80 scale (home run avoidance)
-  movement: number;   // 20-80 scale
+  movement: number;   // 20-80 scale (derived from HRA + BABIP)
   babip: number;      // 20-80 scale
 }
 
 export interface PotentialPitchingStats {
-  // Core rate stats (per 9 innings)
+  // Core rate stats (per 9 innings) - "Three True Outcomes"
   k9: number;
   bb9: number;
   hr9: number;
-  h9: number;
   // Projected counting stats (for specified IP)
   ip: number;
-  ha: number;
   hr: number;
   bb: number;
   k: number;
-  // Derived stats
-  era: number;
+  // Derived stats (from K, BB, HR only)
   fip: number;
-  whip: number;
-  oavg: number;
   war: number;
 }
 
 /**
- * WBL-calibrated coefficients from regression analysis
+ * WBL-calibrated LINEAR coefficients
  *
- * K/9 vs Stuff:   R² = 0.22 (polynomial for diminishing returns)
- * BB/9 vs Control: R² = 0.43 (strongest relationship)
- * HR/9 vs HRA:    R² = 0.20
- * H/9 vs BABIP:   R² = 0.06 (weak - hits are harder to predict)
+ * These are 1:1 relationships in the game engine. Variance in observed
+ * data comes from the hidden 500-point scale being rounded to 20-80.
+ *
+ * Formulas verified against OOTP in-game calculator (Jan 2026):
+ * - K/9:  Linearized from WBL data (Stuff has diminishing returns in WBL)
+ * - BB/9: Direct 1:1 with Control
+ * - HR/9: Verified from calculator, WBL-adjusted (0.64x neutral)
+ * - H/9:  BABIP correlation is weak (R²=0.02) due to defense/parks
  */
-const WBL_COEFFICIENTS = {
-  // K/9 = -1.654 + 0.223*Stuff - 0.00142*Stuff²
-  k9: {
-    intercept: -1.654,
-    linear: 0.22275,
-    quadratic: -0.0014204,
-  },
-  // BB/9 = 8.267 - 0.170*Control + 0.0011*Control²
-  bb9: {
-    intercept: 8.267,
-    linear: -0.16971,
-    quadratic: 0.0010962,
-  },
-  // HR/9 = 3.989 - 0.098*HRA + 0.00071*HRA²
-  hr9: {
-    intercept: 3.989,
-    linear: -0.09810,
-    quadratic: 0.0007065,
-  },
-  // H/9 = 12.914 - 0.065*BABIP (linear, polynomial doesn't help)
-  // Also factor in Movement: -0.037*Movement
-  h9: {
-    intercept: 12.914,
-    babipCoef: -0.06536,
-    movementCoef: -0.03712,
-  },
+const WBL_LINEAR = {
+  // K/9 = 2.07 + 0.074 * Stuff
+  k9: { intercept: 2.07, slope: 0.074 },
+
+  // BB/9 = 5.22 - 0.052 * Control
+  bb9: { intercept: 5.22, slope: -0.052 },
+
+  // HR/9 = 2.08 - 0.024 * HRA (verified from OOTP calculator, WBL-adjusted)
+  hr9: { intercept: 2.08, slope: -0.024 },
 };
 
 // WBL league averages for derived stat calculations
 const WBL_LEAGUE = {
-  avgERA: 4.20,
   avgFIP: 4.10,
   fipConstant: 3.10,
   runsPerWin: 10,
@@ -85,84 +73,76 @@ const DEFAULT_IP = 180;
 
 export class PotentialStatsService {
   /**
-   * Calculate polynomial: intercept + linear*x + quadratic*x²
+   * Calculate linear: intercept + slope * x
    */
-  private static calcPolynomial(
-    coeffs: { intercept: number; linear: number; quadratic: number },
+  private static calcLinear(
+    coeffs: { intercept: number; slope: number },
     x: number
   ): number {
-    return coeffs.intercept + coeffs.linear * x + coeffs.quadratic * x * x;
+    return coeffs.intercept + coeffs.slope * x;
   }
 
   /**
    * Calculate K/9 from Stuff rating (WBL calibrated)
-   * Shows diminishing returns at high Stuff
+   * Linear: K/9 = 2.07 + 0.074 * Stuff
    */
   static calculateK9(stuff: number): number {
-    const k9 = this.calcPolynomial(WBL_COEFFICIENTS.k9, stuff);
-    return Math.max(0, Math.min(15, k9)); // Clamp to reasonable range
+    const k9 = this.calcLinear(WBL_LINEAR.k9, stuff);
+    return Math.max(0, Math.min(15, k9));
   }
 
   /**
    * Calculate BB/9 from Control rating (WBL calibrated)
-   * Strongest predictive relationship (R² = 0.43)
+   * Linear: BB/9 = 5.22 - 0.052 * Control
+   * This is a 1:1 relationship in the game engine.
    */
   static calculateBB9(control: number): number {
-    const bb9 = this.calcPolynomial(WBL_COEFFICIENTS.bb9, control);
+    const bb9 = this.calcLinear(WBL_LINEAR.bb9, control);
     return Math.max(0, Math.min(10, bb9));
   }
 
   /**
    * Calculate HR/9 from HRA rating (WBL calibrated)
+   * Linear: HR/9 = 2.08 - 0.024 * HRA
+   * Verified from OOTP calculator. WBL is ~64% of neutral HR rates.
    */
   static calculateHR9(hra: number): number {
-    const hr9 = this.calcPolynomial(WBL_COEFFICIENTS.hr9, hra);
+    const hr9 = this.calcLinear(WBL_LINEAR.hr9, hra);
     return Math.max(0, Math.min(3, hr9));
   }
 
   /**
-   * Calculate H/9 from BABIP and Movement ratings (WBL calibrated)
-   * Note: This has low predictive power (R² = 0.06) - hits are variable
-   */
-  static calculateH9(babip: number, movement: number): number {
-    const h9 = WBL_COEFFICIENTS.h9.intercept +
-      WBL_COEFFICIENTS.h9.babipCoef * babip +
-      WBL_COEFFICIENTS.h9.movementCoef * movement;
-    return Math.max(5, Math.min(15, h9));
-  }
-
-  /**
    * Calculate all potential stats from pitcher ratings
+   *
+   * Only calculates stats we can reliably predict from ratings:
+   * - K, K/9 (from Stuff)
+   * - BB, BB/9 (from Control)
+   * - HR, HR/9 (from HRA)
+   * - FIP, WAR (derived from above)
+   *
+   * NOT calculated (unreliable due to defense/park factors):
+   * - H, H/9 (BABIP doesn't predict)
+   * - WHIP (depends on H)
+   * - ERA (depends on H)
+   * - oAVG (depends on H)
    */
   static calculatePitchingStats(
     ratings: PitcherRatings,
     ip: number = DEFAULT_IP
   ): PotentialPitchingStats {
-    // Calculate rate stats
+    // Calculate rate stats - "Three True Outcomes"
     const k9 = this.calculateK9(ratings.stuff);
     const bb9 = this.calculateBB9(ratings.control);
     const hr9 = this.calculateHR9(ratings.hra);
-    const h9 = this.calculateH9(ratings.babip, ratings.movement);
 
     // Convert to counting stats for specified IP
     const k = Math.round((k9 / 9) * ip);
     const bb = Math.round((bb9 / 9) * ip);
     const hr = Math.round((hr9 / 9) * ip);
-    const ha = Math.round((h9 / 9) * ip);
-
-    // Calculate derived stats
-    const whip = (bb + ha) / ip;
 
     // FIP = ((13*HR) + (3*BB) - (2*K)) / IP + constant
+    // FIP only uses K, BB, HR - all of which we can predict
     const fip = ((13 * hr) + (3 * bb) - (2 * k)) / ip + WBL_LEAGUE.fipConstant;
-
-    // ERA estimation from component stats
-    // Simplified: ERA correlates with FIP but with more variance
-    const era = fip + (Math.random() * 0.4 - 0.2); // Add small variance
-
-    // Opponent batting average
-    const ab = (ip * 2.9) + ha;
-    const oavg = ha / ab;
 
     // WAR = ((lgFIP - FIP) / runsPerWin) * (IP / 9)
     const war = ((WBL_LEAGUE.avgFIP - fip) / WBL_LEAGUE.runsPerWin) * (ip / 9);
@@ -171,34 +151,33 @@ export class PotentialStatsService {
       k9: Math.round(k9 * 10) / 10,
       bb9: Math.round(bb9 * 10) / 10,
       hr9: Math.round(hr9 * 10) / 10,
-      h9: Math.round(h9 * 10) / 10,
       ip: Math.round(ip * 10) / 10,
-      ha,
       hr,
       bb,
       k,
-      era: Math.round(Math.max(0, era) * 100) / 100,
       fip: Math.round(Math.max(0, fip) * 100) / 100,
-      whip: Math.round(whip * 100) / 100,
-      oavg: Math.round(oavg * 1000) / 1000,
       war: Math.round(war * 10) / 10,
     };
   }
 
   /**
    * Get the expected range for a stat at a given rating
-   * Useful for showing uncertainty in projections
+   *
+   * Variance comes from two sources:
+   * 1. Rounding: Display rating (20-80) rounds from hidden 500-point scale (±2.5 rating points)
+   * 2. Sample size: Small IP = more variance in observed stats
+   *
+   * These ranges assume ~180 IP sample size.
    */
   static getStatRange(
-    stat: 'k9' | 'bb9' | 'hr9' | 'h9',
+    stat: 'k9' | 'bb9' | 'hr9',
     rating: number
   ): { low: number; mid: number; high: number } {
-    // Approximate ranges based on observed WBL variance
-    const ranges: Record<string, { variance: number }> = {
-      k9: { variance: 1.5 },   // ±1.5 K/9 typical variance
-      bb9: { variance: 0.8 },  // ±0.8 BB/9
-      hr9: { variance: 0.4 },  // ±0.4 HR/9
-      h9: { variance: 1.5 },   // ±1.5 H/9 (high variance)
+    // Variance from ±2.5 rating point rounding, converted to stat impact
+    const ranges: Record<string, { ratingVariance: number }> = {
+      k9: { ratingVariance: 2.5 * 0.074 },   // ±0.19 K/9 from rounding
+      bb9: { ratingVariance: 2.5 * 0.052 },  // ±0.13 BB/9 from rounding
+      hr9: { ratingVariance: 2.5 * 0.024 },  // ±0.06 HR/9 from rounding
     };
 
     let mid: number;
@@ -212,12 +191,9 @@ export class PotentialStatsService {
       case 'hr9':
         mid = this.calculateHR9(rating);
         break;
-      case 'h9':
-        mid = this.calculateH9(rating, 50); // Default movement
-        break;
     }
 
-    const v = ranges[stat].variance;
+    const v = ranges[stat].ratingVariance;
     return {
       low: Math.max(0, mid - v),
       mid,
