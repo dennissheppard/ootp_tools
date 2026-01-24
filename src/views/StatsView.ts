@@ -1,5 +1,9 @@
 import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Player';
 import { PitchingStats, BattingStats } from '../models/Stats';
+import { trueRatingsService } from '../services/TrueRatingsService';
+import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
+import { scoutingDataService } from '../services/ScoutingDataService';
+import { PlayerRatingsCard, PlayerRatingsData } from './PlayerRatingsCard';
 
 export interface SendToEstimatorPayload {
   k9: number;
@@ -24,12 +28,12 @@ export class StatsView {
     this.onSendToEstimator = options?.onSendToEstimator;
   }
 
-  render(
+  async render(
     player: Player,
     pitchingStats: PitchingStats[],
     battingStats: BattingStats[],
     year?: number
-  ): void {
+  ): Promise<void> {
     this.selectedPitchingIndex = null;
     const playerName = getFullName(player);
 
@@ -42,11 +46,26 @@ export class StatsView {
 
     const showSendToEstimator = Boolean(this.onSendToEstimator && isPitcher(player) && mainPitching.length > 0);
 
+    // Determine year for ratings lookup
+    // If a specific year was requested, use that; otherwise use the most recent year from stats
+    const ratingsYear = year
+      ?? (mainPitching.length > 0 ? Math.max(...mainPitching.map(s => s.year)) : new Date().getFullYear());
+
+    // Get True Rating data for pitchers
+    let ratingsData: PlayerRatingsData | null = null;
+    if (isPitcher(player) && mainPitching.length > 0) {
+      ratingsData = await this.fetchPlayerRatings(player.id, playerName, ratingsYear);
+    }
+
     const pitchingTable = mainPitching.length > 0
       ? this.renderPitchingTable(mainPitching, showSendToEstimator)
       : '';
     const battingTable = mainBatting.length > 0
       ? this.renderBattingTable(mainBatting)
+      : '';
+
+    const ratingsCard = ratingsData
+      ? PlayerRatingsCard.renderInline(ratingsData, ratingsYear)
       : '';
 
     const noStats = !pitchingTable && !battingTable;
@@ -56,14 +75,17 @@ export class StatsView {
 
     this.container.innerHTML = `
       <div class="stats-container">
-        <div class="player-header">
-          <h2 class="player-title">${this.escapeHtml(getFullName(player))}</h2>
-          <span class="player-info">
+        <div class="profile-header profile-header-page">
+          <div class="profile-title-group">
+            <h2 class="player-title">${this.escapeHtml(playerName)}</h2>
+            <span class="stats-period-label">Stats${yearDisplay}</span>
+          </div>
+          <span class="player-badges">
             <span class="badge badge-position">${posLabel}</span>
             ${player.retired ? '<span class="badge badge-retired">Retired</span>' : ''}
           </span>
         </div>
-        <p class="stats-period">Stats${yearDisplay}</p>
+        ${ratingsCard}
         ${noStatsMessage}
         ${isPitcher(player) ? pitchingTable + battingTable : battingTable + pitchingTable}
       </div>
@@ -72,6 +94,137 @@ export class StatsView {
     if (showSendToEstimator) {
       this.bindPitchingSelection(mainPitching, playerName);
     }
+
+    this.bindScoutUploadLink();
+  }
+
+  private async fetchPlayerRatings(playerId: number, playerName: string, year: number): Promise<PlayerRatingsData | null> {
+    try {
+      // Try to get True Rating from cached data
+      const allPitchers = await trueRatingsService.getTruePitchingStats(year);
+      const playerStats = allPitchers.find(p => p.player_id === playerId);
+
+      if (!playerStats) return null;
+
+      const ip = trueRatingsService.parseIp(playerStats.ip);
+      if (ip < 10) return null; // Not enough IP
+
+      // Get multi-year stats and league averages for True Rating calculation
+      const [multiYearStats, leagueAverages] = await Promise.all([
+        trueRatingsService.getMultiYearPitchingStats(year, 3),
+        trueRatingsService.getLeagueAverages(year),
+      ]);
+
+      // Get scouting data and build lookup (same as TrueRatingsView does)
+      const scoutingRatings = scoutingDataService.getScoutingRatings(year);
+      const scoutingLookup = this.buildScoutingLookup(scoutingRatings);
+      const scoutMatch = this.resolveScoutingFromLookup(playerId, playerName, scoutingLookup);
+
+      // Calculate True Rating with all pitchers for percentile ranking
+      // Include scouting data for ALL pitchers to match TrueRatingsView calculation
+      // Note: No IP filter here to match TrueRatingsView behavior
+      const allInputs = allPitchers
+        .map(p => {
+          const scouting = this.resolveScoutingFromLookup(p.player_id, p.playerName, scoutingLookup);
+          return {
+            playerId: p.player_id,
+            playerName: p.playerName,
+            yearlyStats: multiYearStats.get(p.player_id) ?? [],
+            scoutingRatings: scouting ? {
+              playerId: p.player_id,
+              playerName: p.playerName,
+              stuff: scouting.stuff,
+              control: scouting.control,
+              hra: scouting.hra,
+            } : undefined,
+          };
+        });
+
+      const results = trueRatingsCalculationService.calculateTrueRatings(allInputs, leagueAverages);
+      const playerResult = results.find(r => r.playerId === playerId);
+
+      if (!playerResult) return null;
+
+      return {
+        playerId,
+        playerName,
+        trueRating: playerResult.trueRating,
+        percentile: playerResult.percentile,
+        estimatedStuff: playerResult.estimatedStuff,
+        estimatedControl: playerResult.estimatedControl,
+        estimatedHra: playerResult.estimatedHra,
+        scoutStuff: scoutMatch?.stuff,
+        scoutControl: scoutMatch?.control,
+        scoutHra: scoutMatch?.hra,
+      };
+    } catch (error) {
+      console.error('Error fetching player ratings:', error);
+      return null;
+    }
+  }
+
+  private buildScoutingLookup(
+    scoutingData: Array<{ playerId: number; playerName?: string; stuff: number; control: number; hra: number }>
+  ): { byId: Map<number, typeof scoutingData[0]>; byName: Map<string, typeof scoutingData[0][]> } {
+    const byId = new Map<number, typeof scoutingData[0]>();
+    const byName = new Map<string, typeof scoutingData[0][]>();
+
+    for (const rating of scoutingData) {
+      if (rating.playerId > 0) {
+        byId.set(rating.playerId, rating);
+      }
+      if (rating.playerName) {
+        const normalized = this.normalizeName(rating.playerName);
+        if (normalized) {
+          const list = byName.get(normalized) ?? [];
+          list.push(rating);
+          byName.set(normalized, list);
+        }
+      }
+    }
+
+    return { byId, byName };
+  }
+
+  private resolveScoutingFromLookup(
+    playerId: number,
+    playerName: string,
+    lookup: { byId: Map<number, any>; byName: Map<string, any[]> }
+  ): { stuff: number; control: number; hra: number } | null {
+    // Try by ID first
+    const byId = lookup.byId.get(playerId);
+    if (byId) {
+      return { stuff: byId.stuff, control: byId.control, hra: byId.hra };
+    }
+
+    // Fall back to name matching
+    const normalized = this.normalizeName(playerName);
+    const matches = lookup.byName.get(normalized);
+    if (matches && matches.length === 1) {
+      return { stuff: matches[0].stuff, control: matches[0].control, hra: matches[0].hra };
+    }
+
+    return null;
+  }
+
+  private normalizeName(name: string): string {
+    const suffixes = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
+    const cleaned = name.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
+    const tokens = cleaned.split(/\s+/).filter(token => token && !suffixes.has(token));
+    return tokens.join('');
+  }
+
+  private bindScoutUploadLink(): void {
+    const link = this.container.querySelector<HTMLAnchorElement>('.scout-upload-link');
+    if (!link) return;
+
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const trueRatingsTab = document.querySelector<HTMLElement>('[data-tab="true-ratings"]');
+      if (trueRatingsTab) {
+        trueRatingsTab.click();
+      }
+    });
   }
 
   private renderPitchingTable(stats: PitchingStats[], includeSendAction: boolean): string {
@@ -107,9 +260,9 @@ export class StatsView {
       : '';
 
     return `
-      <div class="stats-table-container">
-        <div class="stats-table-header">
-          <h3 class="stats-table-title">Pitching Statistics</h3>
+      <div class="stats-section">
+        <div class="stats-section-header">
+          <h4 class="section-label">Pitching Statistics</h4>
           ${actions}
         </div>
         <div class="table-wrapper">
@@ -170,8 +323,8 @@ export class StatsView {
     `).join('');
 
     return `
-      <div class="stats-table-container">
-        <h3 class="stats-table-title">Batting Statistics</h3>
+      <div class="stats-section">
+        <h4 class="section-label">Batting Statistics</h4>
         <div class="table-wrapper">
           <table class="stats-table">
             <thead>
@@ -214,7 +367,6 @@ export class StatsView {
   }
 
   private formatAvg(value: number): string {
-    // Format like .300 instead of 0.300
     if (value >= 1) {
       return value.toFixed(3);
     }

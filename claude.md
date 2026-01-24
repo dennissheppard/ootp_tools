@@ -20,7 +20,9 @@ src/
 ├── views/
 │   ├── SearchView.ts       # Player search UI
 │   ├── PlayerListView.ts   # Search results list
-│   ├── StatsView.ts        # Player stats display
+│   ├── StatsView.ts        # Player stats display with True Ratings
+│   ├── PlayerRatingsCard.ts # Shared component for rating bars display
+│   ├── PlayerProfileModal.ts # Draggable modal for pitcher profiles
 │   ├── PotentialStatsView.ts # Rating-to-stats calculator UI
 │   ├── RatingEstimatorView.ts # Stats-to-ratings estimator UI
 │   ├── DraftBoardView.ts   # Interactive draft board
@@ -36,7 +38,9 @@ src/
     ├── RatingEstimatorService.ts # Stats-to-ratings reverse calculations
     ├── FipWarService.ts    # Shared FIP/WAR calculations (used by both calculators)
     ├── LeagueStatsService.ts # League-wide stats and FIP constant calculations
-    └── TrueRatingsService.ts # True Ratings data fetching
+    ├── TrueRatingsService.ts # True Ratings data fetching and caching
+    ├── TrueRatingsCalculationService.ts # True Rating calculation (percentile, blending)
+    └── ScoutingDataService.ts # Scouting CSV parsing and localStorage persistence
 ```
 
 ## Key Features
@@ -54,8 +58,21 @@ A new tab that provides a comprehensive view of player performance for a selecte
 - **Pagination**: Includes controls to select the number of players to display per page (10, 50, 200, or All) and navigate through pages.
 - **Year Selection**: A dropdown allows users to select a year from 2000 to 2021 to view historical data.
 - **Aggressive Caching**: API responses are cached in `localStorage` for 24 hours to improve performance and reduce network requests.
+- **Player Profile Modal**: Click any pitcher name to open a draggable modal showing:
+  - True Rating badge (0.5-5.0 scale) with percentile
+  - Rating comparison bars (True Ratings vs Scout Opinions)
+  - Multi-year stats history table
+  - Data completeness indicator (○ symbol when scouting data is missing)
+- **Scouting Data Upload**: CSV upload for scout ratings, stored per-year in localStorage. Used to blend with performance-based ratings.
 
-### 3. Potential Stats Calculator
+### 3. Player Search with True Ratings
+When searching for a pitcher, the stats display now includes:
+- **True Rating Badge**: Calculated against all pitchers for the selected year
+- **Rating Comparison Bars**: Shows estimated Stuff/Control/HRA vs scout opinions (if scouting data uploaded)
+- **Placeholder UI**: When scouting data is missing, shows dotted outline bars with link to upload on True Ratings page
+- **Shared Component**: Uses `PlayerRatingsCard.ts` for consistent rendering between search results and modal
+
+### 4. Potential Stats Calculator
 Convert OOTP pitcher ratings to projected stats. Located in `PotentialStatsService.ts`.
 
 **Input Ratings** (20-80 scale):
@@ -105,7 +122,7 @@ The lower replacement FIP for relievers reflects OOTP's leverage adjustment - re
 
 **WAR Accuracy**: ~0.35 RMSE vs OOTP values. Remaining variance is due to park factors and other OOTP-specific adjustments we can't replicate.
 
-### 4. Rating Estimator
+### 5. Rating Estimator
 A reverse calculator to estimate pitcher ratings from actual stats, helping to evaluate scout accuracy.
 
 **Purpose**: Compare scout ratings vs. actual performance to answer "How accurate is my scout?"

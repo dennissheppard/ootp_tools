@@ -1,6 +1,20 @@
 import { Player } from '../models/Player';
 import { playerService } from './PlayerService';
+import { statsService } from './StatsService';
 import { LeagueAverages, YearlyPitchingStats } from './TrueRatingsCalculationService';
+
+/**
+ * Yearly stats detail for player profile modal
+ */
+export interface PlayerYearlyDetail {
+  year: number;
+  ip: number;
+  era: number;
+  k9: number;
+  bb9: number;
+  hr9: number;
+  war: number;
+}
 
 // From https://statsplus.net/wbl/api/playerpitchstatsv2/?year=2020
 export interface TruePitchingStats {
@@ -550,6 +564,74 @@ class TrueRatingsService {
     }
 
     return playerMap;
+  }
+
+  /**
+   * Get a single player's multi-year pitching stats with full detail
+   * Used for player profile modal
+   *
+   * @param playerId - The player's ID
+   * @param endYear - The most recent year to include
+   * @param yearsBack - Number of years to fetch (default 5)
+   * @returns Array of yearly stats, most recent first
+   */
+  public async getPlayerYearlyStats(
+    playerId: number,
+    endYear: number,
+    yearsBack: number = 5
+  ): Promise<PlayerYearlyDetail[]> {
+    const years = Array.from({ length: yearsBack }, (_, i) => endYear - i);
+    const results: PlayerYearlyDetail[] = [];
+
+    // Check each year in the in-memory/localStorage cache
+    for (const year of years) {
+      const yearStats = await this.getTruePitchingStats(year);
+      const playerStats = yearStats.find(p => p.player_id === playerId);
+
+      if (playerStats) {
+        const ip = this.parseIp(playerStats.ip);
+        if (ip > 0) {
+          results.push({
+            year,
+            ip: Math.round(ip * 10) / 10,
+            era: ip > 0 ? Math.round((playerStats.er / ip) * 9 * 100) / 100 : 0,
+            k9: ip > 0 ? Math.round((playerStats.k / ip) * 9 * 100) / 100 : 0,
+            bb9: ip > 0 ? Math.round((playerStats.bb / ip) * 9 * 100) / 100 : 0,
+            hr9: ip > 0 ? Math.round((playerStats.hra / ip) * 9 * 100) / 100 : 0,
+            war: Math.round(playerStats.war * 10) / 10,
+          });
+        }
+      }
+    }
+
+    // If no cached data found, fall back to StatsService API call
+    if (results.length === 0) {
+      const apiStats = await statsService.getPitchingStats(playerId);
+
+      // Filter to split_id === 1 (combined stats, not vs LHB/RHB splits)
+      // and to requested year range
+      const filteredStats = apiStats
+        .filter(s => s.splitId === 1 && years.includes(s.year))
+        .sort((a, b) => b.year - a.year);
+
+      for (const stat of filteredStats) {
+        const ip = stat.ip;
+        if (ip > 0) {
+          results.push({
+            year: stat.year,
+            ip: Math.round(ip * 10) / 10,
+            era: Math.round(stat.era * 100) / 100,
+            k9: Math.round(stat.k9 * 100) / 100,
+            bb9: Math.round(stat.bb9 * 100) / 100,
+            hr9: ip > 0 ? Math.round((stat.hr / ip) * 9 * 100) / 100 : 0,
+            war: Math.round(stat.war * 10) / 10,
+          });
+        }
+      }
+    }
+
+    // Sort by year descending (most recent first)
+    return results.sort((a, b) => b.year - a.year);
   }
 }
 

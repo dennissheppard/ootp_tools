@@ -2,9 +2,9 @@ import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
 import { TruePlayerStats, TruePlayerBattingStats, trueRatingsService } from '../services/TrueRatingsService';
+import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
 
 type StatsMode = 'pitchers' | 'batters';
-type RatingsViewMode = 'raw' | 'true';
 
 interface DerivedPitchingFields {
   ipOuts: number;
@@ -79,7 +79,8 @@ export class TrueRatingsView {
   private sortKey: string | null = 'ra9war';
   private sortDirection: 'asc' | 'desc' = 'desc';
   private mode: StatsMode = 'pitchers';
-  private ratingsView: RatingsViewMode = 'raw';
+  private showTrueRatings = true;
+  private showRawStats = false;
   private showEstimatedRatings = false;
   private readonly prefKey = 'wbl-prefs';
   private preferences: Record<string, unknown> = {};
@@ -88,11 +89,15 @@ export class TrueRatingsView {
   private scoutingRatings: PitcherScoutingRatings[] = [];
   private rawPitcherStats: PitcherRow[] = [];
   private missingPitchers: MissingPitcher[] = [];
+  private playerProfileModal: PlayerProfileModal;
+  private scoutingLookup: ScoutingLookup | null = null;
+  private playerRowLookup: Map<number, PitcherRow> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.preferences = this.loadPreferences();
     this.showEstimatedRatings = Boolean(this.preferences.trueRatingsShowEstimates);
+    this.playerProfileModal = new PlayerProfileModal();
     this.updatePitcherColumns();
     this.renderLayout();
     this.loadScoutingRatingsForYear();
@@ -127,9 +132,9 @@ export class TrueRatingsView {
           </div>
           <div class="form-field" id="ratings-view-toggle">
             <label>View:</label>
-            <div class="toggle-group" role="tablist" aria-label="Ratings view">
-              <button class="toggle-btn ${this.ratingsView === 'raw' ? 'active' : ''}" data-ratings-view="raw" role="tab" aria-selected="${this.ratingsView === 'raw'}">Raw Stats</button>
-              <button class="toggle-btn ${this.ratingsView === 'true' ? 'active' : ''}" data-ratings-view="true" role="tab" aria-selected="${this.ratingsView === 'true'}">True Ratings</button>
+            <div class="toggle-group" role="group" aria-label="Ratings view">
+              <button class="toggle-btn ${this.showRawStats ? 'active' : ''}" data-ratings-toggle="raw" aria-pressed="${this.showRawStats}">Raw Stats</button>
+              <button class="toggle-btn ${this.showTrueRatings ? 'active' : ''}" data-ratings-toggle="true" aria-pressed="${this.showTrueRatings}">True Ratings</button>
             </div>
           </div>
           <div class="form-field" id="estimated-ratings-toggle">
@@ -227,19 +232,29 @@ export class TrueRatingsView {
   }
 
   private bindRatingsViewToggle(): void {
-    const buttons = this.container.querySelectorAll<HTMLButtonElement>('[data-ratings-view]');
+    const buttons = this.container.querySelectorAll<HTMLButtonElement>('[data-ratings-toggle]');
     buttons.forEach(button => {
       button.addEventListener('click', () => {
-        const view = button.dataset.ratingsView as RatingsViewMode | undefined;
-        if (!view || this.ratingsView === view) return;
-        this.ratingsView = view;
-        this.sortKey = view === 'true' ? 'trueRating' : 'ra9war';
-        this.sortDirection = 'desc';
+        const toggle = button.dataset.ratingsToggle;
+        if (toggle === 'raw') {
+          const nextRaw = !this.showRawStats;
+          if (!nextRaw && !this.showTrueRatings) return;
+          this.showRawStats = nextRaw;
+        } else if (toggle === 'true') {
+          const nextTrue = !this.showTrueRatings;
+          if (!nextTrue && !this.showRawStats) return;
+          this.showTrueRatings = nextTrue;
+        } else {
+          return;
+        }
+
         buttons.forEach(btn => {
-          const isActive = btn.dataset.ratingsView === view;
+          const key = btn.dataset.ratingsToggle;
+          const isActive = key === 'raw' ? this.showRawStats : this.showTrueRatings;
           btn.classList.toggle('active', isActive);
-          btn.setAttribute('aria-selected', String(isActive));
+          btn.setAttribute('aria-pressed', String(isActive));
         });
+
         this.updatePitcherColumns();
         this.updateRatingsControlsVisibility();
         this.fetchAndRenderStats();
@@ -263,14 +278,14 @@ export class TrueRatingsView {
     const estimatedToggle = this.container.querySelector<HTMLElement>('#estimated-ratings-toggle');
     if (viewToggle) viewToggle.style.display = this.mode === 'pitchers' ? '' : 'none';
     if (estimatedToggle) {
-      const showEstimated = this.mode === 'pitchers' && this.ratingsView === 'true';
+      const showEstimated = this.mode === 'pitchers' && this.showTrueRatings;
       estimatedToggle.style.display = showEstimated ? '' : 'none';
     }
   }
 
   private async fetchAndRenderStats(): Promise<void> {
     const tableContainer = this.container.querySelector<HTMLElement>('#true-ratings-table-container')!;
-    const isTrueRatingsView = this.mode === 'pitchers' && this.ratingsView === 'true';
+    const isTrueRatingsView = this.mode === 'pitchers' && this.showTrueRatings;
     tableContainer.innerHTML = `<div class="loading-message">${isTrueRatingsView ? 'Calculating true ratings...' : 'Loading stats...'}</div>`;
     
     try {
@@ -312,11 +327,13 @@ export class TrueRatingsView {
     this.bindSortHeaders();
     this.bindScrollButtons();
     this.bindPitcherColumnDragAndDrop();
+    this.bindPlayerNameClicks();
   }
 
   private updatePitcherColumns(): void {
     const columns = this.getPitcherColumnsForView();
     this.pitcherColumns = this.applyPitcherColumnOrder(columns);
+    this.ensureSortKeyForView();
   }
 
   private getPitcherColumnsForView(): PitcherColumn[] {
@@ -324,16 +341,24 @@ export class TrueRatingsView {
       return [...RAW_PITCHER_COLUMNS];
     }
 
-    if (this.ratingsView !== 'true') {
-      return [...RAW_PITCHER_COLUMNS];
+    const [nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
+    const columns: PitcherColumn[] = [nameColumn];
+
+    if (this.showTrueRatings) {
+      columns.push(...this.getTrueRatingColumns());
+      if (this.scoutingRatings.length > 0) {
+        columns.push(...this.getScoutingComparisonColumns());
+      }
+      if (this.showEstimatedRatings) {
+        columns.push(...this.getEstimatedRatingColumns());
+      }
     }
 
-    const [nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
-    const trueRatingColumns = this.getTrueRatingColumns();
-    const estimatedColumns = this.showEstimatedRatings ? this.getEstimatedRatingColumns() : [];
-    const scoutingColumns = this.scoutingRatings.length > 0 ? this.getScoutingComparisonColumns() : [];
+    if (this.showRawStats) {
+      columns.push(...rest);
+    }
 
-    return [nameColumn, ...trueRatingColumns, ...scoutingColumns, ...estimatedColumns, ...rest];
+    return columns;
   }
 
   private getPaginatedStats(): TableRow[] {
@@ -366,6 +391,7 @@ export class TrueRatingsView {
     ]);
 
     const scoutingLookup = this.buildScoutingLookup(this.scoutingRatings);
+    this.scoutingLookup = scoutingLookup;
     const scoutingMatchMap = new Map<number, PitcherScoutingRatings>();
 
     const inputs = pitchers.map((pitcher) => {
@@ -384,7 +410,7 @@ export class TrueRatingsView {
     const results = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages);
     const resultMap = new Map(results.map(result => [result.playerId, result]));
 
-    return pitchers.map((pitcher) => {
+    const enrichedPitchers = pitchers.map((pitcher) => {
       const result = resultMap.get(pitcher.player_id);
       if (!result) return pitcher;
       const scouting = scoutingMatchMap.get(pitcher.player_id);
@@ -406,6 +432,11 @@ export class TrueRatingsView {
         scoutDiff,
       };
     });
+
+    // Build player row lookup for modal access
+    this.playerRowLookup = new Map(enrichedPitchers.map(p => [p.player_id, p]));
+
+    return enrichedPitchers;
   }
 
   private buildScoutingLookup(ratings: PitcherScoutingRatings[]): ScoutingLookup {
@@ -525,6 +556,12 @@ export class TrueRatingsView {
       const cells = this.pitcherColumns.map(column => {
         const rawValue = column.accessor ? column.accessor(player) : (player as any)[column.key];
         const displayValue = this.formatValue(rawValue, String(column.key));
+
+        // Make player name clickable only in True Ratings view
+        if (column.key === 'playerName' && this.showTrueRatings) {
+          return `<td data-col-key="${column.key}"><button class="btn-link player-name-link" data-player-id="${player.player_id}">${displayValue}</button></td>`;
+        }
+
         return `<td data-col-key="${column.key}">${displayValue}</td>`;
       }).join('');
       return `<tr>${cells}</tr>`;
@@ -1027,7 +1064,7 @@ export class TrueRatingsView {
   private refreshAfterScoutingChange(): void {
     this.updateScoutingUploadLabel();
     this.updatePitcherColumns();
-    if (this.mode === 'pitchers' && this.ratingsView === 'true') {
+    if (this.mode === 'pitchers' && this.showTrueRatings) {
       this.fetchAndRenderStats();
       return;
     }
@@ -1051,6 +1088,7 @@ export class TrueRatingsView {
       `).join('');
 
       body.innerHTML = `
+        <p class="missing-note">The following players were not in your scouting file. It's likely they've retired.</p>
         <div class="table-wrapper">
           <table class="stats-table">
             <thead>
@@ -1110,10 +1148,72 @@ export class TrueRatingsView {
     return div.innerHTML;
   }
 
+  private ensureSortKeyForView(): void {
+    if (this.mode !== 'pitchers') return;
+    const availableKeys = new Set<string>();
+    this.pitcherColumns.forEach(column => {
+      availableKeys.add(String(column.key));
+      if (column.sortKey) {
+        availableKeys.add(String(column.sortKey));
+      }
+    });
+
+    if (this.sortKey && availableKeys.has(this.sortKey)) {
+      return;
+    }
+
+    if (this.showTrueRatings) {
+      this.sortKey = 'trueRating';
+      this.sortDirection = 'desc';
+      return;
+    }
+
+    if (this.showRawStats) {
+      this.sortKey = 'ra9war';
+      this.sortDirection = 'desc';
+    }
+  }
+
   private normalizeName(name: string): string {
     const suffixes = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
     const cleaned = name.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
     const tokens = cleaned.split(/\s+/).filter((token) => token && !suffixes.has(token));
     return tokens.join('');
+  }
+
+  private bindPlayerNameClicks(): void {
+    if (this.mode !== 'pitchers' || !this.showTrueRatings) return;
+
+    const links = this.container.querySelectorAll<HTMLButtonElement>('.player-name-link');
+    links.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const playerId = parseInt(link.dataset.playerId ?? '', 10);
+        if (!playerId) return;
+        this.openPlayerProfile(playerId);
+      });
+    });
+  }
+
+  private async openPlayerProfile(playerId: number): Promise<void> {
+    const row = this.playerRowLookup.get(playerId);
+    if (!row) return;
+
+    const scouting = this.scoutingLookup?.byId.get(playerId);
+
+    const profileData: PlayerProfileData = {
+      playerId: row.player_id,
+      playerName: row.playerName,
+      trueRating: row.trueRating,
+      percentile: row.percentile,
+      estimatedStuff: row.estimatedStuff,
+      estimatedControl: row.estimatedControl,
+      estimatedHra: row.estimatedHra,
+      scoutStuff: scouting?.stuff,
+      scoutControl: scouting?.control,
+      scoutHra: scouting?.hra,
+    };
+
+    await this.playerProfileModal.show(profileData, this.selectedYear);
   }
 }
