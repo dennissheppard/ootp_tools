@@ -13,7 +13,9 @@
       "Bash(npm run build:*)",
       "Bash(python:*)",
       "Bash(npm test:*)",
-      "Bash(node -e:*)"
+      "Bash(node -e:*)",
+      "Bash(npx stylelint:*)",
+      "Bash(grep:*)"
     ]
   }
 }

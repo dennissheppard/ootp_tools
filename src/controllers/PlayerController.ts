@@ -1,7 +1,9 @@
 import { Player, isPitcher } from '../models/Player';
-import { PitchingStats, BattingStats } from '../models/Stats';
+import { PitchingStats, BattingStats, MinorLeagueStatsWithLevel } from '../models/Stats';
 import { PlayerService, playerService } from '../services/PlayerService';
 import { StatsService, statsService } from '../services/StatsService';
+import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
+import { dateService } from '../services/DateService';
 
 export interface PlayerSearchResult {
   players: Player[];
@@ -12,6 +14,7 @@ export interface PlayerStatsResult {
   player: Player;
   pitchingStats: PitchingStats[];
   battingStats: BattingStats[];
+  minorLeagueStats: MinorLeagueStatsWithLevel[];
   year?: number;
 }
 
@@ -77,18 +80,40 @@ export class PlayerController {
 
       let pitchingStats: PitchingStats[] = [];
       let battingStats: BattingStats[] = [];
+      let minorLeagueStats: MinorLeagueStatsWithLevel[] = [];
 
       // Fetch stats only from the relevant endpoint to avoid 204 errors on the wrong feed
+      // Wrap in try/catch to handle cases where player has no stats (e.g. draftees)
+      // We still want to show the profile page even if stats are missing
+      try {
+        if (isPitcher(player)) {
+          pitchingStats = await this.statsService.getPitchingStats(playerId, year);
+        } else {
+          battingStats = await this.statsService.getBattingStats(playerId, year);
+        }
+      } catch (error) {
+        console.warn(`Could not fetch stats for player ${playerId}:`, error);
+        // Continue with empty stats
+      }
+
+      // Fetch minor league stats for pitchers (within 2 years of current game date)
       if (isPitcher(player)) {
-        pitchingStats = await this.statsService.getPitchingStats(playerId, year);
-      } else {
-        battingStats = await this.statsService.getBattingStats(playerId, year);
+        try {
+          const currentYear = await dateService.getCurrentYear();
+          const startYear = currentYear - 2;
+          const endYear = currentYear;
+          minorLeagueStats = minorLeagueStatsService.getPlayerStats(playerId, startYear, endYear);
+        } catch (error) {
+          console.warn(`Could not fetch minor league stats for player ${playerId}:`, error);
+          // Continue with empty minor league stats
+        }
       }
 
       this.onStats?.({
         player,
         pitchingStats,
         battingStats,
+        minorLeagueStats,
         year,
       });
     } catch (error) {

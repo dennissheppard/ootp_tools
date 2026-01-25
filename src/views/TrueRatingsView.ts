@@ -3,6 +3,9 @@ import { scoutingDataService } from '../services/ScoutingDataService';
 import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
 import { TruePlayerStats, TruePlayerBattingStats, trueRatingsService } from '../services/TrueRatingsService';
 import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
+import { RatingEstimatorService } from '../services/RatingEstimatorService';
+import { playerService } from '../services/PlayerService';
+import { teamService } from '../services/TeamService';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -25,8 +28,14 @@ interface TrueRatingFields {
   scoutDiff?: number;
 }
 
-type PitcherRow = TruePlayerStats & DerivedPitchingFields & TrueRatingFields;
-type BatterRow = TruePlayerBattingStats;
+interface TeamInfoFields {
+  teamDisplay?: string;
+  teamFilter?: string;
+  teamIsMajor?: boolean;
+}
+
+type PitcherRow = TruePlayerStats & DerivedPitchingFields & TrueRatingFields & TeamInfoFields;
+type BatterRow = TruePlayerBattingStats & TeamInfoFields;
 type TableRow = PitcherRow | BatterRow;
 
 interface PitcherColumn {
@@ -36,21 +45,9 @@ interface PitcherColumn {
   accessor?: (row: PitcherRow) => any;
 }
 
-interface ScoutingMatchSummary {
-  totalPitchers: number;
-  matchedPitchers: number;
-  missingPitchers: number;
-  missingPitchersList: MissingPitcher[];
-}
-
 interface ScoutingLookup {
   byId: Map<number, PitcherScoutingRatings>;
   byName: Map<string, PitcherScoutingRatings[]>;
-}
-
-interface MissingPitcher {
-  playerId: number;
-  playerName: string;
 }
 
 const RAW_PITCHER_COLUMNS: PitcherColumn[] = [
@@ -74,21 +71,23 @@ export class TrueRatingsView {
   private stats: TableRow[] = [];
   private currentPage = 1;
   private itemsPerPage = 50;
+  private itemsPerPageSelection: '10' | '50' | '200' | 'all' = '50';
   private selectedYear = 2020;
+  private selectedTeam = 'all';
+  private teamOptions: string[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private sortKey: string | null = 'ra9war';
   private sortDirection: 'asc' | 'desc' = 'desc';
   private mode: StatsMode = 'pitchers';
   private showTrueRatings = true;
   private showRawStats = false;
-  private showEstimatedRatings = false;
+  private allStats: TableRow[] = [];
   private readonly prefKey = 'wbl-prefs';
   private preferences: Record<string, unknown> = {};
   private pitcherColumns: PitcherColumn[] = [];
   private isDraggingColumn = false;
   private scoutingRatings: PitcherScoutingRatings[] = [];
   private rawPitcherStats: PitcherRow[] = [];
-  private missingPitchers: MissingPitcher[] = [];
   private playerProfileModal: PlayerProfileModal;
   private scoutingLookup: ScoutingLookup | null = null;
   private playerRowLookup: Map<number, PitcherRow> = new Map();
@@ -96,7 +95,6 @@ export class TrueRatingsView {
   constructor(container: HTMLElement) {
     this.container = container;
     this.preferences = this.loadPreferences();
-    this.showEstimatedRatings = Boolean(this.preferences.trueRatingsShowEstimates);
     this.playerProfileModal = new PlayerProfileModal();
     this.updatePitcherColumns();
     this.renderLayout();
@@ -122,6 +120,12 @@ export class TrueRatingsView {
             </select>
           </div>
           <div class="form-field">
+            <label for="true-ratings-team">Team:</label>
+            <select id="true-ratings-team">
+              <option value="all">All</option>
+            </select>
+          </div>
+          <div class="form-field">
             <label for="items-per-page">Per Page:</label>
             <select id="items-per-page">
               <option value="10">10</option>
@@ -137,27 +141,15 @@ export class TrueRatingsView {
               <button class="toggle-btn ${this.showTrueRatings ? 'active' : ''}" data-ratings-toggle="true" aria-pressed="${this.showTrueRatings}">True Ratings</button>
             </div>
           </div>
-          <div class="form-field" id="estimated-ratings-toggle">
-            <label class="hide-pitches-toggle">
-              <input type="checkbox" id="toggle-estimated-ratings" ${this.showEstimatedRatings ? 'checked' : ''}>
-              Show estimated ratings
-            </label>
-          </div>
         </div>
-        <details class="scouting-upload" id="scouting-upload">
-          <summary class="form-title" id="scouting-upload-label">Upload Scouting Data</summary>
-          <div class="csv-upload-container">
-            <p class="csv-format">Format: player_id, name, stuff, control, hra [, age]</p>
-            <div class="csv-upload-area" id="scouting-drop-zone">
-              <input type="file" id="scouting-file-input" accept=".csv" hidden>
-              <p>Drop CSV file here or <button type="button" class="btn-link" id="scouting-browse-btn">browse</button></p>
-            </div>
-            <div class="upload-actions">
-              <span class="saved-note" id="scouting-upload-status">No scouting data loaded for this year.</span>
-              <button type="button" class="btn-link" id="scouting-clear-btn">Clear scouting data</button>
-            </div>
-          </div>
-        </details>
+        
+        <div class="scout-upload-notice" id="scouting-notice" style="display: none; margin-bottom: 1rem;">
+            No scouting data found. <button class="btn-link" id="go-to-data-mgmt">Manage Data</button>
+        </div>
+
+        <div class="ratings-help-text">
+          <p>* <strong>Estimated Ratings</strong> (visible when hovering over K/9, BB/9, HR/9) are snapshots based solely on that single stat. <strong>True Ratings</strong> use sophisticated multi-year analysis and regression.</p>
+        </div>
         <div id="true-ratings-table-container"></div>
         <div class="pagination-controls">
           <button id="prev-page" disabled>Previous</button>
@@ -188,10 +180,17 @@ export class TrueRatingsView {
     });
 
     this.container.querySelector('#items-per-page')?.addEventListener('change', (e) => {
-      const value = (e.target as HTMLSelectElement).value;
+      const value = (e.target as HTMLSelectElement).value as '10' | '50' | '200' | 'all';
+      this.itemsPerPageSelection = value;
       this.itemsPerPage = value === 'all' ? this.stats.length : parseInt(value, 10);
       this.currentPage = 1;
       this.renderStats();
+    });
+
+    this.container.querySelector('#true-ratings-team')?.addEventListener('change', (e) => {
+      this.selectedTeam = (e.target as HTMLSelectElement).value;
+      this.currentPage = 1;
+      this.applyFiltersAndRender();
     });
 
     this.container.querySelector('#prev-page')?.addEventListener('click', () => {
@@ -225,10 +224,13 @@ export class TrueRatingsView {
     });
 
     this.bindRatingsViewToggle();
-    this.bindEstimatedRatingsToggle();
-    this.bindScoutingUpload();
-    this.bindMissingModal();
     this.updateRatingsControlsVisibility();
+
+    const goToDataLink = this.container.querySelector<HTMLButtonElement>('#go-to-data-mgmt');
+    goToDataLink?.addEventListener('click', () => {
+        const tabBtn = document.querySelector<HTMLButtonElement>('[data-tab-target="tab-data-management"]');
+        tabBtn?.click();
+    });
   }
 
   private bindRatingsViewToggle(): void {
@@ -262,25 +264,9 @@ export class TrueRatingsView {
     });
   }
 
-  private bindEstimatedRatingsToggle(): void {
-    const toggle = this.container.querySelector<HTMLInputElement>('#toggle-estimated-ratings');
-    toggle?.addEventListener('change', (e) => {
-      const checked = (e.target as HTMLInputElement).checked;
-      this.showEstimatedRatings = checked;
-      this.updatePreferences({ trueRatingsShowEstimates: checked });
-      this.updatePitcherColumns();
-      this.renderStats();
-    });
-  }
-
   private updateRatingsControlsVisibility(): void {
     const viewToggle = this.container.querySelector<HTMLElement>('#ratings-view-toggle');
-    const estimatedToggle = this.container.querySelector<HTMLElement>('#estimated-ratings-toggle');
     if (viewToggle) viewToggle.style.display = this.mode === 'pitchers' ? '' : 'none';
-    if (estimatedToggle) {
-      const showEstimated = this.mode === 'pitchers' && this.showTrueRatings;
-      estimatedToggle.style.display = showEstimated ? '' : 'none';
-    }
   }
 
   private async fetchAndRenderStats(): Promise<void> {
@@ -292,24 +278,68 @@ export class TrueRatingsView {
       if (this.mode === 'pitchers') {
         const pitchingStats = await trueRatingsService.getTruePitchingStats(this.selectedYear);
         this.rawPitcherStats = this.withDerivedPitchingFields(pitchingStats);
+        
+        await this.enrichWithTeamData(this.rawPitcherStats);
+
         if (isTrueRatingsView) {
           this.stats = await this.buildTrueRatingsStats(this.rawPitcherStats);
         } else {
           this.stats = this.rawPitcherStats;
         }
       } else {
-        this.stats = await trueRatingsService.getTrueBattingStats(this.selectedYear);
+        const battingStats = await trueRatingsService.getTrueBattingStats(this.selectedYear);
+        const enrichedStats = battingStats as BatterRow[];
+        await this.enrichWithTeamData(enrichedStats);
+        this.stats = enrichedStats;
       }
-      
-      if (this.stats.length > 0 && this.itemsPerPage > this.stats.length) {
-          this.itemsPerPage = this.stats.length;
-      }
+      this.allStats = [...this.stats];
+      this.updateTeamOptions();
+      this.applyFilters();
+      this.updateItemsPerPageForFilter();
       this.updatePitcherColumns();
       this.sortStats();
       this.updateScoutingStatus();
       this.renderStats();
     } catch (error) {
+      console.error(error);
       tableContainer.innerHTML = `<div class="error-message">Failed to load stats. ${error}</div>`;
+    }
+  }
+
+  private async enrichWithTeamData(rows: (PitcherRow | BatterRow)[]): Promise<void> {
+    try {
+      const [allPlayers, allTeams] = await Promise.all([
+        playerService.getAllPlayers(),
+        teamService.getAllTeams()
+      ]);
+
+      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+      const teamMap = new Map(allTeams.map(t => [t.id, t]));
+
+      rows.forEach(row => {
+        const playerId = (row as any).player_id;
+        const player = playerMap.get(playerId);
+        if (!player) return;
+
+        const team = teamMap.get(player.teamId);
+        if (!team) return;
+
+        if (player.parentTeamId !== 0) {
+          const parent = teamMap.get(player.parentTeamId);
+          if (parent) {
+            row.teamDisplay = `${parent.nickname} <span class="minor-team">(${team.nickname})</span>`;
+            row.teamFilter = parent.nickname;
+            row.teamIsMajor = false;
+            return;
+          }
+        }
+        
+        row.teamDisplay = team.nickname;
+        row.teamFilter = team.nickname;
+        row.teamIsMajor = true;
+      });
+    } catch (err) {
+      console.error('Error enriching team data:', err);
     }
   }
 
@@ -328,6 +358,32 @@ export class TrueRatingsView {
     this.bindScrollButtons();
     this.bindPitcherColumnDragAndDrop();
     this.bindPlayerNameClicks();
+    this.bindFlipCardLocking();
+  }
+
+  private applyFilters(): void {
+    this.stats = this.allStats.filter(row => {
+      if (this.selectedTeam === 'all') return true;
+      const teamValue = (row as TeamInfoFields).teamFilter ?? '';
+      return teamValue === this.selectedTeam;
+    });
+  }
+
+  private applyFiltersAndRender(): void {
+    this.applyFilters();
+    this.updateItemsPerPageForFilter();
+    this.sortStats();
+    this.renderStats();
+  }
+
+  private updateItemsPerPageForFilter(): void {
+    if (this.itemsPerPageSelection === 'all') {
+      this.itemsPerPage = this.stats.length;
+      return;
+    }
+    if (this.stats.length > 0 && this.itemsPerPage > this.stats.length) {
+      this.itemsPerPage = this.stats.length;
+    }
   }
 
   private updatePitcherColumns(): void {
@@ -338,20 +394,26 @@ export class TrueRatingsView {
 
   private getPitcherColumnsForView(): PitcherColumn[] {
     if (this.mode !== 'pitchers') {
-      return [...RAW_PITCHER_COLUMNS];
+      const [nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
+      return [
+        nameColumn,
+        { key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' },
+        ...rest
+      ];
     }
 
     const [nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
     const columns: PitcherColumn[] = [nameColumn];
+    
+    // Add Team column
+    columns.push({ key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' });
 
     if (this.showTrueRatings) {
       columns.push(...this.getTrueRatingColumns());
       if (this.scoutingRatings.length > 0) {
         columns.push(...this.getScoutingComparisonColumns());
       }
-      if (this.showEstimatedRatings) {
-        columns.push(...this.getEstimatedRatingColumns());
-      }
+      columns.push(...this.getEstimatedRatingColumns());
     }
 
     if (this.showRawStats) {
@@ -557,6 +619,23 @@ export class TrueRatingsView {
         const rawValue = column.accessor ? column.accessor(player) : (player as any)[column.key];
         const displayValue = this.formatValue(rawValue, String(column.key));
 
+        if (column.key === 'kPer9' || column.key === 'bbPer9' || column.key === 'hraPer9') {
+          const ip = player.ipOuts / 3;
+          let rating = 0;
+          let title = '';
+          if (column.key === 'kPer9') {
+            rating = RatingEstimatorService.estimateStuff(player.kPer9, ip).rating;
+            title = 'Estimated Stuff Rating*';
+          } else if (column.key === 'bbPer9') {
+            rating = RatingEstimatorService.estimateControl(player.bbPer9, ip).rating;
+            title = 'Estimated Control Rating*';
+          } else if (column.key === 'hraPer9') {
+            rating = RatingEstimatorService.estimateHRA(player.hraPer9, ip).rating;
+            title = 'Estimated HRA Rating*';
+          }
+          return `<td data-col-key="${column.key}">${this.renderFlipCell(displayValue, rating.toString(), title)}</td>`;
+        }
+
         // Make player name clickable only in True Ratings view
         if (column.key === 'playerName' && this.showTrueRatings) {
           return `<td data-col-key="${column.key}"><button class="btn-link player-name-link" data-player-id="${player.player_id}">${displayValue}</button></td>`;
@@ -587,23 +666,49 @@ export class TrueRatingsView {
     `;
   }
 
+  private renderFlipCell(front: string, back: string, title: string): string {
+    return `
+      <div class="flip-cell">
+        <div class="flip-cell-inner">
+          <div class="flip-cell-front">${front}</div>
+          <div class="flip-cell-back">
+            ${back}
+            <span class="flip-tooltip">${title}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private bindFlipCardLocking(): void {
+    const cells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
+    cells.forEach((cell) => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        cell.classList.toggle('is-flipped');
+      });
+    });
+  }
+
   private renderBattersTable(stats: BatterRow[]): string {
-    const batterExcludedKeys = ['ci', 'd', 'game_id', 'id', 'league_id', 'level_id', 'pitches_seen', 'position', 'sf', 'sh', 'split_id', 'stint', 't'];
+    const batterExcludedKeys = ['ci', 'd', 'game_id', 'id', 'league_id', 'level_id', 'pitches_seen', 'position', 'sf', 'sh', 'split_id', 'stint', 't', 'teamDisplay'];
     const excludedKeys = ['id', 'player_id', 'team_id', 'game_id', 'league_id', 'level_id', 'split_id', 'year', ...batterExcludedKeys];
     let headers = Object.keys(stats[0]).filter(key => !excludedKeys.includes(key));
     
     headers = headers.filter(h => h !== 'playerName');
+    headers.unshift('teamDisplay');
     headers.unshift('playerName');
 
     const headerRow = headers.map(header => {
       const activeClass = this.sortKey === header ? 'sort-active' : '';
-      return `<th data-sort-key="${header}" class="${activeClass}">${this.formatHeader(header)}</th>`;
+      const label = header === 'teamDisplay' ? 'Team' : this.formatHeader(header);
+      return `<th data-sort-key="${header}" data-col-key="${header}" class="${activeClass}">${label}</th>`;
     }).join('');
     
     const rows = stats.map(s => {
       const cells = headers.map(header => {
         const value: any = (s as any)[header];
-        return `<td>${this.formatValue(value, header)}</td>`;
+        return `<td data-col-key="${header}">${this.formatValue(value, header)}</td>`;
       }).join('');
       return `<tr>${cells}</tr>`;
     }).join('');
@@ -628,7 +733,7 @@ export class TrueRatingsView {
     `;
   }
 
-    private bindScrollButtons(): void {
+  private bindScrollButtons(): void {
         const wrapper = this.container.querySelector<HTMLElement>('.table-wrapper-outer');
         if (!wrapper) return;
 
@@ -853,9 +958,9 @@ export class TrueRatingsView {
 
   private getEstimatedRatingColumns(): PitcherColumn[] {
     return [
-      { key: 'estimatedStuff', label: 'Est STF' },
-      { key: 'estimatedControl', label: 'Est CON' },
-      { key: 'estimatedHra', label: 'Est HRA' },
+      { key: 'estimatedStuff', label: 'True Stuff' },
+      { key: 'estimatedControl', label: 'True Con' },
+      { key: 'estimatedHra', label: 'True HRA' },
     ];
   }
 
@@ -934,218 +1039,29 @@ export class TrueRatingsView {
     nextButton.disabled = this.currentPage === totalPages;
   }
 
-  private bindScoutingUpload(): void {
-    const fileInput = this.container.querySelector<HTMLInputElement>('#scouting-file-input');
-    const browseBtn = this.container.querySelector<HTMLButtonElement>('#scouting-browse-btn');
-    const dropZone = this.container.querySelector<HTMLDivElement>('#scouting-drop-zone');
-    const clearBtn = this.container.querySelector<HTMLButtonElement>('#scouting-clear-btn');
-
-    browseBtn?.addEventListener('click', () => fileInput?.click());
-
-    fileInput?.addEventListener('change', (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) this.handleScoutingFile(file);
-      (e.target as HTMLInputElement).value = '';
-    });
-
-    dropZone?.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('drag-over');
-    });
-
-    dropZone?.addEventListener('dragleave', () => {
-      dropZone.classList.remove('drag-over');
-    });
-
-    dropZone?.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      const file = e.dataTransfer?.files[0];
-      if (file && file.name.toLowerCase().endsWith('.csv')) {
-        this.handleScoutingFile(file);
-      }
-    });
-
-    clearBtn?.addEventListener('click', () => {
-      scoutingDataService.clearScoutingRatings(this.selectedYear);
-      this.scoutingRatings = [];
-      this.refreshAfterScoutingChange();
-    });
-
-    this.updateScoutingUploadVisibility();
-  }
-
-  private bindMissingModal(): void {
-    const overlay = this.container.querySelector<HTMLElement>('#scouting-missing-modal');
-    const closeBtn = this.container.querySelector<HTMLButtonElement>('#scouting-missing-close');
-    if (!overlay) return;
-
-    closeBtn?.addEventListener('click', () => this.hideMissingModal());
-    overlay.addEventListener('click', (e) => {
-      if (e.target === overlay) {
-        this.hideMissingModal();
-      }
-    });
-  }
-
-  private handleScoutingFile(file: File): void {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = e.target?.result as string;
-      try {
-        const ratings = scoutingDataService.parseScoutingCsv(content);
-        if (ratings.length === 0) {
-          alert('No valid scouting data found in CSV');
-          return;
-        }
-        this.scoutingRatings = ratings;
-        scoutingDataService.saveScoutingRatings(this.selectedYear, ratings);
-        this.refreshAfterScoutingChange();
-      } catch (err) {
-        alert('Error parsing scouting CSV file');
-        console.error(err);
-      }
-    };
-    reader.readAsText(file);
-  }
-
   private loadScoutingRatingsForYear(): void {
-    this.scoutingRatings = scoutingDataService.getScoutingRatings(this.selectedYear);
-    this.updateScoutingUploadLabel();
+    this.scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+    // this.updateScoutingUploadLabel(); // Removed
     this.updatePitcherColumns();
     this.updateScoutingStatus();
   }
 
   private updateScoutingUploadVisibility(): void {
-    const section = this.container.querySelector<HTMLElement>('#scouting-upload');
-    if (!section) return;
-    section.style.display = this.mode === 'pitchers' ? '' : 'none';
-  }
-
-  private updateScoutingUploadLabel(): void {
-    const label = this.container.querySelector<HTMLElement>('#scouting-upload-label');
-    if (!label) return;
-    label.textContent = this.scoutingRatings.length > 0 ? 'Manage Scouting Data' : 'Upload Scouting Data';
+    const notice = this.container.querySelector<HTMLElement>('#scouting-notice');
+    if (!notice) return;
+    
+    // Show notice if pitching mode and no scouting data
+    if (this.mode === 'pitchers' && this.scoutingRatings.length === 0) {
+        notice.style.display = 'block';
+    } else {
+        notice.style.display = 'none';
+    }
   }
 
   private updateScoutingStatus(): void {
-    const status = this.container.querySelector<HTMLElement>('#scouting-upload-status');
-    if (!status) return;
-
-    const total = this.scoutingRatings.length;
-    if (total === 0) {
-      status.textContent = 'No scouting data loaded for this year.';
-      return;
-    }
-
-    if (this.mode !== 'pitchers') {
-      status.textContent = `Loaded ${total} players. Switch to pitchers to match.`;
-      return;
-    }
-
-    if (this.stats.length === 0) {
-      status.textContent = `Loaded ${total} players. Waiting for pitcher stats to match.`;
-      return;
-    }
-
-    const summary = this.matchScoutingToPitchers(this.scoutingRatings, this.stats as PitcherRow[]);
-    this.missingPitchers = summary.missingPitchersList;
-    const missingCount = summary.missingPitchers;
-    const missingLabel = missingCount > 0
-      ? `<button type="button" class="btn-link" id="missing-scouting-link">${missingCount}</button>`
-      : `${missingCount}`;
-    status.innerHTML = `Loaded ${total} scouting rows. Matched ${summary.matchedPitchers}/${summary.totalPitchers} MLB pitchers; missing ${missingLabel}.`;
-    if (missingCount > 0) {
-      const link = status.querySelector<HTMLButtonElement>('#missing-scouting-link');
-      link?.addEventListener('click', () => this.showMissingModal());
-    }
-  }
-
-  private refreshAfterScoutingChange(): void {
-    this.updateScoutingUploadLabel();
-    this.updatePitcherColumns();
-    if (this.mode === 'pitchers' && this.showTrueRatings) {
-      this.fetchAndRenderStats();
-      return;
-    }
-    this.updateScoutingStatus();
-    this.renderStats();
-  }
-
-  private showMissingModal(): void {
-    const overlay = this.container.querySelector<HTMLElement>('#scouting-missing-modal');
-    const body = this.container.querySelector<HTMLElement>('#scouting-missing-body');
-    if (!overlay || !body) return;
-
-    if (this.missingPitchers.length === 0) {
-      body.innerHTML = '<p class="no-results">No missing pitchers.</p>';
-    } else {
-      const rows = this.missingPitchers.map((pitcher) => `
-        <tr>
-          <td>${pitcher.playerId}</td>
-          <td>${this.escapeHtml(pitcher.playerName)}</td>
-        </tr>
-      `).join('');
-
-      body.innerHTML = `
-        <p class="missing-note">The following players were not in your scouting file. It's likely they've retired.</p>
-        <div class="table-wrapper">
-          <table class="stats-table">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Name</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
-        </div>
-      `;
-    }
-
-    overlay.classList.add('visible');
-    overlay.setAttribute('aria-hidden', 'false');
-  }
-
-  private hideMissingModal(): void {
-    const overlay = this.container.querySelector<HTMLElement>('#scouting-missing-modal');
-    if (!overlay) return;
-    overlay.classList.remove('visible');
-    overlay.setAttribute('aria-hidden', 'true');
-  }
-
-  private matchScoutingToPitchers(
-    scoutingRatings: PitcherScoutingRatings[],
-    pitchers: PitcherRow[]
-  ): ScoutingMatchSummary {
-    const lookup = this.buildScoutingLookup(scoutingRatings);
-    let matchedPitchers = 0;
-    const missingPitchersList: MissingPitcher[] = [];
-
-    pitchers.forEach((pitcher) => {
-      const scouting = this.resolveScoutingRating(pitcher, lookup);
-      if (scouting) {
-        matchedPitchers += 1;
-      } else {
-        missingPitchersList.push({ playerId: pitcher.player_id, playerName: pitcher.playerName });
-      }
-    });
-
-    const totalPitchers = pitchers.length;
-    return {
-      totalPitchers,
-      matchedPitchers,
-      missingPitchers: Math.max(0, totalPitchers - matchedPitchers),
-      missingPitchersList,
-    };
-  }
-
-  private escapeHtml(text: string): string {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    // This function used to update the upload status text. 
+    // Now it primarily serves to check missing players if data exists, or trigger visibility updates.
+    this.updateScoutingUploadVisibility();
   }
 
   private ensureSortKeyForView(): void {
@@ -1199,11 +1115,31 @@ export class TrueRatingsView {
     const row = this.playerRowLookup.get(playerId);
     if (!row) return;
 
-    const scouting = this.scoutingLookup?.byId.get(playerId);
+    const scouting = this.scoutingLookup ? this.resolveScoutingRating(row, this.scoutingLookup) : undefined;
+
+    // Fetch team info
+    const player = await playerService.getPlayerById(playerId);
+    let teamLabel = '';
+    let parentLabel = '';
+    
+    if (player) {
+      const team = await teamService.getTeamById(player.teamId);
+      if (team) {
+        teamLabel = `${team.name} ${team.nickname}`;
+        if (team.parentTeamId !== 0) {
+          const parent = await teamService.getTeamById(team.parentTeamId);
+          if (parent) {
+            parentLabel = parent.nickname;
+          }
+        }
+      }
+    }
 
     const profileData: PlayerProfileData = {
       playerId: row.player_id,
       playerName: row.playerName,
+      team: teamLabel,
+      parentTeam: parentLabel,
       trueRating: row.trueRating,
       percentile: row.percentile,
       estimatedStuff: row.estimatedStuff,
@@ -1215,5 +1151,29 @@ export class TrueRatingsView {
     };
 
     await this.playerProfileModal.show(profileData, this.selectedYear);
+  }
+
+  private updateTeamOptions(): void {
+    const select = this.container.querySelector<HTMLSelectElement>('#true-ratings-team');
+    if (!select) return;
+
+    const options = new Set<string>();
+    this.allStats.forEach(row => {
+      const teamInfo = row as TeamInfoFields;
+      if (!teamInfo.teamIsMajor) return;
+      const teamValue = teamInfo.teamFilter;
+      if (teamValue) options.add(teamValue);
+    });
+
+    this.teamOptions = Array.from(options).sort((a, b) => a.localeCompare(b));
+    if (this.selectedTeam !== 'all' && !this.teamOptions.includes(this.selectedTeam)) {
+      this.selectedTeam = 'all';
+    }
+
+    select.innerHTML = [
+      '<option value="all">All</option>',
+      ...this.teamOptions.map(team => `<option value="${team}">${team}</option>`)
+    ].join('');
+    select.value = this.selectedTeam;
   }
 }

@@ -1,7 +1,9 @@
 import './styles.css';
 import { Player } from './models';
 import { PlayerController } from './controllers';
-import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, PotentialStatsView, DraftBoardView, TrueRatingsView, RatingEstimatorView, FarmRankingsView, TeamRatingsView } from './views';
+import { teamService } from './services/TeamService';
+import { dateService } from './services/DateService';
+import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, PotentialStatsView, DraftBoardView, TrueRatingsView, RatingEstimatorView, FarmRankingsView, TeamRatingsView, DataManagementView } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
 
 class App {
@@ -31,8 +33,14 @@ class App {
 
     app.innerHTML = `
       <header class="app-header">
-        <h1 class="app-title">WBL Stats</h1>
-        <p class="app-subtitle">World Baseball League Player Statistics</p>
+        <div class="app-header-main">
+          <h1 class="app-title">True Ratings</h1>
+          <p class="app-subtitle">World Baseball League</p>
+        </div>
+        <div class="app-header-date">
+          <span class="game-date-label">Game Date</span>
+          <span class="game-date-value" id="game-date">Loading...</span>
+        </div>
       </header>
 
       <nav class="tabs">
@@ -63,6 +71,10 @@ class App {
         <button class="tab-button" data-tab-target="tab-team-ratings">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           <span>Team Ratings</span>
+        </button>
+        <button class="tab-button" data-tab-target="tab-data-management">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
+          <span>Data Management</span>
         </button>
       </nav>
 
@@ -97,6 +109,10 @@ class App {
         <section id="tab-team-ratings" class="tab-panel">
           <div id="team-ratings-container">Team Ratings Content Here</div>
         </section>
+
+        <section id="tab-data-management" class="tab-panel">
+          <div id="data-management-container"></div>
+        </section>
       </div>
       <div id="loading-container"></div>
     `;
@@ -112,6 +128,7 @@ class App {
     const trueRatingsContainer = document.querySelector<HTMLElement>('#true-ratings-container')!;
     const farmRankingsContainer = document.querySelector<HTMLElement>('#farm-rankings-container')!;
     const teamRatingsContainer = document.querySelector<HTMLElement>('#team-ratings-container')!;
+    const dataManagementContainer = document.querySelector<HTMLElement>('#data-management-container')!;
     const loadingContainer = document.querySelector<HTMLElement>('#loading-container')!;
     const errorContainer = document.querySelector<HTMLElement>('#error-container')!;
 
@@ -133,6 +150,7 @@ class App {
     new TrueRatingsView(trueRatingsContainer);
     new FarmRankingsView(farmRankingsContainer);
     new TeamRatingsView(teamRatingsContainer);
+    new DataManagementView(dataManagementContainer);
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
   }
@@ -181,6 +199,7 @@ class App {
           result.player,
           result.pitchingStats,
           result.battingStats,
+          result.minorLeagueStats,
           result.year
         );
         // Clear player list after selection
@@ -223,6 +242,40 @@ class App {
   private preloadPlayers(): void {
     // Preload player list in background for faster searches
     this.controller.preloadPlayers();
+    // Preload team data
+    teamService.getAllTeams().catch(err => console.error('Failed to preload teams', err));
+    // Preload current game date and display it
+    dateService.getCurrentDate()
+      .then(date => this.updateGameDateDisplay(date))
+      .catch(err => {
+        console.error('Failed to fetch game date', err);
+        this.updateGameDateDisplay('', true);
+      });
+  }
+
+  private updateGameDateDisplay(dateStr: string, isError = false): void {
+    const dateEl = document.getElementById('game-date');
+    if (!dateEl) return;
+
+    if (isError) {
+      dateEl.textContent = 'Unavailable';
+      dateEl.classList.add('game-date-error');
+      return;
+    }
+
+    // Format the date nicely (e.g., "Jan 24, 2026")
+    try {
+      const [year, month, day] = dateStr.split('-').map(Number);
+      const date = new Date(year, month - 1, day);
+      const formatted = date.toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+      });
+      dateEl.textContent = formatted;
+    } catch {
+      dateEl.textContent = dateStr;
+    }
   }
 }
 

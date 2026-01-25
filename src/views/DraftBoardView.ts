@@ -713,25 +713,34 @@ export class DraftBoardView {
     }).join('');
 
     return `
-      <tr class="draft-row rating-row" draggable="true" data-index="${displayIndex}">
-        <td class="${rankClass}">${rank}.</td>
-        <td class="player-cell player-name">
+      <tr class="draft-row rating-row" data-index="${displayIndex}">
+        <td class="${rankClass} drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
+          ${rank}.
+        </td>
+        <td class="player-cell player-name drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
           <div class="cell-label" data-sort-key="name">Name</div>
           <div class="cell-value">${this.escape(row.name)}</div>
         </td>
-        <td class="details-cell">
+        <td class="details-cell drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
           <div class="grid rating-grid ${this.preferences.hidePitchRatings ? 'pitches-hidden' : ''}">
             ${ratingCells}
           </div>
         </td>
       </tr>
-      <tr class="draft-row projection-row" draggable="true" data-index="${displayIndex}">
-        <td></td>
-        <td class="player-cell projection-label">
+      <tr class="draft-row projection-row" data-index="${displayIndex}">
+        <td class="drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
+        </td>
+        <td class="player-cell projection-label drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
           <div class="cell-label">Projected</div>
           <div class="cell-value">Stats</div>
         </td>
-        <td class="details-cell">
+        <td class="details-cell drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
           <div class="grid projection-grid">
             ${projectionCells}
           </div>
@@ -760,13 +769,18 @@ export class DraftBoardView {
     }).join('');
 
     return `
-      <tr class="draft-row rating-row" draggable="true" data-index="${displayIndex}">
-        <td class="${rankClass}">${rank}.</td>
-        <td class="player-cell player-name">
+      <tr class="draft-row rating-row" data-index="${displayIndex}">
+        <td class="${rankClass} drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
+          ${rank}.
+        </td>
+        <td class="player-cell player-name drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
           <div class="cell-label" data-hitter-sort="name">Name</div>
           <div class="cell-value">${this.escape(row.name)}</div>
         </td>
-        <td class="details-cell">
+        <td class="details-cell drag-cell">
+          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
           <div class="grid rating-grid">
             ${ratingCells}
           </div>
@@ -811,75 +825,162 @@ export class DraftBoardView {
       });
     });
   }
-  private bindPitcherDragAndDrop(): void {
-    const rows = this.container.querySelectorAll<HTMLTableRowElement>('#draft-results .draft-row');
-    let dragIndex: number | null = null;
+  private createDropPlaceholder(): HTMLTableRowElement {
+    const placeholder = document.createElement('tr');
+    placeholder.className = 'draft-placeholder';
+    placeholder.innerHTML = `
+      <td colspan="3">
+        <div class="placeholder-box">Drop here</div>
+      </td>
+    `;
+    return placeholder;
+  }
 
-    rows.forEach((row) => {
-      row.addEventListener('dragstart', (e) => {
-        dragIndex = Number(row.dataset.index);
-        row.classList.add('dragging');
-        e.dataTransfer?.setData('text/plain', String(dragIndex));
-        e.dataTransfer?.setDragImage(row, 10, 10);
+  private bindPitcherDragAndDrop(): void {
+    const overlays = this.container.querySelectorAll<HTMLDivElement>('#draft-results .drag-overlay');
+    const rows = this.container.querySelectorAll<HTMLTableRowElement>('#draft-results .draft-row.rating-row');
+    let dragIndex: number | null = null;
+    let placeholder: HTMLTableRowElement | null = null;
+    let currentTarget: HTMLTableRowElement | null = null;
+    let draggedRow: HTMLTableRowElement | null = null;
+
+    const removePlaceholder = () => {
+      if (placeholder && placeholder.parentNode) {
+        placeholder.parentNode.removeChild(placeholder);
+      }
+      placeholder = null;
+      currentTarget = null;
+    };
+
+    // Bind drag start to overlays
+    overlays.forEach((overlay) => {
+      overlay.addEventListener('dragstart', (e) => {
+        dragIndex = Number(overlay.dataset.index);
+        const row = overlay.closest('tr') as HTMLTableRowElement;
+        draggedRow = row.classList.contains('rating-row') ? row : row.previousElementSibling as HTMLTableRowElement;
+
+        if (draggedRow) {
+          draggedRow.classList.add('dragging');
+          const nextRow = draggedRow.nextElementSibling;
+          if (nextRow?.classList.contains('projection-row')) {
+            nextRow.classList.add('dragging');
+          }
+          e.dataTransfer?.setData('text/plain', String(dragIndex));
+          e.dataTransfer?.setDragImage(draggedRow, 10, 10);
+        }
       });
 
+      overlay.addEventListener('dragend', () => {
+        if (draggedRow) {
+          draggedRow.classList.remove('dragging');
+          const nextRow = draggedRow.nextElementSibling;
+          if (nextRow?.classList.contains('projection-row')) {
+            nextRow.classList.remove('dragging');
+          }
+        }
+        draggedRow = null;
+        removePlaceholder();
+      });
+    });
+
+    // Bind dragover/drop to rating rows
+    rows.forEach((row) => {
       row.addEventListener('dragover', (e) => {
         e.preventDefault();
-        row.classList.add('drag-over');
-      });
+        if (currentTarget === row) return;
 
-      row.addEventListener('dragleave', () => {
-        row.classList.remove('drag-over');
+        removePlaceholder();
+        currentTarget = row;
+        placeholder = this.createDropPlaceholder();
+        row.parentNode?.insertBefore(placeholder, row);
       });
 
       row.addEventListener('drop', (e) => {
         e.preventDefault();
-        row.classList.remove('drag-over');
+        removePlaceholder();
         const targetIndex = Number(row.dataset.index);
         if (dragIndex === null || Number.isNaN(targetIndex)) return;
         this.reorderPitchers(dragIndex, targetIndex);
         dragIndex = null;
       });
+    });
 
-      row.addEventListener('dragend', () => {
-        row.classList.remove('dragging');
-      });
+    // Handle dragover on the table body to catch drops between rows
+    const tbody = this.container.querySelector<HTMLTableSectionElement>('#draft-results tbody');
+    tbody?.addEventListener('dragleave', (e) => {
+      const relatedTarget = e.relatedTarget as Node | null;
+      if (!relatedTarget || !tbody.contains(relatedTarget)) {
+        removePlaceholder();
+      }
     });
   }
 
   private bindHitterDragAndDrop(): void {
+    const overlays = this.container.querySelectorAll<HTMLDivElement>('#hitter-results .drag-overlay');
     const rows = this.container.querySelectorAll<HTMLTableRowElement>('#hitter-results .draft-row');
     let dragIndex: number | null = null;
+    let placeholder: HTMLTableRowElement | null = null;
+    let currentTarget: HTMLTableRowElement | null = null;
+    let draggedRow: HTMLTableRowElement | null = null;
 
-    rows.forEach((row) => {
-      row.addEventListener('dragstart', (e) => {
-        dragIndex = Number(row.dataset.index);
-        row.classList.add('dragging');
-        e.dataTransfer?.setData('text/plain', String(dragIndex));
-        e.dataTransfer?.setDragImage(row, 10, 10);
+    const removePlaceholder = () => {
+      if (placeholder && placeholder.parentNode) {
+        placeholder.parentNode.removeChild(placeholder);
+      }
+      placeholder = null;
+      currentTarget = null;
+    };
+
+    // Bind drag start to overlays
+    overlays.forEach((overlay) => {
+      overlay.addEventListener('dragstart', (e) => {
+        dragIndex = Number(overlay.dataset.index);
+        draggedRow = overlay.closest('tr') as HTMLTableRowElement;
+
+        if (draggedRow) {
+          draggedRow.classList.add('dragging');
+          e.dataTransfer?.setData('text/plain', String(dragIndex));
+          e.dataTransfer?.setDragImage(draggedRow, 10, 10);
+        }
       });
 
+      overlay.addEventListener('dragend', () => {
+        if (draggedRow) {
+          draggedRow.classList.remove('dragging');
+        }
+        draggedRow = null;
+        removePlaceholder();
+      });
+    });
+
+    // Bind dragover/drop to rows
+    rows.forEach((row) => {
       row.addEventListener('dragover', (e) => {
         e.preventDefault();
-        row.classList.add('drag-over');
-      });
+        if (currentTarget === row) return;
 
-      row.addEventListener('dragleave', () => {
-        row.classList.remove('drag-over');
+        removePlaceholder();
+        currentTarget = row;
+        placeholder = this.createDropPlaceholder();
+        row.parentNode?.insertBefore(placeholder, row);
       });
 
       row.addEventListener('drop', (e) => {
         e.preventDefault();
-        row.classList.remove('drag-over');
+        removePlaceholder();
         const targetIndex = Number(row.dataset.index);
         if (dragIndex === null || Number.isNaN(targetIndex)) return;
         this.reorderHitters(dragIndex, targetIndex);
         dragIndex = null;
       });
+    });
 
-      row.addEventListener('dragend', () => {
-        row.classList.remove('dragging');
-      });
+    const tbody = this.container.querySelector<HTMLTableSectionElement>('#hitter-results tbody');
+    tbody?.addEventListener('dragleave', (e) => {
+      const relatedTarget = e.relatedTarget as Node | null;
+      if (!relatedTarget || !tbody.contains(relatedTarget)) {
+        removePlaceholder();
+      }
     });
   }
 

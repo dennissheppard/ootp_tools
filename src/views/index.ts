@@ -9,5 +9,6 @@ export * from './TrueRatingsView';
 export * from './RatingEstimatorView';
 export * from './FarmRankingsView';
 export * from './TeamRatingsView';
+export * from './DataManagementView';
 export * from './PlayerRatingsCard';
 export * from './PlayerProfileModal';

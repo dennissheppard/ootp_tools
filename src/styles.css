@@ -40,8 +40,14 @@ body {
 
 /* Header */
 .app-header {
-  text-align: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   margin-bottom: 2rem;
+}
+
+.app-header-main {
+  text-align: left;
 }
 
 .app-title {
@@ -55,6 +61,32 @@ body {
   font-size: 1rem;
   color: var(--color-text-muted);
   margin: 0;
+}
+
+.app-header-date {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.game-date-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.game-date-value {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.game-date-value.game-date-error {
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 /* Tabs */
@@ -338,14 +370,38 @@ body {
 
 .draft-row {
   transition: background-color 0.15s, transform 0.16s ease;
-  cursor: grab;
 }
 
-.draft-row:active {
+.drag-cell {
+  position: relative;
+}
+
+.drag-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  cursor: grab;
+  z-index: 1;
+}
+
+.drag-overlay:active {
   cursor: grabbing;
 }
 
+.draft-row .cell-label,
+.draft-row .cell-value,
+.draft-row .grid {
+  position: relative;
+  z-index: 2;
+}
+
 .draft-row.rating-row {
+  border-bottom: none;
+}
+
+.draft-row.rating-row td {
   border-bottom: none;
 }
 
@@ -377,11 +433,7 @@ body {
 }
 
 .draft-row.dragging {
-  opacity: 0.6;
-}
-
-.draft-row.drag-over {
-  outline: 2px dashed var(--color-primary);
+  opacity: 0.4;
 }
 
 .draft-row button.cell-label {
@@ -407,7 +459,6 @@ body {
 
 .grid {
   display: flex;
-  flex-wrap: wrap;
   gap: 0.33rem;
 }
 
@@ -460,26 +511,31 @@ body {
 .rating-elite {
   background: linear-gradient(135deg, rgba(29, 155, 240, 0.25), rgba(29, 155, 240, 0.12));
   border-color: rgba(29, 155, 240, 0.5);
+  --rating-color: rgba(29, 155, 240, 0.85);
 }
 
 .rating-plus {
   background: linear-gradient(135deg, rgba(0, 186, 124, 0.22), rgba(0, 186, 124, 0.1));
   border-color: rgba(0, 186, 124, 0.45);
+  --rating-color: rgba(0, 186, 124, 0.85);
 }
 
 .rating-avg {
   background: linear-gradient(135deg, rgba(255, 193, 7, 0.2), rgba(255, 193, 7, 0.1));
   border-color: rgba(255, 193, 7, 0.35);
+  --rating-color: rgba(255, 193, 7, 0.85);
 }
 
 .rating-fringe {
   background: linear-gradient(135deg, rgba(244, 162, 97, 0.2), rgba(244, 162, 97, 0.1));
   border-color: rgba(244, 162, 97, 0.35);
+  --rating-color: rgba(244, 162, 97, 0.85);
 }
 
 .rating-poor {
   background: linear-gradient(135deg, rgba(244, 33, 46, 0.2), rgba(244, 33, 46, 0.1));
   border-color: rgba(244, 33, 46, 0.4);
+  --rating-color: rgba(244, 33, 46, 0.85);
 }
 
 .sort-active {
@@ -693,6 +749,15 @@ body {
   gap: 0.5rem;
 }
 
+.profile-header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 /* Stats section */
 .stats-section {
   margin-bottom: 1.5rem;
@@ -834,7 +899,9 @@ td.player-cell.player-name {
 }
 
 .stats-table th:first-child,
-.stats-table td:first-child {
+.stats-table td:first-child,
+.stats-table th[data-col-key="teamDisplay"],
+.stats-table td[data-col-key="teamDisplay"] {
   text-align: left;
 }
 
@@ -1418,6 +1485,10 @@ td.player-cell.player-name {
   gap: 0.75rem;
 }
 
+.ratings-header-slot {
+  margin-left: auto;
+}
+
 .profile-title-group {
   display: flex;
   flex-direction: column;
@@ -1456,6 +1527,10 @@ td.player-cell.player-name {
   margin-bottom: 1rem;
 }
 
+.profile-header .ratings-card-header {
+  margin-bottom: 0;
+}
+
 .ratings-card-meta {
   display: flex;
   flex-direction: column;
@@ -1466,6 +1541,68 @@ td.player-cell.player-name {
   font-size: 1.25rem;
   padding: 0.375rem 0.75rem;
 }
+
+.rating-emblem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.75rem 0.5rem;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 10px 18px rgba(0, 0, 0, 0.28);
+  min-width: 170px;
+}
+
+.rating-emblem-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.rating-emblem-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--rating-color);
+}
+
+.rating-emblem-meta {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  text-align: right;
+}
+
+.rating-emblem-body {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.65rem;
+}
+
+.rating-emblem-bar {
+  height: 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.rating-emblem-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--rating-color), rgba(255, 255, 255, 0.2));
+  box-shadow: inset 0 0 6px rgba(0, 0, 0, 0.35);
+}
+
+.rating-emblem-score {
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--color-text);
+  letter-spacing: 0.02em;
+}
+
 
 /* Ratings Comparison Bars */
 .ratings-comparison {
@@ -1508,11 +1645,61 @@ td.player-cell.player-name {
 }
 
 .bar-estimated {
-  background: linear-gradient(90deg, var(--color-primary), rgba(29, 155, 240, 0.6));
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0));
 }
 
 .bar-scout {
-  background: linear-gradient(90deg, var(--color-success), rgba(0, 186, 124, 0.6));
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.bar.rating-elite {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.38), rgba(255, 255, 255, 0)),
+    linear-gradient(90deg, rgba(29, 155, 240, 0.8), rgba(29, 155, 240, 0.35));
+}
+
+.bar.rating-plus {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.32), rgba(255, 255, 255, 0)),
+    linear-gradient(90deg, rgba(0, 186, 124, 0.75), rgba(0, 186, 124, 0.3));
+}
+
+.bar.rating-avg {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0)),
+    linear-gradient(90deg, rgba(255, 193, 7, 0.7), rgba(255, 193, 7, 0.3));
+}
+
+.bar.rating-fringe {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0)),
+    linear-gradient(90deg, rgba(244, 162, 97, 0.7), rgba(244, 162, 97, 0.3));
+}
+
+.bar.rating-poor {
+  background-image: linear-gradient(90deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0)),
+    linear-gradient(90deg, rgba(244, 33, 46, 0.75), rgba(244, 33, 46, 0.35));
+}
+
+.bar-scout.rating-elite {
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0)),
+    linear-gradient(90deg, rgba(29, 155, 240, 0.45), rgba(29, 155, 240, 0.18));
+}
+
+.bar-scout.rating-plus {
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0)),
+    linear-gradient(90deg, rgba(0, 186, 124, 0.42), rgba(0, 186, 124, 0.18));
+}
+
+.bar-scout.rating-avg {
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0)),
+    linear-gradient(90deg, rgba(255, 193, 7, 0.4), rgba(255, 193, 7, 0.18));
+}
+
+.bar-scout.rating-fringe {
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0)),
+    linear-gradient(90deg, rgba(244, 162, 97, 0.4), rgba(244, 162, 97, 0.18));
+}
+
+.bar-scout.rating-poor {
+  background-image: linear-gradient(90deg, rgba(0, 0, 0, 0.18), rgba(0, 0, 0, 0)),
+    linear-gradient(90deg, rgba(244, 33, 46, 0.42), rgba(244, 33, 46, 0.18));
 }
 
 .bar-value {
@@ -1662,6 +1849,57 @@ td.player-cell.player-name {
   padding: 0.5rem 0.625rem;
 }
 
+/* Level badges for minor league stats */
+.level-badge {
+  display: inline-block;
+  padding: 0.125rem 0.375rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.level-mlb {
+  background-color: rgba(29, 155, 240, 0.2);
+  color: var(--color-primary);
+}
+
+.level-aaa {
+  background-color: rgba(0, 186, 124, 0.2);
+  color: var(--color-success);
+}
+
+.level-aa {
+  background-color: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+}
+
+.level-a {
+  background-color: rgba(255, 152, 0, 0.2);
+  color: #ff9800;
+}
+
+.level-r {
+  background-color: rgba(156, 39, 176, 0.2);
+  color: #ba68c8;
+}
+
+/* Minor league row styling */
+.minor-league-row {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+.minor-league-row:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* N/A cell for unavailable stats */
+.stat-na {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 /* Player Name Link */
 .player-name-link {
   background: none;
@@ -1683,6 +1921,20 @@ td.player-cell.player-name {
 @media (max-width: 640px) {
   #app {
     padding: 1rem;
+  }
+
+  .app-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .app-header-main {
+    text-align: center;
+  }
+
+  .app-header-date {
+    align-items: center;
   }
 
   .app-title {
@@ -1871,6 +2123,81 @@ td.player-cell.player-name {
         grid-template-columns: 1fr;
     }
 }
+
+/* Flip card effect for stats */
+.flip-cell {
+  perspective: 1000px;
+  width: 50px;
+  height: 24px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.flip-cell-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  text-align: center;
+  transition: transform 0.6s;
+  transform-style: preserve-3d;
+}
+
+.flip-cell:hover .flip-cell-inner {
+  transform: rotateY(180deg);
+}
+
+.flip-cell-front, .flip-cell-back {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end; /* Align right like numbers */
+}
+
+.flip-cell-back {
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  transform: rotateY(180deg);
+  font-weight: 700;
+  justify-content: center; /* Center the rating */
+  border-radius: 4px;
+  box-shadow: 0 0 4px rgba(0,0,0,0.5); /* Pop out a bit */
+}
+
+.flip-tooltip {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  background-color: rgba(15, 20, 25, 0.95);
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  z-index: 10;
+  font-weight: 500;
+  text-transform: none;
+  line-height: 1.2;
+}
+
+.flip-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  margin-left: -4px;
+  border-width: 4px;
+  border-style: solid;
+  border-color: rgba(15, 20, 25, 0.95) transparent transparent transparent;
+}
+
 .derived-stats-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
@@ -1901,4 +2228,47 @@ td.player-cell.player-name {
     font-size: 1.5rem;
     font-weight: 700;
     color: var(--color-primary);
+}
+
+/* Team Info */
+.player-team-info {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.parent-org, .player-parent-org {
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.player-team-display {
+  width: 100%;
+  font-size: 1.1rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.minor-team {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  margin-left: 0.25rem;
+}
+
+.ratings-help-text {
+  margin-bottom: 0.5rem;
+  text-align: right;
+  max-width: 450px;
+  margin-left: auto;
+}
+
+.ratings-help-text p {
+  margin: 0;
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  line-height: 1.3;
 }

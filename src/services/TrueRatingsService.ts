@@ -606,27 +606,31 @@ class TrueRatingsService {
 
     // If no cached data found, fall back to StatsService API call
     if (results.length === 0) {
-      const apiStats = await statsService.getPitchingStats(playerId);
+      try {
+        const apiStats = await statsService.getPitchingStats(playerId);
 
-      // Filter to split_id === 1 (combined stats, not vs LHB/RHB splits)
-      // and to requested year range
-      const filteredStats = apiStats
-        .filter(s => s.splitId === 1 && years.includes(s.year))
-        .sort((a, b) => b.year - a.year);
+        // Filter to split_id === 1 (combined stats, not vs LHB/RHB splits)
+        // and to requested year range
+        const filteredStats = apiStats
+          .filter(s => s.splitId === 1 && years.includes(s.year))
+          .sort((a, b) => b.year - a.year);
 
-      for (const stat of filteredStats) {
-        const ip = stat.ip;
-        if (ip > 0) {
-          results.push({
-            year: stat.year,
-            ip: Math.round(ip * 10) / 10,
-            era: Math.round(stat.era * 100) / 100,
-            k9: Math.round(stat.k9 * 100) / 100,
-            bb9: Math.round(stat.bb9 * 100) / 100,
-            hr9: ip > 0 ? Math.round((stat.hr / ip) * 9 * 100) / 100 : 0,
-            war: Math.round(stat.war * 10) / 10,
-          });
+        for (const stat of filteredStats) {
+          const ip = stat.ip;
+          if (ip > 0) {
+            results.push({
+              year: stat.year,
+              ip: Math.round(ip * 10) / 10,
+              era: Math.round(stat.era * 100) / 100,
+              k9: Math.round(stat.k9 * 100) / 100,
+              bb9: Math.round(stat.bb9 * 100) / 100,
+              hr9: ip > 0 ? Math.round((stat.hr / ip) * 9 * 100) / 100 : 0,
+              war: Math.round(stat.war * 10) / 10,
+            });
+          }
         }
+      } catch (error) {
+        console.warn(`Could not fetch fallback stats for player ${playerId}:`, error);
       }
     }
 

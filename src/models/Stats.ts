@@ -81,3 +81,34 @@ export function isPitchingStats(stats: Stats): stats is PitchingStats {
 export function isBattingStats(stats: Stats): stats is BattingStats {
   return 'avg' in stats && 'obp' in stats;
 }
+
+export interface MinorLeagueStats {
+  id: number; // Player ID
+  name: string;
+  ip: number;
+  hr: number;
+  bb: number;
+  k: number;
+  hr9: number;
+  bb9: number;
+  k9: number;
+}
+
+export type MinorLeagueLevel = 'aaa' | 'aa' | 'a' | 'r';
+
+export interface MinorLeagueStatsWithLevel extends MinorLeagueStats {
+  year: number;
+  level: MinorLeagueLevel;
+}
+
+/**
+ * Get display label for a minor league level
+ */
+export function getLevelLabel(level: MinorLeagueLevel): string {
+  switch (level) {
+    case 'aaa': return 'AAA';
+    case 'aa': return 'AA';
+    case 'a': return 'A';
+    case 'r': return 'R';
+  }
+}

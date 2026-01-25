@@ -1,9 +1,10 @@
 import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Player';
-import { PitchingStats, BattingStats } from '../models/Stats';
+import { PitchingStats, BattingStats, MinorLeagueStatsWithLevel } from '../models/Stats';
 import { trueRatingsService } from '../services/TrueRatingsService';
 import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
 import { scoutingDataService } from '../services/ScoutingDataService';
-import { PlayerRatingsCard, PlayerRatingsData } from './PlayerRatingsCard';
+import { teamService } from '../services/TeamService';
+import { PlayerRatingsCard, PlayerRatingsData, SeasonStatsRow } from './PlayerRatingsCard';
 
 export interface SendToEstimatorPayload {
   k9: number;
@@ -32,6 +33,7 @@ export class StatsView {
     player: Player,
     pitchingStats: PitchingStats[],
     battingStats: BattingStats[],
+    minorLeagueStats: MinorLeagueStatsWithLevel[],
     year?: number
   ): Promise<void> {
     this.selectedPitchingIndex = null;
@@ -39,6 +41,21 @@ export class StatsView {
 
     const yearDisplay = year ? ` (${year})` : ' (All Years)';
     const posLabel = getPositionLabel(player.position);
+
+    // Fetch team info
+    const team = await teamService.getTeamById(player.teamId);
+    let teamLabel = '';
+    let parentLabel = '';
+    
+    if (team) {
+      teamLabel = `${team.name} ${team.nickname}`;
+      if (team.parentTeamId !== 0) {
+        const parent = await teamService.getTeamById(team.parentTeamId);
+        if (parent) {
+          parentLabel = parent.nickname;
+        }
+      }
+    }
 
     // Filter to only show split_id === 1 (total stats) for clarity
     const mainPitching = pitchingStats.filter((s) => s.splitId === 1);
@@ -48,42 +65,103 @@ export class StatsView {
 
     // Determine year for ratings lookup
     // If a specific year was requested, use that; otherwise use the most recent year from stats
+    // If no stats, default to 2020 (current league year context)
     const ratingsYear = year
-      ?? (mainPitching.length > 0 ? Math.max(...mainPitching.map(s => s.year)) : new Date().getFullYear());
+      ?? (mainPitching.length > 0 ? Math.max(...mainPitching.map(s => s.year)) : 2020);
 
     // Get True Rating data for pitchers
     let ratingsData: PlayerRatingsData | null = null;
-    if (isPitcher(player) && mainPitching.length > 0) {
+    if (isPitcher(player)) {
       ratingsData = await this.fetchPlayerRatings(player.id, playerName, ratingsYear);
+      if (ratingsData) {
+        ratingsData.team = teamLabel;
+        ratingsData.parentTeam = parentLabel;
+      }
     }
 
-    const pitchingTable = mainPitching.length > 0
-      ? this.renderPitchingTable(mainPitching, showSendToEstimator)
+    // Fetch MLB yearly stats and merge with minor league stats
+    const mlbYearlyStats = isPitcher(player)
+      ? await trueRatingsService.getPlayerYearlyStats(player.id, ratingsYear, 5)
+      : [];
+
+    // Convert MLB stats to SeasonStatsRow with level
+    const mlbStatsWithLevel: SeasonStatsRow[] = mlbYearlyStats.map(s => ({ ...s, level: 'MLB' as const }));
+
+    // Convert minor league stats to SeasonStatsRow format
+    const minorStatsConverted: SeasonStatsRow[] = minorLeagueStats.map(s => ({
+      year: s.year,
+      level: s.level,
+      ip: s.ip,
+      era: 0, // Not available for minor league stats
+      k9: s.k9,
+      bb9: s.bb9,
+      hr9: s.hr9,
+      war: 0, // Not available for minor league stats
+    }));
+
+    // Merge and sort by year descending, then by level (MLB first within same year)
+    const levelOrder = { 'MLB': 0, 'aaa': 1, 'aa': 2, 'a': 3, 'r': 4 };
+    const yearlyPitchingStats: SeasonStatsRow[] = [...mlbStatsWithLevel, ...minorStatsConverted]
+      .sort((a, b) => {
+        if (a.year !== b.year) return b.year - a.year;
+        return (levelOrder[a.level || 'MLB'] || 0) - (levelOrder[b.level || 'MLB'] || 0);
+      });
+
+    const hasScouting = ratingsData ? PlayerRatingsCard.hasScoutingData(ratingsData) : false;
+    const hasMinorLeagueStats = minorStatsConverted.length > 0;
+
+    const sendAction = showSendToEstimator
+      ? `
+        <div class="stats-actions">
+          <button class="btn btn-secondary send-to-estimator" disabled>Send to Ratings Estimator</button>
+        </div>
+      `
+      : '';
+    const helpText = isPitcher(player) && yearlyPitchingStats.length > 0
+      ? `
+        <div class="ratings-help-text">
+          <p>* <strong>Estimated Ratings</strong> (visible when hovering over K/9, BB/9, HR/9) are snapshots based solely on that single stat. <strong>True Ratings</strong> use sophisticated multi-year analysis and regression.</p>
+        </div>
+      `
+      : '';
+    const pitchingTable = isPitcher(player)
+      ? `${helpText}${sendAction}${PlayerRatingsCard.renderSeasonStatsTable(yearlyPitchingStats, { selectable: showSendToEstimator, hasScouting, showLevel: hasMinorLeagueStats })}`
       : '';
     const battingTable = mainBatting.length > 0
       ? this.renderBattingTable(mainBatting)
       : '';
 
+    const ratingEmblem = ratingsData
+      ? PlayerRatingsCard.renderRatingEmblem(ratingsData)
+      : '';
     const ratingsCard = ratingsData
-      ? PlayerRatingsCard.renderInline(ratingsData, ratingsYear)
+      ? PlayerRatingsCard.renderInline(ratingsData, { includeHeader: false })
       : '';
 
     const noStats = !pitchingTable && !battingTable;
     const noStatsMessage = noStats
       ? `<p class="no-stats">No stats found for this player${yearDisplay}.</p>`
       : '';
+      
+    const teamDisplay = teamLabel 
+        ? `<div class="player-team-display">${teamLabel}${parentLabel ? ` <span class="player-parent-org">(${parentLabel})</span>` : ''}</div>` 
+        : '';
 
     this.container.innerHTML = `
       <div class="stats-container">
         <div class="profile-header profile-header-page">
           <div class="profile-title-group">
             <h2 class="player-title">${this.escapeHtml(playerName)}</h2>
+            ${teamDisplay}
             <span class="stats-period-label">Stats${yearDisplay}</span>
           </div>
-          <span class="player-badges">
-            <span class="badge badge-position">${posLabel}</span>
-            ${player.retired ? '<span class="badge badge-retired">Retired</span>' : ''}
-          </span>
+          <div class="profile-header-right">
+            <span class="player-badges">
+              <span class="badge badge-position">${posLabel}</span>
+              ${player.retired ? '<span class="badge badge-retired">Retired</span>' : ''}
+            </span>
+            ${ratingEmblem}
+          </div>
         </div>
         ${ratingsCard}
         ${noStatsMessage}
@@ -91,68 +169,72 @@ export class StatsView {
       </div>
     `;
 
-    if (showSendToEstimator) {
-      this.bindPitchingSelection(mainPitching, playerName);
+    if (showSendToEstimator && yearlyPitchingStats.length > 0) {
+      this.bindPitchingSelection(yearlyPitchingStats, playerName);
     }
 
     this.bindScoutUploadLink();
+    this.bindFlipCardLocking();
   }
 
   private async fetchPlayerRatings(playerId: number, playerName: string, year: number): Promise<PlayerRatingsData | null> {
     try {
+      // Get scouting data and build lookup. Use latest available data ("My Scout" preference).
+      const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+      const scoutingLookup = this.buildScoutingLookup(scoutingRatings);
+      const scoutMatch = this.resolveScoutingFromLookup(playerId, playerName, scoutingLookup);
+
       // Try to get True Rating from cached data
       const allPitchers = await trueRatingsService.getTruePitchingStats(year);
       const playerStats = allPitchers.find(p => p.player_id === playerId);
 
-      if (!playerStats) return null;
+      let playerResult: any = null;
 
-      const ip = trueRatingsService.parseIp(playerStats.ip);
-      if (ip < 10) return null; // Not enough IP
+      // Only calculate True Ratings if we have stats and enough IP
+      if (playerStats) {
+        const ip = trueRatingsService.parseIp(playerStats.ip);
+        if (ip >= 10) {
+          // Get multi-year stats and league averages for True Rating calculation
+          const [multiYearStats, leagueAverages] = await Promise.all([
+            trueRatingsService.getMultiYearPitchingStats(year, 3),
+            trueRatingsService.getLeagueAverages(year),
+          ]);
 
-      // Get multi-year stats and league averages for True Rating calculation
-      const [multiYearStats, leagueAverages] = await Promise.all([
-        trueRatingsService.getMultiYearPitchingStats(year, 3),
-        trueRatingsService.getLeagueAverages(year),
-      ]);
+          // Calculate True Rating with all pitchers for percentile ranking
+          // Include scouting data for ALL pitchers to match TrueRatingsView calculation
+          const allInputs = allPitchers
+            .map(p => {
+              const scouting = this.resolveScoutingFromLookup(p.player_id, p.playerName, scoutingLookup);
+              return {
+                playerId: p.player_id,
+                playerName: p.playerName,
+                yearlyStats: multiYearStats.get(p.player_id) ?? [],
+                scoutingRatings: scouting ? {
+                  playerId: p.player_id,
+                  playerName: p.playerName,
+                  stuff: scouting.stuff,
+                  control: scouting.control,
+                  hra: scouting.hra,
+                } : undefined,
+              };
+            });
 
-      // Get scouting data and build lookup (same as TrueRatingsView does)
-      const scoutingRatings = scoutingDataService.getScoutingRatings(year);
-      const scoutingLookup = this.buildScoutingLookup(scoutingRatings);
-      const scoutMatch = this.resolveScoutingFromLookup(playerId, playerName, scoutingLookup);
+          const results = trueRatingsCalculationService.calculateTrueRatings(allInputs, leagueAverages);
+          playerResult = results.find(r => r.playerId === playerId);
+        }
+      }
 
-      // Calculate True Rating with all pitchers for percentile ranking
-      // Include scouting data for ALL pitchers to match TrueRatingsView calculation
-      // Note: No IP filter here to match TrueRatingsView behavior
-      const allInputs = allPitchers
-        .map(p => {
-          const scouting = this.resolveScoutingFromLookup(p.player_id, p.playerName, scoutingLookup);
-          return {
-            playerId: p.player_id,
-            playerName: p.playerName,
-            yearlyStats: multiYearStats.get(p.player_id) ?? [],
-            scoutingRatings: scouting ? {
-              playerId: p.player_id,
-              playerName: p.playerName,
-              stuff: scouting.stuff,
-              control: scouting.control,
-              hra: scouting.hra,
-            } : undefined,
-          };
-        });
-
-      const results = trueRatingsCalculationService.calculateTrueRatings(allInputs, leagueAverages);
-      const playerResult = results.find(r => r.playerId === playerId);
-
-      if (!playerResult) return null;
+      // If we have neither calculated ratings nor scout opinions, return null
+      if (!playerResult && !scoutMatch) return null;
 
       return {
         playerId,
         playerName,
-        trueRating: playerResult.trueRating,
-        percentile: playerResult.percentile,
-        estimatedStuff: playerResult.estimatedStuff,
-        estimatedControl: playerResult.estimatedControl,
-        estimatedHra: playerResult.estimatedHra,
+        trueRating: playerResult?.trueRating,
+        percentile: playerResult?.percentile,
+        estimatedStuff: playerResult?.estimatedStuff,
+        estimatedControl: playerResult?.estimatedControl,
+        estimatedHra: playerResult?.estimatedHra,
         scoutStuff: scoutMatch?.stuff,
         scoutControl: scoutMatch?.control,
         scoutHra: scoutMatch?.hra,
@@ -220,80 +302,11 @@ export class StatsView {
 
     link.addEventListener('click', (e) => {
       e.preventDefault();
-      const trueRatingsTab = document.querySelector<HTMLElement>('[data-tab="true-ratings"]');
-      if (trueRatingsTab) {
-        trueRatingsTab.click();
+      const dataMgmtTab = document.querySelector<HTMLElement>('[data-tab-target="tab-data-management"]');
+      if (dataMgmtTab) {
+        dataMgmtTab.click();
       }
     });
-  }
-
-  private renderPitchingTable(stats: PitchingStats[], includeSendAction: boolean): string {
-    if (stats.length === 0) return '';
-
-    const rows = stats.map((s, index) => `
-      <tr class="pitching-row stats-row-selectable" data-index="${index}">
-        <td>${s.year}</td>
-        <td>${s.g}</td>
-        <td>${s.gs}</td>
-        <td>${s.w}</td>
-        <td>${s.l}</td>
-        <td>${s.sv}</td>
-        <td>${this.formatDecimal(s.ip, 1)}</td>
-        <td>${s.ha}</td>
-        <td>${s.er}</td>
-        <td>${s.bb}</td>
-        <td>${s.k}</td>
-        <td>${s.hr}</td>
-        <td>${this.formatDecimal(s.era, 2)}</td>
-        <td>${this.formatDecimal(s.whip, 2)}</td>
-        <td>${this.formatDecimal(s.k9, 1)}</td>
-        <td>${this.formatDecimal(s.war, 1)}</td>
-      </tr>
-    `).join('');
-
-    const actions = includeSendAction
-      ? `
-        <div class="stats-actions">
-          <button class="btn btn-secondary send-to-estimator" disabled>Send to Ratings Estimator</button>
-        </div>
-      `
-      : '';
-
-    return `
-      <div class="stats-section">
-        <div class="stats-section-header">
-          <h4 class="section-label">Pitching Statistics</h4>
-          ${actions}
-        </div>
-        <div class="table-wrapper">
-          <table class="stats-table">
-            <thead>
-              <tr>
-                <th>Year</th>
-                <th>G</th>
-                <th>GS</th>
-                <th>W</th>
-                <th>L</th>
-                <th>SV</th>
-                <th>IP</th>
-                <th>H</th>
-                <th>ER</th>
-                <th>BB</th>
-                <th>K</th>
-                <th>HR</th>
-                <th>ERA</th>
-                <th>WHIP</th>
-                <th>K/9</th>
-                <th>WAR</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
   }
 
   private renderBattingTable(stats: BattingStats[]): string {
@@ -379,7 +392,7 @@ export class StatsView {
     return div.innerHTML;
   }
 
-  private bindPitchingSelection(stats: PitchingStats[], playerName: string): void {
+  private bindPitchingSelection(stats: Array<{ year: number; ip: number; k9: number; bb9: number; hr9: number }>, playerName: string): void {
     const rows = Array.from(this.container.querySelectorAll<HTMLTableRowElement>('.pitching-row'));
     const sendBtn = this.container.querySelector<HTMLButtonElement>('.send-to-estimator');
 
@@ -399,15 +412,23 @@ export class StatsView {
       const stat = stats[this.selectedPitchingIndex];
       if (!stat) return;
 
-      const hr9 = stat.ip > 0 ? (stat.hr / stat.ip) * 9 : 0;
-
       this.onSendToEstimator?.({
         k9: stat.k9,
         bb9: stat.bb9,
-        hr9,
+        hr9: stat.hr9,
         ip: stat.ip,
         year: stat.year,
         playerName: playerName,
+      });
+    });
+  }
+
+  private bindFlipCardLocking(): void {
+    const cells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
+    cells.forEach((cell) => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        cell.classList.toggle('is-flipped');
       });
     });
   }

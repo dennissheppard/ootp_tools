@@ -1,6 +1,6 @@
-# WBL Stats - World Baseball League Player Statistics
+# True Ratings - An OOTP Utility to improve the ratings system
 
-A TypeScript/Vite web application for viewing baseball player statistics and calculating potential stats from OOTP (Out of the Park Baseball) ratings.
+A TypeScript/Vite web application for calculating ratings and potential stats from OOTP (Out of the Park Baseball).
 
 ## Tech Stack
 
@@ -40,13 +40,22 @@ src/
     ├── LeagueStatsService.ts # League-wide stats and FIP constant calculations
     ├── TrueRatingsService.ts # True Ratings data fetching and caching
     ├── TrueRatingsCalculationService.ts # True Rating calculation (percentile, blending)
-    └── ScoutingDataService.ts # Scouting CSV parsing and localStorage persistence
+    ├── ScoutingDataService.ts # Scouting CSV parsing and localStorage persistence
+    ├── MinorLeagueStatsService.ts # Minor league stats CSV parsing and localStorage persistence
+    └── DateService.ts        # Current game date fetching and caching
 ```
 
 ## Key Features
 
 ### 1. Player Search & Stats Display
 Search players and view their historical pitching/batting statistics.
+
+**Minor League Stats Integration**:
+- When viewing a pitcher's profile, the app automatically fetches minor league stats within 2 years of the current game date
+- Minor league stats are displayed interleaved with MLB stats, sorted by year (descending)
+- A "Level" column shows the league level (MLB, AAA, AA, A, R) with color-coded badges
+- ERA and WAR are shown as "—" for minor league stats (not available in uploaded data)
+- The current game date is fetched from `/api/date` and cached globally via `DateService`
 
 ### 2. True Ratings Explorer
 A new tab that provides a comprehensive view of player performance for a selected year, with separate views for pitchers and batters.
@@ -152,10 +161,38 @@ The estimator calculates FIP and WAR using the shared `FipWarService.ts` (same f
 -   **WAR** uses role-based parameters that automatically adjust based on IP (starters vs relievers).
 -   League constants (FIP constant, replacement FIP) can be loaded from `LeagueStatsService` for any year, with results cached in `localStorage`.
 
+### 6. Data Management
+A central hub for managing all offline data, including minor league statistics and scouting reports.
+
+**Tabs**:
+1.  **Minor League Stats**: Manage historical minor league data for projections.
+2.  **Scouting Reports**: Manage scouting data ("My Scout" and "OSA").
+
+**CSV Formats**:
+- **Stats**: `ID,Name,IP,HR,BB,K,HR/9,BB/9,K/9`
+- **Scouting**: `player_id, name, stuff, control, hra [, age]`
+
+**Features**:
+- **Multi-File Upload**: Batch upload multiple CSV files.
+- **Source Selection**: Toggle between "My Scout" and "OSA" for scouting data.
+- **Data Management**: View and delete stored data sets.
+
+**API Usage**:
+
+```typescript
+// Minor League Stats
+import { minorLeagueStatsService } from './services/MinorLeagueStatsService';
+const stats = minorLeagueStatsService.getStats(2021, 'aaa');
+
+// Scouting Data
+import { scoutingDataService } from './services/ScoutingDataService';
+const myRatings = scoutingDataService.getScoutingRatings(2021, 'my');
+const osaRatings = scoutingDataService.getScoutingRatings(2021, 'osa');
+```
+
 ## Tools Directory
 
 `tools/` contains Python utilities for data collection:
-
 ### `ocr_data_collector.py`
 Screen OCR tool for collecting OOTP rating/stat data points.
 - Define screen regions via click-drag

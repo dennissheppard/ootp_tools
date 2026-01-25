@@ -10,7 +10,7 @@ export class StatsService {
     }
 
     const response = await fetch(url);
-    if (response.status === 204 || response.status === 404) {
+    if (response.status === 204 || response.status === 404 || response.status === 500) {
       return [];
     }
     if (!response.ok) {
@@ -32,7 +32,7 @@ export class StatsService {
     }
 
     const response = await fetch(url);
-    if (response.status === 204 || response.status === 404) {
+    if (response.status === 204 || response.status === 404 || response.status === 500) {
       return [];
     }
     if (!response.ok) {

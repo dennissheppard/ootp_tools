@@ -1,5 +1,7 @@
-import { PlayerYearlyDetail, trueRatingsService } from '../services/TrueRatingsService';
-import { PlayerRatingsCard, PlayerRatingsData } from './PlayerRatingsCard';
+import { trueRatingsService } from '../services/TrueRatingsService';
+import { PlayerRatingsCard, PlayerRatingsData, SeasonStatsRow } from './PlayerRatingsCard';
+import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
+import { dateService } from '../services/DateService';
 
 export type { PlayerRatingsData as PlayerProfileData };
 
@@ -26,9 +28,9 @@ export class PlayerProfileModal {
           <div class="profile-header">
             <div class="profile-title-group">
               <h3 class="modal-title"></h3>
-              <span class="percentile-label"></span>
+              <div class="player-team-info"></div>
             </div>
-            <span class="badge"></span>
+            <div class="ratings-header-slot"></div>
           </div>
           <button class="modal-close" aria-label="Close">&times;</button>
         </div>
@@ -109,29 +111,19 @@ export class PlayerProfileModal {
     this.ensureOverlayExists();
     if (!this.overlay) return;
 
-    const hasScout = PlayerRatingsCard.hasScoutingData(data);
-
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
-    const percentileEl = this.overlay.querySelector<HTMLElement>('.percentile-label');
-    const badgeEl = this.overlay.querySelector<HTMLElement>('.profile-header .badge');
+    const teamEl = this.overlay.querySelector<HTMLElement>('.player-team-info');
+    const headerSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
 
     if (titleEl) titleEl.textContent = data.playerName;
-    if (percentileEl) {
-      percentileEl.textContent = typeof data.percentile === 'number'
-        ? `${PlayerRatingsCard.formatPercentile(data.percentile)} percentile`
-        : '';
+    if (teamEl) {
+      const teamInfo = PlayerRatingsCard.formatTeamInfo(data.team, data.parentTeam);
+      teamEl.innerHTML = teamInfo;
+      teamEl.style.display = teamInfo ? '' : 'none';
     }
-    if (badgeEl) {
-      if (typeof data.trueRating === 'number') {
-        const indicator = hasScout ? '' : '<span class="badge-indicator" title="Stats only">○</span>';
-        badgeEl.innerHTML = `${data.trueRating.toFixed(1)}${indicator}`;
-        badgeEl.className = `badge ${PlayerRatingsCard.getTrueRatingClass(data.trueRating)}`;
-        badgeEl.title = hasScout ? 'True Rating (with scouting)' : 'True Rating (stats only)';
-        badgeEl.style.display = '';
-      } else {
-        badgeEl.style.display = 'none';
-      }
+    if (headerSlot) {
+      headerSlot.innerHTML = PlayerRatingsCard.renderRatingEmblem(data);
     }
 
     // Show loading state
@@ -154,9 +146,46 @@ export class PlayerProfileModal {
 
     // Fetch stats and render
     try {
-      const stats = await trueRatingsService.getPlayerYearlyStats(data.playerId, selectedYear, 5);
+      const mlbStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, selectedYear, 5);
+
+      // Fetch minor league stats (within 2 years of current game date)
+      let combinedStats: SeasonStatsRow[] = mlbStats.map(s => ({ ...s, level: 'MLB' as const }));
+
+      try {
+        const currentYear = await dateService.getCurrentYear();
+        const startYear = currentYear - 2;
+        const endYear = currentYear;
+        const minorStats = minorLeagueStatsService.getPlayerStats(data.playerId, startYear, endYear);
+
+        // Convert minor league stats to SeasonStatsRow format
+        const minorStatsConverted: SeasonStatsRow[] = minorStats.map(s => ({
+          year: s.year,
+          level: s.level,
+          ip: s.ip,
+          era: 0,
+          k9: s.k9,
+          bb9: s.bb9,
+          hr9: s.hr9,
+          war: 0,
+        }));
+
+        // Merge and sort
+        const levelOrder = { 'MLB': 0, 'aaa': 1, 'aa': 2, 'a': 3, 'r': 4 };
+        combinedStats = [...combinedStats, ...minorStatsConverted]
+          .sort((a, b) => {
+            if (a.year !== b.year) return b.year - a.year;
+            return (levelOrder[a.level || 'MLB'] || 0) - (levelOrder[b.level || 'MLB'] || 0);
+          });
+      } catch (error) {
+        console.warn('Could not fetch minor league stats:', error);
+        // Continue with MLB stats only
+      }
+
       if (bodyEl) {
-        bodyEl.innerHTML = this.renderContent(data, stats, selectedYear);
+        const hasMinorLeague = combinedStats.some(s => s.level && s.level !== 'MLB');
+        bodyEl.innerHTML = this.renderContent(data, combinedStats, hasMinorLeague);
+        this.bindScoutUploadLink();
+        this.bindFlipCardLocking();
       }
     } catch (error) {
       if (bodyEl) {
@@ -185,58 +214,36 @@ export class PlayerProfileModal {
     }
   }
 
-  private renderContent(data: PlayerRatingsData, stats: PlayerYearlyDetail[], year: number): string {
+  private renderContent(data: PlayerRatingsData, stats: SeasonStatsRow[], showLevel: boolean): string {
     const hasScout = PlayerRatingsCard.hasScoutingData(data);
     return `
-      ${PlayerRatingsCard.renderRatingsComparison(data, hasScout, year)}
-      ${this.renderStatsTable(stats)}
+      ${PlayerRatingsCard.renderRatingsComparison(data, hasScout)}
+      ${PlayerRatingsCard.renderSeasonStatsTable(stats, { showLevel })}
     `;
   }
 
-  private renderStatsTable(stats: PlayerYearlyDetail[]): string {
-    if (stats.length === 0) {
-      return `
-        <div class="stats-history">
-          <h4 class="section-label">Season Stats</h4>
-          <p class="no-stats">No pitching stats found for this player.</p>
-        </div>
-      `;
-    }
+  private bindScoutUploadLink(): void {
+    if (!this.overlay) return;
+    const link = this.overlay.querySelector<HTMLAnchorElement>('.scout-upload-link');
+    if (!link) return;
 
-    const rows = stats.map(s => `
-      <tr>
-        <td>${s.year}</td>
-        <td>${s.ip.toFixed(1)}</td>
-        <td>${s.era.toFixed(2)}</td>
-        <td>${s.k9.toFixed(2)}</td>
-        <td>${s.bb9.toFixed(2)}</td>
-        <td>${s.hr9.toFixed(2)}</td>
-        <td>${s.war.toFixed(1)}</td>
-      </tr>
-    `).join('');
+    link.addEventListener('click', (e) => {
+      e.preventDefault();
+      const dataMgmtTab = document.querySelector<HTMLElement>('[data-tab-target="tab-data-management"]');
+      if (dataMgmtTab) {
+        dataMgmtTab.click();
+      }
+    });
+  }
 
-    return `
-      <div class="stats-history">
-        <h4 class="section-label">Season Stats</h4>
-        <div class="table-wrapper">
-          <table class="stats-table">
-            <thead>
-              <tr>
-                <th>Year</th>
-                <th>IP</th>
-                <th>ERA</th>
-                <th>K/9</th>
-                <th>BB/9</th>
-                <th>HR/9</th>
-                <th>WAR</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    `;
+  private bindFlipCardLocking(): void {
+    if (!this.overlay) return;
+    const cells = this.overlay.querySelectorAll<HTMLElement>('.flip-cell');
+    cells.forEach((cell) => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        cell.classList.toggle('is-flipped');
+      });
+    });
   }
 }

@@ -26,10 +26,6 @@ interface EstimatedRatings {
 
 class RatingEstimatorService {
 
-    private static roundToNearestFive(num: number): number {
-        return Math.round(num / 5) * 5;
-    }
-
     private static capRating(rating: number): number {
         return Math.max(20, Math.min(80, rating));
     }
@@ -46,39 +42,39 @@ class RatingEstimatorService {
 
     static estimateControl(bb9: number, ip: number): RatingEstimate {
         const rawRating = 100.4 - 19.2 * bb9;
-        const rating = this.roundToNearestFive(this.capRating(Math.round(rawRating)));
+        const rating = this.capRating(Math.round(rawRating));
         const { confidence, multiplier } = this.getConfidence(ip, 200);
         const uncertainty = 5 * multiplier;
         return {
             rating: rating,
-            low: this.roundToNearestFive(this.capRating(Math.round(rawRating - uncertainty))),
-            high: this.roundToNearestFive(this.capRating(Math.round(rawRating + uncertainty))),
+            low: this.capRating(Math.round(rawRating - uncertainty)),
+            high: this.capRating(Math.round(rawRating + uncertainty)),
             confidence: confidence
         };
     }
 
     static estimateStuff(k9: number, ip: number): RatingEstimate {
         const rawRating = -28.0 + 13.5 * k9;
-        const rating = this.roundToNearestFive(this.capRating(Math.round(rawRating)));
+        const rating = this.capRating(Math.round(rawRating));
         const { confidence, multiplier } = this.getConfidence(ip, 150);
         const uncertainty = 8 * multiplier;
         return {
             rating: rating,
-            low: this.roundToNearestFive(this.capRating(Math.round(rawRating - uncertainty))),
-            high: this.roundToNearestFive(this.capRating(Math.round(rawRating + uncertainty))),
+            low: this.capRating(Math.round(rawRating - uncertainty)),
+            high: this.capRating(Math.round(rawRating + uncertainty)),
             confidence: confidence
         };
     }
 
     static estimateHRA(hr9: number, ip: number): RatingEstimate {
         const rawRating = 86.7 - 41.7 * hr9;
-        const rating = this.roundToNearestFive(this.capRating(Math.round(rawRating)));
+        const rating = this.capRating(Math.round(rawRating));
         const { confidence, multiplier } = this.getConfidence(ip, 300);
         const uncertainty = 11 * multiplier;
         return {
             rating: rating,
-            low: this.roundToNearestFive(this.capRating(Math.round(rawRating - uncertainty))),
-            high: this.roundToNearestFive(this.capRating(Math.round(rawRating + uncertainty))),
+            low: this.capRating(Math.round(rawRating - uncertainty)),
+            high: this.capRating(Math.round(rawRating + uncertainty)),
             confidence: confidence
         };
     }
