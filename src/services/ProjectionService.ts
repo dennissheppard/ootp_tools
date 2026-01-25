@@ -31,6 +31,8 @@ export interface ProjectedPlayer {
     control: number;
     hra: number;
   };
+  /** Role classification (true = starter, false = reliever) */
+  isSp: boolean;
   /** Flag indicating this is a prospect without MLB stats */
   isProspect?: boolean;
 }
@@ -201,14 +203,14 @@ class ProjectionService {
 
         const teamId = currentStats?.team_id ?? player.teamId;
         const team = teamMap.get(teamId);
-        const projectedIp = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1);
+        const ipResult = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1);
 
         const currentRatings = {
             stuff: tr.estimatedStuff,
             control: tr.estimatedControl,
             hra: tr.estimatedHra
         };
-        
+
         const projectedRatings = agingService.applyAging(currentRatings, ageInYear);
 
         const leagueContext = {
@@ -219,7 +221,7 @@ class ProjectionService {
 
         const potStats = PotentialStatsService.calculatePitchingStats(
             { ...projectedRatings, movement: 50, babip: 50 },
-            projectedIp,
+            ipResult.ip,
             leagueContext
         );
 
@@ -239,9 +241,10 @@ class ProjectionService {
                 hr9: potStats.hr9,
                 fip: potStats.fip,
                 war: potStats.war,
-                ip: projectedIp
+                ip: ipResult.ip
             },
             projectedRatings,
+            isSp: ipResult.isSp,
             fipLike, // Temporary for ranking
             projectedTrueRating: 0, // Placeholder
             isProspect: !hasRecentMlb
@@ -326,9 +329,9 @@ class ProjectionService {
 
     const dummyStats: Partial<TruePlayerStats> | undefined = gs > 0 ? { gs } : undefined;
 
-    const projectedIp = this.calculateProjectedIp(
-        dummyScouting as PitcherScoutingRatings, 
-        dummyStats as TruePlayerStats, 
+    const ipResult = this.calculateProjectedIp(
+        dummyScouting as PitcherScoutingRatings,
+        dummyStats as TruePlayerStats,
         historicalStats,
         age + 1
     );
@@ -339,7 +342,7 @@ class ProjectionService {
     // Calculate Stats
     const potStats = PotentialStatsService.calculatePitchingStats(
         { ...projectedRatings, movement: 50, babip: 50 },
-        projectedIp,
+        ipResult.ip,
         leagueContext
     );
 
@@ -350,7 +353,7 @@ class ProjectionService {
             hr9: potStats.hr9,
             fip: potStats.fip,
             war: potStats.war,
-            ip: projectedIp
+            ip: ipResult.ip
         },
         projectedRatings
     };
@@ -371,7 +374,7 @@ class ProjectionService {
     currentStats: TruePlayerStats | undefined,
     historicalStats: YearlyPitchingStats[] | undefined,
     age: number
-  ): number {
+  ): { ip: number; isSp: boolean } {
     // 1. Determine Role (SP vs RP)
     let isSp = false;
     
@@ -428,6 +431,11 @@ class ProjectionService {
     baseIp *= injuryMod;
 
     // 4. Historical Blend (Durability Evidence)
+    // Special case detection: Late-season callups / breakout candidates
+    const totalHistoricalIp = historicalStats?.reduce((sum, s) => sum + s.ip, 0) ?? 0;
+    const isLimitedExperience = totalHistoricalIp > 0 && totalHistoricalIp < 80 && age < 28;
+    const hasStarterProfile = isSp && stamina >= 50;
+
     // Use weighted average of last 3 years if available
     if (historicalStats && historicalStats.length > 0) {
         let totalWeightedIp = 0;
@@ -445,11 +453,18 @@ class ProjectionService {
 
         if (totalWeight > 0) {
             const weightedIp = totalWeightedIp / totalWeight;
-            
-            // If the player has established history (>50 IP avg), trust history more
-            // 70% History, 30% Model
-            // This prevents "Wrecked" label from destroying the projection of a guy who just threw 180 IP
-            if (weightedIp > 50) {
+
+            // Special case: Late-season callups / 2nd year starters
+            // If a young pitcher has limited MLB IP but projects as a full-time starter,
+            // heavily favor stamina-based projection over limited historical data
+            if (isLimitedExperience && hasStarterProfile) {
+                // 90% stamina-based model, 10% limited history
+                // This prevents projecting 40 IP for a rookie who's expected to be a full-time starter
+                baseIp = (baseIp * 0.90) + (weightedIp * 0.10);
+            } else if (weightedIp > 50) {
+                // If the player has established history (>50 IP avg), trust history more
+                // 70% History, 30% Model
+                // This prevents "Wrecked" label from destroying the projection of a guy who just threw 180 IP
                 baseIp = (baseIp * 0.30) + (weightedIp * 0.70);
             } else {
                 // For low IP players, trust the model/scouting more (50/50)
@@ -460,7 +475,13 @@ class ProjectionService {
         // Fallback to single year if no history array
         const rawIp = trueRatingsService.parseIp(currentStats.ip);
         if (rawIp > 0) {
-            baseIp = (baseIp * 0.50) + (rawIp * 0.50);
+            // Similar logic: if young starter with limited IP, favor model
+            const isYoungStarterCallup = rawIp < 80 && age < 28 && hasStarterProfile;
+            if (isYoungStarterCallup) {
+                baseIp = (baseIp * 0.90) + (rawIp * 0.10);
+            } else {
+                baseIp = (baseIp * 0.50) + (rawIp * 0.50);
+            }
         }
     }
 
@@ -474,7 +495,7 @@ class ProjectionService {
         baseIp *= 0.75; // 150 -> 112
     }
 
-    return Math.round(baseIp);
+    return { ip: Math.round(baseIp), isSp };
   }
 
   private normalizeName(name: string): string {

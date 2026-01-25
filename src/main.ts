@@ -32,12 +32,16 @@ class App {
   private initializeDOM(): void {
     const app = document.querySelector<HTMLDivElement>('#app');
     if (!app) throw new Error('App container not found');
+    const logoUrl = new URL('./images/logo.jpg', import.meta.url).href;
 
     app.innerHTML = `
       <header class="app-header">
-        <div class="app-header-main">
-          <h1 class="app-title">True Ratings</h1>
-          <p class="app-subtitle">World Baseball League</p>
+        <div class="app-header-brand">
+          <img class="app-logo" src="${logoUrl}" alt="World Baseball League logo" />
+          <div class="app-header-main">
+            <h1 class="app-title">True Ratings</h1>
+            <p class="app-subtitle">World Baseball League</p>
+          </div>
         </div>
         <div class="app-header-date">
           <span class="game-date-label">Game Date</span>
@@ -53,10 +57,6 @@ class App {
         <button class="tab-button" data-tab-target="tab-calculators">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           <span>Calculators</span>
-        </button>
-        <button class="tab-button" data-tab-target="tab-draft">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
-          <span>Draft Board</span>
         </button>
         <button class="tab-button" data-tab-target="tab-true-ratings">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>

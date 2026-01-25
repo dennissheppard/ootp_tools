@@ -49,10 +49,10 @@ class TeamRatingsService {
       projections.forEach(p => {
           if (p.teamId === 0) return; // Skip FA
 
-          // Infer Role from IP
-          // In ProjectionService: SP = 160, RP = 60
-          const isSp = p.projectedStats.ip > 80;
-          
+          // Use the role classification from the projection service
+          // (already determined based on scouting, historical GS, etc.)
+          const isSp = p.isSp;
+
           const ratedPlayer: RatedPlayer = {
               playerId: p.playerId,
               name: p.name,
@@ -187,8 +187,9 @@ class TeamRatingsService {
         }
 
         const pitches = scouting?.pitches ?? {};
-        const pitchCount = Object.keys(pitches).length;
-        
+        const allPitchCount = Object.keys(pitches).length;
+        const usablePitchCount = Object.values(pitches).filter(rating => rating >= 45).length;
+
         // Stats parsing
         const ip = trueRatingsService.parseIp(stat.ip);
         const k9 = ip > 0 ? (stat.k / ip) * 9 : 0;
@@ -197,9 +198,53 @@ class TeamRatingsService {
         const era = ip > 0 ? (stat.er / ip) * 9 : 0;
         const fip = fipWarService.calculateFip({ ip, k9, bb9, hr9 }, leagueStats.fipConstant);
 
-        // Classification
-        // SP if > 2 pitches OR (no pitch data AND gs >= 5)
-        const isSp = pitchCount > 2 || (pitchCount === 0 && stat.gs >= 5);
+        // Classification Logic
+        // Priority 1: Check multi-year GS history (most reliable)
+        const historicalStats = multiYearStats.get(stat.player_id) ?? [];
+        const totalGs = historicalStats.reduce((sum, s) => sum + (s.gs ?? 0), 0);
+        const hasStarterHistory = totalGs >= 5;
+
+        // Priority 2: Check current year stats
+        const hasStarterRole = stat.gs >= 5;
+
+        // Priority 3: Check scouting profile (usable pitches + stamina)
+        const stamina = scouting?.stamina ?? 0;
+        const hasStarterProfile = usablePitchCount >= 3 && stamina >= 30;
+
+        // Classify as SP if they have starter history OR current starter role OR clear starter profile
+        // BUT require at least some evidence (not just 3 weak pitches)
+        let isSp = false;
+        let classificationReason = 'RP (default)';
+
+        if (hasStarterHistory || hasStarterRole) {
+            // Stats say starter
+            isSp = true;
+            classificationReason = hasStarterHistory
+                ? `SP (${totalGs} total GS in last 3 years)`
+                : `SP (${stat.gs} GS this year)`;
+        } else if (hasStarterProfile && allPitchCount > 0) {
+            // Scouting says starter (only if we have actual scouting data)
+            isSp = true;
+            classificationReason = `SP (${usablePitchCount} pitches, ${stamina} stam)`;
+        } else if (allPitchCount === 0 && stat.gs >= 1) {
+            // Fallback: No scouting data, but started some games this year
+            isSp = true;
+            classificationReason = `SP (${stat.gs} GS, no scouting)`;
+        } else {
+            classificationReason = `RP (${usablePitchCount}/${allPitchCount} pitches, ${stamina} stam, ${totalGs} GS)`;
+        }
+
+        // Debug logging for high-rated relievers in rotations
+        if (isSp && (stat.playerName.includes('DEBUG') || Math.random() < 0.01)) {
+            console.log(`[Team Ratings] ${stat.playerName}: ${classificationReason}`, {
+                currentGS: stat.gs,
+                totalGs,
+                usablePitchCount,
+                allPitchCount,
+                stamina,
+                historicalStats: historicalStats.map(s => ({ year: s.year, gs: s.gs, ip: s.ip }))
+            });
+        }
 
         const ratedPlayer: RatedPlayer = {
             playerId: stat.player_id,
@@ -208,9 +253,9 @@ class TeamRatingsService {
             trueStuff: trData.estimatedStuff,
             trueControl: trData.estimatedControl,
             trueHra: trData.estimatedHra,
-            pitchCount,
+            pitchCount: usablePitchCount,
             isSp,
-            stats: { 
+            stats: {
                 ip, k9, bb9, hr9, gs: stat.gs,
                 era, fip,
                 war: stat.war

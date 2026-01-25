@@ -1,6 +1,10 @@
 import { teamRatingsService, TeamRatingResult, RatedPlayer } from '../services/TeamRatingsService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { dateService } from '../services/DateService';
+import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
+import { playerService } from '../services/PlayerService';
+import { teamService } from '../services/TeamService';
+import { scoutingDataService } from '../services/ScoutingDataService';
 
 export class TeamRatingsView {
   private container: HTMLElement;
@@ -9,9 +13,12 @@ export class TeamRatingsView {
   private results: TeamRatingResult[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private currentGameYear: number | null = null;
+  private playerProfileModal: PlayerProfileModal;
+  private playerRowLookup: Map<number, RatedPlayer> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
+    this.playerProfileModal = new PlayerProfileModal();
     this.renderLayout();
     this.loadCurrentGameYear();
     this.loadData();
@@ -138,8 +145,15 @@ export class TeamRatingsView {
   private renderLists(): void {
       const rotContainer = this.container.querySelector('#rotation-rankings');
       const penContainer = this.container.querySelector('#bullpen-rankings');
-      
+
       if (!rotContainer || !penContainer) return;
+
+      // Build player lookup for modal access
+      this.playerRowLookup = new Map();
+      this.results.forEach(team => {
+        team.rotation.forEach(p => this.playerRowLookup.set(p.playerId, p));
+        team.bullpen.forEach(p => this.playerRowLookup.set(p.playerId, p));
+      });
 
       // Render Rotation List
       const rotSorted = [...this.results].sort((a, b) => b.rotationScore - a.rotationScore);
@@ -161,6 +175,7 @@ export class TeamRatingsView {
 
       this.bindToggleEvents();
       this.bindFlipCardLocking();
+      this.bindPlayerNameClicks();
   }
 
   private renderTeamRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
@@ -204,7 +219,7 @@ export class TeamRatingsView {
                             
                             return `
                             <tr>
-                                <td>${p.name}</td>
+                                <td><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>
                                 <td>${this.renderRatingBadge(p)}</td>
                                 <td>${p.stats.ip.toFixed(1)}</td>
                                 <td>${this.renderFlipCell(p.stats.k9.toFixed(2), estStuff.toString(), 'Est Stuff Rating')}</td>
@@ -276,13 +291,80 @@ export class TeamRatingsView {
   private bindFlipCardLocking(): void {
     const cells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
     cells.forEach((cell) => {
-      // Remove old listener to avoid duplicates if re-rendering? 
+      // Remove old listener to avoid duplicates if re-rendering?
       // renderLists completely replaces innerHTML, so no dupes.
       cell.addEventListener('click', (e) => {
         e.stopPropagation();
         cell.classList.toggle('is-flipped');
       });
     });
+  }
+
+  private bindPlayerNameClicks(): void {
+    const links = this.container.querySelectorAll<HTMLButtonElement>('.player-name-link');
+    links.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const playerId = parseInt(link.dataset.playerId ?? '', 10);
+        if (!playerId) return;
+        this.openPlayerProfile(playerId);
+      });
+    });
+  }
+
+  private async openPlayerProfile(playerId: number): Promise<void> {
+    const row = this.playerRowLookup.get(playerId);
+    if (!row) return;
+
+    // Fetch full player info for team labels
+    const player = await playerService.getPlayerById(playerId);
+    let teamLabel = '';
+    let parentLabel = '';
+
+    if (player) {
+      const team = await teamService.getTeamById(player.teamId);
+      if (team) {
+        teamLabel = `${team.name} ${team.nickname}`;
+        if (team.parentTeamId !== 0) {
+          const parent = await teamService.getTeamById(team.parentTeamId);
+          if (parent) {
+            parentLabel = parent.nickname;
+          }
+        }
+      }
+    }
+
+    // Get scouting
+    const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+    const scouting = scoutingRatings.find(s => s.playerId === playerId);
+
+    // Extract pitch names if available (show all pitches, not just usable ones)
+    const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
+    const usablePitchCount = row.pitchCount; // Already calculated in TeamRatingsService
+
+    const profileData: PlayerProfileData = {
+      playerId: row.playerId,
+      playerName: row.name,
+      team: teamLabel,
+      parentTeam: parentLabel,
+      trueRating: row.trueRating,
+      estimatedStuff: row.trueStuff,
+      estimatedControl: row.trueControl,
+      estimatedHra: row.trueHra,
+      scoutStuff: scouting?.stuff,
+      scoutControl: scouting?.control,
+      scoutHra: scouting?.hra,
+      scoutStamina: scouting?.stamina,
+      scoutInjuryProneness: scouting?.injuryProneness,
+      scoutOvr: scouting?.ovr,
+      scoutPot: scouting?.pot,
+      pitchCount: usablePitchCount,
+      pitches,
+      isProspect: false,
+      year: this.selectedYear
+    };
+
+    await this.playerProfileModal.show(profileData, this.selectedYear);
   }
 
   private async loadCurrentGameYear(): Promise<void> {

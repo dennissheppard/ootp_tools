@@ -497,6 +497,10 @@ export class ProjectionsView {
     const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
     const scouting = scoutingRatings.find(s => s.playerId === playerId);
 
+    // Extract pitch names if available (show all pitches, not just usable ones)
+    const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
+    const usablePitchCount = scouting?.pitches ? Object.values(scouting.pitches).filter(rating => rating >= 45).length : 0;
+
     const profileData: PlayerProfileData = {
       playerId: row.playerId,
       playerName: row.name,
@@ -513,6 +517,8 @@ export class ProjectionsView {
       scoutInjuryProneness: scouting?.injuryProneness,
       scoutOvr: scouting?.ovr,
       scoutPot: scouting?.pot,
+      pitchCount: usablePitchCount,
+      pitches,
       isProspect: row.isProspect,
       year: this.selectedYear
     };

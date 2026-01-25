@@ -28,6 +28,8 @@ export interface PlayerRatingsData {
   scoutInjuryProneness?: string;
   scoutOvr?: number;
   scoutPot?: number;
+  pitchCount?: number;
+  pitches?: string[];  // List of pitch names
   isProspect?: boolean;
   trueFutureRating?: number;
   tfrPercentile?: number;
@@ -241,6 +243,52 @@ export class PlayerRatingsCard {
             </tbody>
           </table>
         </div>
+      </div>
+    `;
+  }
+
+  /**
+   * Render metadata section (stamina, pitch count, star ratings, injury)
+   */
+  static renderMetadata(data: PlayerRatingsData): string {
+    const hasAnyMetadata = data.scoutStamina || data.pitchCount !== undefined ||
+                           data.scoutOvr !== undefined || data.scoutPot !== undefined ||
+                           data.scoutInjuryProneness;
+
+    if (!hasAnyMetadata) return '';
+
+    const items: string[] = [];
+
+    if (data.pitches && data.pitches.length > 0) {
+      // pitchCount = usable pitches (rated >= 45), pitches = all pitches
+      const totalPitches = data.pitches.length;
+      const usablePitches = data.pitchCount ?? totalPitches;
+      const pitchLabel = usablePitches === totalPitches
+        ? `${totalPitches} (${data.pitches.join(', ')})`
+        : `${usablePitches}/${totalPitches} usable (${data.pitches.join(', ')})`;
+      items.push(`<div class="metadata-item"><span class="metadata-label">Pitches:</span> <span class="metadata-value">${pitchLabel}</span></div>`);
+    } else if (data.pitchCount !== undefined) {
+      items.push(`<div class="metadata-item"><span class="metadata-label">Pitches:</span> <span class="metadata-value">${data.pitchCount}</span></div>`);
+    }
+
+    if (data.scoutStamina !== undefined) {
+      items.push(`<div class="metadata-item"><span class="metadata-label">Stamina:</span> <span class="metadata-value">${data.scoutStamina}</span></div>`);
+    }
+
+    if (data.scoutInjuryProneness) {
+      items.push(`<div class="metadata-item"><span class="metadata-label">Injury:</span> <span class="metadata-value">${data.scoutInjuryProneness}</span></div>`);
+    }
+
+    if (data.scoutOvr !== undefined && data.scoutPot !== undefined) {
+      const gap = data.scoutPot - data.scoutOvr;
+      items.push(`<div class="metadata-item"><span class="metadata-label">Stars:</span> <span class="metadata-value">${data.scoutOvr.toFixed(1)}★ / ${data.scoutPot.toFixed(1)}★ (gap: ${gap.toFixed(1)})</span></div>`);
+    }
+
+    if (items.length === 0) return '';
+
+    return `
+      <div class="player-metadata">
+        ${items.join('')}
       </div>
     `;
   }

@@ -335,6 +335,7 @@ export class PlayerProfileModal {
     const hasScout = PlayerRatingsCard.hasScoutingData(data);
     return `
       ${PlayerRatingsCard.renderRatingsComparison(data, hasScout)}
+      ${PlayerRatingsCard.renderMetadata(data)}
       ${projectionHtml}
       ${PlayerRatingsCard.renderSeasonStatsTable(stats, { showLevel })}
     `;
