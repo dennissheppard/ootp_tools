@@ -170,15 +170,32 @@ The estimator calculates FIP and WAR using the shared `FipWarService.ts` (same f
 ### 6. Team Rater
 A comprehensive view of team-level pitching strength, identifying top rotations and bullpens.
 
-- **Role Classification**: Automatically classifies pitchers as Starters (SP) or Relievers (RP) based on pitch count (SP > 2 pitches) with a fallback to Games Started (GS >= 5) when pitch data is missing.
+- **Role Classification**: Intelligently classifies pitchers as Starters (SP) or Relievers (RP):
+  - **Priority 1**: Multi-year GS history (≥5 total GS over last 3 years → SP)
+  - **Priority 2**: Current year stats (≥5 GS this year → SP)
+  - **Priority 3**: Scouting profile (≥3 usable pitches rated ≥45 AND stamina ≥30 → SP)
+  - Only counts **usable pitches** (rated ≥45), preventing low-rated pitches from misclassifying relievers
+  - For **Projections mode**: Uses the role determined by `ProjectionService` (which considers stamina, pitch repertoire, and historical usage) rather than re-classifying by projected IP
 - **Team Scores**:
   - **Rotation Score**: Sum of the True Ratings of the top 5 starting pitchers.
   - **Bullpen Score**: Sum of the True Ratings of the top 5 relief pitchers.
 - **Historical Context**: Supports viewing team rankings for any year (2000-2021), utilizing multi-year weighted averages for player ratings.
 - **Interactive Lists**: Ranked lists of teams with expandable rows showing detailed player stats (TR, IP, K/9, BB/9, HR/9, ERA, FIP).
+- **Clickable Player Names**: Click any player to open their profile modal with full stats history and scouting data.
 - **Stat Hover/Tooltips**:
   - Flip cards on K/9, BB/9, and HR/9 show the estimated rating for that single season.
   - Tooltips on the True Rating badge show the multi-year True Stuff, True Control, and True HRA components.
+
+**Player Profile Modal** (accessed from Team Ratings, Projections, True Ratings pages):
+- **Header Layout**: Comprehensive player snapshot in the modal header
+  - **Left**: Player name, team, position (SP/RP), age
+  - **Center**: True Rating emblem (year label only shown for historical data)
+  - **Right-Center**: Metadata stack (Injury bar, Stamina bar, Star ratings)
+  - **Far Right**: Pitch repertoire with ratings (color-coded: green ≥60, yellow 45-59, gray <45)
+- **Rating Comparison Bars**: Estimated ratings vs scout opinions (Stuff, Control, HRA)
+- **Multi-Year Stats Table**: Season-by-season performance with minor league stats integration
+- **Projections Section**: Shows projected stats for upcoming season (when applicable)
+- **Draggable**: Modal can be repositioned by dragging the header
 
 ### 7. Stat Projections
 Predicts future pitching performance by applying aging curves to current "True Talent" ratings.
@@ -198,6 +215,20 @@ Predicts future pitching performance by applying aging curves to current "True T
 **Do players always improve?**
 -   **Ratings**: Yes, generally. A 23-year-old moving to 24 will typically see their *talent ratings* improve or stay stable.
 -   **Stats**: Not necessarily. If a young player significantly overperformed their ratings in the previous season (e.g., 2.00 ERA vs 4.00 True Rating), their projection will likely be worse than their last season's stats, as it regresses to their "True Talent" baseline, even with the aging boost.
+
+**IP Projection Logic**:
+Projected innings are based on a blend of scouting data (stamina, injury proneness) and historical durability:
+
+- **Late-Season Callups / Breakout Candidates**: Young pitchers (<28) with limited MLB experience (<80 total IP) but full starter profiles (classified as SP with stamina ≥50) are projected heavily toward their stamina-based potential rather than limited historical IP
+  - **Blend**: 90% stamina-based model, 10% limited history
+  - **Example**: A 23-year-old with 40 IP last year, 60 stamina → Projects ~159 IP (not penalized for limited opportunity)
+
+- **Established Players**: Players with >50 IP weighted average over last 3 years trust history more
+  - **Blend**: 70% historical IP, 30% stamina model
+  - **Prevents**: "Wrecked" injury label from destroying projection of workhorse who just threw 180 IP
+
+- **Low-IP Players**: Other pitchers with limited track record
+  - **Blend**: 50% historical IP, 50% stamina model
 
 ### 8. True Future Rating (Minor League Prospects)
 
