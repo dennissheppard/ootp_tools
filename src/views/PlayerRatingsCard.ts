@@ -24,6 +24,14 @@ export interface PlayerRatingsData {
   scoutStuff?: number;
   scoutControl?: number;
   scoutHra?: number;
+  scoutStamina?: number;
+  scoutInjuryProneness?: string;
+  scoutOvr?: number;
+  scoutPot?: number;
+  isProspect?: boolean;
+  trueFutureRating?: number;
+  tfrPercentile?: number;
+  starGap?: number;
 }
 
 export class PlayerRatingsCard {
@@ -33,18 +41,34 @@ export class PlayerRatingsCard {
     badgeTitle: string;
     percentileText: string;
     hasScout: boolean;
+    isProspect: boolean;
+    ratingValue: number;
   } | null {
-    const hasTrueRating = typeof data.trueRating === 'number';
-    if (!hasTrueRating) return null;
+    // For prospects, use TFR; for MLB players, use TR
+    const isProspect = data.isProspect === true;
+    const ratingValue = isProspect ? data.trueFutureRating : data.trueRating;
+    const percentileValue = isProspect ? data.tfrPercentile : data.percentile;
+
+    if (typeof ratingValue !== 'number') return null;
 
     const hasScout = this.hasScoutingData(data);
-    const badgeClass = this.getTrueRatingClass(data.trueRating!);
-    const percentileText = typeof data.percentile === 'number'
-      ? `${this.formatPercentile(data.percentile)} percentile`
+    const badgeClass = this.getTrueRatingClass(ratingValue);
+    const percentileText = typeof percentileValue === 'number'
+      ? `${this.formatPercentile(percentileValue)} percentile`
       : '';
-    const indicator = hasScout ? '' : '<span class="badge-indicator" title="Stats only - no scouting data">#</span>';
-    const badgeHtml = `${data.trueRating!.toFixed(1)}${indicator}`;
-    const badgeTitle = hasScout ? 'True Rating (with scouting)' : 'True Rating (stats only)';
+
+    let indicator = '';
+    let badgeTitle = '';
+
+    if (isProspect) {
+      indicator = '<span class="badge-indicator-tfr" title="True Future Rating (Projected)">F</span>';
+      badgeTitle = 'True Future Rating (Projected)';
+    } else {
+      indicator = hasScout ? '' : '<span class="badge-indicator" title="Stats only - no scouting data">#</span>';
+      badgeTitle = hasScout ? 'True Rating (with scouting)' : 'True Rating (stats only)';
+    }
+
+    const badgeHtml = `${ratingValue.toFixed(1)}${indicator}`;
 
     return {
       badgeClass,
@@ -52,6 +76,8 @@ export class PlayerRatingsCard {
       badgeTitle,
       percentileText,
       hasScout,
+      isProspect,
+      ratingValue,
     };
   }
 
@@ -105,17 +131,21 @@ export class PlayerRatingsCard {
 
   static renderRatingEmblem(data: PlayerRatingsData): string {
     const badgeInfo = this.getRatingBadgeInfo(data);
-    if (!badgeInfo || typeof data.trueRating !== 'number') return '';
+    if (!badgeInfo) return '';
 
     const ratingClass = badgeInfo.badgeClass;
-    const ratingValue = data.trueRating.toFixed(1);
+    const ratingValue = badgeInfo.ratingValue.toFixed(1);
     const percentileText = badgeInfo.percentileText || '';
-    const barWidth = Math.max(10, Math.min(100, (data.trueRating / 5) * 100));
+    const barWidth = Math.max(10, Math.min(100, (badgeInfo.ratingValue / 5) * 100));
+
+    // Label and class differ for prospects (TFR) vs MLB (TR)
+    const label = badgeInfo.isProspect ? 'True Future Rating' : 'True Rating';
+    const emblemClass = badgeInfo.isProspect ? 'rating-emblem tfr-emblem' : 'rating-emblem';
 
     return `
-      <div class="rating-emblem ${ratingClass}" title="${badgeInfo.badgeTitle}" aria-label="True Rating ${ratingValue}">
+      <div class="${emblemClass} ${ratingClass}" title="${badgeInfo.badgeTitle}" aria-label="${label} ${ratingValue}">
         <div class="rating-emblem-header">
-          <span class="rating-emblem-label">True Rating</span>
+          <span class="rating-emblem-label">${label}</span>
         </div>
         <div class="rating-emblem-body">
           <div class="rating-emblem-bar">
@@ -283,7 +313,7 @@ export class PlayerRatingsCard {
     }
 
     const estValue = estimated;
-    const diff = scoutValue - estValue;
+    const diff = estValue - scoutValue;
     const diffText = diff > 0 ? `+${diff}` : `${diff}`;
     const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
 
@@ -293,20 +323,20 @@ export class PlayerRatingsCard {
     return `
       <div class="rating-row">
         <span class="rating-label">${label}</span>
-        <div class="rating-bars">
-          <div class="bar-container">
-            <div class="bar bar-estimated ${estClass}" style="width: ${estWidth}%"></div>
-            <span class="bar-value">${estValue}</span>
+          <div class="rating-bars">
+            <div class="bar-container">
+              <div class="bar bar-estimated ${estClass}" style="width: ${estWidth}%"></div>
+              <span class="bar-value">${estValue}</span>
+            </div>
+            <span class="rating-diff ${diffClass}">${diffText}</span>
+            <span class="bar-vs">vs</span>
+            <div class="bar-container">
+              <div class="bar bar-scout ${scoutClass}" style="width: ${scoutWidth}%"></div>
+              <span class="bar-value">${scoutValue}</span>
+            </div>
           </div>
-          <span class="bar-vs">vs</span>
-          <div class="bar-container">
-            <div class="bar bar-scout ${scoutClass}" style="width: ${scoutWidth}%"></div>
-            <span class="bar-value">${scoutValue}</span>
-          </div>
-          <span class="rating-diff ${diffClass}">${diffText}</span>
         </div>
-      </div>
-    `;
+      `;
   }
 
   static formatTeamInfo(team?: string, parentTeam?: string): string {

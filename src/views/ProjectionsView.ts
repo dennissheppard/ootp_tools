@@ -1,5 +1,10 @@
 import { projectionService, ProjectedPlayer } from '../services/ProjectionService';
 import { dateService } from '../services/DateService';
+import { trueFutureRatingService } from '../services/TrueFutureRatingService';
+import { scoutingDataService } from '../services/ScoutingDataService';
+import { playerService } from '../services/PlayerService';
+import { teamService } from '../services/TeamService';
+import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
 
 interface ColumnConfig {
   key: keyof ProjectedPlayer | string;
@@ -26,9 +31,12 @@ export class ProjectionsView {
   private columns: ColumnConfig[] = [];
   private isDraggingColumn = false;
   private prefKey = 'wbl-projections-prefs';
+  private playerProfileModal: PlayerProfileModal;
+  private playerRowLookup: Map<number, ProjectedPlayer> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
+    this.playerProfileModal = new PlayerProfileModal();
     this.initColumns();
     this.renderLayout();
     this.initializeFromGameDate();
@@ -36,10 +44,10 @@ export class ProjectionsView {
 
   private initColumns(): void {
     const defaults: ColumnConfig[] = [
-        { key: 'name', label: 'Name' },
+        { key: 'name', label: 'Name', accessor: p => this.renderPlayerName(p) },
         { key: 'teamName', label: 'Team' },
         { key: 'age', label: 'Age' },
-        { key: 'currentTrueRating', label: 'Current TR', sortKey: 'currentTrueRating', accessor: p => this.renderRatingBadge(p.currentTrueRating) },
+        { key: 'currentTrueRating', label: 'Current TR', sortKey: 'currentTrueRating', accessor: p => this.renderRatingBadge(p) },
         { key: 'projK9', label: 'Proj K/9', sortKey: 'projectedStats.k9', accessor: p => p.projectedStats.k9.toFixed(2) },
         { key: 'projBB9', label: 'Proj BB/9', sortKey: 'projectedStats.bb9', accessor: p => p.projectedStats.bb9.toFixed(2) },
         { key: 'projHR9', label: 'Proj HR/9', sortKey: 'projectedStats.hr9', accessor: p => p.projectedStats.hr9.toFixed(2) },
@@ -119,10 +127,16 @@ export class ProjectionsView {
 
       try {
           const context = await projectionService.getProjectionsWithContext(this.selectedYear);
-          this.allStats = context.projections;
+          let allPlayers = context.projections;
           this.statsYearUsed = context.statsYear;
           this.usedFallbackStats = context.usedFallbackStats;
-          
+
+          // Also fetch prospects with TFR
+          const prospects = await this.fetchProspects(allPlayers);
+          allPlayers = [...allPlayers, ...prospects];
+
+          this.allStats = allPlayers;
+
           // Populate team filter
           const teams = new Set(this.allStats.map(p => p.teamName).filter(t => t && t !== 'FA'));
           this.teamOptions = Array.from(teams).sort();
@@ -133,6 +147,91 @@ export class ProjectionsView {
       } catch (err) {
           console.error(err);
           if (container) container.innerHTML = `<div class="error-message">Error: ${err}</div>`;
+      }
+  }
+
+  /**
+   * Fetch prospects with TFR who aren't already in the MLB projections
+   */
+  private async fetchProspects(mlbPlayers: ProjectedPlayer[]): Promise<ProjectedPlayer[]> {
+      try {
+          const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+          if (scoutingRatings.length === 0) return [];
+
+          const mlbPlayerIds = new Set(mlbPlayers.map(p => p.playerId));
+
+          // Get TFR results for prospects
+          const tfrResults = await trueFutureRatingService.getProspectTrueFutureRatings(this.selectedYear, 'my');
+
+          // Filter to only prospects (not in MLB stats)
+          const prospectTfrs = tfrResults.filter(tfr => !mlbPlayerIds.has(tfr.playerId));
+
+          // Fetch player/team data
+          const [allPlayers, allTeams] = await Promise.all([
+              playerService.getAllPlayers(),
+              teamService.getAllTeams()
+          ]);
+          const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+          const teamMap = new Map(allTeams.map(t => [t.id, t]));
+
+          // Convert to ProjectedPlayer format
+          const prospectPlayers: ProjectedPlayer[] = [];
+
+          for (const tfr of prospectTfrs) {
+              const player = playerMap.get(tfr.playerId);
+              if (!player) continue;
+
+              const team = teamMap.get(player.teamId);
+              let teamName = 'FA';
+              if (team) {
+                  if (player.parentTeamId !== 0) {
+                      const parent = teamMap.get(player.parentTeamId);
+                      teamName = parent?.nickname ?? team.nickname;
+                  } else {
+                      teamName = team.nickname;
+                  }
+              }
+
+              // Get scouting for role determination
+              const scouting = scoutingRatings.find(s => s.playerId === tfr.playerId);
+              const pitchCount = scouting?.pitches ? Object.keys(scouting.pitches).length : 0;
+              const isSp = pitchCount > 2;
+              const projectedIp = isSp ? 160 : 60;
+
+              // Calculate projected WAR using FIP
+              const runsPerWin = 9.0;
+              const replacementFip = isSp ? 5.25 : 4.60;
+              const projectedWar = ((replacementFip - tfr.projFip) / runsPerWin) * (projectedIp / 9);
+
+              prospectPlayers.push({
+                  playerId: tfr.playerId,
+                  name: tfr.playerName,
+                  teamId: player.teamId,
+                  teamName,
+                  age: tfr.age,
+                  currentTrueRating: tfr.trueFutureRating, // Use TFR as "current" rating
+                  projectedTrueRating: tfr.trueFutureRating,
+                  projectedStats: {
+                      k9: tfr.projK9,
+                      bb9: tfr.projBb9,
+                      hr9: tfr.projHr9,
+                      fip: tfr.projFip,
+                      war: Math.max(0, projectedWar),
+                      ip: projectedIp,
+                  },
+                  projectedRatings: {
+                      stuff: Math.round((tfr.projK9 - 2.07) / 0.074),
+                      control: Math.round((5.22 - tfr.projBb9) / 0.052),
+                      hra: Math.round((2.08 - tfr.projHr9) / 0.024),
+                  },
+                  isProspect: true,
+              });
+          }
+
+          return prospectPlayers;
+      } catch (err) {
+          console.warn('Failed to fetch prospects:', err);
+          return [];
       }
   }
 
@@ -185,6 +284,9 @@ export class ProjectionsView {
       const end = start + this.itemsPerPage;
       const pageData = this.stats.slice(start, end);
 
+      // Populate lookup for modal access
+      this.playerRowLookup = new Map(pageData.map(p => [p.playerId, p]));
+
       const headerHtml = this.columns.map(col => {
           // Actually match exactly or loosely
           const isActive = this.sortKey === col.sortKey;
@@ -196,7 +298,8 @@ export class ProjectionsView {
               const val = col.accessor ? col.accessor(p) : (p as any)[col.key];
               return `<td>${val ?? ''}</td>`;
           }).join('');
-          return `<tr>${cells}</tr>`;
+          const rowClass = p.isProspect ? 'prospect-row' : '';
+          return `<tr class="${rowClass}">${cells}</tr>`;
       }).join('');
 
       container.innerHTML = `
@@ -215,6 +318,9 @@ export class ProjectionsView {
   }
 
   private bindTableEvents(): void {
+      // Player Names
+      this.bindPlayerNameClicks();
+
       // Sorting
       this.container.querySelectorAll('th[data-sort]').forEach(th => {
           th.addEventListener('click', () => {
@@ -294,14 +400,84 @@ export class ProjectionsView {
       }
   }
 
-  private renderRatingBadge(value: number): string {
+  private renderPlayerName(player: ProjectedPlayer): string {
+    const prospectBadge = player.isProspect ? ' <span class="prospect-badge">P</span>' : '';
+    return `<button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}${prospectBadge}</button>`;
+  }
+
+  private renderRatingBadge(player: ProjectedPlayer): string {
+    const value = player.currentTrueRating;
     let className = 'rating-poor';
     if (value >= 4.5) className = 'rating-elite';
     else if (value >= 4.0) className = 'rating-plus';
     else if (value >= 3.0) className = 'rating-avg';
     else if (value >= 2.0) className = 'rating-fringe';
 
-    return `<span class="badge ${className}">${value.toFixed(1)}</span>`;
+    // For prospects, add TFR indicator
+    const tfrClass = player.isProspect ? ' tfr-badge' : '';
+    const title = player.isProspect ? 'True Future Rating (Projected)' : 'Current True Rating';
+
+    return `<span class="badge ${className}${tfrClass}" title="${title}">${value.toFixed(1)}</span>`;
+  }
+
+  private bindPlayerNameClicks(): void {
+    const links = this.container.querySelectorAll<HTMLButtonElement>('.player-name-link');
+    links.forEach(link => {
+      link.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const playerId = parseInt(link.dataset.playerId ?? '', 10);
+        if (!playerId) return;
+        this.openPlayerProfile(playerId);
+      });
+    });
+  }
+
+  private async openPlayerProfile(playerId: number): Promise<void> {
+    const row = this.playerRowLookup.get(playerId);
+    if (!row) return;
+
+    // Fetch full player info for team labels
+    const player = await playerService.getPlayerById(playerId);
+    let teamLabel = '';
+    let parentLabel = '';
+    
+    if (player) {
+      const team = await teamService.getTeamById(player.teamId);
+      if (team) {
+        teamLabel = `${team.name} ${team.nickname}`;
+        if (team.parentTeamId !== 0) {
+          const parent = await teamService.getTeamById(team.parentTeamId);
+          if (parent) {
+            parentLabel = parent.nickname;
+          }
+        }
+      }
+    }
+
+    // Get scouting
+    const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+    const scouting = scoutingRatings.find(s => s.playerId === playerId);
+
+    const profileData: PlayerProfileData = {
+      playerId: row.playerId,
+      playerName: row.name,
+      team: teamLabel,
+      parentTeam: parentLabel,
+      trueRating: row.currentTrueRating,
+      estimatedStuff: row.projectedRatings.stuff,
+      estimatedControl: row.projectedRatings.control,
+      estimatedHra: row.projectedRatings.hra,
+      scoutStuff: scouting?.stuff,
+      scoutControl: scouting?.control,
+      scoutHra: scouting?.hra,
+      scoutStamina: scouting?.stamina,
+      scoutInjuryProneness: scouting?.injuryProneness,
+      scoutOvr: scouting?.ovr,
+      scoutPot: scouting?.pot,
+      isProspect: row.isProspect
+    };
+
+    await this.playerProfileModal.show(profileData, this.selectedYear);
   }
 
   private updatePagination(total: number): void {

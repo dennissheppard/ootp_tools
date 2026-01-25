@@ -8,6 +8,7 @@ import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
+import { MinorLeagueStatsWithLevel } from '../models/Stats';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -35,6 +36,8 @@ interface TrueRatingFields {
   isProspect?: boolean;
   /** Star gap (POT - OVR) for prospects */
   starGap?: number;
+  prospectHasStats?: boolean;
+  prospectLevel?: MinorLeagueStatsWithLevel['level'];
 }
 
 interface TeamInfoFields {
@@ -90,6 +93,8 @@ export class TrueRatingsView {
   private mode: StatsMode = 'pitchers';
   private showTrueRatings = true;
   private showRawStats = false;
+  private showProspects = true;
+  private showMlbPlayers = true;
   private allStats: TableRow[] = [];
   private readonly prefKey = 'wbl-prefs';
   private preferences: Record<string, unknown> = {};
@@ -148,6 +153,8 @@ export class TrueRatingsView {
             <div class="toggle-group" role="group" aria-label="Ratings view">
               <button class="toggle-btn ${this.showRawStats ? 'active' : ''}" data-ratings-toggle="raw" aria-pressed="${this.showRawStats}">Raw Stats</button>
               <button class="toggle-btn ${this.showTrueRatings ? 'active' : ''}" data-ratings-toggle="true" aria-pressed="${this.showTrueRatings}">True Ratings</button>
+              <button class="toggle-btn ${this.showMlbPlayers ? 'active' : ''}" data-player-toggle="mlb" aria-pressed="${this.showMlbPlayers}">MLB Players</button>
+              <button class="toggle-btn ${this.showProspects ? 'active' : ''}" data-player-toggle="prospect" aria-pressed="${this.showProspects}">Prospects</button>
             </div>
           </div>
         </div>
@@ -233,6 +240,7 @@ export class TrueRatingsView {
     });
 
     this.bindRatingsViewToggle();
+    this.bindPlayerTypeToggle();
     this.updateRatingsControlsVisibility();
 
     const goToDataLink = this.container.querySelector<HTMLButtonElement>('#go-to-data-mgmt');
@@ -273,6 +281,35 @@ export class TrueRatingsView {
     });
   }
 
+  private bindPlayerTypeToggle(): void {
+    const buttons = this.container.querySelectorAll<HTMLButtonElement>('[data-player-toggle]');
+    buttons.forEach(button => {
+      button.addEventListener('click', () => {
+        const toggle = button.dataset.playerToggle;
+        if (toggle === 'prospect') {
+          const nextProspects = !this.showProspects;
+          if (!nextProspects && !this.showMlbPlayers) return;
+          this.showProspects = nextProspects;
+        } else if (toggle === 'mlb') {
+          const nextMlb = !this.showMlbPlayers;
+          if (!nextMlb && !this.showProspects) return;
+          this.showMlbPlayers = nextMlb;
+        } else {
+          return;
+        }
+
+        buttons.forEach(btn => {
+          const key = btn.dataset.playerToggle;
+          const isActive = key === 'prospect' ? this.showProspects : this.showMlbPlayers;
+          btn.classList.toggle('active', isActive);
+          btn.setAttribute('aria-pressed', String(isActive));
+        });
+
+        this.applyFiltersAndRender();
+      });
+    });
+  }
+
   private updateRatingsControlsVisibility(): void {
     const viewToggle = this.container.querySelector<HTMLElement>('#ratings-view-toggle');
     if (viewToggle) viewToggle.style.display = this.mode === 'pitchers' ? '' : 'none';
@@ -290,7 +327,7 @@ export class TrueRatingsView {
         
         await this.enrichWithTeamData(this.rawPitcherStats);
 
-        if (isTrueRatingsView) {
+        if (isTrueRatingsView || this.showProspects) {
           this.stats = await this.buildTrueRatingsStats(this.rawPitcherStats);
         } else {
           this.stats = this.rawPitcherStats;
@@ -372,6 +409,11 @@ export class TrueRatingsView {
 
   private applyFilters(): void {
     this.stats = this.allStats.filter(row => {
+      if (this.mode === 'pitchers') {
+        const isProspect = Boolean((row as PitcherRow).isProspect);
+        if (isProspect && !this.showProspects) return false;
+        if (!isProspect && !this.showMlbPlayers) return false;
+      }
       if (this.selectedTeam === 'all') return true;
       const teamValue = (row as TeamInfoFields).teamFilter ?? '';
       return teamValue === this.selectedTeam;
@@ -507,7 +549,7 @@ export class TrueRatingsView {
 
     // Find prospects (scouting entries without MLB stats)
     const mlbPlayerIds = new Set(pitchers.map(p => p.player_id));
-    const prospects = await this.buildProspectRows(mlbPlayerIds, scoutingLookup, results);
+    const prospects = await this.buildProspectRows(mlbPlayerIds, results);
 
     // Merge MLB pitchers with prospects
     const allPitchers = [...enrichedPitchers, ...prospects];
@@ -524,7 +566,6 @@ export class TrueRatingsView {
    */
   private async buildProspectRows(
     mlbPlayerIds: Set<number>,
-    scoutingLookup: ScoutingLookup,
     mlbTrueRatings: { playerId: number; fipLike: number }[]
   ): Promise<PitcherRow[]> {
     // Find scouting entries not in MLB stats
@@ -571,20 +612,24 @@ export class TrueRatingsView {
     // Build prospect rows
     const prospectRows: PitcherRow[] = [];
 
-    for (const scouting of prospectScouting) {
-      const tfr = tfrMap.get(scouting.playerId);
-      if (!tfr) continue;
+      for (const scouting of prospectScouting) {
+        const tfr = tfrMap.get(scouting.playerId);
+        if (!tfr) continue;
 
-      const player = playerMap.get(scouting.playerId);
-      let teamDisplay = '';
-      let teamFilter = '';
-      let teamIsMajor = false;
+        const player = playerMap.get(scouting.playerId);
+        let teamDisplay = '';
+        let teamFilter = '';
+        let teamIsMajor = false;
 
-      if (player) {
-        const team = teamMap.get(player.teamId);
-        if (team) {
-          if (player.parentTeamId !== 0) {
-            const parent = teamMap.get(player.parentTeamId);
+        const seasonStats = this.getHighestMinorLeagueStats(
+          minorLeagueStatsService.getPlayerStats(scouting.playerId, this.selectedYear, this.selectedYear)
+        );
+
+        if (player) {
+          const team = teamMap.get(player.teamId);
+          if (team) {
+            if (player.parentTeamId !== 0) {
+              const parent = teamMap.get(player.parentTeamId);
             if (parent) {
               teamDisplay = `${parent.nickname} <span class="minor-team">(${team.nickname})</span>`;
               teamFilter = parent.nickname;
@@ -595,51 +640,82 @@ export class TrueRatingsView {
             teamIsMajor = true;
           }
         }
-      }
+        }
 
-      const scoutOverall = this.averageRating(scouting.stuff, scouting.control, scouting.hra);
+        const scoutOverall = this.averageRating(scouting.stuff, scouting.control, scouting.hra);
+        const prospectHasStats = Boolean(seasonStats);
+        const prospectIp = seasonStats?.ip ?? 0;
+        const prospectOuts = prospectHasStats ? this.parseIpToOuts(prospectIp) : 0;
+        const prospectK = seasonStats?.k ?? 0;
+        const prospectBb = seasonStats?.bb ?? 0;
+        const prospectHr = seasonStats?.hr ?? 0;
+        const prospectK9 = seasonStats?.k9 ?? (prospectIp > 0 ? (prospectK / prospectIp) * 9 : 0);
+        const prospectBb9 = seasonStats?.bb9 ?? (prospectIp > 0 ? (prospectBb / prospectIp) * 9 : 0);
+        const prospectHr9 = seasonStats?.hr9 ?? (prospectIp > 0 ? (prospectHr / prospectIp) * 9 : 0);
 
-      // Create a prospect row with placeholder stats
-      // Cast to PitcherRow - we only need the fields we display
-      const prospectRow = {
-        // Required TruePlayerStats fields (will show as "-")
-        player_id: scouting.playerId,
-        playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
-        ip: '0',
-        k: 0,
-        bb: 0,
-        hra: 0,
-        r: 0,
-        er: 0,
-        war: 0,
-        ra9war: 0,
-        wpa: 0,
-        gs: 0,
-        // Derived fields
-        ipOuts: 0,
-        kPer9: 0,
-        bbPer9: 0,
-        hraPer9: 0,
-        // Team info
-        teamDisplay,
-        teamFilter,
-        teamIsMajor,
-        // True Ratings fields - use TFR
-        trueFutureRating: tfr.trueFutureRating,
-        tfrPercentile: tfr.percentile,
-        fipLike: tfr.projFip - 3.47, // Convert back to FIP-like (without constant)
-        estimatedStuff: Math.round((tfr.projK9 - 2.07) / 0.074),
-        estimatedControl: Math.round((5.22 - tfr.projBb9) / 0.052),
-        estimatedHra: Math.round((2.08 - tfr.projHr9) / 0.024),
-        scoutOverall,
-        starGap: tfr.starGap,
-        isProspect: true,
-      } as PitcherRow;
+        // Create a prospect row with placeholder stats
+        // Cast to PitcherRow - we only need the fields we display
+        const prospectRow = {
+          // Required TruePlayerStats fields (will show as "-")
+          player_id: scouting.playerId,
+          playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
+          ip: prospectHasStats ? prospectIp.toFixed(1) : '0',
+          k: prospectK,
+          bb: prospectBb,
+          hra: prospectHr,
+          r: 0,
+          er: 0,
+          war: 0,
+          ra9war: 0,
+          wpa: 0,
+          gs: 0,
+          // Derived fields
+          ipOuts: prospectOuts,
+          kPer9: prospectK9,
+          bbPer9: prospectBb9,
+          hraPer9: prospectHr9,
+          // Team info
+          teamDisplay,
+          teamFilter,
+          teamIsMajor,
+          // True Ratings fields - use TFR
+          trueFutureRating: tfr.trueFutureRating,
+          tfrPercentile: tfr.percentile,
+          fipLike: tfr.projFip - 3.47, // Convert back to FIP-like (without constant)
+          estimatedStuff: Math.round((tfr.projK9 - 2.07) / 0.074),
+          estimatedControl: Math.round((5.22 - tfr.projBb9) / 0.052),
+          estimatedHra: Math.round((2.08 - tfr.projHr9) / 0.024),
+          scoutOverall,
+          starGap: tfr.starGap,
+          isProspect: true,
+          prospectHasStats,
+          prospectLevel: seasonStats?.level,
+        } as PitcherRow;
 
       prospectRows.push(prospectRow);
     }
 
     return prospectRows;
+  }
+
+  private getHighestMinorLeagueStats(
+    stats: MinorLeagueStatsWithLevel[]
+  ): MinorLeagueStatsWithLevel | null {
+    if (stats.length === 0) return null;
+    const levelRank: Record<MinorLeagueStatsWithLevel['level'], number> = {
+      aaa: 4,
+      aa: 3,
+      a: 2,
+      r: 1,
+    };
+
+    let best = stats[0];
+    for (const current of stats) {
+      if (levelRank[current.level] > levelRank[best.level]) {
+        best = current;
+      }
+    }
+    return best;
   }
 
   private buildScoutingLookup(ratings: PitcherScoutingRatings[]): ScoutingLookup {
@@ -757,20 +833,26 @@ export class TrueRatingsView {
 
     const rows = stats.map(player => {
       const isProspect = player.isProspect === true;
+      const prospectHasStats = Boolean(player.prospectHasStats);
       const cells = this.pitcherColumns.map(column => {
         const rawValue = column.accessor ? column.accessor(player) : (player as any)[column.key];
+        const columnKey = String(column.key);
 
-        // For prospects, show "-" for stat columns
-        const statColumns = ['ip', 'k', 'bb', 'hra', 'r', 'er', 'war', 'ra9war', 'wpa'];
-        if (isProspect && statColumns.includes(String(column.key))) {
-          return `<td data-col-key="${column.key}" class="prospect-stat">—</td>`;
+        if (isProspect) {
+          const prospectAllowedStatKeys = ['ip', 'k', 'bb', 'hra'];
+          const prospectUnavailableStatKeys = ['r', 'er', 'war', 'ra9war', 'wpa'];
+          if (prospectUnavailableStatKeys.includes(columnKey)) {
+            return `<td data-col-key="${column.key}" class="prospect-stat">—</td>`;
+          }
+          if (prospectAllowedStatKeys.includes(columnKey) && !prospectHasStats) {
+            return `<td data-col-key="${column.key}" class="prospect-stat">—</td>`;
+          }
         }
 
         const displayValue = this.formatValue(rawValue, String(column.key));
 
         if (column.key === 'kPer9' || column.key === 'bbPer9' || column.key === 'hraPer9') {
-          // For prospects, show "-" for rate stats
-          if (isProspect) {
+          if (isProspect && !prospectHasStats) {
             return `<td data-col-key="${column.key}" class="prospect-stat">—</td>`;
           }
           const ip = player.ipOuts / 3;
@@ -1336,6 +1418,15 @@ export class TrueRatingsView {
       scoutStuff: scouting?.stuff,
       scoutControl: scouting?.control,
       scoutHra: scouting?.hra,
+      scoutStamina: scouting?.stamina,
+      scoutInjuryProneness: scouting?.injuryProneness,
+      scoutOvr: scouting?.ovr,
+      scoutPot: scouting?.pot,
+      // TFR fields for prospects
+      trueFutureRating: row.trueFutureRating,
+      tfrPercentile: row.tfrPercentile,
+      starGap: row.starGap,
+      isProspect: row.isProspect,
     };
 
     await this.playerProfileModal.show(profileData, this.selectedYear);

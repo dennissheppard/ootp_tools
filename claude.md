@@ -26,7 +26,10 @@ src/
 │   ├── PotentialStatsView.ts # Rating-to-stats calculator UI
 │   ├── RatingEstimatorView.ts # Stats-to-ratings estimator UI
 │   ├── DraftBoardView.ts   # Interactive draft board
-│   ├── TrueRatingsView.ts  # True Ratings page UI
+│   ├── TrueRatingsView.ts  # True Ratings page UI (includes prospects with TFR)
+│   ├── ProjectionsView.ts  # Stat projections with aging curves
+│   ├── TeamRatingsView.ts  # Team-level pitching strength rankings
+│   ├── FarmRankingsView.ts # Farm system rankings (placeholder)
 │   ├── LoadingView.ts      # Loading overlay
 │   └── ErrorView.ts        # Error display
 ├── controllers/
@@ -40,8 +43,11 @@ src/
     ├── LeagueStatsService.ts # League-wide stats and FIP constant calculations
     ├── TrueRatingsService.ts # True Ratings data fetching and caching
     ├── TrueRatingsCalculationService.ts # True Rating calculation (percentile, blending)
+    ├── TrueFutureRatingService.ts # True Future Rating calculation for prospects
     ├── ScoutingDataService.ts # Scouting CSV parsing and localStorage persistence
     ├── MinorLeagueStatsService.ts # Minor league stats CSV parsing and localStorage persistence
+    ├── AgingService.ts       # Aging curve calculations for projections
+    ├── ProjectionService.ts  # Stat projection calculations
     └── DateService.ts        # Current game date fetching and caching
 ```
 
@@ -346,6 +352,61 @@ Examples:
 - Only the star GAP is used, as a development indicator for weighting
 - This avoids the known issues with OOTP star inflation for prospects and deflation for MLB players
 
+**Implementation Details**:
+
+The TFR feature is implemented across several files:
+
+**Service: `TrueFutureRatingService.ts`**
+```typescript
+import { trueFutureRatingService } from './services/TrueFutureRatingService';
+
+// Get TFR for all prospects in a year
+const results = await trueFutureRatingService.getProspectTrueFutureRatings(2021, 'my');
+
+// Each result contains:
+interface TrueFutureRatingResult {
+  playerId: number;
+  playerName: string;
+  age: number;
+  starGap: number;           // POT - OVR
+  scoutingWeight: number;    // 0-1, how much to trust scouting
+  projK9, projBb9, projHr9: number;  // Blended projected rates
+  projFip: number;           // Projected FIP
+  percentile: number;        // Rank vs MLB pitchers
+  trueFutureRating: number;  // 0.5-5.0 scale
+  totalMinorIp: number;
+}
+```
+
+**UI Integration**:
+
+1. **True Ratings Table** (`TrueRatingsView.ts`):
+   - Prospects appear alongside MLB pitchers
+   - TFR badge shown instead of TR (with dashed border)
+   - "P" badge next to name indicates prospect
+   - Stat columns show "—" (no MLB stats)
+   - Sorting works across both TR and TFR
+
+2. **Player Profile Modal** (`PlayerRatingsCard.ts`):
+   - Shows "True Future Rating" emblem for prospects
+   - Percentile shown against MLB pitcher pool
+   - Rating bars show scouting vs projected ratings
+
+3. **Projections View** (`ProjectionsView.ts`):
+   - Prospects merged with MLB projections
+   - TFR used as "Current TR" for sorting/display
+   - Projected stats derived from TFR calculation
+
+**Data Requirements**:
+
+Scouting CSV must include OVR and POT columns for TFR to work:
+```csv
+ID,Name,STU P,OVR,POT,CON P,HRR P,Age
+12345,John Doe,55,2.0 Stars,4.5 Stars,50,45,19
+```
+
+The parser handles "X.X Stars" format automatically.
+
 ### 9. Data Management
 A central hub for managing all offline data, including minor league statistics and scouting reports.
 
@@ -355,8 +416,14 @@ A central hub for managing all offline data, including minor league statistics a
 
 **CSV Formats**:
 - **Stats**: `ID,Name,IP,HR,BB,K,HR/9,BB/9,K/9`
-- **Scouting**: `player_id, name, stuff, control, hra [, age, pitch_ratings...]`
+- **Scouting**: `player_id, name, stuff, control, hra [, ovr, pot, age, stamina, injury_proneness, pitch_ratings...]`
+  - **Star Ratings**: OVR (overall) and POT (potential) columns support "X.X Stars" format (e.g., "3.5 Stars")
   - **Pitch Ratings Support**: The parser dynamically identifies additional columns (e.g., "Fastball", "Slider") to determine a pitcher's repertoire and role.
+  - **Header Aliases**: Flexible parsing supports various column names:
+    - OVR: `ovr`, `overall`, `cur`, `current`
+    - POT: `pot`, `potential`, `ceil`, `ceiling`
+    - Stamina: `stm`, `stamina`, `stam`
+    - Injury: `prone`, `injury`, `injuryproneness`, `inj`
 
 **Features**:
 - **Multi-File Upload**: Batch upload multiple CSV files.

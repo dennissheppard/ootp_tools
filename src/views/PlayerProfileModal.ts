@@ -170,6 +170,7 @@ export class PlayerProfileModal {
           bb9: s.bb9,
           hr9: s.hr9,
           war: 0,
+          gs: 0
         }));
 
         // Merge and sort
@@ -189,32 +190,54 @@ export class PlayerProfileModal {
         
         // Calculate Projection
         let projectionHtml = '';
-        try {
-            const player = await playerService.getPlayerById(data.playerId);
-            if (player && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
-                const leagueStats = await leagueStatsService.getLeagueStats(selectedYear);
-                const leagueContext = {
-                    fipConstant: leagueStats.fipConstant,
-                    avgFip: leagueStats.avgFip,
-                    runsPerWin: 9.0
-                };
-                
-                // Estimate role from recent stats (IP > 80 implies starter/long reliever)
-                const recent = mlbStats[0]; // Most recent year
-                const isSp = recent && recent.ip > 80;
-                
-                const proj = projectionService.calculateProjection(
-                    { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
-                    player.age,
-                    0, // Pitch count unknown
-                    isSp ? 20 : 0, // Mock GS to trigger SP logic in service
-                    leagueContext
-                );
-                
-                projectionHtml = this.renderProjection(proj, player.age + 1);
+        
+        // Readiness Check
+        const hasRecentMlb = mlbStats.some(s => s.year >= selectedYear - 1 && s.ip > 0);
+        // Check for Upper Minors presence in the selected year (or current year context)
+        const isUpperMinors = combinedStats.some(s => (s.level === 'aaa' || s.level === 'aa') && s.year === selectedYear);
+        
+        const ovr = data.scoutOvr ?? 20;
+        const pot = data.scoutPot ?? 20;
+        const starGap = pot - ovr;
+        const isQualityProspect = (ovr >= 45) || (starGap <= 1.0 && pot >= 45);
+        
+        let showProjection = hasRecentMlb;
+        if (!showProjection && isUpperMinors && (isQualityProspect || (data.trueRating ?? 0) >= 2.0)) {
+             showProjection = true;
+        }
+        if (ovr >= 50) showProjection = true;
+
+        if (showProjection) {
+            try {
+                const player = await playerService.getPlayerById(data.playerId);
+                if (player && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
+                    const leagueStats = await leagueStatsService.getLeagueStats(selectedYear);
+                    const leagueContext = {
+                        fipConstant: leagueStats.fipConstant,
+                        avgFip: leagueStats.avgFip,
+                        runsPerWin: 8.5
+                    };
+                    
+                    // Estimate role from recent stats (IP > 80 implies starter/long reliever)
+                    const recent = mlbStats[0]; // Most recent year
+                    const isSp = recent && recent.ip > 80;
+                    
+                    const proj = projectionService.calculateProjection(
+                        { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
+                        player.age,
+                        0, // Pitch count unknown
+                        isSp ? 20 : 0, // Mock GS to trigger SP logic in service
+                        leagueContext,
+                        data.scoutStamina,
+                        data.scoutInjuryProneness,
+                        mlbStats
+                    );
+                    
+                    projectionHtml = this.renderProjection(proj, player.age + 1);
+                }
+            } catch (e) {
+                console.warn('Failed to calculate projection', e);
             }
-        } catch (e) {
-            console.warn('Failed to calculate projection', e);
         }
 
         bodyEl.innerHTML = this.renderContent(data, combinedStats, hasMinorLeague, projectionHtml);

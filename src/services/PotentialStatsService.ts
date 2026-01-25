@@ -147,9 +147,19 @@ export class PotentialStatsService {
     const hr = Math.round((hr9 / 9) * ip);
 
     // Use shared FIP/WAR service for consistent calculations
+    // Calculate replacement level FIP dynamically from league average if available
+    // Replacement level is typically ~1.00 higher than average FIP
+    let replacementFip: number | undefined;
+    if (leagueContext?.avgFip) {
+        // Dynamic replacement level: Avg FIP + (WinsPer9 * RunsPerWin)
+        // Using 0.12 wins/9 as standard replacement level gap
+        const rpw = leagueContext.runsPerWin ?? 8.5;
+        replacementFip = leagueContext.avgFip + (0.12 * rpw);
+    }
+
     const leagueConstants: Partial<LeagueConstants> = leagueContext ? {
       fipConstant: leagueContext.fipConstant,
-      replacementFip: leagueContext.avgFip,
+      replacementFip, 
       runsPerWin: leagueContext.runsPerWin,
     } : {};
 

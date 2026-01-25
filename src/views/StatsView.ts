@@ -99,6 +99,7 @@ export class StatsView {
       bb9: s.bb9,
       hr9: s.hr9,
       war: 0, // Not available for minor league stats
+      gs: 0
     }));
 
     // Merge and sort by year descending, then by level (MLB first within same year)
@@ -121,7 +122,7 @@ export class StatsView {
                 const leagueContext = {
                     fipConstant: leagueStats.fipConstant,
                     avgFip: leagueStats.avgFip,
-                    runsPerWin: 9.0
+                    runsPerWin: 8.5
                 };
                 
                 // Estimate role
@@ -133,12 +134,11 @@ export class StatsView {
                     player.age,
                     0, // pitch count
                     isSp ? 20 : 0, // Mock GS
-                    leagueContext
+                    leagueContext,
+                    ratingsData.scoutStamina,
+                    ratingsData.scoutInjuryProneness,
+                    mlbYearlyStats
                 );
-                
-                // Refine IP based on IP history if available
-                if (recent && recent.ip > 80) proj.projectedStats.ip = 160;
-                else proj.projectedStats.ip = 60;
                 
                 projectionHtml = this.renderProjection(proj, player.age + 1);
             }
@@ -314,6 +314,8 @@ export class StatsView {
         scoutStuff: scoutMatch?.stuff,
         scoutControl: scoutMatch?.control,
         scoutHra: scoutMatch?.hra,
+        scoutStamina: scoutMatch?.stamina,
+        scoutInjuryProneness: scoutMatch?.injuryProneness,
       };
     } catch (error) {
       console.error('Error fetching player ratings:', error);
@@ -348,18 +350,31 @@ export class StatsView {
     playerId: number,
     playerName: string,
     lookup: { byId: Map<number, any>; byName: Map<string, any[]> }
-  ): { stuff: number; control: number; hra: number } | null {
+  ): { stuff: number; control: number; hra: number; stamina?: number; injuryProneness?: string } | null {
     // Try by ID first
     const byId = lookup.byId.get(playerId);
     if (byId) {
-      return { stuff: byId.stuff, control: byId.control, hra: byId.hra };
+      return { 
+        stuff: byId.stuff, 
+        control: byId.control, 
+        hra: byId.hra,
+        stamina: byId.stamina,
+        injuryProneness: byId.injuryProneness
+      };
     }
 
     // Fall back to name matching
     const normalized = this.normalizeName(playerName);
     const matches = lookup.byName.get(normalized);
     if (matches && matches.length === 1) {
-      return { stuff: matches[0].stuff, control: matches[0].control, hra: matches[0].hra };
+      const match = matches[0];
+      return { 
+        stuff: match.stuff, 
+        control: match.control, 
+        hra: match.hra,
+        stamina: match.stamina,
+        injuryProneness: match.injuryProneness
+      };
     }
 
     return null;

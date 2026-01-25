@@ -25,6 +25,7 @@ export interface RatedPlayer {
     gs: number;
     era: number;
     fip: number;
+    war?: number;
   };
 }
 
@@ -68,7 +69,8 @@ class TeamRatingsService {
                   hr9: p.projectedStats.hr9,
                   gs: isSp ? 30 : 0, // Mock GS
                   era: 0, // ERA not projected
-                  fip: p.projectedStats.fip
+                  fip: p.projectedStats.fip,
+                  war: p.projectedStats.war
               }
           };
 
@@ -210,7 +212,8 @@ class TeamRatingsService {
             isSp,
             stats: { 
                 ip, k9, bb9, hr9, gs: stat.gs,
-                era, fip
+                era, fip,
+                war: stat.war
             }
         };
 

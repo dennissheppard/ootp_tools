@@ -4,6 +4,8 @@ export interface PitcherScoutingRatings {
   stuff: number;
   control: number;
   hra: number;
+  stamina?: number;
+  injuryProneness?: string;
   age?: number;
   /** Overall star rating (0.5-5.0 scale) */
   ovr?: number;

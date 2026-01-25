@@ -1,6 +1,6 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 
-type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot';
+type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness';
 
 const STORAGE_KEY_PREFIX = 'wbl_scouting_ratings_';
 
@@ -13,6 +13,8 @@ const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   age: ['age'],
   ovr: ['ovr', 'overall', 'cur', 'current'],
   pot: ['pot', 'potential', 'ceil', 'ceiling'],
+  stamina: ['stm', 'stamina', 'stam'],
+  injuryProneness: ['prone', 'injury', 'injuryproneness', 'inj']
 };
 
 export type ScoutingSource = 'my' | 'osa';
@@ -51,6 +53,10 @@ class ScoutingDataService {
         const playerId = this.isNumber(rawId) ? Math.round(rawId) : -1;
         const playerName = this.getStringFromIndex(cells, indexMap.playerName);
         const age = this.getNumberFromIndex(cells, indexMap.age);
+        
+        // Parse Stamina and Injury Proneness
+        const stamina = this.getNumberFromIndex(cells, indexMap.stamina);
+        const injuryProneness = this.getStringFromIndex(cells, indexMap.injuryProneness);
 
         // Parse star ratings (OVR/POT) - handles "X.X Stars" format
         const ovr = this.parseStarRating(cells, indexMap.ovr);
@@ -71,6 +77,8 @@ class ScoutingDataService {
           stuff,
           control,
           hra,
+          stamina: this.isNumber(stamina) ? stamina : undefined,
+          injuryProneness: injuryProneness || undefined,
           age: this.isNumber(age) ? Math.round(age) : undefined,
           ovr: this.isNumber(ovr) ? ovr : undefined,
           pot: this.isNumber(pot) ? pot : undefined,

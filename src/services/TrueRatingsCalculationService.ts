@@ -41,6 +41,7 @@ export interface YearlyPitchingStats {
   k9: number;
   bb9: number;
   hr9: number;
+  gs: number;
 }
 
 /**

@@ -711,6 +711,25 @@ body {
   opacity: 0.9;
 }
 
+/* TFR indicator on badge */
+.badge-indicator-tfr {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin-left: 0.2rem;
+  vertical-align: super;
+}
+
+/* TFR emblem styling */
+.tfr-emblem {
+  border-style: dashed;
+}
+
+.tfr-emblem .rating-emblem-label {
+  font-size: 0.65rem;
+}
+
 /* Prospect badge next to name */
 .prospect-badge {
   display: inline-block;
@@ -1752,6 +1771,7 @@ td.player-cell.player-name {
   font-size: 0.75rem;
   font-weight: 600;
 }
+
 
 .bar-vs {
   font-size: 0.75rem;

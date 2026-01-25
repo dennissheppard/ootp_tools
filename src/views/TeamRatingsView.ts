@@ -1,5 +1,6 @@
 import { teamRatingsService, TeamRatingResult, RatedPlayer } from '../services/TeamRatingsService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
+import { dateService } from '../services/DateService';
 
 export class TeamRatingsView {
   private container: HTMLElement;
@@ -7,10 +8,12 @@ export class TeamRatingsView {
   private viewMode: 'actual' | 'projected' = 'actual';
   private results: TeamRatingResult[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
+  private currentGameYear: number | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.renderLayout();
+    this.loadCurrentGameYear();
     this.loadData();
   }
 
@@ -121,10 +124,14 @@ export class TeamRatingsView {
             }
             this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear);
         }
+        if (this.results.length === 0) {
+            await this.renderNoData();
+            return;
+        }
         this.renderLists();
     } catch (err) {
         console.error(err);
-        this.container.innerHTML += `<div class="error-message">Error loading team ratings: ${err}</div>`;
+        await this.renderNoData(err);
     }
   }
 
@@ -185,7 +192,7 @@ export class TeamRatingsView {
                             <th>K/9</th>
                             <th>BB/9</th>
                             <th>HR/9</th>
-                            <th>ERA</th>
+                            <th>${this.viewMode === 'projected' ? 'WAR' : 'ERA'}</th>
                             <th>FIP</th>
                         </tr>
                     </thead>
@@ -203,7 +210,7 @@ export class TeamRatingsView {
                                 <td>${this.renderFlipCell(p.stats.k9.toFixed(2), estStuff.toString(), 'Est Stuff Rating')}</td>
                                 <td>${this.renderFlipCell(p.stats.bb9.toFixed(2), estControl.toString(), 'Est Control Rating')}</td>
                                 <td>${this.renderFlipCell(p.stats.hr9.toFixed(2), estHra.toString(), 'Est HRA Rating')}</td>
-                                <td>${p.stats.era.toFixed(2)}</td>
+                                <td>${this.viewMode === 'projected' ? (p.stats.war?.toFixed(1) ?? '0.0') : p.stats.era.toFixed(2)}</td>
                                 <td>${p.stats.fip.toFixed(2)}</td>
                             </tr>
                         `}).join('')}
@@ -276,5 +283,43 @@ export class TeamRatingsView {
         cell.classList.toggle('is-flipped');
       });
     });
+  }
+
+  private async loadCurrentGameYear(): Promise<void> {
+      try {
+          this.currentGameYear = await dateService.getCurrentYear();
+      } catch {
+          this.currentGameYear = null;
+      }
+  }
+
+  private async renderNoData(_error?: unknown): Promise<void> {
+      if (this.currentGameYear === null) {
+          await this.loadCurrentGameYear();
+      }
+      const year = this.selectedYear;
+      const isCurrentOrFuture = this.currentGameYear !== null && year >= this.currentGameYear;
+      const baseMessage = isCurrentOrFuture
+          ? `No ${year} data yet. Try a previous year or check back once the season starts. For now, check out the team projections!`
+          : `No data found for ${year}.`;
+
+      const message = this.viewMode === 'projected'
+          ? `Unable to load projections for ${year}.`
+          : baseMessage;
+
+      const rotContainer = this.container.querySelector('#rotation-rankings');
+      const penContainer = this.container.querySelector('#bullpen-rankings');
+      if (rotContainer) {
+          rotContainer.innerHTML = `
+            <h3 class="section-title">Top Rotations</h3>
+            <p class="no-stats">${message}</p>
+          `;
+      }
+      if (penContainer) {
+          penContainer.innerHTML = `
+            <h3 class="section-title">Top Bullpens</h3>
+            <p class="no-stats">${message}</p>
+          `;
+      }
   }
 }

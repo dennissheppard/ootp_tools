@@ -14,6 +14,7 @@ export interface PlayerYearlyDetail {
   bb9: number;
   hr9: number;
   war: number;
+  gs: number;
 }
 
 // From https://statsplus.net/wbl/api/playerpitchstatsv2/?year=2020
@@ -128,7 +129,7 @@ export interface TruePlayerBattingStats extends TrueBattingStats {
 
 type StatsType = 'pitching' | 'batting';
 
-const API_BASE = '/api-wbl/api';
+const API_BASE = '/api';
 const CACHE_KEY_PREFIX = 'wbl_true_ratings_cache_';
 const CACHE_TIMESTAMP_KEY_PREFIX = 'wbl_true_ratings_cache_timestamp_';
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -527,6 +528,7 @@ class TrueRatingsService {
           k9: Math.round(k9 * 100) / 100,
           bb9: Math.round(bb9 * 100) / 100,
           hr9: Math.round(hr9 * 100) / 100,
+          gs: pitcher.gs
         };
 
         // Add to player's stats array
@@ -599,6 +601,7 @@ class TrueRatingsService {
             bb9: ip > 0 ? Math.round((playerStats.bb / ip) * 9 * 100) / 100 : 0,
             hr9: ip > 0 ? Math.round((playerStats.hra / ip) * 9 * 100) / 100 : 0,
             war: Math.round(playerStats.war * 10) / 10,
+            gs: playerStats.gs
           });
         }
       }
@@ -626,6 +629,7 @@ class TrueRatingsService {
               bb9: Math.round(stat.bb9 * 100) / 100,
               hr9: ip > 0 ? Math.round((stat.hr / ip) * 9 * 100) / 100 : 0,
               war: Math.round(stat.war * 10) / 10,
+              gs: stat.gs
             });
           }
         }
