@@ -3,7 +3,7 @@ import { Player } from './models';
 import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
-import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, PotentialStatsView, DraftBoardView, TrueRatingsView, RatingEstimatorView, FarmRankingsView, TeamRatingsView, DataManagementView } from './views';
+import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
 
 class App {
@@ -14,7 +14,9 @@ class App {
   private loadingView!: LoadingView;
   private errorView!: ErrorView;
   private activeTabId = 'tab-search';
-  private ratingEstimatorView!: RatingEstimatorView;
+  private calculatorsView!: CalculatorsView;
+  private projectionsView?: ProjectionsView;
+  private projectionsContainer!: HTMLElement;
 
   private selectedYear?: number;
 
@@ -48,13 +50,9 @@ class App {
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           <span>Player Search</span>
         </button>
-        <button class="tab-button" data-tab-target="tab-potential">
+        <button class="tab-button" data-tab-target="tab-calculators">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-          <span>Stat Calculator</span>
-        </button>
-        <button class="tab-button" data-tab-target="tab-estimator">
-            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M21.25 12a9.25 9.25 0 1 1-18.5 0 9.25 9.25 0 0 1 18.5 0Z"/><path d="M6 12h12"/></svg>
-            <span>Rating Estimator</span>
+          <span>Calculators</span>
         </button>
         <button class="tab-button" data-tab-target="tab-draft">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>
@@ -63,6 +61,10 @@ class App {
         <button class="tab-button" data-tab-target="tab-true-ratings">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
           <span>True Ratings</span>
+        </button>
+        <button class="tab-button" data-tab-target="tab-projections">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
+          <span>Projections</span>
         </button>
         <button class="tab-button" data-tab-target="tab-farm-rankings">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
@@ -86,12 +88,8 @@ class App {
           <div id="stats-container"></div>
         </section>
 
-        <section id="tab-potential" class="tab-panel">
-          <div id="potential-stats-container"></div>
-        </section>
-
-        <section id="tab-estimator" class="tab-panel">
-          <div id="rating-estimator-container"></div>
+        <section id="tab-calculators" class="tab-panel">
+          <div id="calculators-container"></div>
         </section>
 
         <section id="tab-draft" class="tab-panel">
@@ -100,6 +98,10 @@ class App {
 
         <section id="tab-true-ratings" class="tab-panel">
           <div id="true-ratings-container"></div>
+        </section>
+        
+        <section id="tab-projections" class="tab-panel">
+          <div id="projections-container"></div>
         </section>
 
         <section id="tab-farm-rankings" class="tab-panel">
@@ -122,10 +124,10 @@ class App {
     const searchContainer = document.querySelector<HTMLElement>('#search-container')!;
     const playerListContainer = document.querySelector<HTMLElement>('#player-list-container')!;
     const statsContainer = document.querySelector<HTMLElement>('#stats-container')!;
-    const potentialStatsContainer = document.querySelector<HTMLElement>('#potential-stats-container')!;
-    const ratingEstimatorContainer = document.querySelector<HTMLElement>('#rating-estimator-container')!;
+    const calculatorsContainer = document.querySelector<HTMLElement>('#calculators-container')!;
     const draftBoardContainer = document.querySelector<HTMLElement>('#draft-board-container')!;
     const trueRatingsContainer = document.querySelector<HTMLElement>('#true-ratings-container')!;
+    const projectionsContainer = document.querySelector<HTMLElement>('#projections-container')!;
     const farmRankingsContainer = document.querySelector<HTMLElement>('#farm-rankings-container')!;
     const teamRatingsContainer = document.querySelector<HTMLElement>('#team-ratings-container')!;
     const dataManagementContainer = document.querySelector<HTMLElement>('#data-management-container')!;
@@ -144,10 +146,10 @@ class App {
     this.statsView = new StatsView(statsContainer, {
       onSendToEstimator: (payload) => this.handleSendToEstimator(payload),
     });
-    new PotentialStatsView(potentialStatsContainer);
-    this.ratingEstimatorView = new RatingEstimatorView(ratingEstimatorContainer);
+    this.calculatorsView = new CalculatorsView(calculatorsContainer);
     new DraftBoardView(draftBoardContainer);
     new TrueRatingsView(trueRatingsContainer);
+    this.projectionsContainer = projectionsContainer;
     new FarmRankingsView(farmRankingsContainer);
     new TeamRatingsView(teamRatingsContainer);
     new DataManagementView(dataManagementContainer);
@@ -184,6 +186,10 @@ class App {
 
     if (tabId === 'tab-search') {
       this.searchView.focus();
+    }
+
+    if (tabId === 'tab-projections' && !this.projectionsView) {
+      this.projectionsView = new ProjectionsView(this.projectionsContainer);
     }
   }
 
@@ -229,8 +235,8 @@ class App {
   }
 
   private async handleSendToEstimator(payload: SendToEstimatorPayload): Promise<void> {
-    this.setActiveTab('tab-estimator');
-    await this.ratingEstimatorView.prefillAndEstimate({
+    this.setActiveTab('tab-calculators');
+    await this.calculatorsView.prefillEstimator({
       ip: payload.ip,
       k9: payload.k9,
       bb9: payload.bb9,

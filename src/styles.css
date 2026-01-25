@@ -149,6 +149,14 @@ body {
   display: block;
 }
 
+.calculator-panel {
+  display: none;
+}
+
+.calculator-panel.active {
+  display: block;
+}
+
 .placeholder-card {
   background-color: var(--color-surface);
   border: 1px dashed var(--color-border);
@@ -697,6 +705,35 @@ body {
   background-color: rgba(113, 118, 123, 0.15);
 }
 
+/* True Future Rating badge (prospects) */
+.tfr-badge {
+  border: 1px dashed currentColor;
+  opacity: 0.9;
+}
+
+/* Prospect badge next to name */
+.prospect-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  background-color: rgba(29, 155, 240, 0.15);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+
+/* Prospect row styling */
+.prospect-row {
+  opacity: 0.85;
+}
+
+.prospect-stat {
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
 /* Stats container */
 .stats-container {
   background-color: var(--color-surface);
@@ -992,6 +1029,11 @@ td.player-cell.player-name {
 .section-subtitle {
   color: var(--color-text-muted);
   margin: 0 0 1.5rem 0;
+}
+
+.note-text {
+  color: var(--color-text-muted);
+  font-size: 0.85em;
 }
 
 .potential-stats-content {

@@ -6,6 +6,8 @@ import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
+import { trueFutureRatingService } from '../services/TrueFutureRatingService';
+import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -26,6 +28,13 @@ interface TrueRatingFields {
   scoutOverall?: number;
   estimatedOverall?: number;
   scoutDiff?: number;
+  /** True Future Rating for prospects */
+  trueFutureRating?: number;
+  tfrPercentile?: number;
+  /** Flag indicating this is a prospect without MLB stats */
+  isProspect?: boolean;
+  /** Star gap (POT - OVR) for prospects */
+  starGap?: number;
 }
 
 interface TeamInfoFields {
@@ -472,7 +481,7 @@ export class TrueRatingsView {
     const results = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages);
     const resultMap = new Map(results.map(result => [result.playerId, result]));
 
-    const enrichedPitchers = pitchers.map((pitcher) => {
+    const enrichedPitchers: PitcherRow[] = pitchers.map((pitcher) => {
       const result = resultMap.get(pitcher.player_id);
       if (!result) return pitcher;
       const scouting = scoutingMatchMap.get(pitcher.player_id);
@@ -492,13 +501,145 @@ export class TrueRatingsView {
         estimatedOverall,
         scoutOverall,
         scoutDiff,
+        isProspect: false,
       };
     });
 
-    // Build player row lookup for modal access
-    this.playerRowLookup = new Map(enrichedPitchers.map(p => [p.player_id, p]));
+    // Find prospects (scouting entries without MLB stats)
+    const mlbPlayerIds = new Set(pitchers.map(p => p.player_id));
+    const prospects = await this.buildProspectRows(mlbPlayerIds, scoutingLookup, results);
 
-    return enrichedPitchers;
+    // Merge MLB pitchers with prospects
+    const allPitchers = [...enrichedPitchers, ...prospects];
+
+    // Build player row lookup for modal access
+    this.playerRowLookup = new Map(allPitchers.map(p => [p.player_id, p]));
+
+    return allPitchers;
+  }
+
+  /**
+   * Build prospect rows for players with scouting data but no MLB stats.
+   * These rows will have isProspect=true and show TFR instead of TR.
+   */
+  private async buildProspectRows(
+    mlbPlayerIds: Set<number>,
+    scoutingLookup: ScoutingLookup,
+    mlbTrueRatings: { playerId: number; fipLike: number }[]
+  ): Promise<PitcherRow[]> {
+    // Find scouting entries not in MLB stats
+    const prospectScouting = this.scoutingRatings.filter(s =>
+      s.playerId > 0 && !mlbPlayerIds.has(s.playerId)
+    );
+
+    if (prospectScouting.length === 0) {
+      return [];
+    }
+
+    // Get MLB FIPs for percentile calculation
+    const mlbFips = mlbTrueRatings.map(tr => tr.fipLike + 3.47);
+
+    // Build TFR inputs for prospects
+    const tfrInputs = prospectScouting.map(scouting => {
+      const minorStats = minorLeagueStatsService.getPlayerStats(
+        scouting.playerId,
+        this.selectedYear - 2,
+        this.selectedYear
+      );
+
+      return {
+        playerId: scouting.playerId,
+        playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
+        age: scouting.age ?? 22,
+        scouting,
+        minorLeagueStats: minorStats,
+      };
+    });
+
+    // Calculate TFR for all prospects
+    const tfrResults = trueFutureRatingService.calculateTrueFutureRatings(tfrInputs, mlbFips);
+    const tfrMap = new Map(tfrResults.map(r => [r.playerId, r]));
+
+    // Fetch player/team data for prospects
+    const [allPlayers, allTeams] = await Promise.all([
+      playerService.getAllPlayers(),
+      teamService.getAllTeams()
+    ]);
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+    const teamMap = new Map(allTeams.map(t => [t.id, t]));
+
+    // Build prospect rows
+    const prospectRows: PitcherRow[] = [];
+
+    for (const scouting of prospectScouting) {
+      const tfr = tfrMap.get(scouting.playerId);
+      if (!tfr) continue;
+
+      const player = playerMap.get(scouting.playerId);
+      let teamDisplay = '';
+      let teamFilter = '';
+      let teamIsMajor = false;
+
+      if (player) {
+        const team = teamMap.get(player.teamId);
+        if (team) {
+          if (player.parentTeamId !== 0) {
+            const parent = teamMap.get(player.parentTeamId);
+            if (parent) {
+              teamDisplay = `${parent.nickname} <span class="minor-team">(${team.nickname})</span>`;
+              teamFilter = parent.nickname;
+            }
+          } else {
+            teamDisplay = team.nickname;
+            teamFilter = team.nickname;
+            teamIsMajor = true;
+          }
+        }
+      }
+
+      const scoutOverall = this.averageRating(scouting.stuff, scouting.control, scouting.hra);
+
+      // Create a prospect row with placeholder stats
+      // Cast to PitcherRow - we only need the fields we display
+      const prospectRow = {
+        // Required TruePlayerStats fields (will show as "-")
+        player_id: scouting.playerId,
+        playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
+        ip: '0',
+        k: 0,
+        bb: 0,
+        hra: 0,
+        r: 0,
+        er: 0,
+        war: 0,
+        ra9war: 0,
+        wpa: 0,
+        gs: 0,
+        // Derived fields
+        ipOuts: 0,
+        kPer9: 0,
+        bbPer9: 0,
+        hraPer9: 0,
+        // Team info
+        teamDisplay,
+        teamFilter,
+        teamIsMajor,
+        // True Ratings fields - use TFR
+        trueFutureRating: tfr.trueFutureRating,
+        tfrPercentile: tfr.percentile,
+        fipLike: tfr.projFip - 3.47, // Convert back to FIP-like (without constant)
+        estimatedStuff: Math.round((tfr.projK9 - 2.07) / 0.074),
+        estimatedControl: Math.round((5.22 - tfr.projBb9) / 0.052),
+        estimatedHra: Math.round((2.08 - tfr.projHr9) / 0.024),
+        scoutOverall,
+        starGap: tfr.starGap,
+        isProspect: true,
+      } as PitcherRow;
+
+      prospectRows.push(prospectRow);
+    }
+
+    return prospectRows;
   }
 
   private buildScoutingLookup(ratings: PitcherScoutingRatings[]): ScoutingLookup {
@@ -615,11 +756,23 @@ export class TrueRatingsView {
     }).join('');
 
     const rows = stats.map(player => {
+      const isProspect = player.isProspect === true;
       const cells = this.pitcherColumns.map(column => {
         const rawValue = column.accessor ? column.accessor(player) : (player as any)[column.key];
+
+        // For prospects, show "-" for stat columns
+        const statColumns = ['ip', 'k', 'bb', 'hra', 'r', 'er', 'war', 'ra9war', 'wpa'];
+        if (isProspect && statColumns.includes(String(column.key))) {
+          return `<td data-col-key="${column.key}" class="prospect-stat">—</td>`;
+        }
+
         const displayValue = this.formatValue(rawValue, String(column.key));
 
         if (column.key === 'kPer9' || column.key === 'bbPer9' || column.key === 'hraPer9') {
+          // For prospects, show "-" for rate stats
+          if (isProspect) {
+            return `<td data-col-key="${column.key}" class="prospect-stat">—</td>`;
+          }
           const ip = player.ipOuts / 3;
           let rating = 0;
           let title = '';
@@ -638,12 +791,14 @@ export class TrueRatingsView {
 
         // Make player name clickable only in True Ratings view
         if (column.key === 'playerName' && this.showTrueRatings) {
-          return `<td data-col-key="${column.key}"><button class="btn-link player-name-link" data-player-id="${player.player_id}">${displayValue}</button></td>`;
+          const prospectBadge = isProspect ? ' <span class="prospect-badge">P</span>' : '';
+          return `<td data-col-key="${column.key}"><button class="btn-link player-name-link" data-player-id="${player.player_id}">${displayValue}${prospectBadge}</button></td>`;
         }
 
         return `<td data-col-key="${column.key}">${displayValue}</td>`;
       }).join('');
-      return `<tr>${cells}</tr>`;
+      const rowClass = isProspect ? 'prospect-row' : '';
+      return `<tr class="${rowClass}">${cells}</tr>`;
     }).join('');
 
     return `
@@ -892,9 +1047,25 @@ export class TrueRatingsView {
     const key = this.sortKey;
 
     this.stats.sort((a, b) => {
-      const aVal = (a as any)[key];
-      const bVal = (b as any)[key];
-      
+      let aVal = (a as any)[key];
+      let bVal = (b as any)[key];
+
+      // For trueRating sort, use trueFutureRating for prospects
+      if (key === 'trueRating') {
+        const aRow = a as PitcherRow;
+        const bRow = b as PitcherRow;
+        if (aRow.isProspect) aVal = aRow.trueFutureRating;
+        if (bRow.isProspect) bVal = bRow.trueFutureRating;
+      }
+
+      // For percentile sort, use tfrPercentile for prospects
+      if (key === 'percentile') {
+        const aRow = a as PitcherRow;
+        const bRow = b as PitcherRow;
+        if (aRow.isProspect) aVal = aRow.tfrPercentile;
+        if (bRow.isProspect) bVal = bRow.tfrPercentile;
+      }
+
       let compare = 0;
       if (typeof aVal === 'number' && typeof bVal === 'number') {
         compare = (aVal ?? 0) - (bVal ?? 0);
@@ -944,13 +1115,23 @@ export class TrueRatingsView {
         key: 'trueRating',
         label: 'TR',
         sortKey: 'trueRating',
-        accessor: (row) => this.renderTrueRatingBadge(row.trueRating),
+        accessor: (row) => {
+          // For prospects, show TFR instead of TR
+          if (row.isProspect) {
+            return this.renderTrueFutureRatingBadge(row.trueFutureRating);
+          }
+          return this.renderTrueRatingBadge(row.trueRating);
+        },
       },
       {
         key: 'percentile',
         label: '%',
         sortKey: 'percentile',
-        accessor: (row) => (typeof row.percentile === 'number' ? row.percentile.toFixed(1) : ''),
+        accessor: (row) => {
+          // For prospects, show TFR percentile
+          const pct = row.isProspect ? row.tfrPercentile : row.percentile;
+          return typeof pct === 'number' ? pct.toFixed(1) : '';
+        },
       },
       { key: 'fipLike', label: 'FIP*' },
     ];
@@ -979,6 +1160,13 @@ export class TrueRatingsView {
     if (typeof value !== 'number') return '';
     const className = this.getTrueRatingClass(value);
     return `<span class="badge ${className}">${value.toFixed(1)}</span>`;
+  }
+
+  private renderTrueFutureRatingBadge(value?: number): string {
+    if (typeof value !== 'number') return '';
+    const className = this.getTrueRatingClass(value);
+    // TFR badge has a different style to indicate it's a projection
+    return `<span class="badge ${className} tfr-badge" title="True Future Rating (Projected)">${value.toFixed(1)}</span>`;
   }
 
   private getTrueRatingClass(value: number): string {

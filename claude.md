@@ -161,7 +161,192 @@ The estimator calculates FIP and WAR using the shared `FipWarService.ts` (same f
 -   **WAR** uses role-based parameters that automatically adjust based on IP (starters vs relievers).
 -   League constants (FIP constant, replacement FIP) can be loaded from `LeagueStatsService` for any year, with results cached in `localStorage`.
 
-### 6. Data Management
+### 6. Team Rater
+A comprehensive view of team-level pitching strength, identifying top rotations and bullpens.
+
+- **Role Classification**: Automatically classifies pitchers as Starters (SP) or Relievers (RP) based on pitch count (SP > 2 pitches) with a fallback to Games Started (GS >= 5) when pitch data is missing.
+- **Team Scores**:
+  - **Rotation Score**: Sum of the True Ratings of the top 5 starting pitchers.
+  - **Bullpen Score**: Sum of the True Ratings of the top 5 relief pitchers.
+- **Historical Context**: Supports viewing team rankings for any year (2000-2021), utilizing multi-year weighted averages for player ratings.
+- **Interactive Lists**: Ranked lists of teams with expandable rows showing detailed player stats (TR, IP, K/9, BB/9, HR/9, ERA, FIP).
+- **Stat Hover/Tooltips**:
+  - Flip cards on K/9, BB/9, and HR/9 show the estimated rating for that single season.
+  - Tooltips on the True Rating badge show the multi-year True Stuff, True Control, and True HRA components.
+
+### 7. Stat Projections
+Predicts future pitching performance by applying aging curves to current "True Talent" ratings.
+
+**Key Methodology**:
+1.  **Baseline**: Projections start from the player's current **True Ratings** (multi-year weighted average), *not* their raw ERA/FIP. This inherently handles regression to the mean. A player who "got lucky" (low ERA but high True Rating) will see their projected stats regress towards their talent level.
+2.  **Aging**: Standard aging curves are applied to the ratings (Stuff, Control, HRA) based on the player's age.
+3.  **Calculation**: The age-adjusted ratings are converted back into projected stats (K/9, BB/9, HR/9) using the WBL-calibrated formulas.
+
+**Aging Curves (Deterministic Baseline)**:
+-   **Young (< 22)**: Rapid development (+2 Stuff, +3 Control, +1.5 HRA).
+-   **Early Prime (22-24)**: Continued growth (+1 Stuff, +2 Control, +1 HRA).
+-   **Prime (25-27)**: Peak plateau (minimal changes).
+-   **Post-Prime (28-31)**: Slow decline (-1 Stuff, -0.5 Control/HRA).
+-   **Decline (32+)**: Accelerated regression.
+
+**Do players always improve?**
+-   **Ratings**: Yes, generally. A 23-year-old moving to 24 will typically see their *talent ratings* improve or stay stable.
+-   **Stats**: Not necessarily. If a young player significantly overperformed their ratings in the previous season (e.g., 2.00 ERA vs 4.00 True Rating), their projection will likely be worse than their last season's stats, as it regresses to their "True Talent" baseline, even with the aging boost.
+
+### 8. True Future Rating (Minor League Prospects)
+
+A forward-looking rating for minor league pitchers who don't have significant MLB stats. Projects what they would be as major leaguers.
+
+**Data Sources**:
+- Minor league stats by level (R, A, AA, AAA) stored via `MinorLeagueStatsService`
+- Scouting ratings (Stuff, Control, HRA potential) via `ScoutingDataService`
+- Star ratings: OVR (current overall) and POT (potential) from scout
+
+**Key Research Findings** (Jan 2026 analysis of WBL data):
+
+1. **Minor league stats correlate moderately with scouting** (r = 0.25-0.45)
+   - Stats explain only ~10-20% of variance in ratings
+   - Implication: Weight scouting heavily, but stats aren't worthless
+
+2. **Level stats are remarkably similar across levels**
+   - K/9: 5.5-5.7, BB/9: 3.3-3.4, HR/9: 0.8 at all levels
+   - OOTP doesn't heavily differentiate level difficulty in raw averages
+
+3. **Minor leaguers underperform their ratings**
+   - K/9 is ~0.3-0.5 LOWER than rating-expected
+   - BB/9 is ~0.4-0.6 HIGHER than rating-expected
+   - Ratings = potential; stats = incomplete development
+
+4. **Star gap (POT - OVR) predicts stats reliability**
+   - Developed (gap 0-0.5): Total prediction error = 1.83
+   - Mid-development (gap 1-2): Error = 2.35
+   - Raw (gap 2.5+): Error = 3.22
+   - Larger gap = stats less reliable = trust scouting more
+
+5. **Age matters as a quality signal**
+   - Young-for-level players have better ratings (they earned early promotion)
+   - This is already captured in scouting ratings; no separate age adjustment needed
+
+**Scouting Weight Formula**:
+
+```typescript
+function calculateScoutingWeight(
+  age: number,
+  starGap: number,      // POT - OVR (0 to 4)
+  totalMinorIp: number
+): number {
+  // For older players (27+), stats should dominate regardless of star gap
+  // They are who they are at this point
+  if (age >= 30) return 0.40;  // 60% stats weight
+  if (age >= 27) return 0.50;  // 50% stats weight
+
+  // For younger players, use gap and IP to determine weight
+  const baseWeight = 0.65;
+
+  // More raw (larger gap) = trust scouting more
+  const gapBonus = (starGap / 4.0) * 0.15;  // 0% to 15%
+
+  // Less IP = trust scouting more (stats are noisy)
+  const ipFactor = (50 / (50 + totalMinorIp)) * 0.15;  // 0% to 15%
+
+  return Math.min(0.95, baseWeight + gapBonus + ipFactor);
+}
+```
+
+**Example Scouting Weights**:
+
+| Player Profile | Age | Gap | IP | Scout Weight |
+|----------------|-----|-----|-----|--------------|
+| Raw 5-star prospect, no stats | 15 | 4.0 | 0 | 95% |
+| Developing prospect | 19 | 3.5 | 60 | 85% |
+| Upper-minors starter | 22 | 2.0 | 150 | 77% |
+| Near MLB-ready | 24 | 1.0 | 250 | 72% |
+| Veteran minor leaguer | 27 | 0.5 | 400 | 50% |
+| Career minor leaguer | 30 | 0.0 | 600 | 40% |
+
+**Level Adjustments** (to translate minor league stats to MLB-equivalent):
+
+These adjustments account for the gap between minor league performance and rating-expected MLB performance:
+
+| Level | K/9 adj | BB/9 adj | HR/9 adj |
+|-------|---------|----------|----------|
+| AAA | +0.30 | -0.42 | +0.14 |
+| AA | +0.33 | -0.47 | +0.06 |
+| A | +0.22 | -0.59 | +0.07 |
+| R | +0.45 | -0.58 | +0.06 |
+
+**Calculation Steps**:
+
+1. **Calculate scouting-expected rates** (from potential ratings):
+   ```
+   scoutK9 = 2.07 + 0.074 × Stuff
+   scoutBb9 = 5.22 - 0.052 × Control
+   scoutHr9 = 2.08 - 0.024 × HRA
+   ```
+
+2. **Calculate adjusted minor league rates**:
+   - Weight stats by IP across levels
+   - Apply level adjustments to translate to MLB-equivalent
+   - More recent years weighted higher (5/3 for current/previous)
+
+3. **Blend scouting and stats**:
+   ```
+   projK9 = scoutWeight × scoutK9 + (1 - scoutWeight) × adjustedK9
+   projBb9 = scoutWeight × scoutBb9 + (1 - scoutWeight) × adjustedBb9
+   projHr9 = scoutWeight × scoutHr9 + (1 - scoutWeight) × adjustedHr9
+   ```
+
+4. **Calculate projected FIP**:
+   ```
+   projFip = (13 × projHr9 + 3 × projBb9 - 2 × projK9) / 9 + FIP_CONSTANT
+   ```
+
+5. **Rank against current MLB pitchers**:
+   - Compare `projFip` to all current MLB pitcher FIPs
+   - Calculate percentile
+   - Convert to 0.5-5.0 scale using standard buckets
+
+**For Players WITH MLB Stats**:
+
+When a player has MLB experience, use their True Rating as the stats component instead of minor league stats:
+
+```typescript
+// For MLB players, use True Rating instead of minor league stats
+const statsComponent = hasMlbStats ? trueRatingFip : adjustedMinorLeagueFip;
+
+// Blend with scouting projection
+const projectedFip = scoutWeight * scoutingFip + (1 - scoutWeight) * statsComponent;
+```
+
+The scouting weight for MLB players is naturally lower because:
+- They're typically older (age override at 27+)
+- They have significant IP (IP factor reduces scouting weight)
+- Star gap is typically smaller (more developed)
+
+**Display Logic**:
+
+| Scenario | Display |
+|----------|---------|
+| TFR > TR + 0.25 | Show both: "TR: 3.5 → TFR: 4.0" (has upside) |
+| TFR ≈ TR (within 0.25) | Show TR only with "Developed" badge |
+| TFR < TR - 0.25 | Show TR only with "Overperforming" indicator |
+| No MLB stats | Show TFR only with "Prospect" badge |
+
+**Relationship Between TR and TFR**:
+- **True Rating (TR)**: What you ARE now (based on MLB performance)
+- **True Future Rating (TFR)**: What you WILL BE at peak (based on scouting + development)
+
+Examples:
+- 24yo with 2 MLB seasons: TR=3.5, TFR=4.0 → Show both (has upside)
+- 30yo veteran: TR=4.0, TFR=4.0 → Show TR with "Developed" badge
+- 19yo prospect with no MLB stats: TFR=4.5 → Show TFR with "Prospect" badge
+
+**Important Notes**:
+- Star ratings (OVR/POT) are NOT used directly in FIP calculation
+- Only the star GAP is used, as a development indicator for weighting
+- This avoids the known issues with OOTP star inflation for prospects and deflation for MLB players
+
+### 9. Data Management
 A central hub for managing all offline data, including minor league statistics and scouting reports.
 
 **Tabs**:
@@ -170,12 +355,14 @@ A central hub for managing all offline data, including minor league statistics a
 
 **CSV Formats**:
 - **Stats**: `ID,Name,IP,HR,BB,K,HR/9,BB/9,K/9`
-- **Scouting**: `player_id, name, stuff, control, hra [, age]`
+- **Scouting**: `player_id, name, stuff, control, hra [, age, pitch_ratings...]`
+  - **Pitch Ratings Support**: The parser dynamically identifies additional columns (e.g., "Fastball", "Slider") to determine a pitcher's repertoire and role.
 
 **Features**:
 - **Multi-File Upload**: Batch upload multiple CSV files.
 - **Source Selection**: Toggle between "My Scout" and "OSA" for scouting data.
 - **Data Management**: View and delete stored data sets.
+- **Historical Accuracy**: FIP calculations automatically utilize year-specific FIP constants derived from league-wide totals to ensure league average FIP matches league average ERA for every historical season.
 
 **API Usage**:
 

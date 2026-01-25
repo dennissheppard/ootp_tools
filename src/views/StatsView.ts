@@ -5,6 +5,8 @@ import { trueRatingsCalculationService } from '../services/TrueRatingsCalculatio
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { teamService } from '../services/TeamService';
 import { PlayerRatingsCard, PlayerRatingsData, SeasonStatsRow } from './PlayerRatingsCard';
+import { projectionService } from '../services/ProjectionService';
+import { leagueStatsService } from '../services/LeagueStatsService';
 
 export interface SendToEstimatorPayload {
   k9: number;
@@ -110,6 +112,41 @@ export class StatsView {
     const hasScouting = ratingsData ? PlayerRatingsCard.hasScoutingData(ratingsData) : false;
     const hasMinorLeagueStats = minorStatsConverted.length > 0;
 
+    // Calculate Projection
+    let projectionHtml = '';
+    if (isPitcher(player) && ratingsData) {
+        try {
+            if (typeof ratingsData.estimatedStuff === 'number' && typeof ratingsData.estimatedControl === 'number' && typeof ratingsData.estimatedHra === 'number') {
+                const leagueStats = await leagueStatsService.getLeagueStats(ratingsYear);
+                const leagueContext = {
+                    fipConstant: leagueStats.fipConstant,
+                    avgFip: leagueStats.avgFip,
+                    runsPerWin: 9.0
+                };
+                
+                // Estimate role
+                const recent = mlbYearlyStats[0];
+                const isSp = recent && recent.ip > 80;
+                
+                const proj = projectionService.calculateProjection(
+                    { stuff: ratingsData.estimatedStuff, control: ratingsData.estimatedControl, hra: ratingsData.estimatedHra },
+                    player.age,
+                    0, // pitch count
+                    isSp ? 20 : 0, // Mock GS
+                    leagueContext
+                );
+                
+                // Refine IP based on IP history if available
+                if (recent && recent.ip > 80) proj.projectedStats.ip = 160;
+                else proj.projectedStats.ip = 60;
+                
+                projectionHtml = this.renderProjection(proj, player.age + 1);
+            }
+        } catch (e) {
+            console.warn('Projection error', e);
+        }
+    }
+
     const sendAction = showSendToEstimator
       ? `
         <div class="stats-actions">
@@ -125,7 +162,7 @@ export class StatsView {
       `
       : '';
     const pitchingTable = isPitcher(player)
-      ? `${helpText}${sendAction}${PlayerRatingsCard.renderSeasonStatsTable(yearlyPitchingStats, { selectable: showSendToEstimator, hasScouting, showLevel: hasMinorLeagueStats })}`
+      ? `${helpText}${sendAction}${projectionHtml}${PlayerRatingsCard.renderSeasonStatsTable(yearlyPitchingStats, { selectable: showSendToEstimator, hasScouting, showLevel: hasMinorLeagueStats })}`
       : '';
     const battingTable = mainBatting.length > 0
       ? this.renderBattingTable(mainBatting)
@@ -175,6 +212,45 @@ export class StatsView {
 
     this.bindScoutUploadLink();
     this.bindFlipCardLocking();
+  }
+
+  private renderProjection(proj: { projectedStats: any, projectedRatings: any }, nextAge: number): string {
+      const s = proj.projectedStats;
+      const r = proj.projectedRatings;
+      return `
+        <div class="projection-section" style="margin-top: 1.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+            <h4 style="margin-bottom: 0.5rem; color: var(--color-text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">${nextAge}yo Season Projection</h4>
+            <div class="stats-table-container">
+                <table class="stats-table">
+                    <thead>
+                        <tr>
+                            <th>Age</th>
+                            <th>IP</th>
+                            <th>K/9</th>
+                            <th>BB/9</th>
+                            <th>HR/9</th>
+                            <th>FIP</th>
+                            <th>WAR</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr style="background-color: rgba(var(--color-primary-rgb), 0.1);">
+                            <td>${nextAge}</td>
+                            <td>${s.ip}</td>
+                            <td>${s.k9.toFixed(2)} <span class="stat-sub">(${Math.round(r.stuff)})</span></td>
+                            <td>${s.bb9.toFixed(2)} <span class="stat-sub">(${Math.round(r.control)})</span></td>
+                            <td>${s.hr9.toFixed(2)} <span class="stat-sub">(${Math.round(r.hra)})</span></td>
+                            <td style="font-weight: bold;">${s.fip.toFixed(2)}</td>
+                            <td>${s.war.toFixed(1)}</td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div style="font-size: 0.8em; color: var(--color-text-muted); margin-top: 0.5rem;">
+                    * Based on current True Ratings and standard aging curves. Parentheses show Projected True Ratings.
+                </div>
+            </div>
+        </div>
+      `;
   }
 
   private async fetchPlayerRatings(playerId: number, playerName: string, year: number): Promise<PlayerRatingsData | null> {

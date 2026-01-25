@@ -1,6 +1,6 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 
-type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age';
+type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot';
 
 const STORAGE_KEY_PREFIX = 'wbl_scouting_ratings_';
 
@@ -11,6 +11,8 @@ const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   control: ['control', 'con', 'ctl', 'conp', 'controlp'],
   hra: ['hra', 'hr', 'hrr', 'hravoid', 'hravoidance', 'hrrp', 'hrp'],
   age: ['age'],
+  ovr: ['ovr', 'overall', 'cur', 'current'],
+  pot: ['pot', 'potential', 'ceil', 'ceiling'],
 };
 
 export type ScoutingSource = 'my' | 'osa';
@@ -50,6 +52,10 @@ class ScoutingDataService {
         const playerName = this.getStringFromIndex(cells, indexMap.playerName);
         const age = this.getNumberFromIndex(cells, indexMap.age);
 
+        // Parse star ratings (OVR/POT) - handles "X.X Stars" format
+        const ovr = this.parseStarRating(cells, indexMap.ovr);
+        const pot = this.parseStarRating(cells, indexMap.pot);
+
         // Parse pitches
         const pitches: Record<string, number> = {};
         for (const [pitchName, idx] of Object.entries(pitchIndexMap)) {
@@ -66,6 +72,8 @@ class ScoutingDataService {
           control,
           hra,
           age: this.isNumber(age) ? Math.round(age) : undefined,
+          ovr: this.isNumber(ovr) ? ovr : undefined,
+          pot: this.isNumber(pot) ? pot : undefined,
           pitches: Object.keys(pitches).length > 0 ? pitches : undefined,
           source,
         });
@@ -268,6 +276,27 @@ class ScoutingDataService {
     return this.cleanCell(cells[index] ?? '');
   }
 
+  /**
+   * Parse star rating from cell value.
+   * Handles formats like "4.5 Stars", "4.5", "4.5 stars", etc.
+   */
+  private parseStarRating(cells: string[], index?: number): number | null {
+    if (typeof index !== 'number') return null;
+    const raw = this.cleanCell(cells[index] ?? '');
+    if (!raw) return null;
+
+    // Strip "stars" suffix (case insensitive) and parse the number
+    const stripped = raw.toLowerCase().replace(/\s*stars?\s*/gi, '').trim();
+    const num = parseFloat(stripped);
+
+    if (Number.isNaN(num)) return null;
+
+    // Validate star rating range (0.5-5.0)
+    if (num < 0.5 || num > 5.0) return null;
+
+    return num;
+  }
+
   private buildHeaderMap(headerCells: string[]): {
     indexMap: Partial<Record<ScoutingHeaderKey, number>>;
     pitchIndexMap: Record<string, number>;
@@ -297,8 +326,9 @@ class ScoutingDataService {
     if (hasHeader) {
         const usedIndices = new Set(Object.values(indexMap));
         const ignoreHeaders = new Set([
-            'team', 'pos', 'position', 'height', 'weight', 'bats', 'throws', 'leagues', 'levels', 'org', 
-            'velocity', 'arm', 'stamina', 'hold', 'gb', 'mov', 'movement', 'babip'
+            'team', 'pos', 'position', 'height', 'weight', 'bats', 'throws', 'leagues', 'levels', 'org',
+            'velocity', 'arm', 'stamina', 'hold', 'gb', 'mov', 'movement', 'babip',
+            'ovr', 'overall', 'cur', 'current', 'pot', 'potential', 'ceil', 'ceiling'
         ]);
         
         headerCells.forEach((rawHeader, idx) => {

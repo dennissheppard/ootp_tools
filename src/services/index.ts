@@ -4,3 +4,6 @@ export * from './PotentialStatsService';
 export * from './TrueRatingsService';
 export * from './RatingEstimatorService';
 export * from './LeagueStatsService';
+export * from './ScoutingDataService';
+export * from './MinorLeagueStatsService';
+export * from './TrueFutureRatingService';

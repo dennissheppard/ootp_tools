@@ -64,7 +64,7 @@ def analyze_correlations(scouting, stats):
 
     # Calculate correlations by level
     print("\n--- Correlations by Level (30+ IP) ---")
-    print(f"{'Level':<6} {'K/9↔Stuff':>12} {'BB/9↔Control':>14} {'HR/9↔HRA':>12} {'N':>6}")
+    print(f"{'Level':<6} {'K/9-Stuff':>12} {'BB/9-Control':>14} {'HR/9-HRA':>12} {'N':>6}")
     print("-" * 56)
 
     for level in ['r', 'a', 'aa', 'aaa']:
@@ -86,7 +86,7 @@ def analyze_correlations(scouting, stats):
 
     # Show expected direction
     print("\n(Positive = higher stat with higher rating)")
-    print("Expected: K/9↔Stuff positive, BB/9↔Control negative, HR/9↔HRA negative")
+    print("Expected: K/9-Stuff positive, BB/9-Control negative, HR/9-HRA negative")
 
     return merged
 
@@ -122,15 +122,15 @@ def analyze_level_transitions(stats):
     }).round(2)
 
     print("\n--- Average Stats by Level (50+ IP) ---")
-    print(f"{'Level':<6} {'K/9 (avg±std)':>16} {'BB/9 (avg±std)':>16} {'HR/9 (avg±std)':>16} {'N':>6}")
+    print(f"{'Level':<6} {'K/9 (avg+/-std)':>16} {'BB/9 (avg+/-std)':>16} {'HR/9 (avg+/-std)':>16} {'N':>6}")
     print("-" * 66)
 
     for level in ['r', 'a', 'aa', 'aaa']:
         if level in level_stats.index:
             row = level_stats.loc[level]
-            k9_str = f"{row['k9']['mean']:.1f}±{row['k9']['std']:.1f}"
-            bb9_str = f"{row['bb9']['mean']:.1f}±{row['bb9']['std']:.1f}"
-            hr9_str = f"{row['hr9']['mean']:.1f}±{row['hr9']['std']:.1f}"
+            k9_str = f"{row['k9']['mean']:.1f}+/-{row['k9']['std']:.1f}"
+            bb9_str = f"{row['bb9']['mean']:.1f}+/-{row['bb9']['std']:.1f}"
+            hr9_str = f"{row['hr9']['mean']:.1f}+/-{row['hr9']['std']:.1f}"
             n = int(row['k9']['count'])
             print(f"{level.upper():<6} {k9_str:>16} {bb9_str:>16} {hr9_str:>16} {n:>6}")
 

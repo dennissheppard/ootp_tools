@@ -4,6 +4,7 @@ import { RatingEstimatorService } from '../services/RatingEstimatorService';
 export class TeamRatingsView {
   private container: HTMLElement;
   private selectedYear: number = 2020;
+  private viewMode: 'actual' | 'projected' = 'actual';
   private results: TeamRatingResult[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
 
@@ -18,13 +19,24 @@ export class TeamRatingsView {
       <div class="true-ratings-content">
         <h2 class="view-title">Team Ratings</h2>
         
-        <div class="true-ratings-controls">
+        <div class="true-ratings-controls">          
           <div class="form-field">
-            <label for="team-ratings-year">Year:</label>
+            <label>View:</label>
+            <div class="toggle-group" role="group" aria-label="View mode">
+              <button class="toggle-btn active" data-view-mode="actual" aria-pressed="true">Actual</button>
+              <button class="toggle-btn" data-view-mode="projected" aria-pressed="false">Projections</button>
+            </div>
+          </div>
+          <div class="form-field" id="year-selector-field">
+            <label for="team-ratings-year">Base Year:</label>
             <select id="team-ratings-year">
               ${this.yearOptions.map(year => `<option value="${year}" ${year === this.selectedYear ? 'selected' : ''}>${year}</option>`).join('')}
             </select>
           </div>
+        </div>
+
+        <div id="projection-notice" style="display: none; margin-bottom: 1rem; padding: 0.5rem; background: rgba(var(--color-primary-rgb), 0.1); border-radius: 4px; border: 1px solid rgba(var(--color-primary-rgb), 0.2);">
+            <strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'actual' to show current team ratings.
         </div>
 
         <div class="team-ratings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
@@ -40,10 +52,55 @@ export class TeamRatingsView {
       </div>
     `;
 
+    this.bindEvents();
+  }
+
+  private bindEvents(): void {
     this.container.querySelector('#team-ratings-year')?.addEventListener('change', (e) => {
       this.selectedYear = parseInt((e.target as HTMLSelectElement).value, 10);
+      this.updateProjectionNotice();
       this.loadData();
     });
+
+    this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const mode = (e.target as HTMLElement).dataset.viewMode as 'actual' | 'projected';
+            if (mode === this.viewMode) return;
+            
+            this.viewMode = mode;
+            
+            // If switching to projections, force latest year (2020)
+            if (this.viewMode === 'projected') {
+                this.selectedYear = 2020;
+                const yearSelect = this.container.querySelector<HTMLSelectElement>('#team-ratings-year');
+                if (yearSelect) yearSelect.value = '2020';
+            }
+
+            this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
+                const b = btn as HTMLElement;
+                const isActive = b.dataset.viewMode === mode;
+                b.classList.toggle('active', isActive);
+                b.setAttribute('aria-pressed', String(isActive));
+            });
+            
+            this.updateProjectionNotice();
+            this.loadData();
+        });
+    });
+  }
+
+  private updateProjectionNotice(): void {
+      const notice = this.container.querySelector<HTMLElement>('#projection-notice');
+      const yearField = this.container.querySelector<HTMLElement>('#year-selector-field');
+      
+      if (notice) {
+          notice.style.display = this.viewMode === 'projected' ? 'block' : 'none';
+          notice.innerHTML = `<strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'actual' to show current team ratings.`;
+      }
+      
+      if (yearField) {
+          yearField.style.display = this.viewMode === 'projected' ? 'none' : 'block';
+      }
   }
 
   private async loadData(): Promise<void> {
@@ -54,7 +111,16 @@ export class TeamRatingsView {
     if (penContainer) penContainer.innerHTML = 'Loading...';
 
     try {
-        this.results = await teamRatingsService.getTeamRatings(this.selectedYear);
+        if (this.viewMode === 'actual') {
+            this.results = await teamRatingsService.getTeamRatings(this.selectedYear);
+        } else {
+            console.log('Fetching projections...', teamRatingsService);
+            if (typeof teamRatingsService.getProjectedTeamRatings !== 'function') {
+                console.error('getProjectedTeamRatings is missing on teamRatingsService!', teamRatingsService);
+                throw new Error('Service method missing. Please refresh the page.');
+            }
+            this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear);
+        }
         this.renderLists();
     } catch (err) {
         console.error(err);
@@ -150,6 +216,10 @@ export class TeamRatingsView {
   }
 
   private renderRatingBadge(player: RatedPlayer): string {
+    if (typeof player.trueRating !== 'number') {
+        console.warn('Missing trueRating for player:', player);
+        return '<span class="badge rating-poor">N/A</span>';
+    }
     const value = player.trueRating;
     let className = 'rating-poor';
     if (value >= 4.5) className = 'rating-elite';
