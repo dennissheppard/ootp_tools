@@ -42,9 +42,19 @@ class AgingService {
     } else if (age < 35) {
       // Moderate Decline
       mods = { stuff: -2.5, control: -1.5, hra: -1.5 };
-    } else {
+    } else if (age < 39) {
       // Steep Decline
       mods = { stuff: -4.0, control: -2.5, hra: -2.5 };
+    } else if (age < 43) {
+      // Very Steep Decline (39-42)
+      mods = { stuff: -6.0, control: -4.0, hra: -4.0 };
+    } else if (age < 46) {
+      // Cliff (43-45)
+      mods = { stuff: -30.0, control: -10.0, hra: -35.0 };
+    } else {
+      // Free Fall (46+)
+      // Basically impossible to maintain ratings
+      mods = { stuff: -50.0, control: -25.0, hra: -55.0 };
     }
 
     return mods;

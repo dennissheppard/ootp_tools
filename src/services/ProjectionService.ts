@@ -1,6 +1,7 @@
 import { playerService } from './PlayerService';
 import { trueRatingsService, TruePlayerStats } from './TrueRatingsService';
 import { scoutingDataService } from './ScoutingDataService';
+import { dateService } from './DateService';
 import { trueRatingsCalculationService, YearlyPitchingStats } from './TrueRatingsCalculationService';
 import { agingService } from './AgingService';
 import { PotentialStatsService } from './PotentialStatsService';
@@ -157,17 +158,18 @@ class ProjectionService {
 
     // 5. Generate Projections
     const tempProjections: any[] = []; // Temporary array to hold data before ranking
+    const currentYear = await dateService.getCurrentYear();
 
     for (const tr of trResults) {
         const player = playerMap.get(tr.playerId);
         if (!player) continue;
 
+        const ageInYear = this.calculateAgeAtYear(player, currentYear, statsYear);
         const currentStats = statsMap.get(tr.playerId);
         const yearlyStats = multiYearStats.get(tr.playerId);
 
         // --- READINESS CHECK ---
-        // 1. Recent MLB Experience?
-        // Has stats in current year (statsYear) or previous year (statsYear - 1)
+        // ... (keep logic) ...
         const hasRecentMlb = (currentStats && trueRatingsService.parseIp(currentStats.ip) > 0) ||
             (yearlyStats && yearlyStats.some(y => y.year === statsYear - 1 && y.ip > 0));
 
@@ -181,40 +183,25 @@ class ProjectionService {
         }
 
         if (!isMlbReady) {
-            // 2. Minor League Status & Quality
+            // ... (keep logic) ...
             const isUpperMinors = aaaOrAaPlayerIds.has(tr.playerId);
-            
-            // Quality/Development Indicators
-            // - Scout OVR >= 45 (2.5 stars)
-            // - Star Gap <= 1.0 (Developed)
-            // - Projected TR >= 2.0 (Fringe MLB quality)
-            // - Age >= 22 (Exclude very young unless phenoms)
-            
             const ovr = scouting?.ovr ?? 20;
             const pot = scouting?.pot ?? 20;
-            const starGap = pot - ovr; // e.g. 5.0 - 2.0 = 3.0 (Raw)
-            
+            const starGap = pot - ovr;
             const isQualityProspect = (ovr >= 45) || (starGap <= 1.0 && pot >= 45);
-            
-            // We use a rough heuristic for Projected TR here (since we haven't calc'd it yet)
-            // tr.estimatedStuff etc are available. 
-            // Simple check: is estimated rating decent?
-            // Or just rely on scouting OVR/POT for prospects without MLB stats
             
             if (isUpperMinors && (isQualityProspect || tr.trueRating >= 2.0)) {
                 isMlbReady = true;
             }
-            
-            // Allow top prospects even if not in AAA yet if they are highly rated?
-            // Maybe if OVR >= 50 (3.0 stars) regardless of level
             if (ovr >= 50) isMlbReady = true;
         }
 
         if (!isMlbReady) continue;
         // -----------------------
 
-        const team = teamMap.get(player.teamId);
-        const projectedIp = this.calculateProjectedIp(scouting, currentStats, yearlyStats);
+        const teamId = currentStats?.team_id ?? player.teamId;
+        const team = teamMap.get(teamId);
+        const projectedIp = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1);
 
         const currentRatings = {
             stuff: tr.estimatedStuff,
@@ -222,12 +209,12 @@ class ProjectionService {
             hra: tr.estimatedHra
         };
         
-        const projectedRatings = agingService.applyAging(currentRatings, player.age);
+        const projectedRatings = agingService.applyAging(currentRatings, ageInYear);
 
         const leagueContext = {
             fipConstant: leagueStats.fipConstant,
             avgFip: leagueStats.avgFip,
-            runsPerWin: 9.0
+            runsPerWin: 8.5
         };
 
         const potStats = PotentialStatsService.calculatePitchingStats(
@@ -242,9 +229,9 @@ class ProjectionService {
         tempProjections.push({
             playerId: tr.playerId,
             name: tr.playerName,
-            teamId: player.teamId,
+            teamId,
             teamName: team ? team.nickname : 'FA',
-            age: player.age,
+            age: ageInYear + 1, // Show historical projected age
             currentTrueRating: tr.trueRating,
             projectedStats: {
                 k9: potStats.k9,
@@ -342,7 +329,8 @@ class ProjectionService {
     const projectedIp = this.calculateProjectedIp(
         dummyScouting as PitcherScoutingRatings, 
         dummyStats as TruePlayerStats, 
-        historicalStats
+        historicalStats,
+        age + 1
     );
 
     // Apply Aging
@@ -368,10 +356,21 @@ class ProjectionService {
     };
   }
 
+  /**
+   * Calculate player age in a specific year based on current age.
+   * birthYear = currentYear - currentAge
+   * ageInYear = targetYear - birthYear
+   */
+  public calculateAgeAtYear(player: { age: number }, currentYear: number, targetYear: number): number {
+      const birthYear = currentYear - player.age;
+      return targetYear - birthYear;
+  }
+
   private calculateProjectedIp(
     scouting: PitcherScoutingRatings | undefined,
     currentStats: TruePlayerStats | undefined,
-    historicalStats: YearlyPitchingStats[] | undefined
+    historicalStats: YearlyPitchingStats[] | undefined,
+    age: number
   ): number {
     // 1. Determine Role (SP vs RP)
     let isSp = false;
@@ -463,6 +462,16 @@ class ProjectionService {
         if (rawIp > 0) {
             baseIp = (baseIp * 0.50) + (rawIp * 0.50);
         }
+    }
+
+    // 5. Age Cliff (The "Geriatric Penalty")
+    // Severe penalties for 40+ to model rapid decline in durability/likelihood of playing
+    if (age >= 46) {
+        baseIp *= 0.10; // 150 -> 15
+    } else if (age >= 43) {
+        baseIp *= 0.40; // 150 -> 60
+    } else if (age >= 40) {
+        baseIp *= 0.75; // 150 -> 112
     }
 
     return Math.round(baseIp);

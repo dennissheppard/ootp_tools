@@ -5,6 +5,8 @@ import { dateService } from '../services/DateService';
 import { projectionService } from '../services/ProjectionService';
 import { playerService } from '../services/PlayerService';
 import { leagueStatsService } from '../services/LeagueStatsService';
+import { fipWarService } from '../services/FipWarService';
+import { RatingEstimatorService } from '../services/RatingEstimatorService';
 
 export type { PlayerRatingsData as PlayerProfileData };
 
@@ -149,6 +151,7 @@ export class PlayerProfileModal {
 
     // Fetch stats and render
     try {
+      const player = await playerService.getPlayerById(data.playerId);
       const mlbStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, selectedYear, 5);
 
       // Fetch minor league stats (within 2 years of current game date)
@@ -190,10 +193,12 @@ export class PlayerProfileModal {
         
         // Calculate Projection
         let projectionHtml = '';
-        
+
         // Readiness Check
+        const currentYear = await dateService.getCurrentYear();
+        const historicalAge = projectionService.calculateAgeAtYear(player!, currentYear, selectedYear);
+        
         const hasRecentMlb = mlbStats.some(s => s.year >= selectedYear - 1 && s.ip > 0);
-        // Check for Upper Minors presence in the selected year (or current year context)
         const isUpperMinors = combinedStats.some(s => (s.level === 'aaa' || s.level === 'aa') && s.year === selectedYear);
         
         const ovr = data.scoutOvr ?? 20;
@@ -207,34 +212,89 @@ export class PlayerProfileModal {
         }
         if (ovr >= 50) showProjection = true;
 
-        if (showProjection) {
+        if (showProjection && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
             try {
-                const player = await playerService.getPlayerById(data.playerId);
-                if (player && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
-                    const leagueStats = await leagueStatsService.getLeagueStats(selectedYear);
-                    const leagueContext = {
-                        fipConstant: leagueStats.fipConstant,
-                        avgFip: leagueStats.avgFip,
-                        runsPerWin: 8.5
-                    };
-                    
-                    // Estimate role from recent stats (IP > 80 implies starter/long reliever)
-                    const recent = mlbStats[0]; // Most recent year
-                    const isSp = recent && recent.ip > 80;
-                    
-                    const proj = projectionService.calculateProjection(
-                        { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
-                        player.age,
-                        0, // Pitch count unknown
-                        isSp ? 20 : 0, // Mock GS to trigger SP logic in service
-                        leagueContext,
-                        data.scoutStamina,
-                        data.scoutInjuryProneness,
-                        mlbStats
-                    );
-                    
-                    projectionHtml = this.renderProjection(proj, player.age + 1);
+                const leagueStats = await leagueStatsService.getLeagueStats(selectedYear);
+                const leagueContext = {
+                    fipConstant: leagueStats.fipConstant,
+                    avgFip: leagueStats.avgFip,
+                    runsPerWin: 8.5
+                };
+
+                // Estimate role from recent stats (IP > 80 implies starter/long reliever)
+                const recent = mlbStats[0]; // Most recent year in history
+                const isSp = recent && recent.ip > 80;
+
+                const proj = projectionService.calculateProjection(
+                    { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
+                    historicalAge,
+                    0, // Pitch count unknown
+                    isSp ? 20 : 0, // Mock GS to trigger SP logic in service
+                    leagueContext,
+                    data.scoutStamina,
+                    data.scoutInjuryProneness,
+                    mlbStats
+                );
+
+                // Backcasting: Find actual stats for selectedYear + 1
+                const targetYear = selectedYear + 1;
+                let actualStat: SeasonStatsRow | undefined;
+                
+                // mlbStats only contains [selectedYear, ..., selectedYear-4]
+                // We need to fetch targetYear separately if it exists
+                if (targetYear < currentYear) {
+                    try {
+                        const targetStats = await trueRatingsService.getTruePitchingStats(targetYear);
+                        const playerStat = targetStats.find(s => s.player_id === data.playerId);
+                        if (playerStat) {
+                            const ip = trueRatingsService.parseIp(playerStat.ip);
+                            // Convert to SeasonStatsRow format
+                            actualStat = {
+                                year: targetYear,
+                                ip,
+                                era: ip > 0 ? (playerStat.er / ip) * 9 : 0,
+                                k9: ip > 0 ? (playerStat.k / ip) * 9 : 0,
+                                bb9: ip > 0 ? (playerStat.bb / ip) * 9 : 0,
+                                hr9: ip > 0 ? (playerStat.hra / ip) * 9 : 0,
+                                war: playerStat.war,
+                                gs: playerStat.gs
+                            };
+                        }
+                    } catch {
+                        // ignore if target year stats don't exist
+                    }
                 }
+
+                let comparison: any = undefined;
+
+                if (actualStat && actualStat.ip >= 10) {
+                    const targetLeague = await leagueStatsService.getLeagueStats(targetYear);
+                    const k9 = actualStat.k9;
+                    const bb9 = actualStat.bb9;
+                    const hr9 = actualStat.hr9;
+                    const actFip = fipWarService.calculateFip({ k9, bb9, hr9, ip: actualStat.ip }, targetLeague.fipConstant);
+                    const diff = actFip - proj.projectedStats.fip;
+                    
+                    let grade = 'F';
+                    const absDiff = Math.abs(diff);
+                    if (absDiff < 0.50) grade = 'A';
+                    else if (absDiff < 1.00) grade = 'B';
+                    else if (absDiff < 1.50) grade = 'C';
+                    else if (absDiff < 2.00) grade = 'D';
+
+                    comparison = {
+                        fip: actFip,
+                        war: actualStat.war,
+                        ip: actualStat.ip,
+                        k9: actualStat.k9,
+                        bb9: actualStat.bb9,
+                        hr9: actualStat.hr9,
+                        diff,
+                        grade
+                    };
+                }
+
+                projectionHtml = this.renderProjection(proj, historicalAge + 1, selectedYear + 1, comparison);
             } catch (e) {
                 console.warn('Failed to calculate projection', e);
             }
@@ -280,43 +340,118 @@ export class PlayerProfileModal {
     `;
   }
 
-  private renderProjection(proj: { projectedStats: any, projectedRatings: any }, nextAge: number): string {
+  private renderProjection(proj: { projectedStats: any, projectedRatings: any }, projectionAge: number, projectedYear: number, comparison?: any): string {
       const s = proj.projectedStats;
       const r = proj.projectedRatings;
+      const title = `${projectedYear} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>`;
+      const note = '* Projection based on prior year True Ratings. Delta = Actual - Projected. Hover cells to show ratings.';
+
+      const formatDelta = (projVal: number, actVal: number, invert: boolean = false) => {
+          const delta = actVal - projVal;
+          const sign = delta > 0 ? '+' : '';
+          const isGood = invert ? delta < 0 : delta > 0;
+          const className = isGood ? 'diff-positive' : 'diff-negative';
+          if (Math.abs(delta) < 0.01) return `<span class="stat-delta">(0.00)</span>`;
+          return `<span class="stat-delta ${className}">(${sign}${delta.toFixed(2)})</span>`;
+      };
+
+      const k9Delta = comparison ? formatDelta(s.k9, comparison.k9) : '';
+      const bb9Delta = comparison ? formatDelta(s.bb9, comparison.bb9, true) : '';
+      const hr9Delta = comparison ? formatDelta(s.hr9, comparison.hr9, true) : '';
+      const ipDelta = comparison ? formatDelta(s.ip, comparison.ip) : '';
+
+      const k9ProjFlip = this.renderFlipCell(s.k9.toFixed(2), Math.round(r.stuff).toString(), 'Projected True Stuff');
+      const bb9ProjFlip = this.renderFlipCell(s.bb9.toFixed(2), Math.round(r.control).toString(), 'Projected True Control');
+      const hr9ProjFlip = this.renderFlipCell(s.hr9.toFixed(2), Math.round(r.hra).toString(), 'Projected True HRA');
+
+      let comparisonHtml = '';
+      if (comparison) {
+          const gradeClass = comparison.grade === 'A' ? 'rating-elite' : comparison.grade === 'B' ? 'rating-plus' : comparison.grade === 'C' ? 'rating-avg' : comparison.grade === 'D' ? 'rating-fringe' : 'rating-poor';
+          const diffText = comparison.diff > 0 ? `+${comparison.diff.toFixed(2)}` : comparison.diff.toFixed(2);
+          
+          const actStuff = RatingEstimatorService.estimateStuff(comparison.k9, comparison.ip).rating;
+          const actControl = RatingEstimatorService.estimateControl(comparison.bb9, comparison.ip).rating;
+          const actHra = RatingEstimatorService.estimateHRA(comparison.hr9, comparison.ip).rating;
+
+          const k9ActFlip = this.renderFlipCell(comparison.k9.toFixed(2), actStuff.toString(), 'Estimated Stuff (Snapshot)');
+          const bb9ActFlip = this.renderFlipCell(comparison.bb9.toFixed(2), actControl.toString(), 'Estimated Control (Snapshot)');
+          const hr9ActFlip = this.renderFlipCell(comparison.hr9.toFixed(2), actHra.toString(), 'Estimated HRA (Snapshot)');
+
+          comparisonHtml = `
+            <tr style="border-top: 1px solid var(--color-border);">
+                <td style="font-weight: bold; color: var(--color-text-muted); padding: 0.625rem 0.15rem;">Actual (${projectedYear})</td>
+                <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${comparison.ip.toFixed(0)}</td>
+                <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
+                <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${k9ActFlip}</td>
+                <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
+                <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${bb9ActFlip}</td>
+                <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
+                <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${hr9ActFlip}</td>
+                <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
+                <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem; width: 60px;">${comparison.fip.toFixed(2)}</td>
+                <td style="text-align: center; padding: 0.625rem 0.15rem; width: 50px;">${comparison.war.toFixed(1)}</td>
+            </tr>
+            <tr>
+                <td colspan="9" style="text-align: right; color: var(--color-text-muted); font-size: 0.85em; padding-right: 1rem;">Projection Accuracy:</td>
+                <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem;">${diffText} <span style="font-size: 0.8em; font-weight: normal; color: var(--color-text-muted);">(&Delta;FIP)</span></td>
+                <td style="text-align: center; padding: 0.625rem 0.15rem;"><span class="badge ${gradeClass}" style="min-width: 24px;">${comparison.grade}</span></td>
+            </tr>
+          `;
+      }
+
       return `
         <div class="projection-section" style="margin-top: 1.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
-            <h4 style="margin-bottom: 0.5rem; color: var(--color-text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">${nextAge}yo Season Projection</h4>
+            <h4 style="margin-bottom: 0.5rem; color: var(--color-text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">${title}</h4>
             <div class="stats-table-container">
                 <table class="stats-table">
                     <thead>
                         <tr>
-                            <th>Age</th>
-                            <th>IP</th>
-                            <th>K/9</th>
-                            <th>BB/9</th>
-                            <th>HR/9</th>
-                            <th>FIP</th>
-                            <th>WAR</th>
+                            <th style="text-align: left; padding: 0.625rem 0.15rem;"></th>
+                            <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">IP</th>
+                            <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">K/9</th>
+                            <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">BB/9</th>
+                            <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">HR/9</th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem;">FIP</th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem;">WAR</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr style="background-color: rgba(var(--color-primary-rgb), 0.1);">
-                            <td>${nextAge}</td>
-                            <td>${s.ip}</td>
-                            <td>${s.k9.toFixed(2)} <span class="stat-sub">(${Math.round(r.stuff)})</span></td>
-                            <td>${s.bb9.toFixed(2)} <span class="stat-sub">(${Math.round(r.control)})</span></td>
-                            <td>${s.hr9.toFixed(2)} <span class="stat-sub">(${Math.round(r.hra)})</span></td>
-                            <td style="font-weight: bold;">${s.fip.toFixed(2)}</td>
-                            <td>${s.war.toFixed(1)}</td>
+                            <td style="font-weight: bold; color: var(--color-primary); padding: 0.625rem 0.15rem; width: 100px;">Proj</td>
+                            <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${s.ip.toFixed(0)}</td>
+                            <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${ipDelta}</td>
+                            <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${k9ProjFlip}</td>
+                            <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${k9Delta}</td>
+                            <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${bb9ProjFlip}</td>
+                            <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${bb9Delta}</td>
+                            <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${hr9ProjFlip}</td>
+                            <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${hr9Delta}</td>
+                            <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem; width: 60px;">${s.fip.toFixed(2)}</td>
+                            <td style="text-align: center; padding: 0.625rem 0.15rem; width: 50px;">${s.war.toFixed(1)}</td>
                         </tr>
+                        ${comparisonHtml}
                     </tbody>
                 </table>
                 <div style="font-size: 0.8em; color: var(--color-text-muted); margin-top: 0.5rem;">
-                    * Based on current True Ratings and standard aging curves. Parentheses show Projected True Ratings.
+                    ${note}
                 </div>
             </div>
         </div>
       `;
+  }
+
+  private renderFlipCell(front: string, back: string, title: string): string {
+    return `
+      <div class="flip-cell">
+        <div class="flip-cell-inner">
+          <div class="flip-cell-front">${front}</div>
+          <div class="flip-cell-back">
+            ${back}
+            <span class="flip-tooltip">${title}</span>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   private bindScoutUploadLink(): void {

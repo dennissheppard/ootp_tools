@@ -467,7 +467,7 @@ export class TrueRatingsView {
       columns.push(...this.getEstimatedRatingColumns());
     }
 
-    if (this.showRawStats) {
+    if (this.showRawStats || this.showProspects) {
       columns.push(...rest);
     }
 
@@ -1427,6 +1427,7 @@ export class TrueRatingsView {
       tfrPercentile: row.tfrPercentile,
       starGap: row.starGap,
       isProspect: row.isProspect,
+      year: this.selectedYear
     };
 
     await this.playerProfileModal.show(profileData, this.selectedYear);

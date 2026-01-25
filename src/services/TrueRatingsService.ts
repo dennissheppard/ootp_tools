@@ -1,6 +1,7 @@
 import { Player } from '../models/Player';
 import { playerService } from './PlayerService';
 import { statsService } from './StatsService';
+import { dateService } from './DateService';
 import { LeagueAverages, YearlyPitchingStats } from './TrueRatingsCalculationService';
 
 /**
@@ -133,12 +134,15 @@ const API_BASE = '/api';
 const CACHE_KEY_PREFIX = 'wbl_true_ratings_cache_';
 const CACHE_TIMESTAMP_KEY_PREFIX = 'wbl_true_ratings_cache_timestamp_';
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const LEAGUE_START_YEAR = 2000;
 
 class TrueRatingsService {
   private inMemoryPitchingCache: Map<number, TruePlayerStats[]> = new Map();
   private inMemoryBattingCache: Map<number, TruePlayerBattingStats[]> = new Map();
 
   public async getTruePitchingStats(year: number): Promise<TruePlayerStats[]> {
+    if (year < LEAGUE_START_YEAR) return [];
+
     if (this.inMemoryPitchingCache.has(year)) {
       return this.inMemoryPitchingCache.get(year)!;
     }
@@ -156,7 +160,11 @@ class TrueRatingsService {
     const playerStats = await this.fetchAndProcessStats(year, 'pitching', 'playerpitchstatsv2') as TruePlayerStats[];
     const normalized = this.combinePitchingStats(playerStats);
     this.inMemoryPitchingCache.set(year, normalized);
-    this.saveToCache(year, normalized, 'pitching');
+    
+    // Cache permanently if the year is completed (historical)
+    const currentYear = await dateService.getCurrentYear();
+    this.saveToCache(year, normalized, 'pitching', year < currentYear);
+    
     return normalized;
   }
 
@@ -178,11 +186,17 @@ class TrueRatingsService {
     const playerStats = await this.fetchAndProcessStats(year, 'batting', 'playerbatstatsv2') as TruePlayerBattingStats[];
     const normalized = this.combineBattingStats(playerStats);
     this.inMemoryBattingCache.set(year, normalized);
-    this.saveToCache(year, normalized, 'batting');
+    
+    // Cache permanently if the year is completed (historical)
+    const currentYear = await dateService.getCurrentYear();
+    this.saveToCache(year, normalized, 'batting', year < currentYear);
+    
     return normalized;
   }
 
   private async fetchAndProcessStats(year: number, type: StatsType, apiEndpoint: string): Promise<(TruePlayerStats | TruePlayerBattingStats)[]> {
+    if (year < LEAGUE_START_YEAR) return [];
+    
     const response = await fetch(`${API_BASE}/${apiEndpoint}/?year=${year}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch true ${type} stats for ${year}`);
@@ -398,14 +412,13 @@ class TrueRatingsService {
     }
   }
 
-  private saveToCache(year: number, stats: any[], type: StatsType): void {
+  private saveToCache(year: number, stats: any[], type: StatsType, isPermanent: boolean = false): void {
     try {
       const timestampKey = `${CACHE_TIMESTAMP_KEY_PREFIX}${type}_${year}`;
       const cacheKey = `${CACHE_KEY_PREFIX}${type}_${year}`;
       localStorage.setItem(cacheKey, JSON.stringify(stats));
-      // For years before 2020, set a special timestamp (0) to indicate permanent cache
-      // Otherwise, set current timestamp for 24-hour expiration
-      localStorage.setItem(timestampKey, (year < 2020 ? 0 : Date.now()).toString());
+      // If permanent, set timestamp to 0. Otherwise, set current timestamp for 24-hour expiration.
+      localStorage.setItem(timestampKey, (isPermanent ? 0 : Date.now()).toString());
     } catch {
       // Cache write failed (e.g., quota exceeded), ignore
     }
@@ -500,7 +513,8 @@ class TrueRatingsService {
     minIpPerYear: number = 1
   ): Promise<Map<number, YearlyPitchingStats[]>> {
     // Fetch all years in parallel (leverages existing caching)
-    const years = Array.from({ length: yearsBack }, (_, i) => endYear - i);
+    const years = Array.from({ length: yearsBack }, (_, i) => endYear - i)
+      .filter(y => y >= LEAGUE_START_YEAR);
     const yearlyDataPromises = years.map(year => this.getTruePitchingStats(year));
     const yearlyData = await Promise.all(yearlyDataPromises);
 
@@ -582,7 +596,8 @@ class TrueRatingsService {
     endYear: number,
     yearsBack: number = 5
   ): Promise<PlayerYearlyDetail[]> {
-    const years = Array.from({ length: yearsBack }, (_, i) => endYear - i);
+    const years = Array.from({ length: yearsBack }, (_, i) => endYear - i)
+      .filter(y => y >= LEAGUE_START_YEAR);
     const results: PlayerYearlyDetail[] = [];
 
     // Check each year in the in-memory/localStorage cache

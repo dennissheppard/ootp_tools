@@ -3,10 +3,14 @@ import { PitchingStats, BattingStats, MinorLeagueStatsWithLevel } from '../model
 import { trueRatingsService } from '../services/TrueRatingsService';
 import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
 import { scoutingDataService } from '../services/ScoutingDataService';
+import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
+import { dateService } from '../services/DateService';
 import { PlayerRatingsCard, PlayerRatingsData, SeasonStatsRow } from './PlayerRatingsCard';
 import { projectionService } from '../services/ProjectionService';
 import { leagueStatsService } from '../services/LeagueStatsService';
+import { trueFutureRatingService } from '../services/TrueFutureRatingService';
+import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 
 export interface SendToEstimatorPayload {
   k9: number;
@@ -129,9 +133,12 @@ export class StatsView {
                 const recent = mlbYearlyStats[0];
                 const isSp = recent && recent.ip > 80;
                 
+                const currentYear = await dateService.getCurrentYear();
+                const historicalAge = projectionService.calculateAgeAtYear(player, currentYear, ratingsYear);
+
                 const proj = projectionService.calculateProjection(
                     { stuff: ratingsData.estimatedStuff, control: ratingsData.estimatedControl, hra: ratingsData.estimatedHra },
-                    player.age,
+                    historicalAge,
                     0, // pitch count
                     isSp ? 20 : 0, // Mock GS
                     leagueContext,
@@ -140,7 +147,7 @@ export class StatsView {
                     mlbYearlyStats
                 );
                 
-                projectionHtml = this.renderProjection(proj, player.age + 1);
+                projectionHtml = this.renderProjection(proj, historicalAge + 1);
             }
         } catch (e) {
             console.warn('Projection error', e);
@@ -189,14 +196,15 @@ export class StatsView {
         <div class="profile-header profile-header-page">
           <div class="profile-title-group">
             <h2 class="player-title">${this.escapeHtml(playerName)}</h2>
+            <span class="player-badges">
+              <span class="badge badge-position">${posLabel}</span>
+              <span class="badge badge-age">Age ${player.age}</span>
+              ${player.retired ? '<span class="badge badge-retired">Retired</span>' : ''}
+            </span>
             ${teamDisplay}
             <span class="stats-period-label">Stats${yearDisplay}</span>
           </div>
           <div class="profile-header-right">
-            <span class="player-badges">
-              <span class="badge badge-position">${posLabel}</span>
-              ${player.retired ? '<span class="badge badge-retired">Retired</span>' : ''}
-            </span>
             ${ratingEmblem}
           </div>
         </div>
@@ -214,12 +222,17 @@ export class StatsView {
     this.bindFlipCardLocking();
   }
 
-  private renderProjection(proj: { projectedStats: any, projectedRatings: any }, nextAge: number): string {
+  private renderProjection(proj: { projectedStats: any, projectedRatings: any }, projectionAge: number, isProspect: boolean = false): string {
       const s = proj.projectedStats;
       const r = proj.projectedRatings;
+      const title = isProspect ? `Peak Year Projection (Age ${projectionAge})` : `${projectionAge}yo Season Projection`;
+      const note = isProspect
+          ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance.'
+          : '* Based on current True Ratings and standard aging curves. Parentheses show Projected True Ratings.';
+
       return `
         <div class="projection-section" style="margin-top: 1.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
-            <h4 style="margin-bottom: 0.5rem; color: var(--color-text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">${nextAge}yo Season Projection</h4>
+            <h4 style="margin-bottom: 0.5rem; color: var(--color-text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">${title}</h4>
             <div class="stats-table-container">
                 <table class="stats-table">
                     <thead>
@@ -235,7 +248,7 @@ export class StatsView {
                     </thead>
                     <tbody>
                         <tr style="background-color: rgba(var(--color-primary-rgb), 0.1);">
-                            <td>${nextAge}</td>
+                            <td>${projectionAge}</td>
                             <td>${s.ip}</td>
                             <td>${s.k9.toFixed(2)} <span class="stat-sub">(${Math.round(r.stuff)})</span></td>
                             <td>${s.bb9.toFixed(2)} <span class="stat-sub">(${Math.round(r.control)})</span></td>
@@ -246,7 +259,7 @@ export class StatsView {
                     </tbody>
                 </table>
                 <div style="font-size: 0.8em; color: var(--color-text-muted); margin-top: 0.5rem;">
-                    * Based on current True Ratings and standard aging curves. Parentheses show Projected True Ratings.
+                    ${note}
                 </div>
             </div>
         </div>
@@ -265,6 +278,8 @@ export class StatsView {
       const playerStats = allPitchers.find(p => p.player_id === playerId);
 
       let playerResult: any = null;
+      let isProspect = false;
+      let tfrData: any = null;
 
       // Only calculate True Ratings if we have stats and enough IP
       if (playerStats) {
@@ -300,6 +315,77 @@ export class StatsView {
         }
       }
 
+      // If no MLB True Rating and we have scouting data, calculate TFR (prospect)
+      if (!playerResult && scoutMatch) {
+        try {
+          // Get player's age
+          const player = await playerService.getPlayerById(playerId);
+          const age = player?.age ?? 22;
+
+          // Get minor league stats
+          const minorStats = minorLeagueStatsService.getPlayerStats(playerId, year - 2, year);
+
+          // Get MLB pitcher FIPs for percentile ranking
+          const [multiYearStats, leagueAverages] = await Promise.all([
+            trueRatingsService.getMultiYearPitchingStats(year, 3),
+            trueRatingsService.getLeagueAverages(year),
+          ]);
+
+          // Calculate True Ratings for MLB pitchers to get FIP distribution
+          const mlbInputs = allPitchers.map(stat => {
+            const scouting = this.resolveScoutingFromLookup(stat.player_id, stat.playerName, scoutingLookup);
+            return {
+              playerId: stat.player_id,
+              playerName: stat.playerName,
+              yearlyStats: multiYearStats.get(stat.player_id) ?? [],
+              scoutingRatings: scouting ? {
+                playerId: stat.player_id,
+                playerName: stat.playerName,
+                stuff: scouting.stuff,
+                control: scouting.control,
+                hra: scouting.hra,
+              } : undefined,
+            };
+          });
+
+          const mlbTrueRatings = trueRatingsCalculationService.calculateTrueRatings(mlbInputs, leagueAverages);
+          const mlbFips = mlbTrueRatings.map(tr => tr.fipLike + 3.47);
+
+          // Calculate TFR for this prospect
+          const tfrInput = {
+            playerId,
+            playerName,
+            age,
+            scouting: {
+              playerId,
+              playerName,
+              stuff: scoutMatch.stuff,
+              control: scoutMatch.control,
+              hra: scoutMatch.hra,
+              ovr: (scoutMatch as any).ovr,
+              pot: (scoutMatch as any).pot,
+            },
+            minorLeagueStats: minorStats,
+          };
+
+          const [tfrResult] = trueFutureRatingService.calculateTrueFutureRatings([tfrInput], mlbFips);
+
+          if (tfrResult) {
+            isProspect = true;
+            tfrData = tfrResult;
+
+            // Set estimated ratings from TFR projections
+            playerResult = {
+              estimatedStuff: Math.round((tfrResult.projK9 - 2.07) / 0.074),
+              estimatedControl: Math.round((5.22 - tfrResult.projBb9) / 0.052),
+              estimatedHra: Math.round((2.08 - tfrResult.projHr9) / 0.024),
+            };
+          }
+        } catch (error) {
+          console.warn('Error calculating TFR:', error);
+        }
+      }
+
       // If we have neither calculated ratings nor scout opinions, return null
       if (!playerResult && !scoutMatch) return null;
 
@@ -316,6 +402,12 @@ export class StatsView {
         scoutHra: scoutMatch?.hra,
         scoutStamina: scoutMatch?.stamina,
         scoutInjuryProneness: scoutMatch?.injuryProneness,
+        scoutOvr: (scoutMatch as any)?.ovr,
+        scoutPot: (scoutMatch as any)?.pot,
+        isProspect,
+        trueFutureRating: tfrData?.trueFutureRating,
+        tfrPercentile: tfrData?.percentile,
+        starGap: tfrData?.starGap,
       };
     } catch (error) {
       console.error('Error fetching player ratings:', error);

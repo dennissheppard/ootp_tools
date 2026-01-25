@@ -32,6 +32,7 @@ export interface PlayerRatingsData {
   trueFutureRating?: number;
   tfrPercentile?: number;
   starGap?: number;
+  year?: number;
 }
 
 export class PlayerRatingsCard {
@@ -139,11 +140,16 @@ export class PlayerRatingsCard {
     const barWidth = Math.max(10, Math.min(100, (badgeInfo.ratingValue / 5) * 100));
 
     // Label and class differ for prospects (TFR) vs MLB (TR)
-    const label = badgeInfo.isProspect ? 'True Future Rating' : 'True Rating';
+    const baseLabel = badgeInfo.isProspect ? 'True Future Rating' : 'True Rating';
+    const yearText = data.year ? ` (${data.year})` : '';
+    const label = data.year
+      ? `${baseLabel} <span class="rating-year">(${data.year})</span>`
+      : baseLabel;
+    const ariaLabel = `${baseLabel}${yearText}`;
     const emblemClass = badgeInfo.isProspect ? 'rating-emblem tfr-emblem' : 'rating-emblem';
 
     return `
-      <div class="${emblemClass} ${ratingClass}" title="${badgeInfo.badgeTitle}" aria-label="${label} ${ratingValue}">
+      <div class="${emblemClass} ${ratingClass}" title="${badgeInfo.badgeTitle}" aria-label="${ariaLabel} ${ratingValue}">
         <div class="rating-emblem-header">
           <span class="rating-emblem-label">${label}</span>
         </div>

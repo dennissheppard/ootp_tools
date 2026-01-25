@@ -1,22 +1,34 @@
 import { projectionService, ProjectedPlayer } from '../services/ProjectionService';
 import { dateService } from '../services/DateService';
-import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
+import { trueRatingsService } from '../services/TrueRatingsService';
+import { leagueStatsService } from '../services/LeagueStatsService';
+import { fipWarService } from '../services/FipWarService';
+
+interface ProjectedPlayerWithActuals extends ProjectedPlayer {
+  actualStats?: {
+    fip: number;
+    war: number;
+    ip: number;
+    diff: number;
+    grade: string;
+  };
+}
 
 interface ColumnConfig {
-  key: keyof ProjectedPlayer | string;
+  key: keyof ProjectedPlayerWithActuals | string;
   label: string;
   sortKey?: string;
-  accessor?: (row: ProjectedPlayer) => any;
+  accessor?: (row: ProjectedPlayerWithActuals) => any;
 }
 
 export class ProjectionsView {
   private container: HTMLElement;
-  private stats: ProjectedPlayer[] = [];
-  private allStats: ProjectedPlayer[] = [];
+  private stats: ProjectedPlayerWithActuals[] = [];
+  private allStats: ProjectedPlayerWithActuals[] = [];
   private currentPage = 1;
   private itemsPerPage = 50;
   private selectedYear = 2020;
@@ -32,7 +44,9 @@ export class ProjectionsView {
   private isDraggingColumn = false;
   private prefKey = 'wbl-projections-prefs';
   private playerProfileModal: PlayerProfileModal;
-  private playerRowLookup: Map<number, ProjectedPlayer> = new Map();
+  private playerRowLookup: Map<number, ProjectedPlayerWithActuals> = new Map();
+  private hasActualStats = false;
+  private teamLookup: Map<number, any> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -46,7 +60,7 @@ export class ProjectionsView {
     const defaults: ColumnConfig[] = [
         { key: 'name', label: 'Name', accessor: p => this.renderPlayerName(p) },
         { key: 'teamName', label: 'Team' },
-        { key: 'age', label: 'Age' },
+        { key: 'age', label: 'Age', accessor: p => this.renderAge(p) },
         { key: 'currentTrueRating', label: 'Current TR', sortKey: 'currentTrueRating', accessor: p => this.renderRatingBadge(p) },
         { key: 'projK9', label: 'Proj K/9', sortKey: 'projectedStats.k9', accessor: p => p.projectedStats.k9.toFixed(2) },
         { key: 'projBB9', label: 'Proj BB/9', sortKey: 'projectedStats.bb9', accessor: p => p.projectedStats.bb9.toFixed(2) },
@@ -54,6 +68,16 @@ export class ProjectionsView {
         { key: 'projFIP', label: 'Proj FIP', sortKey: 'projectedStats.fip', accessor: p => p.projectedStats.fip.toFixed(2) },
         { key: 'projIP', label: 'Proj IP', sortKey: 'projectedStats.ip', accessor: p => p.projectedStats.ip }
     ];
+
+    // Only add backcasting columns if we have actual stats for the selected year
+    if (this.hasActualStats) {
+        defaults.push(
+            { key: 'actFIP', label: 'Act FIP', sortKey: 'actualStats.fip', accessor: p => p.actualStats ? p.actualStats.fip.toFixed(2) : '' },
+            { key: 'diff', label: 'Diff', sortKey: 'actualStats.diff', accessor: p => p.actualStats ? (p.actualStats.diff > 0 ? `+${p.actualStats.diff.toFixed(2)}` : p.actualStats.diff.toFixed(2)) : '' },
+            { key: 'grade', label: 'Grade', sortKey: 'actualStats.diff', accessor: p => this.renderGrade(p) }
+        );
+    }
+
     this.columns = this.loadColumnPrefs(defaults);
   }
 
@@ -65,7 +89,7 @@ export class ProjectionsView {
         
         <div class="true-ratings-controls">
           <div class="form-field">
-            <label for="proj-year">Base Year:</label>
+            <label for="proj-year">Projection Year:</label>
             <select id="proj-year">
               ${this.yearOptions.map(year => `<option value="${year}" ${year === this.selectedYear ? 'selected' : ''}>${year}</option>`).join('')}
             </select>
@@ -126,20 +150,87 @@ export class ProjectionsView {
       if (container) container.innerHTML = '<div class="loading-message">Calculating projections...</div>';
 
       try {
-          const context = await projectionService.getProjectionsWithContext(this.selectedYear);
+          // Use previous year as base for projections
+          const context = await projectionService.getProjectionsWithContext(this.selectedYear - 1);
           let allPlayers = context.projections;
           this.statsYearUsed = context.statsYear;
           this.usedFallbackStats = context.usedFallbackStats;
 
-          // Also fetch prospects with TFR
-          const prospects = await this.fetchProspects(allPlayers);
-          allPlayers = [...allPlayers, ...prospects];
+          // Don't include prospects - they get peak year projections when viewed individually
+          let combinedPlayers: ProjectedPlayerWithActuals[] = [...allPlayers];
 
-          this.allStats = allPlayers;
+          // Backcasting: If target year (selectedYear) has happened, compare projections to actuals
+          const currentYear = await dateService.getCurrentYear();
+          const targetYear = this.selectedYear; 
 
-          // Populate team filter
-          const teams = new Set(this.allStats.map(p => p.teamName).filter(t => t && t !== 'FA'));
-          this.teamOptions = Array.from(teams).sort();
+          if (targetYear < currentYear) {
+              try {
+                  const [actuals, targetLeague] = await Promise.all([
+                      trueRatingsService.getTruePitchingStats(targetYear),
+                      leagueStatsService.getLeagueStats(targetYear)
+                  ]);
+                  
+                  const actualsMap = new Map(actuals.map(a => [a.player_id, a]));
+                  
+                  combinedPlayers.forEach(p => {
+                      const act = actualsMap.get(p.playerId);
+                      if (act) {
+                          const ip = trueRatingsService.parseIp(act.ip);
+                          // Only grade if they pitched enough to matter (e.g. 10 IP)
+                          if (ip >= 10) {
+                              const k9 = ip > 0 ? (act.k / ip) * 9 : 0;
+                              const bb9 = ip > 0 ? (act.bb / ip) * 9 : 0;
+                              const hr9 = ip > 0 ? (act.hra / ip) * 9 : 0;
+                              
+                              const fip = fipWarService.calculateFip({ k9, bb9, hr9, ip }, targetLeague.fipConstant);
+                              const diff = fip - p.projectedStats.fip;
+                              
+                              // Grade Logic
+                              let grade = 'F';
+                              const absDiff = Math.abs(diff);
+                              if (absDiff < 0.50) grade = 'A';
+                              else if (absDiff < 1.00) grade = 'B';
+                              else if (absDiff < 1.50) grade = 'C';
+                              else if (absDiff < 2.00) grade = 'D';
+                              
+                              p.actualStats = {
+                                  fip,
+                                  war: act.war,
+                                  ip,
+                                  diff,
+                                  grade
+                              };
+                          }
+                      }
+                  });
+              } catch (e) {
+                  console.warn('Backcasting data unavailable', e);
+              }
+          }
+
+          this.allStats = combinedPlayers;
+
+          // Check if we have actual stats (for conditional column display)
+          this.hasActualStats = this.allStats.some(p => p.actualStats !== undefined);
+
+          // Rebuild columns based on whether we have actual stats
+          this.initColumns();
+
+          // Populate team filter - only include MLB teams (parent_team_id === 0)
+          const allTeams = await teamService.getAllTeams();
+          this.teamLookup = new Map(allTeams.map(t => [t.id, t]));
+
+          // Build set of MLB parent org names
+          const mlbTeamNames = new Set<string>();
+
+          for (const player of this.allStats) {
+            const parentOrgName = this.getParentOrgName(player.teamId);
+            if (parentOrgName && parentOrgName !== 'FA') {
+              mlbTeamNames.add(parentOrgName);
+            }
+          }
+
+          this.teamOptions = Array.from(mlbTeamNames).sort();
           this.updateTeamFilter();
 
           this.updateSubtitle();
@@ -147,91 +238,6 @@ export class ProjectionsView {
       } catch (err) {
           console.error(err);
           if (container) container.innerHTML = `<div class="error-message">Error: ${err}</div>`;
-      }
-  }
-
-  /**
-   * Fetch prospects with TFR who aren't already in the MLB projections
-   */
-  private async fetchProspects(mlbPlayers: ProjectedPlayer[]): Promise<ProjectedPlayer[]> {
-      try {
-          const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
-          if (scoutingRatings.length === 0) return [];
-
-          const mlbPlayerIds = new Set(mlbPlayers.map(p => p.playerId));
-
-          // Get TFR results for prospects
-          const tfrResults = await trueFutureRatingService.getProspectTrueFutureRatings(this.selectedYear, 'my');
-
-          // Filter to only prospects (not in MLB stats)
-          const prospectTfrs = tfrResults.filter(tfr => !mlbPlayerIds.has(tfr.playerId));
-
-          // Fetch player/team data
-          const [allPlayers, allTeams] = await Promise.all([
-              playerService.getAllPlayers(),
-              teamService.getAllTeams()
-          ]);
-          const playerMap = new Map(allPlayers.map(p => [p.id, p]));
-          const teamMap = new Map(allTeams.map(t => [t.id, t]));
-
-          // Convert to ProjectedPlayer format
-          const prospectPlayers: ProjectedPlayer[] = [];
-
-          for (const tfr of prospectTfrs) {
-              const player = playerMap.get(tfr.playerId);
-              if (!player) continue;
-
-              const team = teamMap.get(player.teamId);
-              let teamName = 'FA';
-              if (team) {
-                  if (player.parentTeamId !== 0) {
-                      const parent = teamMap.get(player.parentTeamId);
-                      teamName = parent?.nickname ?? team.nickname;
-                  } else {
-                      teamName = team.nickname;
-                  }
-              }
-
-              // Get scouting for role determination
-              const scouting = scoutingRatings.find(s => s.playerId === tfr.playerId);
-              const pitchCount = scouting?.pitches ? Object.keys(scouting.pitches).length : 0;
-              const isSp = pitchCount > 2;
-              const projectedIp = isSp ? 160 : 60;
-
-              // Calculate projected WAR using FIP
-              const runsPerWin = 9.0;
-              const replacementFip = isSp ? 5.25 : 4.60;
-              const projectedWar = ((replacementFip - tfr.projFip) / runsPerWin) * (projectedIp / 9);
-
-              prospectPlayers.push({
-                  playerId: tfr.playerId,
-                  name: tfr.playerName,
-                  teamId: player.teamId,
-                  teamName,
-                  age: tfr.age,
-                  currentTrueRating: tfr.trueFutureRating, // Use TFR as "current" rating
-                  projectedTrueRating: tfr.trueFutureRating,
-                  projectedStats: {
-                      k9: tfr.projK9,
-                      bb9: tfr.projBb9,
-                      hr9: tfr.projHr9,
-                      fip: tfr.projFip,
-                      war: Math.max(0, projectedWar),
-                      ip: projectedIp,
-                  },
-                  projectedRatings: {
-                      stuff: Math.round((tfr.projK9 - 2.07) / 0.074),
-                      control: Math.round((5.22 - tfr.projBb9) / 0.052),
-                      hra: Math.round((2.08 - tfr.projHr9) / 0.024),
-                  },
-                  isProspect: true,
-              });
-          }
-
-          return prospectPlayers;
-      } catch (err) {
-          console.warn('Failed to fetch prospects:', err);
-          return [];
       }
   }
 
@@ -247,10 +253,30 @@ export class ProjectionsView {
       if (this.selectedTeam === 'all') {
           this.stats = [...this.allStats];
       } else {
-          this.stats = this.allStats.filter(p => p.teamName === this.selectedTeam);
+          // Filter by parent org name (resolves minor league teams to their MLB parent)
+          this.stats = this.allStats.filter(p => this.getParentOrgName(p.teamId) === this.selectedTeam);
       }
       this.sortStats();
       this.renderTable();
+  }
+
+  /**
+   * Get the parent org (MLB team) name for a team ID.
+   * If the team is a minor league team, returns the parent team's nickname.
+   * If the team is already an MLB team, returns its nickname.
+   */
+  private getParentOrgName(teamId: number): string | null {
+    const team = this.teamLookup.get(teamId);
+    if (!team) return null;
+
+    // If this is a minor league team, get the parent org
+    if (team.parentTeamId !== 0) {
+      const parentTeam = this.teamLookup.get(team.parentTeamId);
+      return parentTeam?.nickname ?? null;
+    }
+
+    // This is already an MLB team
+    return team.nickname ?? null;
   }
 
   private sortStats(): void {
@@ -288,9 +314,9 @@ export class ProjectionsView {
       this.playerRowLookup = new Map(pageData.map(p => [p.playerId, p]));
 
       const headerHtml = this.columns.map(col => {
-          // Actually match exactly or loosely
-          const isActive = this.sortKey === col.sortKey;
-          return `<th data-key="${col.key}" data-sort="${col.sortKey || ''}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
+          const sortKey = String(col.sortKey ?? col.key);
+          const isActive = this.sortKey === sortKey;
+          return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
       }).join('');
 
       const rowsHtml = pageData.map(p => {
@@ -298,8 +324,7 @@ export class ProjectionsView {
               const val = col.accessor ? col.accessor(p) : (p as any)[col.key];
               return `<td>${val ?? ''}</td>`;
           }).join('');
-          const rowClass = p.isProspect ? 'prospect-row' : '';
-          return `<tr class="${rowClass}">${cells}</tr>`;
+          return `<tr>${cells}</tr>`;
       }).join('');
 
       container.innerHTML = `
@@ -323,7 +348,7 @@ export class ProjectionsView {
 
       // Sorting
       this.container.querySelectorAll('th[data-sort]').forEach(th => {
-          th.addEventListener('click', () => {
+          th.addEventListener('click', (e) => {
               if (this.isDraggingColumn) return;
               const key = (th as HTMLElement).dataset.sort;
               if (!key) return;
@@ -335,6 +360,7 @@ export class ProjectionsView {
                   this.sortDirection = 'asc'; // Default to asc for FIP usually, but let's stick to simple
                   // Actually FIP lower is better. Default asc is correct for "best".
               }
+              this.showSortHint(e as MouseEvent);
               this.sortStats();
               this.renderTable();
           });
@@ -401,8 +427,7 @@ export class ProjectionsView {
   }
 
   private renderPlayerName(player: ProjectedPlayer): string {
-    const prospectBadge = player.isProspect ? ' <span class="prospect-badge">P</span>' : '';
-    return `<button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}${prospectBadge}</button>`;
+    return `<button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}</button>`;
   }
 
   private renderRatingBadge(player: ProjectedPlayer): string {
@@ -413,11 +438,25 @@ export class ProjectionsView {
     else if (value >= 3.0) className = 'rating-avg';
     else if (value >= 2.0) className = 'rating-fringe';
 
-    // For prospects, add TFR indicator
-    const tfrClass = player.isProspect ? ' tfr-badge' : '';
-    const title = player.isProspect ? 'True Future Rating (Projected)' : 'Current True Rating';
+    return `<span class="badge ${className}" title="Current True Rating">${value.toFixed(1)}</span>`;
+  }
 
-    return `<span class="badge ${className}${tfrClass}" title="${title}">${value.toFixed(1)}</span>`;
+  private renderGrade(player: ProjectedPlayerWithActuals): string {
+      if (!player.actualStats) return '<span class="grade-na" title="No actual stats found">—</span>';
+      
+      const grade = player.actualStats.grade;
+      let className = 'grade-poor'; // Default/F
+      if (grade === 'A') className = 'grade-elite';
+      else if (grade === 'B') className = 'grade-plus';
+      else if (grade === 'C') className = 'grade-avg';
+      else if (grade === 'D') className = 'grade-fringe';
+      
+      // Use existing rating classes for colors (Elite=Blue/Green, Plus=Green, Avg=Yellow, Fringe=Orange, Poor=Red)
+      return `<span class="badge ${className}" style="min-width: 24px;">${grade}</span>`;
+  }
+
+  private renderAge(player: ProjectedPlayer): string {
+    return player.age.toString();
   }
 
   private bindPlayerNameClicks(): void {
@@ -474,10 +513,11 @@ export class ProjectionsView {
       scoutInjuryProneness: scouting?.injuryProneness,
       scoutOvr: scouting?.ovr,
       scoutPot: scouting?.pot,
-      isProspect: row.isProspect
+      isProspect: row.isProspect,
+      year: this.selectedYear
     };
 
-    await this.playerProfileModal.show(profileData, this.selectedYear);
+    await this.playerProfileModal.show(profileData, this.statsYearUsed ?? this.selectedYear - 1);
   }
 
   private updatePagination(total: number): void {
@@ -522,6 +562,26 @@ export class ProjectionsView {
       } catch {}
   }
 
+  private showSortHint(event: MouseEvent): void {
+    const arrow = document.createElement('div');
+    arrow.className = 'sort-fade-hint';
+    arrow.textContent = this.sortDirection === 'asc' ? '⬆️' : '⬇️';
+    const offset = 16;
+    arrow.style.left = `${event.clientX + offset}px`;
+    arrow.style.top = `${event.clientY - offset}px`;
+    document.body.appendChild(arrow);
+
+    requestAnimationFrame(() => {
+      arrow.classList.add('visible');
+    });
+
+    setTimeout(() => {
+      arrow.classList.add('fade');
+      arrow.addEventListener('transitionend', () => arrow.remove(), { once: true });
+      setTimeout(() => arrow.remove(), 800);
+    }, 900);
+  }
+
   private async initializeFromGameDate(): Promise<void> {
     const dateStr = await dateService.getCurrentDateWithFallback();
     const parsed = this.parseGameDate(dateStr);
@@ -529,8 +589,10 @@ export class ProjectionsView {
     if (parsed) {
       const { year, month } = parsed;
       this.selectedYear = year;
-      this.isOffseason = month >= 10;
-      this.updateYearOptions(year);
+      // Offseason if Oct-Dec or Jan-Mar
+      this.isOffseason = month >= 10 || month < 4;
+
+      this.updateYearOptions(this.selectedYear);
       this.updateYearSelect();
     }
 
@@ -567,16 +629,16 @@ export class ProjectionsView {
     const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
     if (!subtitle) return;
 
-    const targetYear = this.selectedYear + (this.isOffseason ? 1 : 0);
+    const targetYear = this.selectedYear;
+    const baseYear = this.statsYearUsed ?? (this.selectedYear - 1);
+    
     if (this.isOffseason) {
-      const baseYear = this.statsYearUsed ?? this.selectedYear;
-      subtitle.innerHTML = `Projections for the <em>next</em> season (${targetYear}) based on ${baseYear} True Ratings and standard aging curves.`;
+      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings and standard aging curves.`;
     } else {
-      const baseYear = this.statsYearUsed ?? this.selectedYear;
-      const fallbackNote = this.usedFallbackStats && baseYear !== targetYear
-        ? ` <span class="note-text">No ${targetYear} stats yet&mdash;using ${baseYear} data.</span>`
+      const fallbackNote = this.usedFallbackStats && baseYear !== (targetYear - 1)
+        ? ` <span class="note-text">No ${targetYear - 1} stats yet&mdash;using ${baseYear} data.</span>`
         : '';
-      subtitle.innerHTML = `Projections for the ${targetYear} season (rest of year) based on current True Ratings and standard aging curves.${fallbackNote}`;
+      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season (rest of year) based on ${baseYear} True Ratings and standard aging curves.${fallbackNote}`;
     }
   }
 }
