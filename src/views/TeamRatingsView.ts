@@ -338,15 +338,21 @@ export class TeamRatingsView {
     const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
     const scouting = scoutingRatings.find(s => s.playerId === playerId);
 
-    // Extract pitch names if available (show all pitches, not just usable ones)
+    // Extract pitch names and ratings if available
     const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
+    const pitchRatings = scouting?.pitches ?? {};
     const usablePitchCount = row.pitchCount; // Already calculated in TeamRatingsService
+
+    // Determine if we should show the year label (only for historical data)
+    const currentYear = this.currentGameYear ?? await dateService.getCurrentYear();
+    const isHistorical = this.selectedYear < currentYear - 1;
 
     const profileData: PlayerProfileData = {
       playerId: row.playerId,
       playerName: row.name,
       team: teamLabel,
       parentTeam: parentLabel,
+      position: row.isSp ? 'SP' : 'RP',
       trueRating: row.trueRating,
       estimatedStuff: row.trueStuff,
       estimatedControl: row.trueControl,
@@ -360,8 +366,10 @@ export class TeamRatingsView {
       scoutPot: scouting?.pot,
       pitchCount: usablePitchCount,
       pitches,
+      pitchRatings,
       isProspect: false,
-      year: this.selectedYear
+      year: this.selectedYear,
+      showYearLabel: isHistorical
     };
 
     await this.playerProfileModal.show(profileData, this.selectedYear);

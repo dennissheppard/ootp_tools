@@ -497,15 +497,23 @@ export class ProjectionsView {
     const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
     const scouting = scoutingRatings.find(s => s.playerId === playerId);
 
-    // Extract pitch names if available (show all pitches, not just usable ones)
+    // Extract pitch names and ratings if available
     const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
+    const pitchRatings = scouting?.pitches ?? {};
     const usablePitchCount = scouting?.pitches ? Object.values(scouting.pitches).filter(rating => rating >= 45).length : 0;
+
+    // Determine if we should show the year label (only for historical data)
+    // The year shown is the base year for the projection (statsYearUsed or selectedYear - 1)
+    const baseYear = this.statsYearUsed ?? this.selectedYear - 1;
+    const currentYear = await dateService.getCurrentYear();
+    const isHistorical = baseYear < currentYear - 1;
 
     const profileData: PlayerProfileData = {
       playerId: row.playerId,
       playerName: row.name,
       team: teamLabel,
       parentTeam: parentLabel,
+      position: row.isSp ? 'SP' : 'RP',
       trueRating: row.currentTrueRating,
       estimatedStuff: row.projectedRatings.stuff,
       estimatedControl: row.projectedRatings.control,
@@ -519,8 +527,10 @@ export class ProjectionsView {
       scoutPot: scouting?.pot,
       pitchCount: usablePitchCount,
       pitches,
+      pitchRatings,
       isProspect: row.isProspect,
-      year: this.selectedYear
+      year: this.selectedYear,
+      showYearLabel: isHistorical
     };
 
     await this.playerProfileModal.show(profileData, this.statsYearUsed ?? this.selectedYear - 1);

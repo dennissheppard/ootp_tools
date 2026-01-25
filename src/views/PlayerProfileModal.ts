@@ -34,8 +34,11 @@ export class PlayerProfileModal {
             <div class="profile-title-group">
               <h3 class="modal-title"></h3>
               <div class="player-team-info"></div>
+              <div class="player-position-age"></div>
             </div>
             <div class="ratings-header-slot"></div>
+            <div class="metadata-header-slot"></div>
+            <div class="pitches-header-slot"></div>
           </div>
           <button class="modal-close" aria-label="Close">&times;</button>
         </div>
@@ -116,10 +119,16 @@ export class PlayerProfileModal {
     this.ensureOverlayExists();
     if (!this.overlay) return;
 
+    // Fetch player info first for age display
+    const player = await playerService.getPlayerById(data.playerId);
+
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
     const teamEl = this.overlay.querySelector<HTMLElement>('.player-team-info');
+    const positionAgeEl = this.overlay.querySelector<HTMLElement>('.player-position-age');
     const headerSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
+    const metadataSlot = this.overlay.querySelector<HTMLElement>('.metadata-header-slot');
+    const pitchesSlot = this.overlay.querySelector<HTMLElement>('.pitches-header-slot');
 
     if (titleEl) titleEl.textContent = data.playerName;
     if (teamEl) {
@@ -127,8 +136,19 @@ export class PlayerProfileModal {
       teamEl.innerHTML = teamInfo;
       teamEl.style.display = teamInfo ? '' : 'none';
     }
+    if (positionAgeEl) {
+      const posAgeInfo = PlayerRatingsCard.formatPositionAge(data.position, player?.age);
+      positionAgeEl.textContent = posAgeInfo;
+      positionAgeEl.style.display = posAgeInfo ? '' : 'none';
+    }
     if (headerSlot) {
       headerSlot.innerHTML = PlayerRatingsCard.renderRatingEmblem(data);
+    }
+    if (metadataSlot) {
+      metadataSlot.innerHTML = PlayerRatingsCard.renderHeaderMetadata(data);
+    }
+    if (pitchesSlot) {
+      pitchesSlot.innerHTML = PlayerRatingsCard.renderHeaderPitches(data);
     }
 
     // Show loading state
@@ -151,7 +171,6 @@ export class PlayerProfileModal {
 
     // Fetch stats and render
     try {
-      const player = await playerService.getPlayerById(data.playerId);
       const mlbStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, selectedYear, 5);
 
       // Fetch minor league stats (within 2 years of current game date)
@@ -335,7 +354,6 @@ export class PlayerProfileModal {
     const hasScout = PlayerRatingsCard.hasScoutingData(data);
     return `
       ${PlayerRatingsCard.renderRatingsComparison(data, hasScout)}
-      ${PlayerRatingsCard.renderMetadata(data)}
       ${projectionHtml}
       ${PlayerRatingsCard.renderSeasonStatsTable(stats, { showLevel })}
     `;
