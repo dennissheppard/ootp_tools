@@ -232,31 +232,40 @@ export class PlayerProfileModal {
              showProjection = true;
         }
         if (ovr >= 50) showProjection = true;
+        if (data.forceProjection) showProjection = true;
 
-        if (showProjection && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
-            try {
-                const leagueStats = await leagueStatsService.getLeagueStats(projectionBaseYear);
-                const leagueContext = {
-                    fipConstant: leagueStats.fipConstant,
-                    avgFip: leagueStats.avgFip,
-                    runsPerWin: 8.5
-                };
+        if (showProjection) {
+            let proj = data.projectionOverride;
 
-                // Estimate role from recent stats (IP > 80 implies starter/long reliever)
-                const recent = mlbStats[0]; // Most recent year in history
-                const isSp = recent && recent.ip > 80;
+            if (!proj && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
+                try {
+                    const leagueStats = await leagueStatsService.getLeagueStats(projectionBaseYear);
+                    const leagueContext = {
+                        fipConstant: leagueStats.fipConstant,
+                        avgFip: leagueStats.avgFip,
+                        runsPerWin: 8.5
+                    };
 
-                const proj = projectionService.calculateProjection(
-                    { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
-                    historicalAge,
-                    0, // Pitch count unknown
-                    isSp ? 20 : 0, // Mock GS to trigger SP logic in service
-                    leagueContext,
-                    data.scoutStamina,
-                    data.scoutInjuryProneness,
-                    mlbStats
-                );
+                    // Estimate role from recent stats (IP > 80 implies starter/long reliever)
+                    const recent = mlbStats[0]; // Most recent year in history
+                    const isSp = recent && recent.ip > 80;
 
+                    proj = projectionService.calculateProjection(
+                        { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
+                        historicalAge,
+                        0, // Pitch count unknown
+                        isSp ? 20 : 0, // Mock GS to trigger SP logic in service
+                        leagueContext,
+                        data.scoutStamina,
+                        data.scoutInjuryProneness,
+                        mlbStats
+                    );
+                } catch (e) {
+                    console.warn('Failed to calculate projection', e);
+                }
+            }
+
+            if (proj) {
                 // Backcasting: Find actual stats for the projection target year
                 const targetYear = projectionTargetYear;
                 let actualStat: SeasonStatsRow | undefined;
@@ -316,8 +325,6 @@ export class PlayerProfileModal {
                 }
 
                 projectionHtml = this.renderProjection(proj, historicalAge + 1, projectionTargetYear, comparison);
-            } catch (e) {
-                console.warn('Failed to calculate projection', e);
             }
         }
 
@@ -403,18 +410,19 @@ export class PlayerProfileModal {
                 <td style="font-weight: bold; color: var(--color-text-muted); padding: 0.625rem 0.15rem;">Actual (${projectedYear})</td>
                 <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${comparison.ip.toFixed(0)}</td>
                 <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
+                <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem; width: 60px;">${comparison.fip.toFixed(2)}</td>
                 <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${k9ActFlip}</td>
                 <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
                 <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${bb9ActFlip}</td>
                 <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
                 <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${hr9ActFlip}</td>
                 <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
-                <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem; width: 60px;">${comparison.fip.toFixed(2)}</td>
                 <td style="text-align: center; padding: 0.625rem 0.15rem; width: 50px;">${comparison.war.toFixed(1)}</td>
             </tr>
             <tr>
-                <td colspan="9" style="text-align: right; color: var(--color-text-muted); font-size: 0.85em; padding-right: 1rem;">Projection Accuracy:</td>
+                <td colspan="3" style="text-align: right; color: var(--color-text-muted); font-size: 0.85em; padding-right: 1rem;">Projection Accuracy:</td>
                 <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem;">${diffText} <span style="font-size: 0.8em; font-weight: normal; color: var(--color-text-muted);">(&Delta;FIP)</span></td>
+                <td colspan="6"></td>
                 <td style="text-align: center; padding: 0.625rem 0.15rem;"><span class="badge ${gradeClass}" style="min-width: 24px;">${comparison.grade}</span></td>
             </tr>
           `;
@@ -429,10 +437,10 @@ export class PlayerProfileModal {
                         <tr>
                             <th style="text-align: left; padding: 0.625rem 0.15rem;"></th>
                             <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">IP</th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem;">FIP</th>
                             <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">K/9</th>
                             <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">BB/9</th>
                             <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">HR/9</th>
-                            <th style="text-align: center; padding: 0.625rem 0.15rem;">FIP</th>
                             <th style="text-align: center; padding: 0.625rem 0.15rem;">WAR</th>
                         </tr>
                     </thead>
@@ -441,13 +449,13 @@ export class PlayerProfileModal {
                             <td style="font-weight: bold; color: var(--color-primary); padding: 0.625rem 0.15rem; width: 100px;">Proj</td>
                             <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${s.ip.toFixed(0)}</td>
                             <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${ipDelta}</td>
+                            <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem; width: 60px;">${s.fip.toFixed(2)}</td>
                             <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${k9ProjFlip}</td>
                             <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${k9Delta}</td>
                             <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${bb9ProjFlip}</td>
                             <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${bb9Delta}</td>
                             <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${hr9ProjFlip}</td>
                             <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${hr9Delta}</td>
-                            <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem; width: 60px;">${s.fip.toFixed(2)}</td>
                             <td style="text-align: center; padding: 0.625rem 0.15rem; width: 50px;">${s.war.toFixed(1)}</td>
                         </tr>
                         ${comparisonHtml}

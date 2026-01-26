@@ -171,20 +171,26 @@ The estimator calculates FIP and WAR using the shared `FipWarService.ts` (same f
 A comprehensive view of team-level pitching strength, identifying top rotations and bullpens.
 
 - **Role Classification**: Intelligently classifies pitchers as Starters (SP) or Relievers (RP):
-  - **Priority 1**: Multi-year GS history (≥5 total GS over last 3 years → SP)
-  - **Priority 2**: Current year stats (≥5 GS this year → SP)
-  - **Priority 3**: Scouting profile (≥3 usable pitches rated ≥45 AND stamina ≥30 → SP)
-  - Only counts **usable pitches** (rated ≥45), preventing low-rated pitches from misclassifying relievers
-  - For **Projections mode**: Uses the role determined by `ProjectionService` (which considers stamina, pitch repertoire, and historical usage) rather than re-classifying by projected IP
+  - **Priority 1 (Profile)**: 3+ usable pitches (rated ≥45), Stamina ≥35, and True Rating ≥2.0 → **SP**.
+  - **Priority 2 (Role)**: Explicit roster role is SP → **SP**.
+  - **Priority 3 (History)**: Started ≥5 games recently → **SP**.
+  - **Fallback**: Default to **RP**.
+  - **Overflow Handling**: Rotations are strictly capped at 5 pitchers. Any additional qualified starters are moved to the bullpen list (boosting the bullpen rating as long relievers/swingmen).
+- **Historical Team Assignment & Rotation Logic**:
+  - **Traded/Multi-team Seasons**: Historical team ratings use per-team pitching splits so a player can appear on multiple teams in the same year.
+  - **Historical Rotation Priority**: For past years, rotation selection is driven by actual **GS** (then IP) to reflect who really started, rather than scouting profile.
+  - **Fallback Ratings**: If a historical team split is missing from the combined True Ratings pool, the view estimates a baseline TR from that season?s K/9, BB/9, and HR/9 so the player is still included.
 - **Team Scores (Runs Saved)**:
-  - **Runs Allowed**: Sum of each pitcher's `FIP * IP / 9` (top 5 SP/RP).
-  - **League Avg Runs**: `leagueAvgFIP * totalIP / 9` for the same top-5 IP total.
-  - **Runs Saved**: `League Avg Runs - Runs Allowed` (shown as the badge value).
-  - Badge hover shows Runs Allowed vs League Avg.
+  - **Workload Normalization**: Rotations are evaluated at **950 IP** and Bullpens at **500 IP** to ensure fair comparison across teams regardless of injury or depth.
+  - **Replacement Penalties**: If a team's top 5 pitchers cannot fill the target IP, the remaining innings are filled with **Replacement Level Performance** (League Avg FIP + 1.00). This penalizes shallow rotations.
+  - **Centered Benchmarking**: The "League Average" benchmark is dynamically calculated from the aggregate projected performance of all teams, ensuring the total "Runs Saved" across the league sums to zero.
+  - **Runs Allowed**: Sum of `FIP * IP / 9` for the top 5 (plus replacement fillers).
+  - **Runs Saved**: `League Avg Runs - Runs Allowed`.
 - **View Modes**:
   - **Projections**: Upcoming season projection (base year fixed to 2020 in current data set).
   - **By Year**: Standard year selector (2000-2021).
   - **All Time**: Top 10 rotations and bullpens across all years, ranked by runs saved for that season (year shown next to team name).
+- **Projected Most Improved**: In projections view, a "Projected Most Improved" section compares projected runs saved to the prior year and ranks teams by improvement/decline for both rotations and bullpens.
 - **Historical Context**: Supports viewing team rankings for any year (2000-2021), utilizing multi-year weighted averages for player ratings.
 - **Interactive Lists**: Ranked lists of teams with expandable rows showing detailed player stats (TR, IP, K/9, BB/9, HR/9, ERA, FIP).
 - **Clickable Player Names**: Click any player to open their profile modal with full stats history and scouting data.
@@ -204,19 +210,34 @@ A comprehensive view of team-level pitching strength, identifying top rotations 
 - **Projections Section**: Shows projected stats for upcoming season (when applicable)
 - **Draggable**: Modal can be repositioned by dragging the header
 
-### 7. Stat Projections
+### 7. Stat Projections & Analysis
 Predicts future pitching performance by applying aging curves to current "True Talent" ratings.
+
+**Analysis Dashboard**:
+A built-in reporting tool to evaluate the accuracy of the projection algorithm against historical data.
+- **Metrics**: Calculates MAE (Mean Absolute Error), RMSE (Root Mean Square Error), and Bias (systematic error) for FIP, K/9, BB/9, and HR/9.
+- **Breakdowns**: Analyze performance by Year, Team, and Age Group to spot trends (e.g., "Are we over-projecting young players?").
+- **Outliers**: Identifies the top 20 "biggest misses" to help distinguish between model error and sample size noise (injuries, small samples).
+- **Calibration**: The system is calibrated to achieve < 0.05 Bias and < 0.65 MAE for FIP.
 
 **Key Methodology**:
 1.  **Baseline**: Projections start from the player's current **True Ratings** (multi-year weighted average), *not* their raw ERA/FIP. This inherently handles regression to the mean. A player who "got lucky" (low ERA but high True Rating) will see their projected stats regress towards their talent level.
 2.  **Aging**: Standard aging curves are applied to the ratings (Stuff, Control, HRA) based on the player's age.
 3.  **Calculation**: The age-adjusted ratings are converted back into projected stats (K/9, BB/9, HR/9) using the WBL-calibrated formulas.
 
+**Algorithm Calibration (Jan 2026)**:
+- **K/9**: `2.10 + 0.074 × Stuff` (Increased intercept to correct under-projection)
+- **BB/9**: `5.30 - 0.052 × Control` (Decreased intercept to correct over-projection)
+- **HR/9**: `2.18 - 0.024 × HRA` (Balanced for FIP accuracy)
+- **Aging**: Softened development for ages 24-26 and softened decline for ages 32-35 to match historical attrition rates.
+
+**Sync**: The **True Ratings** calculation service uses these exact same constants in reverse to ensure that a projected rating of 50 results in stats that would estimate back to a rating of 50.
+
 **Aging Curves (Deterministic Baseline)**:
 -   **Young (< 22)**: Rapid development (+2 Stuff, +3 Control, +1.5 HRA).
--   **Early Prime (22-24)**: Continued growth (+1 Stuff, +2 Control, +1 HRA).
+-   **Early Prime (22-24)**: Continued growth (+0.5 Stuff, +1.5 Control, +0.5 HRA).
 -   **Prime (25-27)**: Peak plateau (minimal changes).
--   **Post-Prime (28-31)**: Slow decline (-1 Stuff, -0.5 Control/HRA).
+-   **Post-Prime (28-31)**: Slow decline (-1.5 Stuff, -1.0 Control, -0.5 HRA).
 -   **Decline (32+)**: Accelerated regression.
 
 **Do players always improve?**

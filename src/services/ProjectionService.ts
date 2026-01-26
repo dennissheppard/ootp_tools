@@ -207,7 +207,7 @@ class ProjectionService {
         // Fall back to stats team_id only if current team is unknown (0).
         const teamId = player.teamId || currentStats?.team_id || 0;
         const team = teamMap.get(teamId);
-        const ipResult = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1);
+        const ipResult = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1, player.role, tr.trueRating);
 
         const currentRatings = {
             stuff: tr.estimatedStuff,
@@ -378,36 +378,43 @@ class ProjectionService {
     scouting: PitcherScoutingRatings | undefined,
     currentStats: TruePlayerStats | undefined,
     historicalStats: YearlyPitchingStats[] | undefined,
-    age: number
+    age: number,
+    playerRole: number = 0,
+    trueRating: number = 0
   ): { ip: number; isSp: boolean } {
     // 1. Determine Role (SP vs RP)
     let isSp = false;
-    
-    // Check Stats first (GS >= 5)
-    if (currentStats && currentStats.gs >= 5) {
-        isSp = true;
-    } else if (historicalStats && historicalStats.length > 0) {
-        // Check most recent season with significant IP
-        // Assuming historicalStats is sorted recent first.
-        const recent = historicalStats.find(s => trueRatingsService.parseIp(s.ip) > 10);
-        if (recent && recent.gs >= 5) {
-            isSp = true;
+
+    // Heuristic 1: Profile (User Priority)
+    // 3+ Pitches (>= 45) AND Stamina >= 35 AND True Rating >= 2.0
+    let meetsProfile = false;
+    if (scouting) {
+        const pitches = scouting.pitches ?? {};
+        const usablePitches = Object.values(pitches).filter(r => r >= 45).length;
+        const stam = scouting.stamina ?? 0;
+        
+        if (usablePitches >= 3 && stam >= 35 && trueRating >= 2.0) {
+            meetsProfile = true;
         }
     }
 
-    // Fallback to Scouting
-    if (!currentStats && (!historicalStats || historicalStats.length === 0)) {
-        if (scouting) {
-            const pitches = scouting.pitches ?? {};
-            const usablePitches = Object.values(pitches).filter(r => r >= 45).length;
-            const stam = scouting.stamina ?? 0;
-            // SP needs 3 pitches and decent stamina (>= 30)
-            if (usablePitches >= 3 && stam >= 30) {
+    if (meetsProfile) {
+        isSp = true;
+    } else if (playerRole === 11) {
+        // Heuristic 2: Explicit Role (SP)
+        isSp = true;
+    } else {
+        // Heuristic 3: History (Fallback)
+        // Check Stats first (GS >= 5)
+        if (currentStats && currentStats.gs >= 5) {
+            isSp = true;
+        } else if (historicalStats && historicalStats.length > 0) {
+            // Check most recent season with significant IP
+            // Assuming historicalStats is sorted recent first.
+            const recent = historicalStats.find(s => trueRatingsService.parseIp(s.ip) > 10);
+            if (recent && recent.gs >= 5) {
                 isSp = true;
             }
-        } else {
-            // Default to RP if nothing known
-            isSp = false;
         }
     }
 

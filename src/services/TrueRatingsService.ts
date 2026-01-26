@@ -139,6 +139,7 @@ const LEAGUE_START_YEAR = 2000;
 class TrueRatingsService {
   private inMemoryPitchingCache: Map<number, TruePlayerStats[]> = new Map();
   private inMemoryBattingCache: Map<number, TruePlayerBattingStats[]> = new Map();
+  private inMemoryPitchingByTeamCache: Map<number, TruePlayerStats[]> = new Map();
 
   public async getTruePitchingStats(year: number): Promise<TruePlayerStats[]> {
     if (year < LEAGUE_START_YEAR) return [];
@@ -165,6 +166,20 @@ class TrueRatingsService {
     const currentYear = await dateService.getCurrentYear();
     this.saveToCache(year, normalized, 'pitching', year < currentYear);
     
+    return normalized;
+  }
+
+  public async getTruePitchingStatsByTeam(year: number): Promise<TruePlayerStats[]> {
+    if (year < LEAGUE_START_YEAR) return [];
+
+    if (this.inMemoryPitchingByTeamCache.has(year)) {
+      return this.inMemoryPitchingByTeamCache.get(year)!;
+    }
+
+    const playerStats = await this.fetchAndProcessStats(year, 'pitching', 'playerpitchstatsv2') as TruePlayerStats[];
+    const normalized = this.combinePitchingStatsByTeam(playerStats);
+    this.inMemoryPitchingByTeamCache.set(year, normalized);
+
     return normalized;
   }
 
@@ -316,6 +331,62 @@ class TrueRatingsService {
 
     combined.forEach((stat, playerId) => {
       const outs = combinedOuts.get(playerId) ?? 0;
+      stat.outs = outs;
+      stat.ip = this.formatOutsToIp(outs);
+      if (typeof stat.ipf === 'number') {
+        stat.ipf = Math.round((outs / 3) * 10) / 10;
+      }
+    });
+
+    return Array.from(combined.values());
+  }
+
+  private combinePitchingStatsByTeam(stats: TruePlayerStats[]): TruePlayerStats[] {
+    const combined = new Map<string, TruePlayerStats>();
+    const combinedOuts = new Map<string, number>();
+    const skipKeys = new Set([
+      'id',
+      'player_id',
+      'year',
+      'team_id',
+      'game_id',
+      'league_id',
+      'level_id',
+      'split_id',
+      'stint',
+      'outs',
+      'ipf',
+    ]);
+
+    for (const stat of stats) {
+      const teamId = stat.team_id ?? 0;
+      if (teamId === 0) continue;
+      const key = `${stat.player_id}-${teamId}`;
+      const existing = combined.get(key);
+      const outs = typeof stat.outs === 'number' ? stat.outs : this.ipToOuts(stat.ip);
+
+      if (!existing) {
+        const cloned: TruePlayerStats = { ...stat };
+        combined.set(key, cloned);
+        combinedOuts.set(key, outs);
+        continue;
+      }
+
+      combinedOuts.set(key, (combinedOuts.get(key) ?? 0) + outs);
+
+      Object.keys(stat).forEach((k) => {
+        if (k === 'ip' || k === 'playerName') return;
+        if (skipKeys.has(k)) return;
+        const value = (stat as any)[k];
+        if (typeof value === 'number') {
+          const current = (existing as any)[k];
+          (existing as any)[k] = (typeof current === 'number' ? current : 0) + value;
+        }
+      });
+    }
+
+    combined.forEach((stat, key) => {
+      const outs = combinedOuts.get(key) ?? 0;
       stat.outs = outs;
       stat.ip = this.formatOutsToIp(outs);
       if (typeof stat.ipf === 'number') {

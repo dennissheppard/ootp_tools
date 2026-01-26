@@ -19,6 +19,14 @@ interface PlayerRowContext {
   type: 'rotation' | 'bullpen';
 }
 
+interface ImprovementRow {
+  teamId: number;
+  teamName: string;
+  previous: number;
+  projected: number;
+  delta: number;
+}
+
 export class TeamRatingsView {
   private container: HTMLElement;
   private selectedYear: number = 2020;
@@ -34,6 +42,7 @@ export class TeamRatingsView {
   private teamSortState: Map<string, { key: string; direction: 'asc' | 'desc' }> = new Map();
   private lastSelectedYear = this.selectedYear;
   private allTimeResults: TeamRatingResult[] | null = null;
+  private projectedBaselineResults: TeamRatingResult[] | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -79,6 +88,8 @@ export class TeamRatingsView {
                 <div class="loading-message">Loading...</div>
             </div>
         </div>
+
+        <div id="projected-improvements" class="projected-improvements" style="display: none;"></div>
       </div>
     `;
 
@@ -158,6 +169,7 @@ export class TeamRatingsView {
     try {
         if (this.viewMode === 'year') {
             this.results = await teamRatingsService.getTeamRatings(this.selectedYear);
+            this.projectedBaselineResults = null;
         } else if (this.viewMode === 'all-time') {
             if (this.allTimeResults) {
                 this.results = this.allTimeResults;
@@ -165,6 +177,7 @@ export class TeamRatingsView {
                 this.results = await teamRatingsService.getAllTimeTeamRatings(this.yearOptions);
                 this.allTimeResults = this.results;
             }
+            this.projectedBaselineResults = null;
         } else {
             console.log('Fetching projections...', teamRatingsService);
             if (typeof teamRatingsService.getProjectedTeamRatings !== 'function') {
@@ -172,6 +185,12 @@ export class TeamRatingsView {
                 throw new Error('Service method missing. Please refresh the page.');
             }
             this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear);
+            try {
+                this.projectedBaselineResults = await teamRatingsService.getTeamRatings(this.selectedYear);
+            } catch (baselineError) {
+                console.warn('Failed to load baseline team ratings for improvements.', baselineError);
+                this.projectedBaselineResults = null;
+            }
         }
         if (this.results.length === 0) {
             await this.renderNoData();
@@ -209,28 +228,216 @@ export class TeamRatingsView {
       // Render Rotation List
       const rotSorted = [...this.results].sort((a, b) => b.rotationRunsSaved - a.rotationRunsSaved);
       const rotDisplay = this.viewMode === 'all-time' ? rotSorted.slice(0, 10) : rotSorted;
-      rotContainer.innerHTML = `
-        <h3 class="section-title">Top Rotations <span class="note-text">${this.viewMode === 'all-time' ? '(All-time top 10, ranked by runs saved)' : '(Ranked by runs saved)'}</span></h3>
-        <div class="team-list">
-            ${rotDisplay.map((team, idx) => this.renderTeamRow(team, idx + 1, 'rotation')).join('')}
-        </div>
-      `;
+      rotContainer.innerHTML = this.renderTeamCollapsible({
+        title: 'Top Rotations',
+        note: this.viewMode === 'all-time' ? '(All-time top 10, ranked by runs saved)' : '(Ranked by runs saved)',
+        type: 'rotation',
+        teams: rotDisplay
+      });
 
       // Render Bullpen List
       const penSorted = [...this.results].sort((a, b) => b.bullpenRunsSaved - a.bullpenRunsSaved);
       const penDisplay = this.viewMode === 'all-time' ? penSorted.slice(0, 10) : penSorted;
-      penContainer.innerHTML = `
-        <h3 class="section-title">Top Bullpens <span class="note-text">${this.viewMode === 'all-time' ? '(All-time top 10, ranked by runs saved)' : '(Ranked by runs saved)'}</span></h3>
-        <div class="team-list">
-            ${penDisplay.map((team, idx) => this.renderTeamRow(team, idx + 1, 'bullpen')).join('')}
-        </div>
-      `;
+      penContainer.innerHTML = this.renderTeamCollapsible({
+        title: 'Top Bullpens',
+        note: this.viewMode === 'all-time' ? '(All-time top 10, ranked by runs saved)' : '(Ranked by runs saved)',
+        type: 'bullpen',
+        teams: penDisplay
+      });
 
       this.bindToggleEvents();
       this.bindFlipCardLocking();
       this.bindPlayerNameClicks();
       this.bindTeamTableSortHeaders();
       this.bindTeamColumnDragAndDrop();
+      this.renderProjectedImprovements();
+  }
+
+  private renderProjectedImprovements(): void {
+      const container = this.container.querySelector<HTMLElement>('#projected-improvements');
+      if (!container) return;
+
+      if (this.viewMode !== 'projected') {
+          container.style.display = 'none';
+          container.innerHTML = '';
+          return;
+      }
+
+      container.style.display = 'block';
+
+      const baseline = this.projectedBaselineResults;
+      if (!baseline || baseline.length === 0) {
+          container.innerHTML = `
+            <div class="improvement-card">
+              <h3 class="section-title">Projected Most Improved</h3>
+              <p class="no-stats">Baseline year data unavailable for comparison.</p>
+            </div>
+          `;
+          return;
+      }
+
+      const lastYear = this.selectedYear;
+      const projectedYear = this.selectedYear + 1;
+      const lastYearMap = new Map(baseline.map(team => [team.teamId, team]));
+
+      const rotationRows = this.buildImprovementRows(lastYearMap, 'rotation');
+      const bullpenRows = this.buildImprovementRows(lastYearMap, 'bullpen');
+
+      container.innerHTML = `
+        <h3 class="section-title">Projected Most Improved <span class="note-text">(Runs saved vs ${lastYear})</span></h3>
+        <div class="projected-improvements-grid">
+          ${this.renderImprovementCard('Rotations', rotationRows)}
+          ${this.renderImprovementCard('Bullpens', bullpenRows)}
+        </div>
+      `;
+  }
+
+  private buildImprovementRows(
+    baselineMap: Map<number, TeamRatingResult>,
+    type: 'rotation' | 'bullpen'
+  ): ImprovementRow[] {
+      const rows = this.results
+        .map(team => {
+          const prev = baselineMap.get(team.teamId);
+          if (!prev) return null;
+          const projected = type === 'rotation' ? team.rotationRunsSaved : team.bullpenRunsSaved;
+          const previous = type === 'rotation' ? prev.rotationRunsSaved : prev.bullpenRunsSaved;
+          return {
+            teamId: team.teamId,
+            teamName: team.teamName,
+            previous,
+            projected,
+            delta: projected - previous
+          };
+        })
+        .filter((row): row is ImprovementRow => row !== null);
+
+      return rows.sort((a, b) => b.delta - a.delta).slice(0, 5);
+  }
+
+  private renderImprovementCard(title: string, rows: ImprovementRow[]): string {
+      if (rows.length === 0) {
+          return `
+            <div class="improvement-card">
+              <h4 class="section-title">${title}</h4>
+              <p class="no-stats">No comparison data available.</p>
+            </div>
+          `;
+      }
+
+      const rowsHtml = rows.map((row, index) => {
+          const prevClass = this.getRunsSavedClass(row.previous);
+          const projClass = this.getRunsSavedClass(row.projected);
+          const deltaClass = this.getRunsSavedClass(row.delta);
+          const deltaLabel = row.delta >= 0 ? 'Improvement' : 'Decline';
+          return `
+            <div class="improvement-row">
+              <span class="improvement-rank">#${index + 1}</span>
+              <span class="improvement-team">${row.teamName}</span>
+              <span class="improvement-badge-group">
+                <span class="improvement-label">Last year</span>
+                <span class="badge ${prevClass}">${this.formatRunsSaved(row.previous)}</span>
+              </span>
+              <span class="improvement-badge-group">
+                <span class="improvement-label">Projected</span>
+                <span class="badge ${projClass}">${this.formatRunsSaved(row.projected)}</span>
+              </span>
+              <span class="improvement-badge-group">
+                <span class="improvement-label">${deltaLabel}</span>
+                <span class="badge ${deltaClass} improvement-delta">${this.formatRunsSaved(row.delta)}</span>
+              </span>
+            </div>
+          `;
+      }).join('');
+
+      return `
+        <details class="team-collapsible improvement-collapsible">
+          <summary class="team-collapsible-summary">
+            <div>
+              <h4 class="section-title">${title}</h4>
+              <div class="team-preview-list">
+                ${rows.slice(0, 3).map((row, index) => this.renderImprovementPreviewRow(row, index + 1)).join('')}
+              </div>
+            </div>
+            <span class="team-collapsible-label">
+              <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
+              <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
+              <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
+              <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
+            </span>
+          </summary>
+          <div class="improvement-list">
+            ${rowsHtml}
+          </div>
+        </details>
+      `;
+  }
+
+  private renderImprovementPreviewRow(row: ImprovementRow, rank: number): string {
+      const deltaClass = this.getRunsSavedClass(row.delta);
+      const deltaLabel = row.delta >= 0 ? 'Improvement' : 'Decline';
+
+      return `
+        <div class="team-preview-row">
+          <span class="team-preview-rank">#${rank}</span>
+          <span class="team-preview-name">${row.teamName}</span>
+          <span class="badge ${deltaClass} team-preview-score">${deltaLabel}: ${this.formatRunsSaved(row.delta)}</span>
+        </div>
+      `;
+  }
+
+  private renderTeamCollapsible(params: {
+    title: string;
+    note: string;
+    type: 'rotation' | 'bullpen';
+    teams: TeamRatingResult[];
+  }): string {
+    const previewTeams = params.teams.slice(0, 3);
+    const preview = previewTeams.length
+      ? previewTeams.map((team, idx) => this.renderTeamPreviewRow(team, idx + 1, params.type)).join('')
+      : '<p class="no-stats">No data available.</p>';
+
+    const fullList = params.teams.length
+      ? params.teams.map((team, idx) => this.renderTeamRow(team, idx + 1, params.type)).join('')
+      : '<p class="no-stats">No data available.</p>';
+
+    return `
+      <details class="team-collapsible">
+        <summary class="team-collapsible-summary">
+          <div>
+            <h3 class="section-title">${params.title} <span class="note-text">${params.note}</span></h3>
+            <div class="team-preview-list">
+              ${preview}
+            </div>
+          </div>
+          <span class="team-collapsible-label">
+            <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
+            <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
+            <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
+            <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
+          </span>
+        </summary>
+        <div class="team-list">
+          ${fullList}
+        </div>
+      </details>
+    `;
+  }
+
+  private renderTeamPreviewRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
+      const runsSaved = type === 'rotation' ? team.rotationRunsSaved : team.bullpenRunsSaved;
+      const scoreClass = this.getRunsSavedClass(runsSaved);
+      const yearLabel = this.viewMode === 'all-time' && team.seasonYear
+        ? ` <span class="note-text">(${team.seasonYear})</span>`
+        : '';
+
+      return `
+        <div class="team-preview-row">
+          <span class="team-preview-rank">#${rank}</span>
+          <span class="team-preview-name">${team.teamName}${yearLabel}</span>
+          <span class="badge ${scoreClass} team-preview-score">${this.formatRunsSaved(runsSaved)}</span>
+        </div>
+      `;
   }
 
   private renderTeamRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
@@ -397,16 +604,27 @@ export class TeamRatingsView {
   }
 
   private getTeamColumns(type: 'rotation' | 'bullpen'): TeamColumn[] {
-    const baseColumns: TeamColumn[] = [
-      { key: 'name', label: 'Name', sortKey: 'name' },
-      { key: 'trueRating', label: 'TR', sortKey: 'trueRating' },
-      { key: 'ip', label: 'IP', sortKey: 'ip' },
-      { key: 'k9', label: 'K/9', sortKey: 'k9' },
-      { key: 'bb9', label: 'BB/9', sortKey: 'bb9' },
-      { key: 'hr9', label: 'HR/9', sortKey: 'hr9' },
-      { key: 'eraOrWar', label: this.viewMode === 'projected' ? 'WAR' : 'ERA', sortKey: this.viewMode === 'projected' ? 'war' : 'era' },
-      { key: 'fip', label: 'FIP', sortKey: 'fip' },
-    ];
+    const baseColumns: TeamColumn[] = this.viewMode === 'projected'
+      ? [
+          { key: 'name', label: 'Name', sortKey: 'name' },
+          { key: 'trueRating', label: 'TR', sortKey: 'trueRating' },
+          { key: 'ip', label: 'IP', sortKey: 'ip' },
+          { key: 'fip', label: 'FIP', sortKey: 'fip' },
+          { key: 'k9', label: 'K/9', sortKey: 'k9' },
+          { key: 'bb9', label: 'BB/9', sortKey: 'bb9' },
+          { key: 'hr9', label: 'HR/9', sortKey: 'hr9' },
+          { key: 'eraOrWar', label: 'WAR', sortKey: 'war' },
+        ]
+      : [
+          { key: 'name', label: 'Name', sortKey: 'name' },
+          { key: 'trueRating', label: 'TR', sortKey: 'trueRating' },
+          { key: 'ip', label: 'IP', sortKey: 'ip' },
+          { key: 'k9', label: 'K/9', sortKey: 'k9' },
+          { key: 'bb9', label: 'BB/9', sortKey: 'bb9' },
+          { key: 'hr9', label: 'HR/9', sortKey: 'hr9' },
+          { key: 'eraOrWar', label: 'ERA', sortKey: 'era' },
+          { key: 'fip', label: 'FIP', sortKey: 'fip' },
+        ];
 
     return this.applyTeamColumnOrder(baseColumns, type);
   }
@@ -783,7 +1001,27 @@ export class TeamRatingsView {
       pitchRatings,
       isProspect: false,
       year: seasonYear,
-      showYearLabel: isHistorical || this.viewMode === 'all-time'
+      showYearLabel: isHistorical || this.viewMode === 'all-time',
+      projectionYear: seasonYear,
+      projectionBaseYear: Math.max(2000, seasonYear - 1),
+      forceProjection: this.viewMode === 'projected',
+      projectionOverride: this.viewMode === 'projected'
+        ? {
+            projectedStats: {
+              ip: row.stats.ip,
+              k9: row.stats.k9,
+              bb9: row.stats.bb9,
+              hr9: row.stats.hr9,
+              fip: row.stats.fip,
+              war: row.stats.war ?? 0
+            },
+            projectedRatings: {
+              stuff: row.trueStuff,
+              control: row.trueControl,
+              hra: row.trueHra
+            }
+          }
+        : undefined
     };
 
     await this.playerProfileModal.show(profileData, seasonYear);
@@ -826,6 +1064,12 @@ export class TeamRatingsView {
             <h3 class="section-title">Top Bullpens</h3>
             <p class="no-stats">${message}</p>
           `;
+      }
+
+      const improvements = this.container.querySelector<HTMLElement>('#projected-improvements');
+      if (improvements) {
+          improvements.style.display = 'none';
+          improvements.innerHTML = '';
       }
   }
 }

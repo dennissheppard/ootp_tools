@@ -41,6 +41,22 @@ export interface PlayerRatingsData {
   showYearLabel?: boolean; // Only show year in badge if this is true (for historical data)
   projectionYear?: number;
   projectionBaseYear?: number;
+  forceProjection?: boolean;
+  projectionOverride?: {
+    projectedStats: {
+      k9: number;
+      bb9: number;
+      hr9: number;
+      fip: number;
+      war: number;
+      ip: number;
+    };
+    projectedRatings: {
+      stuff: number;
+      control: number;
+      hra: number;
+    };
+  };
 }
 
 export class PlayerRatingsCard {

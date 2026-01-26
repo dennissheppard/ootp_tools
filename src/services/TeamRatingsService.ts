@@ -1,12 +1,13 @@
-import { playerService } from './PlayerService';
 import { teamService } from './TeamService';
 import { trueRatingsService } from './TrueRatingsService';
 import { scoutingDataService } from './ScoutingDataService';
 import { trueRatingsCalculationService } from './TrueRatingsCalculationService';
 import { leagueStatsService } from './LeagueStatsService';
 import { fipWarService } from './FipWarService';
+import { RatingEstimatorService } from './RatingEstimatorService';
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { projectionService } from './ProjectionService';
+import { dateService } from './DateService';
 
 export interface RatedPlayer {
   playerId: number;
@@ -91,47 +92,106 @@ class TeamRatingsService {
           }
       });
 
-      const results: TeamRatingResult[] = [];
+      // 1. Calculate Initial Runs Allowed (First Pass)
+      const initialResults: Array<{
+          teamId: number;
+          teamName: string;
+          rotationRuns: { runsAllowed: number; totalIp: number };
+          bullpenRuns: { runsAllowed: number; totalIp: number };
+          group: { rotation: RatedPlayer[]; bullpen: RatedPlayer[] };
+      }> = [];
+
+      let totalRotationRuns = 0;
+      let totalBullpenRuns = 0;
+      let rotationCount = 0;
+      let bullpenCount = 0;
+
       teamGroups.forEach((group, teamId) => {
           const team = teamMap.get(teamId);
           if (team && team.parentTeamId !== 0) return;
 
-          // Sort by Projected TR desc
+          // 1. Sort Rotation by Projected TR desc
           group.rotation.sort((a, b) => b.trueRating - a.trueRating);
+
+          // 2. Handle Overflow: Move starters beyond top 5 to bullpen
+          if (group.rotation.length > 5) {
+              const overflow = group.rotation.slice(5);
+              group.bullpen.push(...overflow);
+              group.rotation = group.rotation.slice(0, 5);
+          }
+
+          // 3. Sort Bullpen by Projected TR desc (now includes overflow starters)
           group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
 
-          const topRotation = group.rotation.slice(0, 5);
+          const topRotation = group.rotation; // Already sliced to max 5
           const topBullpen = group.bullpen.slice(0, 5);
-          const rotationRuns = this.calculateRunSummary(topRotation, leagueStats.avgFip);
-          const bullpenRuns = this.calculateRunSummary(topBullpen, leagueStats.avgFip);
+          
+          // Calculate runs allowed using current league stats for replacement level
+          // We don't care about leagueAvgRuns/runsSaved yet, just the raw runs allowed
+          const rotationRuns = this.calculateRunSummary(topRotation, leagueStats.avgFip, 950);
+          const bullpenRuns = this.calculateRunSummary(topBullpen, leagueStats.avgFip, 500);
 
-          results.push({
+          totalRotationRuns += rotationRuns.runsAllowed;
+          totalBullpenRuns += bullpenRuns.runsAllowed;
+          rotationCount++;
+          bullpenCount++;
+
+          initialResults.push({
               teamId,
               teamName: team ? team.nickname : `Team ${teamId}`,
-              seasonYear: baseYear + 1,
-              rotationRunsAllowed: rotationRuns.runsAllowed,
-              bullpenRunsAllowed: bullpenRuns.runsAllowed,
-              rotationLeagueAvgRuns: rotationRuns.leagueAvgRuns,
-              bullpenLeagueAvgRuns: bullpenRuns.leagueAvgRuns,
-              rotationRunsSaved: rotationRuns.runsSaved,
-              bullpenRunsSaved: bullpenRuns.runsSaved,
-              rotation: group.rotation,
-              bullpen: group.bullpen
+              rotationRuns: { runsAllowed: rotationRuns.runsAllowed, totalIp: 950 },
+              bullpenRuns: { runsAllowed: bullpenRuns.runsAllowed, totalIp: 500 },
+              group
           });
+      });
+
+      // 2. Calculate Projected League Averages (The "Zero Line")
+      // This centers the runs saved around the actual projected performance of the league
+      const projRotationAvgFip = rotationCount > 0 ? (totalRotationRuns / (rotationCount * 950)) * 9 : leagueStats.avgFip;
+      const projBullpenAvgFip = bullpenCount > 0 ? (totalBullpenRuns / (bullpenCount * 500)) * 9 : leagueStats.avgFip;
+
+      // 3. Finalize Results with Centered Benchmarks (Second Pass)
+      const results: TeamRatingResult[] = initialResults.map(r => {
+          const rotLeagueRuns = this.calculateRunsAllowed(projRotationAvgFip, 950);
+          const penLeagueRuns = this.calculateRunsAllowed(projBullpenAvgFip, 500);
+
+          return {
+              teamId: r.teamId,
+              teamName: r.teamName,
+              seasonYear: baseYear + 1,
+              rotationRunsAllowed: r.rotationRuns.runsAllowed,
+              bullpenRunsAllowed: r.bullpenRuns.runsAllowed,
+              rotationLeagueAvgRuns: rotLeagueRuns,
+              bullpenLeagueAvgRuns: penLeagueRuns,
+              rotationRunsSaved: rotLeagueRuns - r.rotationRuns.runsAllowed,
+              bullpenRunsSaved: penLeagueRuns - r.bullpenRuns.runsAllowed,
+              rotation: r.group.rotation,
+              bullpen: r.group.bullpen
+          };
       });
 
       return results;
   }
 
   async getTeamRatings(year: number): Promise<TeamRatingResult[]> {
+    const currentYear = await dateService.getCurrentYear();
+    const isHistoricalYear = year < currentYear;
+
+    const pitchingStatsPromise = isHistoricalYear
+      ? trueRatingsService.getTruePitchingStatsByTeam(year)
+      : trueRatingsService.getTruePitchingStats(year);
+    const combinedPitchingStatsPromise = isHistoricalYear
+      ? trueRatingsService.getTruePitchingStats(year)
+      : pitchingStatsPromise;
+
     // 1. Fetch Data
-    const [pitchingStats, leagueStats, scoutingRatings, multiYearStats, allPlayers, allTeams] = await Promise.all([
-      trueRatingsService.getTruePitchingStats(year),
+    const [pitchingStats, leagueStats, scoutingRatings, multiYearStats, allTeams, combinedPitchingStats] = await Promise.all([
+      pitchingStatsPromise,
       leagueStatsService.getLeagueStats(year),
       scoutingDataService.getScoutingRatings(year),
       trueRatingsService.getMultiYearPitchingStats(year, 3),
-      playerService.getAllPlayers(),
-      teamService.getAllTeams()
+      teamService.getAllTeams(),
+      combinedPitchingStatsPromise
     ]);
 
     // Note: getLeagueAverages removed from promise all since it wasn't being used directly in inputs anymore?
@@ -140,7 +200,6 @@ class TeamRatingsService {
     const leagueAverages = await trueRatingsService.getLeagueAverages(year);
 
     // 2. Maps for lookup
-    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
     const teamMap = new Map(allTeams.map(t => [t.id, t]));
     const scoutingMap = new Map<number, PitcherScoutingRatings>();
     const scoutingByName = new Map<string, PitcherScoutingRatings[]>();
@@ -158,7 +217,7 @@ class TeamRatingsService {
     });
 
     // 3. Prepare Input for TR Calculation
-    const inputs = pitchingStats.map(stat => {
+    const inputs = combinedPitchingStats.map(stat => {
         let scouting = scoutingMap.get(stat.player_id);
         if (!scouting && stat.playerName) {
             const norm = this.normalizeName(stat.playerName);
@@ -177,19 +236,46 @@ class TeamRatingsService {
     // 4. Calculate True Ratings
     const trResults = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages);
     const trMap = new Map(trResults.map(tr => [tr.playerId, tr]));
+    const fipLikeValues = trResults.map(tr => tr.fipLike).sort((a, b) => a - b);
+
+    const percentileForFipLike = (fipLike: number): number => {
+        if (fipLikeValues.length === 0) return 50;
+        let lower = 0;
+        while (lower < fipLikeValues.length && fipLikeValues[lower] < fipLike) lower++;
+        let upper = lower;
+        while (upper < fipLikeValues.length && fipLikeValues[upper] === fipLike) upper++;
+        const avgRank = (lower + upper + 2) / 2;
+        const n = fipLikeValues.length + 1;
+        return Math.round(((n - avgRank + 0.5) / n) * 1000) / 10;
+    };
 
     // 5. Process Players & Classify
     const teamGroups = new Map<number, { rotation: RatedPlayer[], bullpen: RatedPlayer[] }>();
 
     pitchingStats.forEach(stat => {
-        const player = playerMap.get(stat.player_id);
-        if (!player) return;
-        
-        const teamId = stat.team_id;
+        const rawTeamId = stat.team_id;
+        if (rawTeamId === 0) return;
+        const teamEntry = teamMap.get(rawTeamId);
+        const teamId = teamEntry?.parentTeamId ? teamEntry.parentTeamId : rawTeamId;
         if (teamId === 0) return;
 
         const trData = trMap.get(stat.player_id);
-        if (!trData) return;
+
+        const fallback =
+            !trData && isHistoricalYear
+                ? (() => {
+                      const fipLike = trueRatingsCalculationService.calculateFipLike(k9, bb9, hr9);
+                      const percentile = percentileForFipLike(fipLike);
+                      return {
+                          trueRating: trueRatingsCalculationService.percentileToRating(percentile),
+                          estimatedStuff: RatingEstimatorService.estimateStuff(k9, ip).rating,
+                          estimatedControl: RatingEstimatorService.estimateControl(bb9, ip).rating,
+                          estimatedHra: RatingEstimatorService.estimateHRA(hr9, ip).rating
+                      };
+                  })()
+                : null;
+
+        if (!trData && !fallback) return;
 
         // Get scouting for pitch count
         let scouting = scoutingMap.get(stat.player_id);
@@ -229,22 +315,31 @@ class TeamRatingsService {
         let isSp = false;
         let classificationReason = 'RP (default)';
 
-        if (hasStarterHistory || hasStarterRole) {
-            // Stats say starter
-            isSp = true;
-            classificationReason = hasStarterHistory
-                ? `SP (${totalGs} total GS in last 3 years)`
-                : `SP (${stat.gs} GS this year)`;
-        } else if (hasStarterProfile && allPitchCount > 0) {
-            // Scouting says starter (only if we have actual scouting data)
-            isSp = true;
-            classificationReason = `SP (${usablePitchCount} pitches, ${stamina} stam)`;
-        } else if (allPitchCount === 0 && stat.gs >= 1) {
-            // Fallback: No scouting data, but started some games this year
-            isSp = true;
-            classificationReason = `SP (${stat.gs} GS, no scouting)`;
+        if (isHistoricalYear) {
+            if (hasStarterRole) {
+                isSp = true;
+                classificationReason = `SP (${stat.gs} GS this year)`;
+            } else {
+                classificationReason = `RP (${stat.gs} GS this year)`;
+            }
         } else {
-            classificationReason = `RP (${usablePitchCount}/${allPitchCount} pitches, ${stamina} stam, ${totalGs} GS)`;
+            if (hasStarterHistory || hasStarterRole) {
+                // Stats say starter
+                isSp = true;
+                classificationReason = hasStarterHistory
+                    ? `SP (${totalGs} total GS in last 3 years)`
+                    : `SP (${stat.gs} GS this year)`;
+            } else if (hasStarterProfile && allPitchCount > 0) {
+                // Scouting says starter (only if we have actual scouting data)
+                isSp = true;
+                classificationReason = `SP (${usablePitchCount} pitches, ${stamina} stam)`;
+            } else if (allPitchCount === 0 && stat.gs >= 1) {
+                // Fallback: No scouting data, but started some games this year
+                isSp = true;
+                classificationReason = `SP (${stat.gs} GS, no scouting)`;
+            } else {
+                classificationReason = `RP (${usablePitchCount}/${allPitchCount} pitches, ${stamina} stam, ${totalGs} GS)`;
+            }
         }
 
         // Debug logging for high-rated relievers in rotations
@@ -262,10 +357,10 @@ class TeamRatingsService {
         const ratedPlayer: RatedPlayer = {
             playerId: stat.player_id,
             name: stat.playerName,
-            trueRating: trData.trueRating,
-            trueStuff: trData.estimatedStuff,
-            trueControl: trData.estimatedControl,
-            trueHra: trData.estimatedHra,
+            trueRating: trData?.trueRating ?? fallback?.trueRating ?? 0.5,
+            trueStuff: trData?.estimatedStuff ?? fallback?.estimatedStuff ?? 20,
+            trueControl: trData?.estimatedControl ?? fallback?.estimatedControl ?? 20,
+            trueHra: trData?.estimatedHra ?? fallback?.estimatedHra ?? 20,
             pitchCount: usablePitchCount,
             isSp,
             stats: {
@@ -286,35 +381,102 @@ class TeamRatingsService {
         }
     });
 
-    // 6. Aggregate per Team
-    const results: TeamRatingResult[] = [];
+    // 6. Aggregate per Team (Two-Pass Approach)
+    const initialResults: Array<{
+        teamId: number;
+        teamName: string;
+        rotationRuns: { runsAllowed: number };
+        bullpenRuns: { runsAllowed: number };
+        group: { rotation: RatedPlayer[]; bullpen: RatedPlayer[] };
+    }> = [];
 
-    teamGroups.forEach((group, teamId) => {
-        const team = teamMap.get(teamId);
-        if (team && team.parentTeamId !== 0) return; 
+    let totalRotationRuns = 0;
+    let totalBullpenRuns = 0;
+    let rotationCount = 0;
+    let bullpenCount = 0;
 
-        // Sort players by TR desc
-        group.rotation.sort((a, b) => b.trueRating - a.trueRating);
-        group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
+        teamGroups.forEach((group, teamId) => {
 
-        const topRotation = group.rotation.slice(0, 5);
-        const topBullpen = group.bullpen.slice(0, 5);
-        const rotationRuns = this.calculateRunSummary(topRotation, leagueStats.avgFip);
-        const bullpenRuns = this.calculateRunSummary(topBullpen, leagueStats.avgFip);
+            const team = teamMap.get(teamId);
 
-        results.push({
+            if (team && team.parentTeamId !== 0) return; 
+
+    
+
+            // 1. Sort Rotation (historical years prioritize actual usage)
+
+            group.rotation.sort(isHistoricalYear
+                ? (a, b) => (b.stats.gs - a.stats.gs) || (b.stats.ip - a.stats.ip) || (b.trueRating - a.trueRating)
+                : (a, b) => b.trueRating - a.trueRating
+            );
+
+    
+
+            // 2. Handle Overflow: Move starters beyond top 5 to bullpen
+
+            if (group.rotation.length > 5) {
+
+                const overflow = group.rotation.slice(5);
+
+                group.bullpen.push(...overflow);
+
+                group.rotation = group.rotation.slice(0, 5);
+
+            }
+
+    
+
+            // 3. Sort Bullpen by TR desc
+
+            group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
+
+    
+
+            const topRotation = group.rotation; // Already sliced
+
+            const topBullpen = group.bullpen.slice(0, 5);
+
+            
+
+            const rotationRuns = this.calculateRunSummary(topRotation, leagueStats.avgFip, 950);
+
+            const bullpenRuns = this.calculateRunSummary(topBullpen, leagueStats.avgFip, 500);
+
+        totalRotationRuns += rotationRuns.runsAllowed;
+        totalBullpenRuns += bullpenRuns.runsAllowed;
+        rotationCount++;
+        bullpenCount++;
+
+        initialResults.push({
             teamId,
             teamName: team ? team.nickname : `Team ${teamId}`,
-            seasonYear: year,
-            rotationRunsAllowed: rotationRuns.runsAllowed,
-            bullpenRunsAllowed: bullpenRuns.runsAllowed,
-            rotationLeagueAvgRuns: rotationRuns.leagueAvgRuns,
-            bullpenLeagueAvgRuns: bullpenRuns.leagueAvgRuns,
-            rotationRunsSaved: rotationRuns.runsSaved,
-            bullpenRunsSaved: bullpenRuns.runsSaved,
-            rotation: group.rotation,
-            bullpen: group.bullpen
+            rotationRuns: { runsAllowed: rotationRuns.runsAllowed },
+            bullpenRuns: { runsAllowed: bullpenRuns.runsAllowed },
+            group
         });
+    });
+
+    // Calculate Projected League Averages based on actual team composition
+    const projRotationAvgFip = rotationCount > 0 ? (totalRotationRuns / (rotationCount * 950)) * 9 : leagueStats.avgFip;
+    const projBullpenAvgFip = bullpenCount > 0 ? (totalBullpenRuns / (bullpenCount * 500)) * 9 : leagueStats.avgFip;
+
+    const results: TeamRatingResult[] = initialResults.map(r => {
+        const rotLeagueRuns = this.calculateRunsAllowed(projRotationAvgFip, 950);
+        const penLeagueRuns = this.calculateRunsAllowed(projBullpenAvgFip, 500);
+
+        return {
+            teamId: r.teamId,
+            teamName: r.teamName,
+            seasonYear: year,
+            rotationRunsAllowed: r.rotationRuns.runsAllowed,
+            bullpenRunsAllowed: r.bullpenRuns.runsAllowed,
+            rotationLeagueAvgRuns: rotLeagueRuns,
+            bullpenLeagueAvgRuns: penLeagueRuns,
+            rotationRunsSaved: rotLeagueRuns - r.rotationRuns.runsAllowed,
+            bullpenRunsSaved: penLeagueRuns - r.bullpenRuns.runsAllowed,
+            rotation: r.group.rotation,
+            bullpen: r.group.bullpen
+        };
     });
 
     return results;
@@ -340,13 +502,29 @@ class TeamRatingsService {
     return tokens.join('');
   }
 
-  private calculateRunSummary(players: RatedPlayer[], leagueAvgFip: number): { runsAllowed: number; leagueAvgRuns: number; runsSaved: number } {
-    const totalIp = players.reduce((sum, player) => sum + (Number.isFinite(player.stats.ip) ? player.stats.ip : 0), 0);
-    const runsAllowed = players.reduce((sum, player) => {
+  private calculateRunSummary(players: RatedPlayer[], leagueAvgFip: number, targetIp: number): { runsAllowed: number; leagueAvgRuns: number; runsSaved: number } {
+    let totalIp = players.reduce((sum, player) => sum + (Number.isFinite(player.stats.ip) ? player.stats.ip : 0), 0);
+    
+    // Calculate raw runs allowed from the players we have
+    let runsAllowed = players.reduce((sum, player) => {
       if (!Number.isFinite(player.stats.fip) || !Number.isFinite(player.stats.ip)) return sum;
       return sum + this.calculateRunsAllowed(player.stats.fip, player.stats.ip);
     }, 0);
+
+    // If total IP is less than target, fill with Replacement Level (League Avg FIP + 1.00)
+    // This penalizes teams with shallow depth / low projections
+    if (totalIp < targetIp) {
+        const missingIp = targetIp - totalIp;
+        const replacementFip = leagueAvgFip + 1.00;
+        const replacementRuns = this.calculateRunsAllowed(replacementFip, missingIp);
+        
+        runsAllowed += replacementRuns;
+        totalIp = targetIp; // Normalize total IP to target for league average calc
+    }
+
+    // League Average Benchmark uses the TARGET IP (normalized)
     const leagueAvgRuns = this.calculateRunsAllowed(leagueAvgFip, totalIp);
+    
     return {
       runsAllowed,
       leagueAvgRuns,

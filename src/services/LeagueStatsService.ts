@@ -67,9 +67,8 @@ class LeagueStatsService {
         const avgFip = rawFipComponent + fipConstant;
 
         // Replacement level FIP for WAR calculations
-        // In WBL, replacement level ≈ league average (avgFip = era by construction)
-        // This is the baseline used to calculate WAR: (replacementFip - playerFip) / runsPerWin * (IP/9)
-        const replacementFip = avgFip;
+        // Standard replacement level is typically ~1.00 higher than average FIP
+        const replacementFip = avgFip + 1.00;
 
         const stats: LeagueStats = {
             era: leagueEra,
