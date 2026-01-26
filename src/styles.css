@@ -2509,3 +2509,58 @@ td.player-cell.player-name {
   color: var(--color-text-muted);
   line-height: 1.3;
 }
+
+.analysis-landing {
+    background-color: var(--color-bg-secondary);
+    border-radius: 8px;
+    margin: 20px;
+    border: 1px dashed var(--color-border);
+}
+
+.analysis-results {
+    padding: 20px;
+}
+
+.analysis-summary {
+    background: var(--color-bg-secondary);
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+.analysis-split {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.metrics-grid {
+    display: flex;
+    gap: 20px;
+    margin-top: 10px;
+}
+
+.metric-box {
+    background: var(--color-bg-primary);
+    padding: 10px 15px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 100px;
+}
+
+.metric-label {
+    font-size: 0.85em;
+    color: var(--color-text-secondary);
+    margin-bottom: 4px;
+}
+
+.metric-value {
+    font-size: 1.2em;
+    font-weight: 600;
+}
+
+.text-success { color: var(--color-success); }
+.text-danger { color: var(--color-danger); }

@@ -418,7 +418,7 @@ export class TeamRatingsView {
     const ordered: TeamColumn[] = [];
 
     order.forEach(key => {
-      const column = columnMap.get(key);
+      const column = columnMap.get(key as TeamColumn['key']);
       if (column) ordered.push(column);
     });
 

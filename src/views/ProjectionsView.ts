@@ -7,6 +7,7 @@ import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
 import { trueRatingsService } from '../services/TrueRatingsService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { fipWarService } from '../services/FipWarService';
+import { projectionAnalysisService, AggregateAnalysisReport } from '../services/ProjectionAnalysisService';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -38,6 +39,7 @@ export class ProjectionsView {
   private isOffseason = false;
   private statsYearUsed: number | null = null;
   private usedFallbackStats = false;
+  private viewMode: 'projections' | 'backcasting' | 'analysis' = 'projections';
   private sortKey: string = 'projectedStats.fip';
   private sortDirection: 'asc' | 'desc' = 'asc';
   private columns: ColumnConfig[] = [];
@@ -47,6 +49,7 @@ export class ProjectionsView {
   private playerRowLookup: Map<number, ProjectedPlayerWithActuals> = new Map();
   private hasActualStats = false;
   private teamLookup: Map<number, any> = new Map();
+  private analysisReport: AggregateAnalysisReport | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -66,6 +69,7 @@ export class ProjectionsView {
         { key: 'projBB9', label: 'Proj BB/9', sortKey: 'projectedStats.bb9', accessor: p => p.projectedStats.bb9.toFixed(2) },
         { key: 'projHR9', label: 'Proj HR/9', sortKey: 'projectedStats.hr9', accessor: p => p.projectedStats.hr9.toFixed(2) },
         { key: 'projFIP', label: 'Proj FIP', sortKey: 'projectedStats.fip', accessor: p => p.projectedStats.fip.toFixed(2) },
+        { key: 'projWAR', label: 'Proj WAR', sortKey: 'projectedStats.war', accessor: p => p.projectedStats.war.toFixed(1) },
         { key: 'projIP', label: 'Proj IP', sortKey: 'projectedStats.ip', accessor: p => p.projectedStats.ip }
     ];
 
@@ -90,15 +94,21 @@ export class ProjectionsView {
         <div class="true-ratings-controls">
           <div class="form-field">
             <label for="proj-year">Projection Year:</label>
-            <select id="proj-year">
-              ${this.yearOptions.map(year => `<option value="${year}" ${year === this.selectedYear ? 'selected' : ''}>${year}</option>`).join('')}
-            </select>
+            <select id="proj-year" style="display: none;"></select>
           </div>
           <div class="form-field">
             <label for="proj-team">Team:</label>
             <select id="proj-team">
               <option value="all">All</option>
             </select>
+          </div>
+          <div class="form-field">
+            <label>View:</label>
+            <div class="toggle-group" role="group" aria-label="Projection view mode">
+              <button class="toggle-btn ${this.viewMode === 'projections' ? 'active' : ''}" data-proj-mode="projections" aria-pressed="${this.viewMode === 'projections'}">Projections</button>
+              <button class="toggle-btn ${this.viewMode === 'backcasting' ? 'active' : ''}" data-proj-mode="backcasting" aria-pressed="${this.viewMode === 'backcasting'}">Backcasting</button>
+              <button class="toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-proj-mode="analysis" aria-pressed="${this.viewMode === 'analysis'}">Analysis</button>
+            </div>
           </div>
         </div>
 
@@ -143,6 +153,21 @@ export class ProjectionsView {
               this.renderTable();
           }
       });
+
+      this.container.querySelectorAll<HTMLButtonElement>('[data-proj-mode]').forEach(button => {
+          button.addEventListener('click', () => {
+              const mode = button.dataset.projMode as 'projections' | 'backcasting' | 'analysis' | undefined;
+              if (!mode || mode === this.viewMode) return;
+              this.viewMode = mode;
+              this.updateModeControls();
+              
+              if (this.viewMode === 'analysis') {
+                  this.renderAnalysisLanding();
+              } else {
+                  this.fetchData();
+              }
+          });
+      });
   }
 
   private async fetchData(): Promise<void> {
@@ -150,8 +175,12 @@ export class ProjectionsView {
       if (container) container.innerHTML = '<div class="loading-message">Calculating projections...</div>';
 
       try {
+          const currentYear = await dateService.getCurrentYear();
+          const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : currentYear;
+          const statsBaseYear = targetYear - 1;
+
           // Use previous year as base for projections
-          const context = await projectionService.getProjectionsWithContext(this.selectedYear - 1, { forceRosterRefresh: true });
+          const context = await projectionService.getProjectionsWithContext(statsBaseYear, { forceRosterRefresh: true });
           let allPlayers = context.projections;
           this.statsYearUsed = context.statsYear;
           this.usedFallbackStats = context.usedFallbackStats;
@@ -160,9 +189,6 @@ export class ProjectionsView {
           let combinedPlayers: ProjectedPlayerWithActuals[] = [...allPlayers];
 
           // Backcasting: If target year (selectedYear) has happened, compare projections to actuals
-          const currentYear = await dateService.getCurrentYear();
-          const targetYear = this.selectedYear; 
-
           if (targetYear < currentYear) {
               try {
                   const [actuals, targetLeague] = await Promise.all([
@@ -239,6 +265,152 @@ export class ProjectionsView {
           console.error(err);
           if (container) container.innerHTML = `<div class="error-message">Error: ${err}</div>`;
       }
+  }
+
+  private renderAnalysisLanding(): void {
+      const container = this.container.querySelector('#projections-table-container');
+      const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
+      if (subtitle) subtitle.textContent = 'Aggregate analysis of projection accuracy across all years.';
+      
+      if (!container) return;
+
+      container.innerHTML = `
+        <div class="analysis-landing" style="text-align: center; padding: 40px;">
+            <h3>Projection Accuracy Analysis</h3>
+            <p style="max-width: 600px; margin: 0 auto 20px; color: var(--color-text-secondary);">
+                This report will iterate through all available historical years, run the projection algorithm for each year based on prior data, 
+                and compare it against the actual results. This process may take a few moments.
+            </p>
+            <button id="run-analysis-btn" class="btn btn-primary">Run Analysis Report</button>
+            <div id="analysis-progress" style="margin-top: 20px; display: none;">
+                <div class="loading-message">Analyzing Year <span id="analysis-year-indicator">...</span></div>
+            </div>
+        </div>
+      `;
+
+      container.querySelector('#run-analysis-btn')?.addEventListener('click', () => this.runAnalysis());
+  }
+
+  private async runAnalysis(): Promise<void> {
+      const btn = this.container.querySelector<HTMLButtonElement>('#run-analysis-btn');
+      const progress = this.container.querySelector<HTMLElement>('#analysis-progress');
+      const indicator = this.container.querySelector<HTMLElement>('#analysis-year-indicator');
+      
+      if (btn) btn.disabled = true;
+      if (progress) progress.style.display = 'block';
+
+      try {
+          const currentYear = await dateService.getCurrentYear();
+          // Analyze from 2000 up to last completed season (currentYear - 1)
+          // If we are in 2026, we can analyze up to 2025 actuals.
+          // Wait, backcasting logic: to analyze 2025, we project from 2024 and compare to 2025 actuals.
+          // So endYear should be currentYear - 1.
+          
+          this.analysisReport = await projectionAnalysisService.runAnalysis(2000, currentYear - 1, (year) => {
+              if (indicator) indicator.textContent = year.toString();
+          });
+
+          this.renderAnalysisResults();
+      } catch (err) {
+          console.error(err);
+          if (progress) progress.innerHTML = `<div class="error-message">Analysis failed: ${err}</div>`;
+          if (btn) btn.disabled = false;
+      }
+  }
+
+  private renderAnalysisResults(): void {
+      if (!this.analysisReport) return;
+      const container = this.container.querySelector('#projections-table-container');
+      if (!container) return;
+
+      const { overallMetrics, years, metricsByTeam } = this.analysisReport;
+
+      const renderMetrics = (m: any) => `
+          <div class="metric-box">
+              <span class="metric-label">MAE</span>
+              <span class="metric-value">${m.mae.toFixed(3)}</span>
+          </div>
+          <div class="metric-box">
+              <span class="metric-label">RMSE</span>
+              <span class="metric-value">${m.rmse.toFixed(3)}</span>
+          </div>
+          <div class="metric-box">
+              <span class="metric-label">Bias</span>
+              <span class="metric-value ${m.bias > 0 ? 'text-success' : 'text-danger'}">${m.bias > 0 ? '+' : ''}${m.bias.toFixed(3)}</span>
+          </div>
+          <div class="metric-box">
+              <span class="metric-label">N</span>
+              <span class="metric-value">${m.count}</span>
+          </div>
+      `;
+
+      // Year Table
+      const yearRows = years.map(y => `
+          <tr>
+              <td>${y.year}</td>
+              <td>${y.metrics.mae.toFixed(3)}</td>
+              <td>${y.metrics.rmse.toFixed(3)}</td>
+              <td class="${y.metrics.bias > 0 ? 'text-success' : 'text-danger'}">${y.metrics.bias > 0 ? '+' : ''}${y.metrics.bias.toFixed(3)}</td>
+              <td>${y.metrics.count}</td>
+          </tr>
+      `).join('');
+
+      // Team Table
+      const sortedTeams = Array.from(metricsByTeam.entries()).sort((a, b) => a[1].mae - b[1].mae);
+      const teamRows = sortedTeams.map(([team, m]) => `
+          <tr>
+              <td>${team}</td>
+              <td>${m.mae.toFixed(3)}</td>
+              <td>${m.rmse.toFixed(3)}</td>
+              <td class="${m.bias > 0 ? 'text-success' : 'text-danger'}">${m.bias > 0 ? '+' : ''}${m.bias.toFixed(3)}</td>
+              <td>${m.count}</td>
+          </tr>
+      `).join('');
+
+      container.innerHTML = `
+          <div class="analysis-results">
+              <div class="analysis-summary">
+                  <h4>Overall Accuracy (FIP)</h4>
+                  <div class="metrics-grid">
+                      ${renderMetrics(overallMetrics)}
+                  </div>
+              </div>
+
+              <div class="analysis-split">
+                  <div class="analysis-section">
+                      <h4>Accuracy by Year</h4>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Year</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${yearRows}</tbody>
+                      </table>
+                  </div>
+
+                  <div class="analysis-section">
+                      <h4>Accuracy by Team</h4>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Team</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${teamRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+          </div>
+      `;
   }
 
   private updateTeamFilter(): void {
@@ -612,7 +784,7 @@ export class ProjectionsView {
       this.isOffseason = month >= 10 || month < 4;
 
       this.updateYearOptions(this.selectedYear);
-      this.updateYearSelect();
+      this.updateModeControls();
     }
 
     this.updateSubtitle();
@@ -635,21 +807,56 @@ export class ProjectionsView {
     this.yearOptions = Array.from({ length: endYear - startYear + 1 }, (_, i) => endYear - i);
   }
 
-  private updateYearSelect(): void {
+  private updateModeControls(): void {
     const select = this.container.querySelector<HTMLSelectElement>('#proj-year');
+    const teamSelect = this.container.querySelector<HTMLSelectElement>('#proj-team')?.parentElement;
+    
     if (!select) return;
-    select.innerHTML = this.yearOptions
-      .map(year => `<option value="${year}" ${year === this.selectedYear ? 'selected' : ''}>${year}</option>`)
-      .join('');
-    select.value = String(this.selectedYear);
+
+    const isAnalysis = this.viewMode === 'analysis';
+    
+    // Hide filters in analysis mode
+    if (isAnalysis) {
+        select.parentElement!.style.display = 'none';
+        if (teamSelect) teamSelect.style.display = 'none';
+    } else {
+        if (teamSelect) teamSelect.style.display = '';
+        
+        const showYear = this.viewMode === 'backcasting';
+        select.style.display = showYear ? '' : 'none';
+        select.parentElement!.style.display = ''; // Ensure parent wrapper is visible
+
+        if (showYear) {
+            const actualCurrentYear = this.yearOptions.length > 0 ? this.yearOptions[0] : this.selectedYear;
+            const backcastYears = this.yearOptions.filter(y => y < actualCurrentYear);
+            const nextSelected = backcastYears.includes(this.selectedYear)
+                ? this.selectedYear
+                : (backcastYears[0] ?? this.selectedYear - 1);
+
+            select.innerHTML = backcastYears
+                .map(year => `<option value="${year}" ${year === nextSelected ? 'selected' : ''}>${year}</option>`)
+                .join('');
+            select.value = String(nextSelected);
+            this.selectedYear = nextSelected;
+        }
+    }
+
+    this.container.querySelectorAll<HTMLButtonElement>('[data-proj-mode]').forEach(btn => {
+      const mode = btn.dataset.projMode as 'projections' | 'backcasting' | 'analysis' | undefined;
+      const isActive = mode === this.viewMode;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', String(isActive));
+    });
   }
+
+
 
   private updateSubtitle(): void {
     const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
     if (!subtitle) return;
 
-    const targetYear = this.selectedYear;
-    const baseYear = this.statsYearUsed ?? (this.selectedYear - 1);
+    const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : (this.yearOptions[0] ?? this.selectedYear);
+    const baseYear = this.statsYearUsed ?? (targetYear - 1);
     
     if (this.isOffseason) {
       subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings and standard aging curves.`;
@@ -657,7 +864,7 @@ export class ProjectionsView {
       const fallbackNote = this.usedFallbackStats && baseYear !== (targetYear - 1)
         ? ` <span class="note-text">No ${targetYear - 1} stats yet&mdash;using ${baseYear} data.</span>`
         : '';
-      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season (rest of year) based on ${baseYear} True Ratings and standard aging curves.${fallbackNote}`;
+      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings and standard aging curves.${fallbackNote}`;
     }
   }
 }
