@@ -93,10 +93,6 @@ export class ProjectionsView {
         
         <div class="true-ratings-controls">
           <div class="form-field">
-            <label for="proj-year">Projection Year:</label>
-            <select id="proj-year" style="display: none;"></select>
-          </div>
-          <div class="form-field">
             <label for="proj-team">Team:</label>
             <select id="proj-team">
               <option value="all">All</option>
@@ -109,6 +105,10 @@ export class ProjectionsView {
               <button class="toggle-btn ${this.viewMode === 'backcasting' ? 'active' : ''}" data-proj-mode="backcasting" aria-pressed="${this.viewMode === 'backcasting'}">Backcasting</button>
               <button class="toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-proj-mode="analysis" aria-pressed="${this.viewMode === 'analysis'}">Analysis</button>
             </div>
+          </div>
+          <div class="form-field" id="proj-year-field" style="display: none;">
+            <label for="proj-year">Year:</label>
+            <select id="proj-year"></select>
           </div>
         </div>
 
@@ -323,12 +323,24 @@ export class ProjectionsView {
       const container = this.container.querySelector('#projections-table-container');
       if (!container) return;
 
-      const { overallMetrics, years, metricsByTeam } = this.analysisReport;
+      const { overallMetrics, years, metricsByTeam, metricsByAge } = this.analysisReport;
 
-      const renderMetrics = (m: any) => `
+      const getBiasClass = (bias: number) => {
+          if (Math.abs(bias) < 0.10) return 'text-success'; 
+          if (Math.abs(bias) < 0.25) return 'text-warning'; 
+          return 'text-danger'; 
+      };
+
+      const getMaeClass = (mae: number) => {
+          if (mae < 0.60) return 'text-success';
+          if (mae < 0.70) return 'text-warning';
+          return 'text-danger';
+      };
+
+      const renderMetricsCard = (m: any) => `
           <div class="metric-box">
               <span class="metric-label">MAE</span>
-              <span class="metric-value">${m.mae.toFixed(3)}</span>
+              <span class="metric-value ${getMaeClass(m.mae)}">${m.mae.toFixed(3)}</span>
           </div>
           <div class="metric-box">
               <span class="metric-label">RMSE</span>
@@ -336,7 +348,7 @@ export class ProjectionsView {
           </div>
           <div class="metric-box">
               <span class="metric-label">Bias</span>
-              <span class="metric-value ${m.bias > 0 ? 'text-success' : 'text-danger'}">${m.bias > 0 ? '+' : ''}${m.bias.toFixed(3)}</span>
+              <span class="metric-value ${getBiasClass(m.bias)}">${m.bias > 0 ? '+' : ''}${m.bias.toFixed(3)}</span>
           </div>
           <div class="metric-box">
               <span class="metric-label">N</span>
@@ -344,41 +356,147 @@ export class ProjectionsView {
           </div>
       `;
 
-      // Year Table
+      // Helper to render a full stat row
+      const renderStatRow = (label: string, metrics: any) => `
+          <tr>
+              <td><strong>${label}</strong></td>
+              <td class="${getMaeClass(metrics.mae)}">${metrics.mae.toFixed(3)}</td>
+              <td>${metrics.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(metrics.bias)}">${metrics.bias > 0 ? '+' : ''}${metrics.bias.toFixed(3)}</td>
+              <td>${metrics.count}</td>
+          </tr>
+      `;
+
+      // Year Table (FIP only for brevity)
       const yearRows = years.map(y => `
           <tr>
               <td>${y.year}</td>
-              <td>${y.metrics.mae.toFixed(3)}</td>
-              <td>${y.metrics.rmse.toFixed(3)}</td>
-              <td class="${y.metrics.bias > 0 ? 'text-success' : 'text-danger'}">${y.metrics.bias > 0 ? '+' : ''}${y.metrics.bias.toFixed(3)}</td>
-              <td>${y.metrics.count}</td>
+              <td class="${getMaeClass(y.metrics.fip.mae)}">${y.metrics.fip.mae.toFixed(3)}</td>
+              <td>${y.metrics.fip.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(y.metrics.fip.bias)}">${y.metrics.fip.bias > 0 ? '+' : ''}${y.metrics.fip.bias.toFixed(3)}</td>
+              <td>${y.metrics.fip.count}</td>
           </tr>
       `).join('');
 
-      // Team Table
-      const sortedTeams = Array.from(metricsByTeam.entries()).sort((a, b) => a[1].mae - b[1].mae);
+      // Team Table (FIP only)
+      const sortedTeams = Array.from(metricsByTeam.entries()).sort((a, b) => a[1].fip.mae - b[1].fip.mae);
       const teamRows = sortedTeams.map(([team, m]) => `
           <tr>
               <td>${team}</td>
-              <td>${m.mae.toFixed(3)}</td>
-              <td>${m.rmse.toFixed(3)}</td>
-              <td class="${m.bias > 0 ? 'text-success' : 'text-danger'}">${m.bias > 0 ? '+' : ''}${m.bias.toFixed(3)}</td>
-              <td>${m.count}</td>
+              <td class="${getMaeClass(m.fip.mae)}">${m.fip.mae.toFixed(3)}</td>
+              <td>${m.fip.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(m.fip.bias)}">${m.fip.bias > 0 ? '+' : ''}${m.fip.bias.toFixed(3)}</td>
+              <td>${m.fip.count}</td>
+          </tr>
+      `).join('');
+
+      // Age Table (FIP only)
+      const sortedAges = Array.from(metricsByAge.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+      const ageRows = sortedAges.map(([age, m]) => `
+          <tr>
+              <td>${age}</td>
+              <td class="${getMaeClass(m.fip.mae)}">${m.fip.mae.toFixed(3)}</td>
+              <td>${m.fip.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(m.fip.bias)}">${m.fip.bias > 0 ? '+' : ''}${m.fip.bias.toFixed(3)}</td>
+              <td>${m.fip.count}</td>
+          </tr>
+      `).join('');
+
+      // Stat Breakdown Table
+      const statRows = [
+          renderStatRow('FIP', overallMetrics.fip),
+          renderStatRow('K/9', overallMetrics.k9),
+          renderStatRow('BB/9', overallMetrics.bb9),
+          renderStatRow('HR/9', overallMetrics.hr9),
+      ].join('');
+
+      // Top Outliers Table
+      const allDetails = years.flatMap(y => y.details.map(d => ({ ...d, year: y.year })));
+      const outliers = allDetails
+          .sort((a, b) => Math.abs(b.diff.fip) - Math.abs(a.diff.fip))
+          .slice(0, 20);
+
+      const outlierRows = outliers.map(d => `
+          <tr>
+              <td>${d.year}</td>
+              <td>${this.renderPlayerName({ ...d, playerId: d.playerId, name: d.name } as any)}</td>
+              <td>${d.teamName}</td>
+              <td>${d.age}</td>
+              <td>${d.projected.fip.toFixed(2)}</td>
+              <td>${d.actual.fip.toFixed(2)}</td>
+              <td class="${Math.abs(d.diff.fip) > 1.0 ? 'text-danger' : 'text-warning'}">${d.diff.fip > 0 ? '+' : ''}${d.diff.fip.toFixed(2)}</td>
+              <td>${d.ip.toFixed(1)}</td>
           </tr>
       `).join('');
 
       container.innerHTML = `
           <div class="analysis-results">
               <div class="analysis-summary">
-                  <h4>Overall Accuracy (FIP)</h4>
+                  <h4>Overall Performance (FIP)</h4>
                   <div class="metrics-grid">
-                      ${renderMetrics(overallMetrics)}
+                      ${renderMetricsCard(overallMetrics.fip)}
                   </div>
               </div>
 
-              <div class="analysis-split">
+              <div class="analysis-split" style="grid-template-columns: 1fr;">
                   <div class="analysis-section">
-                      <h4>Accuracy by Year</h4>
+                      <h4>Component Breakdown</h4>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Stat</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${statRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-section" style="margin-top: 20px;">
+                  <h4>Top Outliers (Biggest Misses)</h4>
+                  <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">These are the specific player seasons where the projection missed by the widest margin. Useful for identifying injuries (low IP) or breakouts.</p>
+                  <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Year</th>
+                                  <th>Player</th>
+                                  <th>Team</th>
+                                  <th>Age</th>
+                                  <th>Proj FIP</th>
+                                  <th>Act FIP</th>
+                                  <th>Diff</th>
+                                  <th>Act IP</th>
+                              </tr>
+                          </thead>
+                          <tbody>${outlierRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-split" style="margin-top: 20px;">
+                  <div class="analysis-section">
+                      <h4>Accuracy by Age</h4>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Age Group</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${ageRows}</tbody>
+                      </table>
+                  </div>
+
+                  <div class="analysis-section">
+                      <h4>Accuracy by Year (FIP)</h4>
                       <table class="stats-table">
                           <thead>
                               <tr>
@@ -392,25 +510,27 @@ export class ProjectionsView {
                           <tbody>${yearRows}</tbody>
                       </table>
                   </div>
-
-                  <div class="analysis-section">
-                      <h4>Accuracy by Team</h4>
-                      <table class="stats-table">
-                          <thead>
-                              <tr>
-                                  <th>Team</th>
-                                  <th>MAE</th>
-                                  <th>RMSE</th>
-                                  <th>Bias</th>
-                                  <th>Count</th>
-                              </tr>
-                          </thead>
-                          <tbody>${teamRows}</tbody>
-                      </table>
-                  </div>
+              </div>
+              
+              <div class="analysis-section" style="margin-top: 20px;">
+                  <h4>Accuracy by Team (FIP)</h4>
+                  <table class="stats-table">
+                      <thead>
+                          <tr>
+                              <th>Team</th>
+                              <th>MAE</th>
+                              <th>RMSE</th>
+                              <th>Bias</th>
+                              <th>Count</th>
+                          </tr>
+                      </thead>
+                      <tbody>${teamRows}</tbody>
+                  </table>
               </div>
           </div>
       `;
+
+      this.bindPlayerNameClicks();
   }
 
   private updateTeamFilter(): void {
@@ -810,6 +930,7 @@ export class ProjectionsView {
   private updateModeControls(): void {
     const select = this.container.querySelector<HTMLSelectElement>('#proj-year');
     const teamSelect = this.container.querySelector<HTMLSelectElement>('#proj-team')?.parentElement;
+    const yearField = this.container.querySelector<HTMLElement>('#proj-year-field');
     
     if (!select) return;
 
@@ -823,8 +944,12 @@ export class ProjectionsView {
         if (teamSelect) teamSelect.style.display = '';
         
         const showYear = this.viewMode === 'backcasting';
-        select.style.display = showYear ? '' : 'none';
-        select.parentElement!.style.display = ''; // Ensure parent wrapper is visible
+        if (yearField) {
+            yearField.style.display = showYear ? '' : 'none';
+        } else {
+            select.style.display = showYear ? '' : 'none';
+            select.parentElement!.style.display = ''; // Ensure parent wrapper is visible
+        }
 
         if (showYear) {
             const actualCurrentYear = this.yearOptions.length > 0 ? this.yearOptions[0] : this.selectedYear;

@@ -5,31 +5,50 @@ import { fipWarService } from './FipWarService';
 import { teamService } from './TeamService';
 
 export interface AccuracyMetrics {
-  mae: number; // Mean Absolute Error
-  rmse: number; // Root Mean Square Error
+  mae: number;
+  rmse: number;
   count: number;
-  bias: number; // Mean Error (Actual - Projected). Positive means we under-projected (Actual > Projected)
+  bias: number;
+}
+
+export interface StatMetrics {
+  k9: AccuracyMetrics;
+  bb9: AccuracyMetrics;
+  hr9: AccuracyMetrics;
+  fip: AccuracyMetrics;
+}
+
+export interface StatDiffs {
+  k9: number;
+  bb9: number;
+  hr9: number;
+  fip: number;
 }
 
 export interface YearAnalysisResult {
   year: number;
-  metrics: AccuracyMetrics;
-  metricsByTeam: Map<string, AccuracyMetrics>; // Keyed by Team Name
+  metrics: StatMetrics; // Overall metrics for this year
+  metricsByTeam: Map<string, StatMetrics>;
+  metricsByAge: Map<string, StatMetrics>;
   details: {
       playerId: number;
       name: string;
       teamName: string;
-      projectedFip: number;
-      actualFip: number;
-      diff: number; // Actual - Projected
+      age: number;
+      
+      projected: { k9: number; bb9: number; hr9: number; fip: number; };
+      actual: { k9: number; bb9: number; hr9: number; fip: number; };
+      diff: StatDiffs; // Actual - Projected
+      
       ip: number;
   }[];
 }
 
 export interface AggregateAnalysisReport {
   years: YearAnalysisResult[];
-  overallMetrics: AccuracyMetrics;
-  metricsByTeam: Map<string, AccuracyMetrics>;
+  overallMetrics: StatMetrics;
+  metricsByTeam: Map<string, StatMetrics>;
+  metricsByAge: Map<string, StatMetrics>;
 }
 
 class ProjectionAnalysisService {
@@ -41,7 +60,6 @@ class ProjectionAnalysisService {
 
     for (let year = startYear; year <= endYear; year++) {
       if (progressCallback) progressCallback(year);
-      
       try {
         const result = await this.analyzeYear(year, teamLookup);
         if (result) {
@@ -56,25 +74,18 @@ class ProjectionAnalysisService {
   }
 
   private async analyzeYear(year: number, teamLookup: Map<number, any>): Promise<YearAnalysisResult | null> {
-    // 1. Get Projections (using previous year's data)
-    // We want the projections that would have been generated at the START of 'year'.
-    // So we tell the service to look at year-1 stats.
-    // The service `getProjectionsWithContext(year-1)` does exactly this (projects FOR 'year' using 'year-1' stats).
-    // Wait, let's verify usage in ProjectionsView.
-    // In ProjectionsView: `const context = await projectionService.getProjectionsWithContext(statsBaseYear...);`
-    // where `statsBaseYear` is `targetYear - 1`.
-    // So if we want to analyze 2020 accuracy, we need projections based on 2019 stats.
+    // 1. Get Projections
     const statsBaseYear = year - 1;
     const context = await projectionService.getProjectionsWithContext(statsBaseYear);
     
-    // 2. Get Actuals for 'year'
+    // 2. Get Actuals
     const actuals = await trueRatingsService.getTruePitchingStats(year);
     if (!actuals || actuals.length === 0) return null;
 
     const leagueStats = await leagueStatsService.getLeagueStats(year);
     const actualsMap = new Map(actuals.map(a => [a.player_id, a]));
 
-    // 3. Match and Calculate
+    // 3. Match and Calculate Details
     const details: YearAnalysisResult['details'] = [];
     
     for (const proj of context.projections) {
@@ -84,16 +95,19 @@ class ProjectionAnalysisService {
         const actualIp = trueRatingsService.parseIp(act.ip);
         if (actualIp < 10) continue; // Ignore small sample sizes
 
-        const k9 = (act.k / actualIp) * 9;
-        const bb9 = (act.bb / actualIp) * 9;
-        const hr9 = (act.hra / actualIp) * 9;
-        const actualFip = fipWarService.calculateFip({ k9, bb9, hr9, ip: actualIp }, leagueStats.fipConstant);
+        // Calculate Actual Rate Stats
+        const actualK9 = (act.k / actualIp) * 9;
+        const actualBB9 = (act.bb / actualIp) * 9;
+        const actualHR9 = (act.hra / actualIp) * 9;
+        const actualFip = fipWarService.calculateFip({ k9: actualK9, bb9: actualBB9, hr9: actualHR9, ip: actualIp }, leagueStats.fipConstant);
         
-        // Use 2 decimals for consistency
+        // Get Projected Stats
+        const projK9 = proj.projectedStats.k9;
+        const projBB9 = proj.projectedStats.bb9;
+        const projHR9 = proj.projectedStats.hr9;
         const projFip = proj.projectedStats.fip;
-        const diff = actualFip - projFip;
 
-        // Resolve Team Name (MLB Parent)
+        // Resolve Team Name
         let teamName = proj.teamName;
         const team = teamLookup.get(proj.teamId);
         if (team && team.parentTeamId !== 0) {
@@ -107,80 +121,118 @@ class ProjectionAnalysisService {
             playerId: proj.playerId,
             name: proj.name,
             teamName,
-            projectedFip: projFip,
-            actualFip,
-            diff,
+            age: proj.age,
+            projected: { k9: projK9, bb9: projBB9, hr9: projHR9, fip: projFip },
+            actual: { k9: actualK9, bb9: actualBB9, hr9: actualHR9, fip: actualFip },
+            diff: {
+                k9: actualK9 - projK9,
+                bb9: actualBB9 - projBB9,
+                hr9: actualHR9 - projHR9,
+                fip: actualFip - projFip
+            },
             ip: actualIp
         });
     }
 
     if (details.length === 0) return null;
 
-    // 4. Calculate Year Metrics
-    const metrics = this.calculateMetrics(details.map(d => d.diff));
+    // 4. Group and Calculate Metrics
+    const metrics = this.calculateStatMetrics(details.map(d => d.diff));
     
-    // 5. Calculate Team Metrics for this Year
-    const teamGroups = new Map<string, number[]>();
+    // Group by Team
+    const teamGroups = new Map<string, StatDiffs[]>();
     details.forEach(d => {
-        const diffs = teamGroups.get(d.teamName) ?? [];
-        diffs.push(d.diff);
-        teamGroups.set(d.teamName, diffs);
+        const list = teamGroups.get(d.teamName) ?? [];
+        list.push(d.diff);
+        teamGroups.set(d.teamName, list);
     });
+    const metricsByTeam = new Map<string, StatMetrics>();
+    teamGroups.forEach((diffs, key) => metricsByTeam.set(key, this.calculateStatMetrics(diffs)));
 
-    const metricsByTeam = new Map<string, AccuracyMetrics>();
-    teamGroups.forEach((diffs, teamName) => {
-        metricsByTeam.set(teamName, this.calculateMetrics(diffs));
+    // Group by Age
+    const ageGroups = new Map<string, StatDiffs[]>();
+    details.forEach(d => {
+        const bucket = this.getAgeBucket(d.age);
+        const list = ageGroups.get(bucket) ?? [];
+        list.push(d.diff);
+        ageGroups.set(bucket, list);
     });
+    const metricsByAge = new Map<string, StatMetrics>();
+    ageGroups.forEach((diffs, key) => metricsByAge.set(key, this.calculateStatMetrics(diffs)));
 
     return {
         year,
         metrics,
         metricsByTeam,
+        metricsByAge,
         details
     };
   }
 
   private aggregateResults(years: YearAnalysisResult[]): AggregateAnalysisReport {
-      // Overall Metrics
-      const allDiffs = years.flatMap(y => y.details.map(d => d.diff));
-      const overallMetrics = this.calculateMetrics(allDiffs);
+      const allDetails = years.flatMap(y => y.details);
+      const overallMetrics = this.calculateStatMetrics(allDetails.map(d => d.diff));
 
-      // Aggregate by Team across all years
-      const teamDiffs = new Map<string, number[]>();
-      years.forEach(y => {
-          y.details.forEach(d => {
-              const diffs = teamDiffs.get(d.teamName) ?? [];
-              diffs.push(d.diff);
-              teamDiffs.set(d.teamName, diffs);
-          });
+      // Aggregate by Team
+      const teamGroups = new Map<string, StatDiffs[]>();
+      allDetails.forEach(d => {
+          const list = teamGroups.get(d.teamName) ?? [];
+          list.push(d.diff);
+          teamGroups.set(d.teamName, list);
       });
+      const metricsByTeam = new Map<string, StatMetrics>();
+      teamGroups.forEach((diffs, key) => metricsByTeam.set(key, this.calculateStatMetrics(diffs)));
 
-      const metricsByTeam = new Map<string, AccuracyMetrics>();
-      teamDiffs.forEach((diffs, teamName) => {
-          metricsByTeam.set(teamName, this.calculateMetrics(diffs));
+      // Aggregate by Age
+      const ageGroups = new Map<string, StatDiffs[]>();
+      allDetails.forEach(d => {
+          const bucket = this.getAgeBucket(d.age);
+          const list = ageGroups.get(bucket) ?? [];
+          list.push(d.diff);
+          ageGroups.set(bucket, list);
       });
+      const metricsByAge = new Map<string, StatMetrics>();
+      ageGroups.forEach((diffs, key) => metricsByAge.set(key, this.calculateStatMetrics(diffs)));
 
       return {
           years,
           overallMetrics,
-          metricsByTeam
+          metricsByTeam,
+          metricsByAge
       };
   }
 
-  private calculateMetrics(diffs: number[]): AccuracyMetrics {
-      const count = diffs.length;
+  private calculateStatMetrics(diffs: StatDiffs[]): StatMetrics {
+      return {
+          k9: this.calculateMetrics(diffs.map(d => d.k9)),
+          bb9: this.calculateMetrics(diffs.map(d => d.bb9)),
+          hr9: this.calculateMetrics(diffs.map(d => d.hr9)),
+          fip: this.calculateMetrics(diffs.map(d => d.fip))
+      };
+  }
+
+  private calculateMetrics(values: number[]): AccuracyMetrics {
+      const count = values.length;
       if (count === 0) return { mae: 0, rmse: 0, count: 0, bias: 0 };
 
-      const sumAbs = diffs.reduce((sum, d) => sum + Math.abs(d), 0);
-      const sumSq = diffs.reduce((sum, d) => sum + (d * d), 0);
-      const sumDiff = diffs.reduce((sum, d) => sum + d, 0);
+      const sumAbs = values.reduce((sum, v) => sum + Math.abs(v), 0);
+      const sumSq = values.reduce((sum, v) => sum + (v * v), 0);
+      const sumVal = values.reduce((sum, v) => sum + v, 0);
 
       return {
           mae: sumAbs / count,
           rmse: Math.sqrt(sumSq / count),
           count,
-          bias: sumDiff / count
+          bias: sumVal / count
       };
+  }
+
+  private getAgeBucket(age: number): string {
+      if (age <= 23) return '< 24';
+      if (age <= 26) return '24-26'; // Peak growth
+      if (age <= 29) return '27-29'; // Peak plateau
+      if (age <= 33) return '30-33'; // Decline
+      return '34+';
   }
 }
 

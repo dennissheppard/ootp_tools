@@ -1,3 +1,4 @@
+
 /* CSS Variables for theming */
 :root {
   --color-bg: #0f1419;
@@ -2564,3 +2565,11 @@ td.player-cell.player-name {
 
 .text-success { color: var(--color-success); }
 .text-danger { color: var(--color-danger); }
+
+.text-warning { color: #f3a646; }
+.metric-grade {
+    font-size: 0.75em;
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-top: 4px;
+}

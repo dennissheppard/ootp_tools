@@ -53,14 +53,14 @@ export interface PotentialPitchingStats {
  * - H/9:  BABIP correlation is weak (R²=0.02) due to defense/parks
  */
 const WBL_LINEAR = {
-  // K/9 = 2.07 + 0.074 * Stuff
-  k9: { intercept: 2.07, slope: 0.074 },
+  // K/9 = 2.10 + 0.074 * Stuff (Increased from 1.85 to fix under-projection)
+  k9: { intercept: 2.10, slope: 0.074 },
 
-  // BB/9 = 5.22 - 0.052 * Control
-  bb9: { intercept: 5.22, slope: -0.052 },
+  // BB/9 = 5.30 - 0.052 * Control (Decreased from 5.37 to fix over-projection)
+  bb9: { intercept: 5.30, slope: -0.052 },
 
-  // HR/9 = 2.08 - 0.024 * HRA (verified from OOTP calculator, WBL-adjusted)
-  hr9: { intercept: 2.08, slope: -0.024 },
+  // HR/9 = 2.18 - 0.024 * HRA (Increased from 2.12 to balance FIP)
+  hr9: { intercept: 2.18, slope: -0.024 },
 };
 
 export interface LeagueContext {

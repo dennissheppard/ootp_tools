@@ -31,20 +31,20 @@ class AgingService {
       // Rapid Development
       mods = { stuff: 2.0, control: 3.0, hra: 1.5 };
     } else if (age < 25) {
-      // Late Development
-      mods = { stuff: 1.0, control: 2.0, hra: 1.0 };
+      // Late Development - Softened slightly to fix 24-26 optimism
+      mods = { stuff: 0.5, control: 1.5, hra: 0.5 };
     } else if (age < 28) {
       // Peak Plateau
       mods = { stuff: 0, control: 0.5, hra: 0 };
     } else if (age < 32) {
-      // Slow Decline
-      mods = { stuff: -1.0, control: -0.5, hra: -0.5 };
+      // Slow Decline (28-31)
+      mods = { stuff: -1.5, control: -1.0, hra: -0.5 };
     } else if (age < 35) {
-      // Moderate Decline
-      mods = { stuff: -2.5, control: -1.5, hra: -1.5 };
+      // Moderate Decline (32-34) - Softened decline to fix 30+ pessimism
+      mods = { stuff: -1.5, control: -1.0, hra: -1.0 };
     } else if (age < 39) {
-      // Steep Decline
-      mods = { stuff: -4.0, control: -2.5, hra: -2.5 };
+      // Steep Decline (35-38) - Softened
+      mods = { stuff: -3.0, control: -2.0, hra: -2.0 };
     } else if (age < 43) {
       // Very Steep Decline (39-42)
       mods = { stuff: -6.0, control: -4.0, hra: -4.0 };
