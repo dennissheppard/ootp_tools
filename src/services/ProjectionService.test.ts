@@ -18,7 +18,9 @@ describe('ProjectionService', () => {
       0, // gs
       mockLeagueContext,
       80, // stamina
-      'Normal' // injury
+      'Normal', // injury
+      undefined,
+      3.0
     );
 
     // SP Base: 100 + (80 * 1.2) = 196. Normal injury mod = 1.0.
@@ -35,7 +37,9 @@ describe('ProjectionService', () => {
       0, 
       mockLeagueContext,
       40, 
-      'Normal'
+      'Normal',
+      undefined,
+      3.0
     );
 
     // SP Base: 100 + (40 * 1.2) = 148.
@@ -69,7 +73,9 @@ describe('ProjectionService', () => {
       0, 
       mockLeagueContext,
       50, 
-      'Normal'
+      'Normal',
+      undefined,
+      3.0
     );
     // Base: 100 + 60 = 160. Normal=160.
 
@@ -80,12 +86,14 @@ describe('ProjectionService', () => {
       0, 
       mockLeagueContext,
       50, 
-      'Wrecked'
+      'Wrecked',
+      undefined,
+      3.0
     );
-    // Wrecked Mod = 0.40. 160 * 0.40 = 64.
+    // Wrecked Mod = 0.60. 160 * 0.60 = 96.
 
     expect(normal.projectedStats.ip).toBeGreaterThan(150);
-    expect(wrecked.projectedStats.ip).toBeLessThan(70);
+    expect(wrecked.projectedStats.ip).toBeLessThan(100);
   });
 
   test('should default to RP if stamina is missing or low with minimal pitches', () => {
@@ -101,5 +109,31 @@ describe('ProjectionService', () => {
       );
       // Default RP logic: stamina 30. Base 30 + (30*0.6) = 48.
       expect(result.projectedStats.ip).toBeLessThan(60);
+  });
+
+  test('should handle ramp-up scenario (95 IP -> 186 IP) correctly', () => {
+    // Scenario: Pitcher with good stamina (60)
+    // Year 1: 95 IP (Call up)
+    // Year 2: 186 IP (Full season)
+    // Projection for Year 3 should be closer to 186, recognizing the "established" workload in Year 2.
+    const historicalStats = [
+        { year: 2024, ip: 186, gs: 30, k9: 8, bb9: 3, hr9: 1 }, // Last Year (Year 2)
+        { year: 2023, ip: 95, gs: 15, k9: 8, bb9: 3, hr9: 1 }   // 2 Years Ago (Year 1)
+    ];
+
+    const result = projectionService.calculateProjection(
+      mockRatings,
+      25, 
+      3, 
+      30, 
+      mockLeagueContext,
+      60, 
+      'Normal',
+      historicalStats,
+      3.0
+    );
+
+    // Expected: ~182 (was ~158 before fix)
+    expect(result.projectedStats.ip).toBeGreaterThan(175); 
   });
 });

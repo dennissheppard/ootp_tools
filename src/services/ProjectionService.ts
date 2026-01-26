@@ -311,7 +311,8 @@ class ProjectionService {
     leagueContext: { fipConstant: number; avgFip: number; runsPerWin: number },
     stamina?: number,
     injuryProneness?: string,
-    historicalStats?: YearlyPitchingStats[]
+    historicalStats?: YearlyPitchingStats[],
+    trueRating: number = 0
   ): {
     projectedStats: { k9: number; bb9: number; hr9: number; fip: number; war: number; ip: number };
     projectedRatings: { stuff: number; control: number; hra: number };
@@ -338,7 +339,9 @@ class ProjectionService {
         dummyScouting as PitcherScoutingRatings,
         dummyStats as TruePlayerStats,
         historicalStats,
-        age + 1
+        age + 1,
+        0, // role
+        trueRating
     );
 
     // Apply Aging
@@ -464,7 +467,20 @@ class ProjectionService {
         }
 
         if (totalWeight > 0) {
-            const weightedIp = totalWeightedIp / totalWeight;
+            let weightedIp = totalWeightedIp / totalWeight;
+
+            // NEW: Breakout / Ramp-Up Detection
+            // If the player just threw a full starter workload (>120 IP) and it was a massive jump
+            // from the previous year (>1.5x), assume the recent year is the new baseline.
+            // This handles "Callup (95 IP) -> Full Season (186 IP)" scenarios where the weighted average
+            // would unfairly drag them down.
+            const recentStats = historicalStats[0];
+            if (historicalStats.length >= 2) {
+                const previousStats = historicalStats[1];
+                if (recentStats.ip > 120 && recentStats.ip > previousStats.ip * 1.5) {
+                    weightedIp = recentStats.ip;
+                }
+            }
 
             // Special case: Late-season callups / 2nd year starters
             // If a young pitcher has limited MLB IP but projects as a full-time starter,

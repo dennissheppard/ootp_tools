@@ -179,24 +179,24 @@ A comprehensive view of team-level pitching strength, identifying top rotations 
 - **Historical Team Assignment & Rotation Logic**:
   - **Traded/Multi-team Seasons**: Historical team ratings use per-team pitching splits so a player can appear on multiple teams in the same year.
   - **Historical Rotation Priority**: For past years, rotation selection is driven by actual **GS** (then IP) to reflect who really started, rather than scouting profile.
-  - **Fallback Ratings**: If a historical team split is missing from the combined True Ratings pool, the view estimates a baseline TR from that season?s K/9, BB/9, and HR/9 so the player is still included.
-- **Team Scores (Runs Saved)**:
-  - **Workload Normalization**: Rotations are evaluated at **950 IP** and Bullpens at **500 IP** to ensure fair comparison across teams regardless of injury or depth.
-  - **Replacement Penalties**: If a team's top 5 pitchers cannot fill the target IP, the remaining innings are filled with **Replacement Level Performance** (League Avg FIP + 1.00). This penalizes shallow rotations.
-  - **Centered Benchmarking**: The "League Average" benchmark is dynamically calculated from the aggregate projected performance of all teams, ensuring the total "Runs Saved" across the league sums to zero.
-  - **Runs Allowed**: Sum of `FIP * IP / 9` for the top 5 (plus replacement fillers).
-  - **Runs Saved**: `League Avg Runs - Runs Allowed`.
+- **Team Scores (WAR)**:
+  - **Metric**: Teams are ranked by the **Aggregate WAR** of their top 5 starters (Rotation) and top 5 relievers (Bullpen).
+  - **Why WAR?**: WAR naturally balances quality (FIP) and quantity (IP), automatically handling the normalization issues that plagued custom "Runs Saved" metrics.
+  - **Internal Runs Math**: While WAR is the primary display metric, the system still calculates **Runs Allowed** internally, using role-specific baselines (Starter-only vs Reliever-only FIP averages) to ensure fair comparisons.
+- **Roadmap: Team Win Projections**:
+  - WAR is the mathematical bridge to win projections.
+  - `Projected Wins = (Team WAR) + (League Average Wins) + (Defense/Park Adjustments)`
+  - Since `1 WAR ≈ 9 Runs`, the internal Runs Allowed engine is preserved to support future "Projected Standings" features.
 - **View Modes**:
   - **Projections**: Upcoming season projection (base year fixed to 2020 in current data set).
   - **By Year**: Standard year selector (2000-2021).
-  - **All Time**: Top 10 rotations and bullpens across all years, ranked by runs saved for that season (year shown next to team name).
-- **Projected Most Improved**: In projections view, a "Projected Most Improved" section compares projected runs saved to the prior year and ranks teams by improvement/decline for both rotations and bullpens.
-- **Historical Context**: Supports viewing team rankings for any year (2000-2021), utilizing multi-year weighted averages for player ratings.
-- **Interactive Lists**: Ranked lists of teams with expandable rows showing detailed player stats (TR, IP, K/9, BB/9, HR/9, ERA, FIP).
+  - **All Time**: Top 10 rotations and bullpens across all years, ranked by aggregate WAR for that season (year shown next to team name).
+- **Projected Most Improved**: In projections view, a "Projected Most Improved" section compares projected WAR to the prior year and ranks teams by improvement/decline.
+- **Interactive Lists**: Ranked lists of teams with expandable rows showing detailed player stats (TR, IP, K/9, BB/9, HR/9, ERA, WAR).
 - **Clickable Player Names**: Click any player to open their profile modal with full stats history and scouting data.
 - **Stat Hover/Tooltips**:
   - Flip cards on K/9, BB/9, and HR/9 show the estimated rating for that single season.
-  - Tooltips on the True Rating badge show the multi-year True Stuff, True Control, and True HRA components.
+  - Tooltips on the Team WAR badge show the underlying Runs Allowed context compared to league average.
 
 **Player Profile Modal** (accessed from Team Ratings, Projections, True Ratings pages):
 - **Header Layout**: Comprehensive player snapshot in the modal header

@@ -7,7 +7,7 @@ import { teamService } from '../services/TeamService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 
 interface TeamColumn {
-  key: 'name' | 'trueRating' | 'ip' | 'k9' | 'bb9' | 'hr9' | 'eraOrWar' | 'fip';
+  key: 'name' | 'trueRating' | 'ip' | 'k9' | 'bb9' | 'hr9' | 'eraOrWar' | 'war';
   label: string;
   sortKey?: string;
 }
@@ -148,7 +148,7 @@ export class TeamRatingsView {
               notice.innerHTML = `<strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'By Year' to show current team ratings.`;
           } else if (this.viewMode === 'all-time') {
               notice.style.display = 'block';
-              notice.innerHTML = `<strong>All Time:</strong> Top 10 rotations and bullpens across all years, ranked by runs saved for that season.`;
+              notice.innerHTML = `<strong>All Time:</strong> Top 10 rotations and bullpens across all years, ranked by WAR for that season.`;
           } else {
               notice.style.display = 'none';
           }
@@ -226,21 +226,21 @@ export class TeamRatingsView {
       });
 
       // Render Rotation List
-      const rotSorted = [...this.results].sort((a, b) => b.rotationRunsSaved - a.rotationRunsSaved);
+      const rotSorted = [...this.results].sort((a, b) => b.rotationWar - a.rotationWar);
       const rotDisplay = this.viewMode === 'all-time' ? rotSorted.slice(0, 10) : rotSorted;
       rotContainer.innerHTML = this.renderTeamCollapsible({
         title: 'Top Rotations',
-        note: this.viewMode === 'all-time' ? '(All-time top 10, ranked by runs saved)' : '(Ranked by runs saved)',
+        note: this.viewMode === 'all-time' ? '(All-time top 10, ranked by WAR)' : '(Ranked by WAR)',
         type: 'rotation',
         teams: rotDisplay
       });
 
       // Render Bullpen List
-      const penSorted = [...this.results].sort((a, b) => b.bullpenRunsSaved - a.bullpenRunsSaved);
+      const penSorted = [...this.results].sort((a, b) => b.bullpenWar - a.bullpenWar);
       const penDisplay = this.viewMode === 'all-time' ? penSorted.slice(0, 10) : penSorted;
       penContainer.innerHTML = this.renderTeamCollapsible({
         title: 'Top Bullpens',
-        note: this.viewMode === 'all-time' ? '(All-time top 10, ranked by runs saved)' : '(Ranked by runs saved)',
+        note: this.viewMode === 'all-time' ? '(All-time top 10, ranked by WAR)' : '(Ranked by WAR)',
         type: 'bullpen',
         teams: penDisplay
       });
@@ -277,14 +277,13 @@ export class TeamRatingsView {
       }
 
       const lastYear = this.selectedYear;
-      const projectedYear = this.selectedYear + 1;
       const lastYearMap = new Map(baseline.map(team => [team.teamId, team]));
 
       const rotationRows = this.buildImprovementRows(lastYearMap, 'rotation');
       const bullpenRows = this.buildImprovementRows(lastYearMap, 'bullpen');
 
       container.innerHTML = `
-        <h3 class="section-title">Projected Most Improved <span class="note-text">(Runs saved vs ${lastYear})</span></h3>
+        <h3 class="section-title">Projected Most Improved <span class="note-text">(WAR vs ${lastYear})</span></h3>
         <div class="projected-improvements-grid">
           ${this.renderImprovementCard('Rotations', rotationRows)}
           ${this.renderImprovementCard('Bullpens', bullpenRows)}
@@ -300,8 +299,8 @@ export class TeamRatingsView {
         .map(team => {
           const prev = baselineMap.get(team.teamId);
           if (!prev) return null;
-          const projected = type === 'rotation' ? team.rotationRunsSaved : team.bullpenRunsSaved;
-          const previous = type === 'rotation' ? prev.rotationRunsSaved : prev.bullpenRunsSaved;
+          const projected = type === 'rotation' ? team.rotationWar : team.bullpenWar;
+          const previous = type === 'rotation' ? prev.rotationWar : prev.bullpenWar;
           return {
             teamId: team.teamId,
             teamName: team.teamName,
@@ -326,9 +325,9 @@ export class TeamRatingsView {
       }
 
       const rowsHtml = rows.map((row, index) => {
-          const prevClass = this.getRunsSavedClass(row.previous);
-          const projClass = this.getRunsSavedClass(row.projected);
-          const deltaClass = this.getRunsSavedClass(row.delta);
+          const prevClass = this.getWarClass(row.previous, title === 'Rotations' ? 'rotation' : 'bullpen');
+          const projClass = this.getWarClass(row.projected, title === 'Rotations' ? 'rotation' : 'bullpen');
+          const deltaClass = this.getWarDeltaClass(row.delta);
           const deltaLabel = row.delta >= 0 ? 'Improvement' : 'Decline';
           return `
             <div class="improvement-row">
@@ -336,15 +335,15 @@ export class TeamRatingsView {
               <span class="improvement-team">${row.teamName}</span>
               <span class="improvement-badge-group">
                 <span class="improvement-label">Last year</span>
-                <span class="badge ${prevClass}">${this.formatRunsSaved(row.previous)}</span>
+                <span class="badge ${prevClass}">${this.formatWar(row.previous)}</span>
               </span>
               <span class="improvement-badge-group">
                 <span class="improvement-label">Projected</span>
-                <span class="badge ${projClass}">${this.formatRunsSaved(row.projected)}</span>
+                <span class="badge ${projClass}">${this.formatWar(row.projected)}</span>
               </span>
               <span class="improvement-badge-group">
                 <span class="improvement-label">${deltaLabel}</span>
-                <span class="badge ${deltaClass} improvement-delta">${this.formatRunsSaved(row.delta)}</span>
+                <span class="badge ${deltaClass} improvement-delta">${this.formatWarDelta(row.delta)}</span>
               </span>
             </div>
           `;
@@ -374,14 +373,14 @@ export class TeamRatingsView {
   }
 
   private renderImprovementPreviewRow(row: ImprovementRow, rank: number): string {
-      const deltaClass = this.getRunsSavedClass(row.delta);
+      const deltaClass = this.getWarDeltaClass(row.delta);
       const deltaLabel = row.delta >= 0 ? 'Improvement' : 'Decline';
 
       return `
         <div class="team-preview-row">
           <span class="team-preview-rank">#${rank}</span>
           <span class="team-preview-name">${row.teamName}</span>
-          <span class="badge ${deltaClass} team-preview-score">${deltaLabel}: ${this.formatRunsSaved(row.delta)}</span>
+          <span class="badge ${deltaClass} team-preview-score">${deltaLabel}: ${this.formatWarDelta(row.delta)}</span>
         </div>
       `;
   }
@@ -425,8 +424,8 @@ export class TeamRatingsView {
   }
 
   private renderTeamPreviewRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
-      const runsSaved = type === 'rotation' ? team.rotationRunsSaved : team.bullpenRunsSaved;
-      const scoreClass = this.getRunsSavedClass(runsSaved);
+      const war = type === 'rotation' ? team.rotationWar : team.bullpenWar;
+      const scoreClass = this.getWarClass(war, type);
       const yearLabel = this.viewMode === 'all-time' && team.seasonYear
         ? ` <span class="note-text">(${team.seasonYear})</span>`
         : '';
@@ -435,19 +434,18 @@ export class TeamRatingsView {
         <div class="team-preview-row">
           <span class="team-preview-rank">#${rank}</span>
           <span class="team-preview-name">${team.teamName}${yearLabel}</span>
-          <span class="badge ${scoreClass} team-preview-score">${this.formatRunsSaved(runsSaved)}</span>
+          <span class="badge ${scoreClass} team-preview-score">${this.formatWar(war)}</span>
         </div>
       `;
   }
 
   private renderTeamRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
-      const runsSaved = type === 'rotation' ? team.rotationRunsSaved : team.bullpenRunsSaved;
+      const war = type === 'rotation' ? team.rotationWar : team.bullpenWar;
       const runsAllowed = type === 'rotation' ? team.rotationRunsAllowed : team.bullpenRunsAllowed;
       const leagueAvgRuns = type === 'rotation' ? team.rotationLeagueAvgRuns : team.bullpenLeagueAvgRuns;
       
-      const scoreClass = this.getRunsSavedClass(runsSaved);
-      const titleLabel = this.viewMode === 'projected' ? 'Projected Runs Allowed' : 'Runs Allowed';
-      const badgeTitle = `${titleLabel}: ${this.formatRunsValue(runsAllowed)} • League Avg: ${this.formatRunsValue(leagueAvgRuns)}`;
+      const scoreClass = this.getWarClass(war, type);
+      const badgeTitle = `Total WAR: ${war.toFixed(1)} (Runs Allowed: ${this.formatRunsValue(runsAllowed)} vs Avg ${this.formatRunsValue(leagueAvgRuns)})`;
       const yearLabel = this.viewMode === 'all-time' && team.seasonYear
         ? ` <span class="note-text">(${team.seasonYear})</span>`
         : '';
@@ -461,7 +459,7 @@ export class TeamRatingsView {
                     <span style="font-weight: 600;">${team.teamName}${yearLabel}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem;">
-                     <span class="badge ${scoreClass}" style="font-size: 1.1em;" title="${badgeTitle}">${this.formatRunsSaved(runsSaved)}</span>
+                     <span class="badge ${scoreClass}" style="font-size: 1.1em;" title="${badgeTitle}">${this.formatWar(war)}</span>
                      <span class="toggle-icon">▼</span>
                 </div>
             </div>
@@ -503,18 +501,35 @@ export class TeamRatingsView {
     `;
   }
 
-  private getRunsSavedClass(runsSaved: number): string {
-    if (runsSaved >= 60) return 'rating-elite';
-    if (runsSaved >= 30) return 'rating-plus';
-    if (runsSaved >= 10) return 'rating-avg';
-    if (runsSaved >= 0) return 'rating-fringe';
-    return 'rating-poor';
+  private getWarClass(war: number, type: 'rotation' | 'bullpen'): string {
+    if (type === 'rotation') {
+        if (war >= 20) return 'rating-elite';
+        if (war >= 15) return 'rating-plus';
+        if (war >= 10) return 'rating-avg';
+        if (war >= 5) return 'rating-fringe';
+        return 'rating-poor';
+    } else {
+        if (war >= 5) return 'rating-elite';
+        if (war >= 3) return 'rating-plus';
+        if (war >= 1) return 'rating-avg';
+        if (war >= 0) return 'rating-fringe';
+        return 'rating-poor';
+    }
   }
 
-  private formatRunsSaved(value: number): string {
-    const rounded = Math.round(value);
-    const sign = rounded > 0 ? '+' : '';
-    return `${sign}${rounded}`;
+  private getWarDeltaClass(delta: number): string {
+      if (delta > 0) return 'rating-plus';
+      if (delta < 0) return 'rating-poor';
+      return 'rating-fringe';
+  }
+
+  private formatWar(value: number): string {
+    return value.toFixed(1);
+  }
+
+  private formatWarDelta(value: number): string {
+    const sign = value > 0 ? '+' : '';
+    return `${sign}${value.toFixed(1)}`;
   }
 
   private formatRunsValue(value: number): string {
@@ -593,11 +608,9 @@ export class TeamRatingsView {
         return this.renderFlipCell(player.stats.hr9.toFixed(2), estHra.toString(), 'Est HRA Rating');
       }
       case 'eraOrWar':
-        return this.viewMode === 'projected'
-          ? (player.stats.war?.toFixed(1) ?? '0.0')
-          : player.stats.era.toFixed(2);
-      case 'fip':
-        return player.stats.fip.toFixed(2);
+        return player.stats.era.toFixed(2);
+      case 'war':
+        return (player.stats.war?.toFixed(1) ?? '0.0');
       default:
         return '';
     }
@@ -609,21 +622,20 @@ export class TeamRatingsView {
           { key: 'name', label: 'Name', sortKey: 'name' },
           { key: 'trueRating', label: 'TR', sortKey: 'trueRating' },
           { key: 'ip', label: 'IP', sortKey: 'ip' },
-          { key: 'fip', label: 'FIP', sortKey: 'fip' },
+          { key: 'war', label: 'WAR', sortKey: 'war' },
           { key: 'k9', label: 'K/9', sortKey: 'k9' },
           { key: 'bb9', label: 'BB/9', sortKey: 'bb9' },
           { key: 'hr9', label: 'HR/9', sortKey: 'hr9' },
-          { key: 'eraOrWar', label: 'WAR', sortKey: 'war' },
         ]
       : [
           { key: 'name', label: 'Name', sortKey: 'name' },
           { key: 'trueRating', label: 'TR', sortKey: 'trueRating' },
           { key: 'ip', label: 'IP', sortKey: 'ip' },
+          { key: 'war', label: 'WAR', sortKey: 'war' },
           { key: 'k9', label: 'K/9', sortKey: 'k9' },
           { key: 'bb9', label: 'BB/9', sortKey: 'bb9' },
           { key: 'hr9', label: 'HR/9', sortKey: 'hr9' },
           { key: 'eraOrWar', label: 'ERA', sortKey: 'era' },
-          { key: 'fip', label: 'FIP', sortKey: 'fip' },
         ];
 
     return this.applyTeamColumnOrder(baseColumns, type);
@@ -688,8 +700,6 @@ export class TeamRatingsView {
         return player.stats.era;
       case 'war':
         return player.stats.war ?? 0;
-      case 'fip':
-        return player.stats.fip;
       default:
         return '';
     }

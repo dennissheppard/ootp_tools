@@ -40,6 +40,8 @@ export interface TeamRatingResult {
   bullpenLeagueAvgRuns: number;
   rotationRunsSaved: number;
   bullpenRunsSaved: number;
+  rotationWar: number;
+  bullpenWar: number;
   rotation: RatedPlayer[];
   bullpen: RatedPlayer[];
 }
@@ -92,79 +94,121 @@ class TeamRatingsService {
           }
       });
 
-      // 1. Calculate Initial Runs Allowed (First Pass)
-      const initialResults: Array<{
-          teamId: number;
-          teamName: string;
-          rotationRuns: { runsAllowed: number; totalIp: number };
-          bullpenRuns: { runsAllowed: number; totalIp: number };
-          group: { rotation: RatedPlayer[]; bullpen: RatedPlayer[] };
-      }> = [];
-
-      let totalRotationRuns = 0;
-      let totalBullpenRuns = 0;
-      let rotationCount = 0;
-      let bullpenCount = 0;
+      // 1. Organize Groups & Calculate Role-Specific Baselines
+      // We need to compare Starters to Starters and Relievers to Relievers.
+      // Comparing a Starter to the overall League Average (which includes elite relievers)
+      // unfairly penalizes rotations.
+      
+      let totalRotationFipIp = 0;
+      let totalRotationIp = 0;
+      let totalBullpenFipIp = 0;
+      let totalBullpenIp = 0;
 
       teamGroups.forEach((group, teamId) => {
           const team = teamMap.get(teamId);
           if (team && team.parentTeamId !== 0) return;
 
-          // 1. Sort Rotation by Projected TR desc
+          // Sort Rotation by Projected TR desc
           group.rotation.sort((a, b) => b.trueRating - a.trueRating);
 
-          // 2. Handle Overflow: Move starters beyond top 5 to bullpen
+          // Handle Overflow: Move starters beyond top 5 to bullpen
           if (group.rotation.length > 5) {
               const overflow = group.rotation.slice(5);
               group.bullpen.push(...overflow);
               group.rotation = group.rotation.slice(0, 5);
           }
 
-          // 3. Sort Bullpen by Projected TR desc (now includes overflow starters)
+          // Sort Bullpen by Projected TR desc (now includes overflow starters)
           group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
 
-          const topRotation = group.rotation; // Already sliced to max 5
+          // Aggregate stats for Baseline Calculation (using top 5 only)
+          const topRotation = group.rotation;
+          const topBullpen = group.bullpen.slice(0, 5);
+
+          topRotation.forEach(p => {
+              if (p.stats.ip > 0) {
+                  totalRotationFipIp += p.stats.fip * p.stats.ip;
+                  totalRotationIp += p.stats.ip;
+              }
+          });
+
+          topBullpen.forEach(p => {
+              if (p.stats.ip > 0) {
+                  totalBullpenFipIp += p.stats.fip * p.stats.ip;
+                  totalBullpenIp += p.stats.ip;
+              }
+          });
+      });
+
+      const avgRotationFip = totalRotationIp > 0 ? totalRotationFipIp / totalRotationIp : leagueStats.avgFip;
+      const avgBullpenFip = totalBullpenIp > 0 ? totalBullpenFipIp / totalBullpenIp : leagueStats.avgFip;
+
+      // 2. Calculate Runs Allowed & Zero-Sum Baseline
+      const teamRunTotals: Array<{
+          teamId: number;
+          teamName: string;
+          rotationRuns: number;
+          bullpenRuns: number;
+          rotationWar: number;
+          bullpenWar: number;
+          group: { rotation: RatedPlayer[]; bullpen: RatedPlayer[] };
+      }> = [];
+
+      let grandTotalRotationRuns = 0;
+      let grandTotalBullpenRuns = 0;
+      let count = 0;
+
+      teamGroups.forEach((group, teamId) => {
+          const team = teamMap.get(teamId);
+          if (team && team.parentTeamId !== 0) return;
+
+          const topRotation = group.rotation;
           const topBullpen = group.bullpen.slice(0, 5);
           
-          // Calculate runs allowed using current league stats for replacement level
-          // We don't care about leagueAvgRuns/runsSaved yet, just the raw runs allowed
-          const rotationRuns = this.calculateRunSummary(topRotation, leagueStats.avgFip, 950);
-          const bullpenRuns = this.calculateRunSummary(topBullpen, leagueStats.avgFip, 500);
+          // Use role-specific averages for replacement level
+          // Pass avgRotationFip as the "League Average" to the helper.
+          // The helper uses this to calculate replacement level (Input + 1.00)
+          const rotationRuns = this.calculateRunSummary(topRotation, avgRotationFip, 950);
+          const bullpenRuns = this.calculateRunSummary(topBullpen, avgBullpenFip, 500);
 
-          totalRotationRuns += rotationRuns.runsAllowed;
-          totalBullpenRuns += bullpenRuns.runsAllowed;
-          rotationCount++;
-          bullpenCount++;
+          // Calculate Team WAR
+          const rotationWar = topRotation.reduce((sum, p) => sum + (p.stats.war ?? 0), 0);
+          const bullpenWar = topBullpen.reduce((sum, p) => sum + (p.stats.war ?? 0), 0);
 
-          initialResults.push({
+          grandTotalRotationRuns += rotationRuns.runsAllowed;
+          grandTotalBullpenRuns += bullpenRuns.runsAllowed;
+          count++;
+
+          teamRunTotals.push({
               teamId,
               teamName: team ? team.nickname : `Team ${teamId}`,
-              rotationRuns: { runsAllowed: rotationRuns.runsAllowed, totalIp: 950 },
-              bullpenRuns: { runsAllowed: bullpenRuns.runsAllowed, totalIp: 500 },
+              rotationRuns: rotationRuns.runsAllowed,
+              bullpenRuns: bullpenRuns.runsAllowed,
+              rotationWar,
+              bullpenWar,
               group
           });
       });
 
-      // 2. Calculate Projected League Averages (The "Zero Line")
-      // This centers the runs saved around the actual projected performance of the league
-      const projRotationAvgFip = rotationCount > 0 ? (totalRotationRuns / (rotationCount * 950)) * 9 : leagueStats.avgFip;
-      const projBullpenAvgFip = bullpenCount > 0 ? (totalBullpenRuns / (bullpenCount * 500)) * 9 : leagueStats.avgFip;
+      // Calculate the Global Average Runs (The "Zero Line" for Runs Saved)
+      // This represents the average performance of a constructed team (including replacement filler)
+      const globalAvgRotationRuns = count > 0 ? grandTotalRotationRuns / count : 0;
+      const globalAvgBullpenRuns = count > 0 ? grandTotalBullpenRuns / count : 0;
 
-      // 3. Finalize Results with Centered Benchmarks (Second Pass)
-      const results: TeamRatingResult[] = initialResults.map(r => {
-          const rotLeagueRuns = this.calculateRunsAllowed(projRotationAvgFip, 950);
-          const penLeagueRuns = this.calculateRunsAllowed(projBullpenAvgFip, 500);
-
+      // 3. Finalize Results
+      const results: TeamRatingResult[] = teamRunTotals.map(r => {
           return {
               teamId: r.teamId,
               teamName: r.teamName,
               seasonYear: baseYear + 1,
-              rotationRunsAllowed: r.rotationRuns.runsAllowed,
-              bullpenRunsAllowed: r.bullpenRuns.runsAllowed,
-              rotationLeagueAvgRuns: rotLeagueRuns,
-              bullpenLeagueAvgRuns: penLeagueRuns,
-              rotationRunsSaved: rotLeagueRuns - r.rotationRuns.runsAllowed,
-              bullpenRunsSaved: penLeagueRuns - r.bullpenRuns.runsAllowed,
+              rotationRunsAllowed: r.rotationRuns,
+              bullpenRunsAllowed: r.bullpenRuns,
+              rotationLeagueAvgRuns: globalAvgRotationRuns,
+              bullpenLeagueAvgRuns: globalAvgBullpenRuns,
+              rotationRunsSaved: globalAvgRotationRuns - r.rotationRuns,
+              bullpenRunsSaved: globalAvgBullpenRuns - r.bullpenRuns,
+              rotationWar: r.rotationWar,
+              bullpenWar: r.bullpenWar,
               rotation: r.group.rotation,
               bullpen: r.group.bullpen
           };
@@ -261,6 +305,14 @@ class TeamRatingsService {
 
         const trData = trMap.get(stat.player_id);
 
+        // Stats parsing
+        const ip = trueRatingsService.parseIp(stat.ip);
+        const k9 = ip > 0 ? (stat.k / ip) * 9 : 0;
+        const bb9 = ip > 0 ? (stat.bb / ip) * 9 : 0;
+        const hr9 = ip > 0 ? (stat.hra / ip) * 9 : 0;
+        const era = ip > 0 ? (stat.er / ip) * 9 : 0;
+        const fip = fipWarService.calculateFip({ ip, k9, bb9, hr9 }, leagueStats.fipConstant);
+
         const fallback =
             !trData && isHistoricalYear
                 ? (() => {
@@ -288,14 +340,6 @@ class TeamRatingsService {
         const pitches = scouting?.pitches ?? {};
         const allPitchCount = Object.keys(pitches).length;
         const usablePitchCount = Object.values(pitches).filter(rating => rating >= 45).length;
-
-        // Stats parsing
-        const ip = trueRatingsService.parseIp(stat.ip);
-        const k9 = ip > 0 ? (stat.k / ip) * 9 : 0;
-        const bb9 = ip > 0 ? (stat.bb / ip) * 9 : 0;
-        const hr9 = ip > 0 ? (stat.hra / ip) * 9 : 0;
-        const era = ip > 0 ? (stat.er / ip) * 9 : 0;
-        const fip = fipWarService.calculateFip({ ip, k9, bb9, hr9 }, leagueStats.fipConstant);
 
         // Classification Logic
         // Priority 1: Check multi-year GS history (most reliable)
@@ -382,98 +426,117 @@ class TeamRatingsService {
     });
 
     // 6. Aggregate per Team (Two-Pass Approach)
-    const initialResults: Array<{
+    // Pass 1: Organize and Calculate League Baselines
+    
+    let totalRotationFipIp = 0;
+    let totalRotationIp = 0;
+    let totalBullpenFipIp = 0;
+    let totalBullpenIp = 0;
+
+    teamGroups.forEach((group, teamId) => {
+        const team = teamMap.get(teamId);
+        if (team && team.parentTeamId !== 0) return;
+
+        // Sort Rotation (historical years prioritize actual usage)
+        group.rotation.sort(isHistoricalYear
+            ? (a, b) => (b.stats.gs - a.stats.gs) || (b.stats.ip - a.stats.ip) || (b.trueRating - a.trueRating)
+            : (a, b) => b.trueRating - a.trueRating
+        );
+
+        // Handle Overflow
+        if (group.rotation.length > 5) {
+            const overflow = group.rotation.slice(5);
+            group.bullpen.push(...overflow);
+            group.rotation = group.rotation.slice(0, 5);
+        }
+
+        // Sort Bullpen
+        group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
+        
+        // Aggregate for Baseline Calculation
+        const topRotation = group.rotation;
+        const topBullpen = group.bullpen.slice(0, 5);
+
+        topRotation.forEach(p => {
+             if (p.stats.ip > 0) {
+                 totalRotationFipIp += p.stats.fip * p.stats.ip;
+                 totalRotationIp += p.stats.ip;
+             }
+        });
+
+        topBullpen.forEach(p => {
+             if (p.stats.ip > 0) {
+                 totalBullpenFipIp += p.stats.fip * p.stats.ip;
+                 totalBullpenIp += p.stats.ip;
+             }
+        });
+    });
+
+    const avgRotationFip = totalRotationIp > 0 ? totalRotationFipIp / totalRotationIp : leagueStats.avgFip;
+    const avgBullpenFip = totalBullpenIp > 0 ? totalBullpenFipIp / totalBullpenIp : leagueStats.avgFip;
+
+    // Pass 2: Calculate Runs Allowed & Zero-Sum Baseline
+    const teamRunTotals: Array<{
         teamId: number;
         teamName: string;
-        rotationRuns: { runsAllowed: number };
-        bullpenRuns: { runsAllowed: number };
+        rotationRuns: number;
+        bullpenRuns: number;
+        rotationWar: number;
+        bullpenWar: number;
         group: { rotation: RatedPlayer[]; bullpen: RatedPlayer[] };
     }> = [];
 
-    let totalRotationRuns = 0;
-    let totalBullpenRuns = 0;
-    let rotationCount = 0;
-    let bullpenCount = 0;
+    let grandTotalRotationRuns = 0;
+    let grandTotalBullpenRuns = 0;
+    let count = 0;
 
-        teamGroups.forEach((group, teamId) => {
+    teamGroups.forEach((group, teamId) => {
+        const team = teamMap.get(teamId);
+        if (team && team.parentTeamId !== 0) return;
 
-            const team = teamMap.get(teamId);
+        const topRotation = group.rotation;
+        const topBullpen = group.bullpen.slice(0, 5);
 
-            if (team && team.parentTeamId !== 0) return; 
+        // Use role-specific averages for replacement level
+        const rotationRuns = this.calculateRunSummary(topRotation, avgRotationFip, 950);
+        const bullpenRuns = this.calculateRunSummary(topBullpen, avgBullpenFip, 500);
 
-    
+        // Calculate Team WAR
+        const rotationWar = topRotation.reduce((sum, p) => sum + (p.stats.war ?? 0), 0);
+        const bullpenWar = topBullpen.reduce((sum, p) => sum + (p.stats.war ?? 0), 0);
 
-            // 1. Sort Rotation (historical years prioritize actual usage)
+        grandTotalRotationRuns += rotationRuns.runsAllowed;
+        grandTotalBullpenRuns += bullpenRuns.runsAllowed;
+        count++;
 
-            group.rotation.sort(isHistoricalYear
-                ? (a, b) => (b.stats.gs - a.stats.gs) || (b.stats.ip - a.stats.ip) || (b.trueRating - a.trueRating)
-                : (a, b) => b.trueRating - a.trueRating
-            );
-
-    
-
-            // 2. Handle Overflow: Move starters beyond top 5 to bullpen
-
-            if (group.rotation.length > 5) {
-
-                const overflow = group.rotation.slice(5);
-
-                group.bullpen.push(...overflow);
-
-                group.rotation = group.rotation.slice(0, 5);
-
-            }
-
-    
-
-            // 3. Sort Bullpen by TR desc
-
-            group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
-
-    
-
-            const topRotation = group.rotation; // Already sliced
-
-            const topBullpen = group.bullpen.slice(0, 5);
-
-            
-
-            const rotationRuns = this.calculateRunSummary(topRotation, leagueStats.avgFip, 950);
-
-            const bullpenRuns = this.calculateRunSummary(topBullpen, leagueStats.avgFip, 500);
-
-        totalRotationRuns += rotationRuns.runsAllowed;
-        totalBullpenRuns += bullpenRuns.runsAllowed;
-        rotationCount++;
-        bullpenCount++;
-
-        initialResults.push({
+        teamRunTotals.push({
             teamId,
             teamName: team ? team.nickname : `Team ${teamId}`,
-            rotationRuns: { runsAllowed: rotationRuns.runsAllowed },
-            bullpenRuns: { runsAllowed: bullpenRuns.runsAllowed },
+            rotationRuns: rotationRuns.runsAllowed,
+            bullpenRuns: bullpenRuns.runsAllowed,
+            rotationWar,
+            bullpenWar,
             group
         });
     });
 
-    // Calculate Projected League Averages based on actual team composition
-    const projRotationAvgFip = rotationCount > 0 ? (totalRotationRuns / (rotationCount * 950)) * 9 : leagueStats.avgFip;
-    const projBullpenAvgFip = bullpenCount > 0 ? (totalBullpenRuns / (bullpenCount * 500)) * 9 : leagueStats.avgFip;
+    // Calculate the Global Average Runs (The "Zero Line" for Runs Saved)
+    const globalAvgRotationRuns = count > 0 ? grandTotalRotationRuns / count : 0;
+    const globalAvgBullpenRuns = count > 0 ? grandTotalBullpenRuns / count : 0;
 
-    const results: TeamRatingResult[] = initialResults.map(r => {
-        const rotLeagueRuns = this.calculateRunsAllowed(projRotationAvgFip, 950);
-        const penLeagueRuns = this.calculateRunsAllowed(projBullpenAvgFip, 500);
-
+    const results: TeamRatingResult[] = teamRunTotals.map(r => {
         return {
             teamId: r.teamId,
             teamName: r.teamName,
             seasonYear: year,
-            rotationRunsAllowed: r.rotationRuns.runsAllowed,
-            bullpenRunsAllowed: r.bullpenRuns.runsAllowed,
-            rotationLeagueAvgRuns: rotLeagueRuns,
-            bullpenLeagueAvgRuns: penLeagueRuns,
-            rotationRunsSaved: rotLeagueRuns - r.rotationRuns.runsAllowed,
-            bullpenRunsSaved: penLeagueRuns - r.bullpenRuns.runsAllowed,
+            rotationRunsAllowed: r.rotationRuns,
+            bullpenRunsAllowed: r.bullpenRuns,
+            rotationLeagueAvgRuns: globalAvgRotationRuns,
+            bullpenLeagueAvgRuns: globalAvgBullpenRuns,
+            rotationRunsSaved: globalAvgRotationRuns - r.rotationRuns,
+            bullpenRunsSaved: globalAvgBullpenRuns - r.bullpenRuns,
+            rotationWar: r.rotationWar,
+            bullpenWar: r.bullpenWar,
             rotation: r.group.rotation,
             bullpen: r.group.bullpen
         };
@@ -520,6 +583,14 @@ class TeamRatingsService {
         
         runsAllowed += replacementRuns;
         totalIp = targetIp; // Normalize total IP to target for league average calc
+    } else if (totalIp > targetIp) {
+        // Normalize to targetIp to prevent volume punishment/reward distortion in rankings
+        // We only want to measure the *quality* of the rotation over a standard season duration
+        // otherwise, a team pitching 1000 innings at a 4.00 FIP looks "worse" (more runs allowed)
+        // than a team pitching 950 innings at a 4.00 FIP, despite being identical in quality.
+        const ratio = targetIp / totalIp;
+        runsAllowed = runsAllowed * ratio;
+        totalIp = targetIp;
     }
 
     // League Average Benchmark uses the TARGET IP (normalized)
