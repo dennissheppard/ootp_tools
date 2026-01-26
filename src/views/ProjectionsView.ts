@@ -515,6 +515,7 @@ export class ProjectionsView {
       parentTeam: parentLabel,
       position: row.isSp ? 'SP' : 'RP',
       trueRating: row.currentTrueRating,
+      percentile: row.currentPercentile,
       estimatedStuff: row.projectedRatings.stuff,
       estimatedControl: row.projectedRatings.control,
       estimatedHra: row.projectedRatings.hra,
@@ -530,6 +531,8 @@ export class ProjectionsView {
       pitchRatings,
       isProspect: row.isProspect,
       year: this.selectedYear,
+      projectionYear: this.selectedYear,
+      projectionBaseYear: this.statsYearUsed ?? this.selectedYear - 1,
       showYearLabel: isHistorical
     };
 

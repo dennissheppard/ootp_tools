@@ -91,7 +91,7 @@ export class PlayerService {
         position: parseInt(values[6], 10) as Position,
         role: parseInt(values[7], 10),
         age: parseInt(values[8], 10),
-        retired: values[9] === '1',
+        retired: values[9]?.trim() === '1',
       };
     });
   }

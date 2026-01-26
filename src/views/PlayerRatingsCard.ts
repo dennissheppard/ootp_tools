@@ -39,6 +39,8 @@ export interface PlayerRatingsData {
   starGap?: number;
   year?: number;
   showYearLabel?: boolean; // Only show year in badge if this is true (for historical data)
+  projectionYear?: number;
+  projectionBaseYear?: number;
 }
 
 export class PlayerRatingsCard {

@@ -215,10 +215,12 @@ export class PlayerProfileModal {
 
         // Readiness Check
         const currentYear = await dateService.getCurrentYear();
-        const historicalAge = projectionService.calculateAgeAtYear(player!, currentYear, selectedYear);
+        const projectionTargetYear = data.projectionYear ?? (selectedYear + 1);
+        const projectionBaseYear = data.projectionBaseYear ?? (projectionTargetYear - 1);
+        const historicalAge = projectionService.calculateAgeAtYear(player!, currentYear, projectionBaseYear);
         
-        const hasRecentMlb = mlbStats.some(s => s.year >= selectedYear - 1 && s.ip > 0);
-        const isUpperMinors = combinedStats.some(s => (s.level === 'aaa' || s.level === 'aa') && s.year === selectedYear);
+        const hasRecentMlb = mlbStats.some(s => s.year >= projectionBaseYear - 1 && s.ip > 0);
+        const isUpperMinors = combinedStats.some(s => (s.level === 'aaa' || s.level === 'aa') && s.year === projectionBaseYear);
         
         const ovr = data.scoutOvr ?? 20;
         const pot = data.scoutPot ?? 20;
@@ -233,7 +235,7 @@ export class PlayerProfileModal {
 
         if (showProjection && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
             try {
-                const leagueStats = await leagueStatsService.getLeagueStats(selectedYear);
+                const leagueStats = await leagueStatsService.getLeagueStats(projectionBaseYear);
                 const leagueContext = {
                     fipConstant: leagueStats.fipConstant,
                     avgFip: leagueStats.avgFip,
@@ -255,8 +257,8 @@ export class PlayerProfileModal {
                     mlbStats
                 );
 
-                // Backcasting: Find actual stats for selectedYear + 1
-                const targetYear = selectedYear + 1;
+                // Backcasting: Find actual stats for the projection target year
+                const targetYear = projectionTargetYear;
                 let actualStat: SeasonStatsRow | undefined;
                 
                 // mlbStats only contains [selectedYear, ..., selectedYear-4]
@@ -313,7 +315,7 @@ export class PlayerProfileModal {
                     };
                 }
 
-                projectionHtml = this.renderProjection(proj, historicalAge + 1, selectedYear + 1, comparison);
+                projectionHtml = this.renderProjection(proj, historicalAge + 1, projectionTargetYear, comparison);
             } catch (e) {
                 console.warn('Failed to calculate projection', e);
             }
@@ -355,7 +357,7 @@ export class PlayerProfileModal {
     return `
       ${PlayerRatingsCard.renderRatingsComparison(data, hasScout)}
       ${projectionHtml}
-      ${PlayerRatingsCard.renderSeasonStatsTable(stats, { showLevel })}
+      ${PlayerRatingsCard.renderSeasonStatsTable(stats, { showLevel, hasScouting: hasScout })}
     `;
   }
 

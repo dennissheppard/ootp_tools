@@ -453,7 +453,18 @@ class TrueRatingsService {
    * @returns League averages for K/9, BB/9, HR/9
    */
   public async getLeagueAverages(year: number, minIp: number = 20): Promise<LeagueAverages & { totalPitchers: number }> {
-    const allStats = await this.getTruePitchingStats(year);
+    let allStats: TruePlayerStats[] = [];
+    try {
+      allStats = await this.getTruePitchingStats(year);
+    } catch (error) {
+      console.warn(`Failed to load league averages for ${year}, using defaults.`, error);
+      return {
+        avgK9: 7.5,
+        avgBb9: 3.0,
+        avgHr9: 0.85,
+        totalPitchers: 0,
+      };
+    }
 
     // Filter to qualified pitchers
     const qualified = allStats.filter(p => this.parseIp(p.ip) >= minIp);
@@ -515,7 +526,14 @@ class TrueRatingsService {
     // Fetch all years in parallel (leverages existing caching)
     const years = Array.from({ length: yearsBack }, (_, i) => endYear - i)
       .filter(y => y >= LEAGUE_START_YEAR);
-    const yearlyDataPromises = years.map(year => this.getTruePitchingStats(year));
+    const yearlyDataPromises = years.map(async year => {
+      try {
+        return await this.getTruePitchingStats(year);
+      } catch (error) {
+        console.warn(`Failed to load pitching stats for ${year}, skipping.`, error);
+        return [] as TruePlayerStats[];
+      }
+    });
     const yearlyData = await Promise.all(yearlyDataPromises);
 
     // Group stats by player ID
@@ -602,7 +620,13 @@ class TrueRatingsService {
 
     // Check each year in the in-memory/localStorage cache
     for (const year of years) {
-      const yearStats = await this.getTruePitchingStats(year);
+      let yearStats: TruePlayerStats[] = [];
+      try {
+        yearStats = await this.getTruePitchingStats(year);
+      } catch (error) {
+        console.warn(`Could not load stats for ${year} when building player history.`, error);
+        yearStats = [];
+      }
       const playerStats = yearStats.find(p => p.player_id === playerId);
 
       if (playerStats) {
