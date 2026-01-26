@@ -467,7 +467,7 @@ export class TrueRatingsView {
       columns.push(...this.getEstimatedRatingColumns());
     }
 
-    if (this.showRawStats || this.showProspects) {
+    if (this.showRawStats) {
       columns.push(...rest);
     }
 

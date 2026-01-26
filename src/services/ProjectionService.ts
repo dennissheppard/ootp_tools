@@ -67,16 +67,17 @@ class ProjectionService {
     return 0.5;
   }
 
-  async getProjections(year: number): Promise<ProjectedPlayer[]> {
-    const context = await this.getProjectionsWithContext(year);
+  async getProjections(year: number, options?: { forceRosterRefresh?: boolean }): Promise<ProjectedPlayer[]> {
+    const context = await this.getProjectionsWithContext(year, options);
     return context.projections;
   }
 
-  async getProjectionsWithContext(year: number): Promise<ProjectionContext> {
+  async getProjectionsWithContext(year: number, options?: { forceRosterRefresh?: boolean }): Promise<ProjectionContext> {
     // 1. Fetch Data
+    const forceRosterRefresh = options?.forceRosterRefresh ?? false;
     const [scoutingRatings, allPlayers, allTeams] = await Promise.all([
       scoutingDataService.getLatestScoutingRatings('my'),
-      playerService.getAllPlayers(),
+      playerService.getAllPlayers(forceRosterRefresh),
       teamService.getAllTeams()
     ]);
 
@@ -201,7 +202,9 @@ class ProjectionService {
         if (!isMlbReady) continue;
         // -----------------------
 
-        const teamId = currentStats?.team_id ?? player.teamId;
+        // For projections, prefer current roster mapping from players endpoint.
+        // Fall back to stats team_id only if current team is unknown (0).
+        const teamId = player.teamId || currentStats?.team_id || 0;
         const team = teamMap.get(teamId);
         const ipResult = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1);
 

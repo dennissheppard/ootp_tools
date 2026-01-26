@@ -176,9 +176,15 @@ A comprehensive view of team-level pitching strength, identifying top rotations 
   - **Priority 3**: Scouting profile (≥3 usable pitches rated ≥45 AND stamina ≥30 → SP)
   - Only counts **usable pitches** (rated ≥45), preventing low-rated pitches from misclassifying relievers
   - For **Projections mode**: Uses the role determined by `ProjectionService` (which considers stamina, pitch repertoire, and historical usage) rather than re-classifying by projected IP
-- **Team Scores**:
-  - **Rotation Score**: Sum of the True Ratings of the top 5 starting pitchers.
-  - **Bullpen Score**: Sum of the True Ratings of the top 5 relief pitchers.
+- **Team Scores (Runs Saved)**:
+  - **Runs Allowed**: Sum of each pitcher's `FIP * IP / 9` (top 5 SP/RP).
+  - **League Avg Runs**: `leagueAvgFIP * totalIP / 9` for the same top-5 IP total.
+  - **Runs Saved**: `League Avg Runs - Runs Allowed` (shown as the badge value).
+  - Badge hover shows Runs Allowed vs League Avg.
+- **View Modes**:
+  - **Projections**: Upcoming season projection (base year fixed to 2020 in current data set).
+  - **By Year**: Standard year selector (2000-2021).
+  - **All Time**: Top 10 rotations and bullpens across all years, ranked by runs saved for that season (year shown next to team name).
 - **Historical Context**: Supports viewing team rankings for any year (2000-2021), utilizing multi-year weighted averages for player ratings.
 - **Interactive Lists**: Ranked lists of teams with expandable rows showing detailed player stats (TR, IP, K/9, BB/9, HR/9, ERA, FIP).
 - **Clickable Player Names**: Click any player to open their profile modal with full stats history and scouting data.
@@ -191,6 +197,7 @@ A comprehensive view of team-level pitching strength, identifying top rotations 
   - **Left**: Player name, team, position (SP/RP), age
   - **Center**: True Rating emblem (year label only shown for historical data)
   - **Right-Center**: Metadata stack (Injury bar, Stamina bar, Star ratings)
+    - Injury and Stamina bars show tooltips with raw values
   - **Far Right**: Pitch repertoire with ratings (color-coded: green ≥60, yellow 45-59, gray <45)
 - **Rating Comparison Bars**: Estimated ratings vs scout opinions (Stuff, Control, HRA)
 - **Multi-Year Stats Table**: Season-by-season performance with minor league stats integration
@@ -229,6 +236,9 @@ Projected innings are based on a blend of scouting data (stamina, injury pronene
 
 - **Low-IP Players**: Other pitchers with limited track record
   - **Blend**: 50% historical IP, 50% stamina model
+
+**Roster Mapping for Projections**:
+- Projection outputs use the current player/team mapping from the `players/` endpoint (force refresh) rather than year-specific stats rosters.
 
 ### 8. True Future Rating (Minor League Prospects)
 
@@ -505,6 +515,8 @@ Regression analysis script to derive rating-to-stat formulas from collected data
 - Responsive design with mobile breakpoints at 640px
 - TypeScript strict mode enabled with `noUnusedLocals`
 - Views self-initialize and bind to container elements
+- App header includes the WBL logo from `src/images/logo.jpg` (left of title); Draft Board tab is hidden from the main nav
+- Team Ratings expanded tables support sortable + draggable columns (with floating sort hint)
 - User preferences persist in `localStorage` under the `wbl-prefs` key. Currently stores whether the CSV upload instructions are hidden and whether pitch-rating chips on the draft board are hidden. Preferences are loaded at startup and updated whenever the related toggles are used.
 - **Vite Proxy**: The `vite.config.ts` file is configured to handle CORS issues by proxying API requests.
     - `/api` requests are proxied to `https://atl-01.statsplus.net/world`.

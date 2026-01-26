@@ -32,15 +32,21 @@ export interface RatedPlayer {
 export interface TeamRatingResult {
   teamId: number;
   teamName: string;
-  rotationScore: number;
-  bullpenScore: number;
+  seasonYear?: number;
+  rotationRunsAllowed: number;
+  bullpenRunsAllowed: number;
+  rotationLeagueAvgRuns: number;
+  bullpenLeagueAvgRuns: number;
+  rotationRunsSaved: number;
+  bullpenRunsSaved: number;
   rotation: RatedPlayer[];
   bullpen: RatedPlayer[];
 }
 
 class TeamRatingsService {
   async getProjectedTeamRatings(baseYear: number): Promise<TeamRatingResult[]> {
-      const projections = await projectionService.getProjections(baseYear);
+      const projections = await projectionService.getProjections(baseYear, { forceRosterRefresh: true });
+      const leagueStats = await leagueStatsService.getLeagueStats(baseYear);
       
       const teamGroups = new Map<number, { rotation: RatedPlayer[], bullpen: RatedPlayer[] }>();
       const teams = await teamService.getAllTeams();
@@ -94,14 +100,21 @@ class TeamRatingsService {
           group.rotation.sort((a, b) => b.trueRating - a.trueRating);
           group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
 
-          const rotScore = group.rotation.slice(0, 5).reduce((sum, p) => sum + p.trueRating, 0);
-          const penScore = group.bullpen.slice(0, 5).reduce((sum, p) => sum + p.trueRating, 0);
+          const topRotation = group.rotation.slice(0, 5);
+          const topBullpen = group.bullpen.slice(0, 5);
+          const rotationRuns = this.calculateRunSummary(topRotation, leagueStats.avgFip);
+          const bullpenRuns = this.calculateRunSummary(topBullpen, leagueStats.avgFip);
 
           results.push({
               teamId,
               teamName: team ? team.nickname : `Team ${teamId}`,
-              rotationScore: Math.round(rotScore * 10) / 10,
-              bullpenScore: Math.round(penScore * 10) / 10,
+              seasonYear: baseYear + 1,
+              rotationRunsAllowed: rotationRuns.runsAllowed,
+              bullpenRunsAllowed: bullpenRuns.runsAllowed,
+              rotationLeagueAvgRuns: rotationRuns.leagueAvgRuns,
+              bullpenLeagueAvgRuns: bullpenRuns.leagueAvgRuns,
+              rotationRunsSaved: rotationRuns.runsSaved,
+              bullpenRunsSaved: bullpenRuns.runsSaved,
               rotation: group.rotation,
               bullpen: group.bullpen
           });
@@ -284,15 +297,21 @@ class TeamRatingsService {
         group.rotation.sort((a, b) => b.trueRating - a.trueRating);
         group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
 
-        // Calculate Scores
-        const rotScore = group.rotation.slice(0, 5).reduce((sum, p) => sum + p.trueRating, 0);
-        const penScore = group.bullpen.slice(0, 5).reduce((sum, p) => sum + p.trueRating, 0);
+        const topRotation = group.rotation.slice(0, 5);
+        const topBullpen = group.bullpen.slice(0, 5);
+        const rotationRuns = this.calculateRunSummary(topRotation, leagueStats.avgFip);
+        const bullpenRuns = this.calculateRunSummary(topBullpen, leagueStats.avgFip);
 
         results.push({
             teamId,
             teamName: team ? team.nickname : `Team ${teamId}`,
-            rotationScore: Math.round(rotScore * 10) / 10,
-            bullpenScore: Math.round(penScore * 10) / 10,
+            seasonYear: year,
+            rotationRunsAllowed: rotationRuns.runsAllowed,
+            bullpenRunsAllowed: bullpenRuns.runsAllowed,
+            rotationLeagueAvgRuns: rotationRuns.leagueAvgRuns,
+            bullpenLeagueAvgRuns: bullpenRuns.leagueAvgRuns,
+            rotationRunsSaved: rotationRuns.runsSaved,
+            bullpenRunsSaved: bullpenRuns.runsSaved,
             rotation: group.rotation,
             bullpen: group.bullpen
         });
@@ -301,11 +320,43 @@ class TeamRatingsService {
     return results;
   }
 
+  async getAllTimeTeamRatings(years: number[]): Promise<TeamRatingResult[]> {
+    const results: TeamRatingResult[] = [];
+    for (const year of years) {
+      try {
+        const yearly = await this.getTeamRatings(year);
+        results.push(...yearly);
+      } catch (error) {
+        console.warn(`TeamRatings: failed to load year ${year}`, error);
+      }
+    }
+    return results;
+  }
+
   private normalizeName(name: string): string {
     const suffixes = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
     const cleaned = name.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
     const tokens = cleaned.split(/\s+/).filter((token) => token && !suffixes.has(token));
     return tokens.join('');
+  }
+
+  private calculateRunSummary(players: RatedPlayer[], leagueAvgFip: number): { runsAllowed: number; leagueAvgRuns: number; runsSaved: number } {
+    const totalIp = players.reduce((sum, player) => sum + (Number.isFinite(player.stats.ip) ? player.stats.ip : 0), 0);
+    const runsAllowed = players.reduce((sum, player) => {
+      if (!Number.isFinite(player.stats.fip) || !Number.isFinite(player.stats.ip)) return sum;
+      return sum + this.calculateRunsAllowed(player.stats.fip, player.stats.ip);
+    }, 0);
+    const leagueAvgRuns = this.calculateRunsAllowed(leagueAvgFip, totalIp);
+    return {
+      runsAllowed,
+      leagueAvgRuns,
+      runsSaved: leagueAvgRuns - runsAllowed,
+    };
+  }
+
+  private calculateRunsAllowed(fip: number, ip: number): number {
+    if (!Number.isFinite(fip) || !Number.isFinite(ip) || ip <= 0) return 0;
+    return (fip * ip) / 9;
   }
 }
 

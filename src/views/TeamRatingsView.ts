@@ -6,15 +6,34 @@ import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 
+interface TeamColumn {
+  key: 'name' | 'trueRating' | 'ip' | 'k9' | 'bb9' | 'hr9' | 'eraOrWar' | 'fip';
+  label: string;
+  sortKey?: string;
+}
+
+interface PlayerRowContext {
+  player: RatedPlayer;
+  seasonYear?: number;
+  teamKey: string;
+  type: 'rotation' | 'bullpen';
+}
+
 export class TeamRatingsView {
   private container: HTMLElement;
   private selectedYear: number = 2020;
-  private viewMode: 'actual' | 'projected' = 'actual';
+  private viewMode: 'projected' | 'all-time' | 'year' = 'year';
   private results: TeamRatingResult[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private currentGameYear: number | null = null;
   private playerProfileModal: PlayerProfileModal;
-  private playerRowLookup: Map<number, RatedPlayer> = new Map();
+  private playerRowLookup: Map<string, PlayerRowContext> = new Map();
+  private teamResultLookup: Map<string, TeamRatingResult> = new Map();
+  private isDraggingColumn = false;
+  private teamColumnOrder: Record<'rotation' | 'bullpen', string[]> = { rotation: [], bullpen: [] };
+  private teamSortState: Map<string, { key: string; direction: 'asc' | 'desc' }> = new Map();
+  private lastSelectedYear = this.selectedYear;
+  private allTimeResults: TeamRatingResult[] | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -33,20 +52,21 @@ export class TeamRatingsView {
           <div class="form-field">
             <label>View:</label>
             <div class="toggle-group" role="group" aria-label="View mode">
-              <button class="toggle-btn active" data-view-mode="actual" aria-pressed="true">Actual</button>
               <button class="toggle-btn" data-view-mode="projected" aria-pressed="false">Projections</button>
+              <button class="toggle-btn" data-view-mode="all-time" aria-pressed="false">All Time</button>
+              <button class="toggle-btn active" data-view-mode="year" aria-pressed="true">By Year</button>
             </div>
           </div>
           <div class="form-field" id="year-selector-field">
-            <label for="team-ratings-year">Base Year:</label>
+            <label for="team-ratings-year">Year:</label>
             <select id="team-ratings-year">
               ${this.yearOptions.map(year => `<option value="${year}" ${year === this.selectedYear ? 'selected' : ''}>${year}</option>`).join('')}
             </select>
           </div>
         </div>
 
-        <div id="projection-notice" style="display: none; margin-bottom: 1rem; padding: 0.5rem; background: rgba(var(--color-primary-rgb), 0.1); border-radius: 4px; border: 1px solid rgba(var(--color-primary-rgb), 0.2);">
-            <strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'actual' to show current team ratings.
+        <div id="view-notice" style="display: none; margin-bottom: 1rem; padding: 0.5rem; background: rgba(var(--color-primary-rgb), 0.1); border-radius: 4px; border: 1px solid rgba(var(--color-primary-rgb), 0.2);">
+            <strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'By Year' to show current team ratings.
         </div>
 
         <div class="team-ratings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
@@ -68,22 +88,30 @@ export class TeamRatingsView {
   private bindEvents(): void {
     this.container.querySelector('#team-ratings-year')?.addEventListener('change', (e) => {
       this.selectedYear = parseInt((e.target as HTMLSelectElement).value, 10);
-      this.updateProjectionNotice();
+      this.lastSelectedYear = this.selectedYear;
+      this.updateViewNotice();
       this.loadData();
     });
 
     this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const mode = (e.target as HTMLElement).dataset.viewMode as 'actual' | 'projected';
+            const mode = (e.target as HTMLElement).dataset.viewMode as 'projected' | 'all-time' | 'year';
             if (mode === this.viewMode) return;
             
             this.viewMode = mode;
+            this.teamSortState.clear();
             
             // If switching to projections, force latest year (2020)
             if (this.viewMode === 'projected') {
                 this.selectedYear = 2020;
                 const yearSelect = this.container.querySelector<HTMLSelectElement>('#team-ratings-year');
                 if (yearSelect) yearSelect.value = '2020';
+            }
+
+            if (this.viewMode === 'year') {
+                this.selectedYear = this.lastSelectedYear;
+                const yearSelect = this.container.querySelector<HTMLSelectElement>('#team-ratings-year');
+                if (yearSelect) yearSelect.value = String(this.selectedYear);
             }
 
             this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
@@ -93,23 +121,30 @@ export class TeamRatingsView {
                 b.setAttribute('aria-pressed', String(isActive));
             });
             
-            this.updateProjectionNotice();
+            this.updateViewNotice();
             this.loadData();
         });
     });
   }
 
-  private updateProjectionNotice(): void {
-      const notice = this.container.querySelector<HTMLElement>('#projection-notice');
+  private updateViewNotice(): void {
+      const notice = this.container.querySelector<HTMLElement>('#view-notice');
       const yearField = this.container.querySelector<HTMLElement>('#year-selector-field');
       
       if (notice) {
-          notice.style.display = this.viewMode === 'projected' ? 'block' : 'none';
-          notice.innerHTML = `<strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'actual' to show current team ratings.`;
+          if (this.viewMode === 'projected') {
+              notice.style.display = 'block';
+              notice.innerHTML = `<strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'By Year' to show current team ratings.`;
+          } else if (this.viewMode === 'all-time') {
+              notice.style.display = 'block';
+              notice.innerHTML = `<strong>All Time:</strong> Top 10 rotations and bullpens across all years, ranked by runs saved for that season.`;
+          } else {
+              notice.style.display = 'none';
+          }
       }
       
       if (yearField) {
-          yearField.style.display = this.viewMode === 'projected' ? 'none' : 'block';
+          yearField.style.display = this.viewMode === 'year' ? 'block' : 'none';
       }
   }
 
@@ -121,8 +156,15 @@ export class TeamRatingsView {
     if (penContainer) penContainer.innerHTML = 'Loading...';
 
     try {
-        if (this.viewMode === 'actual') {
+        if (this.viewMode === 'year') {
             this.results = await teamRatingsService.getTeamRatings(this.selectedYear);
+        } else if (this.viewMode === 'all-time') {
+            if (this.allTimeResults) {
+                this.results = this.allTimeResults;
+            } else {
+                this.results = await teamRatingsService.getAllTimeTeamRatings(this.yearOptions);
+                this.allTimeResults = this.results;
+            }
         } else {
             console.log('Fetching projections...', teamRatingsService);
             if (typeof teamRatingsService.getProjectedTeamRatings !== 'function') {
@@ -150,88 +192,74 @@ export class TeamRatingsView {
 
       // Build player lookup for modal access
       this.playerRowLookup = new Map();
+      this.teamResultLookup = new Map();
       this.results.forEach(team => {
-        team.rotation.forEach(p => this.playerRowLookup.set(p.playerId, p));
-        team.bullpen.forEach(p => this.playerRowLookup.set(p.playerId, p));
+        const teamKey = this.buildTeamKey(team);
+        this.teamResultLookup.set(teamKey, team);
+        team.rotation.forEach(p => this.playerRowLookup.set(
+          this.buildPlayerKey(teamKey, 'rotation', p.playerId),
+          { player: p, seasonYear: team.seasonYear, teamKey, type: 'rotation' }
+        ));
+        team.bullpen.forEach(p => this.playerRowLookup.set(
+          this.buildPlayerKey(teamKey, 'bullpen', p.playerId),
+          { player: p, seasonYear: team.seasonYear, teamKey, type: 'bullpen' }
+        ));
       });
 
       // Render Rotation List
-      const rotSorted = [...this.results].sort((a, b) => b.rotationScore - a.rotationScore);
+      const rotSorted = [...this.results].sort((a, b) => b.rotationRunsSaved - a.rotationRunsSaved);
+      const rotDisplay = this.viewMode === 'all-time' ? rotSorted.slice(0, 10) : rotSorted;
       rotContainer.innerHTML = `
-        <h3 class="section-title">Top Rotations</h3>
+        <h3 class="section-title">Top Rotations <span class="note-text">${this.viewMode === 'all-time' ? '(All-time top 10, ranked by runs saved)' : '(Ranked by runs saved)'}</span></h3>
         <div class="team-list">
-            ${rotSorted.map((team, idx) => this.renderTeamRow(team, idx + 1, 'rotation')).join('')}
+            ${rotDisplay.map((team, idx) => this.renderTeamRow(team, idx + 1, 'rotation')).join('')}
         </div>
       `;
 
       // Render Bullpen List
-      const penSorted = [...this.results].sort((a, b) => b.bullpenScore - a.bullpenScore);
+      const penSorted = [...this.results].sort((a, b) => b.bullpenRunsSaved - a.bullpenRunsSaved);
+      const penDisplay = this.viewMode === 'all-time' ? penSorted.slice(0, 10) : penSorted;
       penContainer.innerHTML = `
-        <h3 class="section-title">Top Bullpens</h3>
+        <h3 class="section-title">Top Bullpens <span class="note-text">${this.viewMode === 'all-time' ? '(All-time top 10, ranked by runs saved)' : '(Ranked by runs saved)'}</span></h3>
         <div class="team-list">
-            ${penSorted.map((team, idx) => this.renderTeamRow(team, idx + 1, 'bullpen')).join('')}
+            ${penDisplay.map((team, idx) => this.renderTeamRow(team, idx + 1, 'bullpen')).join('')}
         </div>
       `;
 
       this.bindToggleEvents();
       this.bindFlipCardLocking();
       this.bindPlayerNameClicks();
+      this.bindTeamTableSortHeaders();
+      this.bindTeamColumnDragAndDrop();
   }
 
   private renderTeamRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
-      const score = type === 'rotation' ? team.rotationScore : team.bullpenScore;
-      const players = type === 'rotation' ? team.rotation : team.bullpen;
-      const top5 = players.slice(0, 5); // Show top 5
+      const runsSaved = type === 'rotation' ? team.rotationRunsSaved : team.bullpenRunsSaved;
+      const runsAllowed = type === 'rotation' ? team.rotationRunsAllowed : team.bullpenRunsAllowed;
+      const leagueAvgRuns = type === 'rotation' ? team.rotationLeagueAvgRuns : team.bullpenLeagueAvgRuns;
       
-      const scoreClass = score >= 20 ? 'rating-elite' : score >= 15 ? 'rating-plus' : score >= 10 ? 'rating-avg' : 'rating-poor';
+      const scoreClass = this.getRunsSavedClass(runsSaved);
+      const titleLabel = this.viewMode === 'projected' ? 'Projected Runs Allowed' : 'Runs Allowed';
+      const badgeTitle = `${titleLabel}: ${this.formatRunsValue(runsAllowed)} • League Avg: ${this.formatRunsValue(leagueAvgRuns)}`;
+      const yearLabel = this.viewMode === 'all-time' && team.seasonYear
+        ? ` <span class="note-text">(${team.seasonYear})</span>`
+        : '';
+      const teamKey = this.buildTeamKey(team);
       
       return `
         <div class="team-card">
-            <div class="team-header" data-team-id="${team.teamId}" data-type="${type}" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 0.5rem;">
+            <div class="team-header" data-team-key="${teamKey}" data-type="${type}" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 0.5rem;">
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <span style="font-weight: bold; color: var(--color-text-muted); width: 20px;">#${rank}</span>
-                    <span style="font-weight: 600;">${team.teamName}</span>
+                    <span style="font-weight: 600;">${team.teamName}${yearLabel}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem;">
-                     <span class="badge ${scoreClass}" style="font-size: 1.1em;">${score.toFixed(1)}</span>
+                     <span class="badge ${scoreClass}" style="font-size: 1.1em;" title="${badgeTitle}">${this.formatRunsSaved(runsSaved)}</span>
                      <span class="toggle-icon">▼</span>
                 </div>
             </div>
-            <div class="team-details" id="details-${type}-${team.teamId}" style="display: none; padding: 0.5rem; background: var(--color-surface-hover); margin-bottom: 1rem; border-radius: 4px;">
-                <table class="stats-table" style="width: 100%; font-size: 0.9em;">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>TR</th>
-                            <th>IP</th>
-                            <th>K/9</th>
-                            <th>BB/9</th>
-                            <th>HR/9</th>
-                            <th>${this.viewMode === 'projected' ? 'WAR' : 'ERA'}</th>
-                            <th>FIP</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${top5.map(p => {
-                            const estStuff = RatingEstimatorService.estimateStuff(p.stats.k9, p.stats.ip).rating;
-                            const estControl = RatingEstimatorService.estimateControl(p.stats.bb9, p.stats.ip).rating;
-                            const estHra = RatingEstimatorService.estimateHRA(p.stats.hr9, p.stats.ip).rating;
-                            
-                            return `
-                            <tr>
-                                <td><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>
-                                <td>${this.renderRatingBadge(p)}</td>
-                                <td>${p.stats.ip.toFixed(1)}</td>
-                                <td>${this.renderFlipCell(p.stats.k9.toFixed(2), estStuff.toString(), 'Est Stuff Rating')}</td>
-                                <td>${this.renderFlipCell(p.stats.bb9.toFixed(2), estControl.toString(), 'Est Control Rating')}</td>
-                                <td>${this.renderFlipCell(p.stats.hr9.toFixed(2), estHra.toString(), 'Est HRA Rating')}</td>
-                                <td>${this.viewMode === 'projected' ? (p.stats.war?.toFixed(1) ?? '0.0') : p.stats.era.toFixed(2)}</td>
-                                <td>${p.stats.fip.toFixed(2)}</td>
-                            </tr>
-                        `}).join('')}
-                        ${players.length === 0 ? '<tr><td colspan="8" style="text-align: center; color: var(--color-text-muted)">No qualified pitchers</td></tr>' : ''}
-                    </tbody>
-                </table>
+            <div class="team-details" id="details-${type}-${teamKey}" data-team-key="${teamKey}" data-type="${type}" style="display: none; padding: 0.5rem; background: var(--color-surface-hover); margin-bottom: 1rem; border-radius: 4px;">
+                ${this.renderTeamDetailsTable(team, type)}
             </div>
         </div>
       `;
@@ -268,12 +296,193 @@ export class TeamRatingsView {
     `;
   }
 
+  private getRunsSavedClass(runsSaved: number): string {
+    if (runsSaved >= 60) return 'rating-elite';
+    if (runsSaved >= 30) return 'rating-plus';
+    if (runsSaved >= 10) return 'rating-avg';
+    if (runsSaved >= 0) return 'rating-fringe';
+    return 'rating-poor';
+  }
+
+  private formatRunsSaved(value: number): string {
+    const rounded = Math.round(value);
+    const sign = rounded > 0 ? '+' : '';
+    return `${sign}${rounded}`;
+  }
+
+  private formatRunsValue(value: number): string {
+    return Math.round(value).toString();
+  }
+
+  private buildTeamKey(team: TeamRatingResult): string {
+    const yearToken = team.seasonYear ?? 'current';
+    return `${team.teamId}-${yearToken}`;
+  }
+
+  private buildPlayerKey(teamKey: string, type: 'rotation' | 'bullpen', playerId: number): string {
+    return `${teamKey}-${type}-${playerId}`;
+  }
+
+  private renderTeamDetailsTable(team: TeamRatingResult, type: 'rotation' | 'bullpen'): string {
+    const players = type === 'rotation' ? team.rotation : team.bullpen;
+    const top5 = players.slice(0, 5);
+    const columns = this.getTeamColumns(type);
+    const teamKey = this.buildTeamKey(team);
+    const sortState = this.getTeamSortState(type, teamKey);
+    const sortedPlayers = this.sortTeamPlayers(top5, sortState);
+
+    const headerRow = columns.map(column => {
+      const sortKey = column.sortKey ?? column.key;
+      const activeClass = sortState && sortState.key === sortKey ? 'sort-active' : '';
+      return `<th data-sort-key="${sortKey}" data-col-key="${column.key}" class="${activeClass}" draggable="true">${column.label}</th>`;
+    }).join('');
+
+    const rows = sortedPlayers.map(player => {
+      const cells = columns.map(column => {
+        return `<td data-col-key="${column.key}">${this.renderTeamCell(player, column, { teamKey, type, seasonYear: team.seasonYear })}</td>`;
+      }).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+
+    const emptyRow = players.length === 0
+      ? `<tr><td colspan="${columns.length}" style="text-align: center; color: var(--color-text-muted)">No qualified pitchers</td></tr>`
+      : '';
+
+    return `
+      <table class="stats-table team-ratings-table" style="width: 100%; font-size: 0.9em;">
+        <thead>
+          <tr>${headerRow}</tr>
+        </thead>
+        <tbody>
+          ${rows}
+          ${emptyRow}
+        </tbody>
+      </table>
+    `;
+  }
+
+  private renderTeamCell(
+    player: RatedPlayer,
+    column: TeamColumn,
+    context: { teamKey: string; type: 'rotation' | 'bullpen'; seasonYear?: number }
+  ): string {
+    switch (column.key) {
+      case 'name':
+        return `<button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(context.teamKey, context.type, player.playerId)}" data-player-id="${player.playerId}">${player.name}</button>`;
+      case 'trueRating':
+        return this.renderRatingBadge(player);
+      case 'ip':
+        return player.stats.ip.toFixed(1);
+      case 'k9': {
+        const estStuff = RatingEstimatorService.estimateStuff(player.stats.k9, player.stats.ip).rating;
+        return this.renderFlipCell(player.stats.k9.toFixed(2), estStuff.toString(), 'Est Stuff Rating');
+      }
+      case 'bb9': {
+        const estControl = RatingEstimatorService.estimateControl(player.stats.bb9, player.stats.ip).rating;
+        return this.renderFlipCell(player.stats.bb9.toFixed(2), estControl.toString(), 'Est Control Rating');
+      }
+      case 'hr9': {
+        const estHra = RatingEstimatorService.estimateHRA(player.stats.hr9, player.stats.ip).rating;
+        return this.renderFlipCell(player.stats.hr9.toFixed(2), estHra.toString(), 'Est HRA Rating');
+      }
+      case 'eraOrWar':
+        return this.viewMode === 'projected'
+          ? (player.stats.war?.toFixed(1) ?? '0.0')
+          : player.stats.era.toFixed(2);
+      case 'fip':
+        return player.stats.fip.toFixed(2);
+      default:
+        return '';
+    }
+  }
+
+  private getTeamColumns(type: 'rotation' | 'bullpen'): TeamColumn[] {
+    const baseColumns: TeamColumn[] = [
+      { key: 'name', label: 'Name', sortKey: 'name' },
+      { key: 'trueRating', label: 'TR', sortKey: 'trueRating' },
+      { key: 'ip', label: 'IP', sortKey: 'ip' },
+      { key: 'k9', label: 'K/9', sortKey: 'k9' },
+      { key: 'bb9', label: 'BB/9', sortKey: 'bb9' },
+      { key: 'hr9', label: 'HR/9', sortKey: 'hr9' },
+      { key: 'eraOrWar', label: this.viewMode === 'projected' ? 'WAR' : 'ERA', sortKey: this.viewMode === 'projected' ? 'war' : 'era' },
+      { key: 'fip', label: 'FIP', sortKey: 'fip' },
+    ];
+
+    return this.applyTeamColumnOrder(baseColumns, type);
+  }
+
+  private applyTeamColumnOrder(columns: TeamColumn[], type: 'rotation' | 'bullpen'): TeamColumn[] {
+    const order = this.teamColumnOrder[type];
+    if (!order || order.length === 0) return columns;
+    const columnMap = new Map(columns.map(column => [column.key, column]));
+    const ordered: TeamColumn[] = [];
+
+    order.forEach(key => {
+      const column = columnMap.get(key);
+      if (column) ordered.push(column);
+    });
+
+    columns.forEach(column => {
+      if (!order.includes(column.key)) ordered.push(column);
+    });
+
+    return ordered;
+  }
+
+  private getTeamSortState(type: 'rotation' | 'bullpen', teamKey: string): { key: string; direction: 'asc' | 'desc' } | null {
+    return this.teamSortState.get(`${type}-${teamKey}`) ?? null;
+  }
+
+  private sortTeamPlayers(players: RatedPlayer[], sortState: { key: string; direction: 'asc' | 'desc' } | null): RatedPlayer[] {
+    if (!sortState) return players;
+    const { key, direction } = sortState;
+    const sorted = [...players].sort((a, b) => {
+      const aVal = this.getTeamSortValue(a, key);
+      const bVal = this.getTeamSortValue(b, key);
+      let compare = 0;
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        compare = (aVal ?? 0) - (bVal ?? 0);
+      } else {
+        const aString = aVal !== undefined && aVal !== null ? String(aVal) : '';
+        const bString = bVal !== undefined && bVal !== null ? String(bVal) : '';
+        compare = aString.localeCompare(bString);
+      }
+      return direction === 'asc' ? compare : -compare;
+    });
+    return sorted;
+  }
+
+  private getTeamSortValue(player: RatedPlayer, key: string): number | string {
+    switch (key) {
+      case 'name':
+        return player.name;
+      case 'trueRating':
+        return player.trueRating ?? 0;
+      case 'ip':
+        return player.stats.ip;
+      case 'k9':
+        return player.stats.k9;
+      case 'bb9':
+        return player.stats.bb9;
+      case 'hr9':
+        return player.stats.hr9;
+      case 'era':
+        return player.stats.era;
+      case 'war':
+        return player.stats.war ?? 0;
+      case 'fip':
+        return player.stats.fip;
+      default:
+        return '';
+    }
+  }
+
   private bindToggleEvents(): void {
       this.container.querySelectorAll('.team-header').forEach(header => {
           header.addEventListener('click', () => {
-              const teamId = (header as HTMLElement).dataset.teamId;
+              const teamKey = (header as HTMLElement).dataset.teamKey;
               const type = (header as HTMLElement).dataset.type;
-              const details = this.container.querySelector(`#details-${type}-${teamId}`);
+              const details = this.container.querySelector(`#details-${type}-${teamKey}`);
               const icon = header.querySelector('.toggle-icon');
               
               if (details && icon) {
@@ -305,19 +514,224 @@ export class TeamRatingsView {
     links.forEach(link => {
       link.addEventListener('click', (e) => {
         e.stopPropagation();
+        const playerKey = link.dataset.playerKey;
+        if (playerKey) {
+          this.openPlayerProfile(playerKey);
+          return;
+        }
         const playerId = parseInt(link.dataset.playerId ?? '', 10);
         if (!playerId) return;
-        this.openPlayerProfile(playerId);
+        const fallbackKey = Array.from(this.playerRowLookup.keys())
+          .find(key => key.endsWith(`-${playerId}`));
+        if (fallbackKey) {
+          this.openPlayerProfile(fallbackKey);
+        }
       });
     });
   }
 
-  private async openPlayerProfile(playerId: number): Promise<void> {
-    const row = this.playerRowLookup.get(playerId);
-    if (!row) return;
+  private bindTeamTableSortHeaders(root: ParentNode = this.container): void {
+    const headers = root.querySelectorAll<HTMLElement>('.team-details th[data-sort-key]');
+    headers.forEach(header => {
+      header.addEventListener('click', (e) => {
+        if (this.isDraggingColumn) return;
+        const key = header.dataset.sortKey;
+        if (!key) return;
+        const details = header.closest<HTMLElement>('.team-details');
+        if (!details) return;
+        const teamKey = details.dataset.teamKey;
+        const type = details.dataset.type as 'rotation' | 'bullpen' | undefined;
+        if (!teamKey || !type) return;
+
+        const stateKey = `${type}-${teamKey}`;
+        const current = this.teamSortState.get(stateKey);
+        if (current?.key === key) {
+          current.direction = current.direction === 'asc' ? 'desc' : 'asc';
+          this.teamSortState.set(stateKey, current);
+        } else {
+          this.teamSortState.set(stateKey, { key, direction: 'desc' });
+        }
+        this.showSortHint(e as MouseEvent);
+        this.updateTeamDetailsTable(teamKey, type);
+      });
+    });
+  }
+
+  private bindTeamColumnDragAndDrop(root: ParentNode = this.container): void {
+    const headers = root.querySelectorAll<HTMLTableCellElement>('.team-details th[data-col-key]');
+    let draggedKey: string | null = null;
+    let draggedType: 'rotation' | 'bullpen' | null = null;
+
+    headers.forEach(header => {
+      header.addEventListener('dragstart', (e) => {
+        const details = header.closest<HTMLElement>('.team-details');
+        draggedType = (details?.dataset.type as 'rotation' | 'bullpen' | undefined) ?? null;
+        draggedKey = header.dataset.colKey ?? null;
+        this.isDraggingColumn = true;
+        header.classList.add('dragging');
+        if (draggedKey && draggedType) {
+          this.applyTeamColumnClass(draggedType, draggedKey, 'dragging-col', true);
+          e.dataTransfer?.setData('text/plain', draggedKey);
+        }
+        e.dataTransfer?.setDragImage(header, 10, 10);
+      });
+
+      header.addEventListener('dragover', (e) => {
+        if (!draggedKey || !draggedType) return;
+        const details = header.closest<HTMLElement>('.team-details');
+        const targetType = details?.dataset.type as 'rotation' | 'bullpen' | undefined;
+        if (!targetType || targetType !== draggedType) return;
+        e.preventDefault();
+        const targetKey = header.dataset.colKey;
+        if (!targetKey || targetKey === draggedKey) {
+          this.clearTeamDropIndicators(draggedType);
+          return;
+        }
+        const rect = header.getBoundingClientRect();
+        const isBefore = e.clientX < rect.left + rect.width / 2;
+        this.updateTeamDropIndicator(draggedType, targetKey, isBefore ? 'before' : 'after');
+      });
+
+      header.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (!draggedKey || !draggedType) return;
+        const targetKey = header.dataset.colKey;
+        const position = header.dataset.dropPosition as 'before' | 'after' | undefined;
+        if (!targetKey || draggedKey === targetKey) {
+          draggedKey = null;
+          this.clearTeamDropIndicators(draggedType);
+          return;
+        }
+        this.reorderTeamColumns(draggedType, draggedKey, targetKey, position ?? 'before');
+        draggedKey = null;
+        this.clearTeamDropIndicators(draggedType);
+      });
+
+      header.addEventListener('dragend', () => {
+        if (draggedKey && draggedType) {
+          this.applyTeamColumnClass(draggedType, draggedKey, 'dragging-col', false);
+        }
+        header.classList.remove('dragging');
+        draggedKey = null;
+        draggedType = null;
+        this.clearAllTeamDropIndicators();
+        setTimeout(() => {
+          this.isDraggingColumn = false;
+        }, 0);
+      });
+    });
+  }
+
+  private reorderTeamColumns(type: 'rotation' | 'bullpen', draggedKey: string, targetKey: string, position: 'before' | 'after'): void {
+    const baseColumns = this.getTeamColumns(type);
+    const currentOrder = this.teamColumnOrder[type]?.length ? [...this.teamColumnOrder[type]] : baseColumns.map(col => col.key);
+    const fromIndex = currentOrder.indexOf(draggedKey);
+    const toIndex = currentOrder.indexOf(targetKey);
+    if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+
+    const nextOrder = [...currentOrder];
+    const [moved] = nextOrder.splice(fromIndex, 1);
+    let insertIndex = position === 'after' ? toIndex + 1 : toIndex;
+    if (fromIndex < insertIndex) {
+      insertIndex -= 1;
+    }
+    nextOrder.splice(insertIndex, 0, moved);
+    this.teamColumnOrder[type] = nextOrder;
+    this.updateTeamTables(type);
+  }
+
+  private updateTeamTables(type: 'rotation' | 'bullpen'): void {
+    const detailsList = this.container.querySelectorAll<HTMLElement>(`.team-details[data-type="${type}"]`);
+    detailsList.forEach(details => {
+      const teamKey = details.dataset.teamKey;
+      const team = teamKey ? this.teamResultLookup.get(teamKey) : undefined;
+      if (!team) return;
+      details.innerHTML = this.renderTeamDetailsTable(team, type);
+      this.bindTeamTableSortHeaders(details);
+      this.bindTeamColumnDragAndDrop(details);
+    });
+    this.bindFlipCardLocking();
+    this.bindPlayerNameClicks();
+  }
+
+  private updateTeamDetailsTable(teamKey: string, type: 'rotation' | 'bullpen'): void {
+    const team = this.teamResultLookup.get(teamKey);
+    if (!team) return;
+    const details = this.container.querySelector<HTMLElement>(`.team-details[data-team-key="${teamKey}"][data-type="${type}"]`);
+    if (!details) return;
+    details.innerHTML = this.renderTeamDetailsTable(team, type);
+    this.bindTeamTableSortHeaders(details);
+    this.bindTeamColumnDragAndDrop(details);
+    this.bindFlipCardLocking();
+    this.bindPlayerNameClicks();
+  }
+
+  private updateTeamDropIndicator(type: 'rotation' | 'bullpen', targetKey: string, position: 'before' | 'after'): void {
+    this.clearTeamDropIndicators(type);
+    const cells = this.container.querySelectorAll<HTMLElement>(`.team-details[data-type="${type}"] [data-col-key="${targetKey}"]`);
+    cells.forEach(cell => {
+      cell.dataset.dropPosition = position;
+      cell.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
+    });
+  }
+
+  private clearTeamDropIndicators(type: 'rotation' | 'bullpen'): void {
+    const cells = this.container.querySelectorAll<HTMLElement>(`.team-details[data-type="${type}"] .drop-before, .team-details[data-type="${type}"] .drop-after`);
+    cells.forEach(cell => {
+      cell.classList.remove('drop-before', 'drop-after');
+      delete cell.dataset.dropPosition;
+    });
+  }
+
+  private clearAllTeamDropIndicators(): void {
+    const cells = this.container.querySelectorAll<HTMLElement>('.team-details .drop-before, .team-details .drop-after');
+    cells.forEach(cell => {
+      cell.classList.remove('drop-before', 'drop-after');
+      delete cell.dataset.dropPosition;
+    });
+  }
+
+  private applyTeamColumnClass(type: 'rotation' | 'bullpen', columnKey: string, className: string, add: boolean): void {
+    const cells = this.container.querySelectorAll<HTMLElement>(`.team-details[data-type="${type}"] [data-col-key="${columnKey}"]`);
+    cells.forEach(cell => cell.classList.toggle(className, add));
+  }
+
+  private showSortHint(event: MouseEvent): void {
+    const arrow = document.createElement('div');
+    arrow.className = 'sort-fade-hint';
+    const details = (event.target as HTMLElement).closest<HTMLElement>('.team-details');
+    const teamKey = details?.dataset.teamKey;
+    const type = details?.dataset.type as 'rotation' | 'bullpen' | undefined;
+    let direction: 'asc' | 'desc' = 'desc';
+    if (teamKey && type) {
+      const state = this.teamSortState.get(`${type}-${teamKey}`);
+      if (state) direction = state.direction;
+    }
+    arrow.textContent = direction === 'asc' ? '▲' : '▼';
+    const offset = 16;
+    arrow.style.left = `${event.clientX + offset}px`;
+    arrow.style.top = `${event.clientY - offset}px`;
+    document.body.appendChild(arrow);
+
+    requestAnimationFrame(() => {
+      arrow.classList.add('visible');
+    });
+
+    setTimeout(() => {
+      arrow.classList.add('fade');
+      arrow.addEventListener('transitionend', () => arrow.remove(), { once: true });
+      setTimeout(() => arrow.remove(), 800);
+    }, 900);
+  }
+
+  private async openPlayerProfile(playerKey: string): Promise<void> {
+    const entry = this.playerRowLookup.get(playerKey);
+    if (!entry) return;
+    const row = entry.player;
+    const seasonYear = entry.seasonYear ?? this.selectedYear;
 
     // Fetch full player info for team labels
-    const player = await playerService.getPlayerById(playerId);
+    const player = await playerService.getPlayerById(row.playerId);
     let teamLabel = '';
     let parentLabel = '';
 
@@ -336,7 +750,7 @@ export class TeamRatingsView {
 
     // Get scouting
     const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
-    const scouting = scoutingRatings.find(s => s.playerId === playerId);
+    const scouting = scoutingRatings.find(s => s.playerId === row.playerId);
 
     // Extract pitch names and ratings if available
     const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
@@ -345,7 +759,7 @@ export class TeamRatingsView {
 
     // Determine if we should show the year label (only for historical data)
     const currentYear = this.currentGameYear ?? await dateService.getCurrentYear();
-    const isHistorical = this.selectedYear < currentYear - 1;
+    const isHistorical = seasonYear < currentYear - 1;
 
     const profileData: PlayerProfileData = {
       playerId: row.playerId,
@@ -368,11 +782,11 @@ export class TeamRatingsView {
       pitches,
       pitchRatings,
       isProspect: false,
-      year: this.selectedYear,
-      showYearLabel: isHistorical
+      year: seasonYear,
+      showYearLabel: isHistorical || this.viewMode === 'all-time'
     };
 
-    await this.playerProfileModal.show(profileData, this.selectedYear);
+    await this.playerProfileModal.show(profileData, seasonYear);
   }
 
   private async loadCurrentGameYear(): Promise<void> {
@@ -395,7 +809,9 @@ export class TeamRatingsView {
 
       const message = this.viewMode === 'projected'
           ? `Unable to load projections for ${year}.`
-          : baseMessage;
+          : this.viewMode === 'all-time'
+            ? 'No all-time team ratings available.'
+            : baseMessage;
 
       const rotContainer = this.container.querySelector('#rotation-rankings');
       const penContainer = this.container.querySelector('#bullpen-rankings');

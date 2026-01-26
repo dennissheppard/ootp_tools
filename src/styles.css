@@ -929,6 +929,11 @@ td.player-cell.player-name {
   border-bottom: 1px solid var(--color-border);
 }
 
+.team-ratings-table th,
+.team-ratings-table td {
+  padding: 0.625rem 0.5rem;
+}
+
 .true-ratings-table th[data-col-key] {
   cursor: grab;
 }
@@ -952,6 +957,32 @@ td.player-cell.player-name {
 
 .true-ratings-table .drop-before,
 .true-ratings-table .drop-after {
+  transition: box-shadow 0.1s ease;
+}
+
+.team-ratings-table th[data-col-key] {
+  cursor: grab;
+}
+
+.team-ratings-table th.dragging-col {
+  cursor: grabbing;
+}
+
+.team-ratings-table .dragging-col {
+  opacity: 0.35;
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.team-ratings-table .drop-before {
+  box-shadow: inset 4px 0 0 var(--color-primary);
+}
+
+.team-ratings-table .drop-after {
+  box-shadow: inset -4px 0 0 var(--color-primary);
+}
+
+.team-ratings-table .drop-before,
+.team-ratings-table .drop-after {
   transition: box-shadow 0.1s ease;
 }
 
@@ -1069,7 +1100,7 @@ td.player-cell.player-name {
 
 .note-text {
   color: var(--color-text-muted);
-  font-size: 0.85em;
+  font-size: 0.5em;
 }
 
 .potential-stats-content {
@@ -2478,4 +2509,3 @@ td.player-cell.player-name {
   color: var(--color-text-muted);
   line-height: 1.3;
 }
-

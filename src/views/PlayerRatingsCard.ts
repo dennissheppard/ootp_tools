@@ -275,9 +275,10 @@ export class PlayerRatingsCard {
       };
       const injuryValue = injuryMap[data.scoutInjuryProneness.toLowerCase()] ?? 50;
       const injuryClass = injuryValue <= 25 ? 'rating-poor' : injuryValue >= 75 ? 'rating-plus' : 'rating-avg';
+      const injuryLabel = data.scoutInjuryProneness;
 
       items.push(`
-        <div class="header-metadata-item">
+        <div class="header-metadata-item" title="${injuryLabel}">
           <span class="header-metadata-label">Injury</span>
           <div class="header-metadata-bar ${injuryClass}">
             <div class="header-metadata-bar-fill" style="width: ${injuryValue}%"></div>
@@ -292,7 +293,7 @@ export class PlayerRatingsCard {
       const staminaClass = data.scoutStamina >= 60 ? 'rating-plus' : data.scoutStamina >= 40 ? 'rating-avg' : 'rating-poor';
 
       items.push(`
-        <div class="header-metadata-item">
+        <div class="header-metadata-item" title="${data.scoutStamina}">
           <span class="header-metadata-label">Stamina</span>
           <div class="header-metadata-bar ${staminaClass}">
             <div class="header-metadata-bar-fill" style="width: ${staminaPercent}%"></div>
