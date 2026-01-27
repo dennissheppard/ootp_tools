@@ -2898,3 +2898,42 @@ td.player-cell.player-name {
     color: var(--color-text-muted);
     margin-top: 4px;
 }
+
+/* Projection Year Selector */
+.projection-year-selector {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-color: transparent;
+    border: none;
+    font-family: inherit;
+    font-size: inherit;
+    font-weight: 700;
+    color: inherit;
+    cursor: pointer;
+    padding: 0 1.5rem 0 0;
+    margin: 0;
+    display: inline;
+    position: relative;
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%238b98a5' d='M6 9L1.5 4.5h9z'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right center;
+    background-size: 12px;
+    transition: all 0.2s ease;
+}
+
+.projection-year-selector:hover {
+    color: var(--color-primary);
+    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%231d9bf0' d='M6 9L1.5 4.5h9z'/%3e%3c/svg%3e");
+}
+
+.projection-year-selector:focus {
+    outline: none;
+    color: var(--color-primary);
+}
+
+.projection-year-selector option {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+    padding: 0.5rem;
+}

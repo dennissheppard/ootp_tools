@@ -66,7 +66,7 @@ Search players and view their historical pitching/batting statistics.
 ### 2. True Ratings Explorer
 A new tab that provides a comprehensive view of player performance for a selected year, with separate views for pitchers and batters.
 
-- **Data Source**: Fetches data from the `https://statsplus.net/wbl/api/playerpitchstatsv2/` and `playerbatstatsv2/` endpoints.
+- **Data Source**: Fetches data from the `https://atl-01.statsplus.net/world/api/playerpitchstatsv2/` and `playerbatstatsv2/` endpoints.
 - **Interactive Table**: Displays all relevant stats in a wide, horizontally scrollable table.
 - **Custom Scrolling**: Features custom, fade-in-out arrow buttons for easier horizontal navigation on wide tables.
 - **Dynamic Sorting**: All columns are sortable. Clicking a header sorts the data and triggers a subtle fading arrow animation to indicate the sort direction.
@@ -838,4 +838,3 @@ Regression analysis script to derive rating-to-stat formulas from collected data
 - User preferences persist in `localStorage` under the `wbl-prefs` key. Currently stores whether the CSV upload instructions are hidden and whether pitch-rating chips on the draft board are hidden. Preferences are loaded at startup and updated whenever the related toggles are used.
 - **Vite Proxy**: The `vite.config.ts` file is configured to handle CORS issues by proxying API requests.
     - `/api` requests are proxied to `https://atl-01.statsplus.net/world`.
-    - `/api-wbl` requests are proxied to `https://statsplus.net/wbl` for the True Ratings page.

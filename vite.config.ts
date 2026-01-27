@@ -17,12 +17,6 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, '/api'),
         secure: true,
       },
-      '/api-wbl': {
-        target: 'https://statsplus.net/wbl',
-        changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api-wbl/, ''),
-        secure: true,
-      },
     },
   },
 });

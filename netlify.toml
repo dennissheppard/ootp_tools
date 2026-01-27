@@ -1,0 +1,9 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://atl-01.statsplus.net/world/api/:splat"
+  status = 200
+  force = true

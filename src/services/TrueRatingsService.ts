@@ -18,7 +18,7 @@ export interface PlayerYearlyDetail {
   gs: number;
 }
 
-// From https://statsplus.net/wbl/api/playerpitchstatsv2/?year=2020
+// From https://atl-01.statsplus.net/world/api/playerpitchstatsv2/?year=2020
 export interface TruePitchingStats {
   id: number;
   player_id: number;
@@ -130,8 +130,8 @@ export interface TruePlayerBattingStats extends TrueBattingStats {
 
 type StatsType = 'pitching' | 'batting';
 
-// True Ratings endpoints live under https://statsplus.net/wbl/api/*
-const API_BASE = '/api-wbl/api';
+// True Ratings endpoints live under the "world" league slug.
+const API_BASE = '/api';
 const CACHE_KEY_PREFIX = 'wbl_true_ratings_cache_';
 const CACHE_TIMESTAMP_KEY_PREFIX = 'wbl_true_ratings_cache_timestamp_';
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours

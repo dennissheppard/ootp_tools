@@ -17,6 +17,12 @@ export class PlayerProfileModal {
   private isDragging = false;
   private dragOffset = { x: 0, y: 0 };
 
+  // State for interactive year selection
+  private currentPlayerData: PlayerRatingsData | null = null;
+  private currentPlayer: any | null = null;
+  private currentMlbStats: SeasonStatsRow[] = [];
+  private mlbDebutYear: number | null = null;
+
   constructor() {
     this.ensureOverlayExists();
   }
@@ -119,8 +125,12 @@ export class PlayerProfileModal {
     this.ensureOverlayExists();
     if (!this.overlay) return;
 
+    // Store current data for interactive year selection
+    this.currentPlayerData = data;
+
     // Fetch player info first for age display
     const player = await playerService.getPlayerById(data.playerId);
+    this.currentPlayer = player;
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -172,9 +182,19 @@ export class PlayerProfileModal {
     // Fetch stats and render
     try {
       const mlbStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, selectedYear, 5);
+      this.currentMlbStats = mlbStats.map(s => ({ ...s, level: 'MLB' as const }));
+
+      // Determine MLB debut year from stats (earliest year with IP > 0)
+      // Fetch more years to get accurate debut for veterans
+      const currentYear = await dateService.getCurrentYear();
+      const extendedStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, currentYear, 30);
+      const statsWithIp = extendedStats.filter(s => s.ip > 0);
+      if (statsWithIp.length > 0) {
+        this.mlbDebutYear = Math.min(...statsWithIp.map(s => s.year));
+      }
 
       // Fetch minor league stats (within 2 years of current game date)
-      let combinedStats: SeasonStatsRow[] = mlbStats.map(s => ({ ...s, level: 'MLB' as const }));
+      let combinedStats: SeasonStatsRow[] = this.currentMlbStats;
 
       try {
         const currentYear = await dateService.getCurrentYear();
@@ -338,13 +358,22 @@ export class PlayerProfileModal {
 
                 // Display age: For prospects show peak age (27), for MLB show next season
                 const displayAge = isProspectProjection ? 27 : historicalAge + 1;
-                projectionHtml = this.renderProjection(proj, displayAge, projectionTargetYear, comparison, isProspectProjection);
+                projectionHtml = this.renderProjection(
+                  proj,
+                  displayAge,
+                  projectionTargetYear,
+                  comparison,
+                  isProspectProjection,
+                  currentYear,
+                  this.mlbDebutYear
+                );
             }
         }
 
         bodyEl.innerHTML = this.renderContent(data, combinedStats, hasMinorLeague, projectionHtml);
         this.bindScoutUploadLink();
         this.bindFlipCardLocking();
+        this.bindYearSelector();
       }
     } catch (error) {
       if (bodyEl) {
@@ -382,12 +411,36 @@ export class PlayerProfileModal {
     `;
   }
 
-  private renderProjection(proj: { projectedStats: any, projectedRatings: any }, projectionAge: number, projectedYear: number, comparison?: any, isProspect: boolean = false): string {
+  private renderProjection(
+    proj: { projectedStats: any, projectedRatings: any },
+    projectionAge: number,
+    projectedYear: number,
+    comparison?: any,
+    isProspect: boolean = false,
+    currentYear: number = 2021,
+    mlbDebutYear: number | null = null
+  ): string {
       const s = proj.projectedStats;
       const r = proj.projectedRatings;
+
+      // Build year selector for non-prospects
+      let yearDisplay = `${projectedYear}`;
+      if (!isProspect && mlbDebutYear !== null) {
+        const validYears: number[] = [];
+        for (let y = mlbDebutYear; y <= currentYear; y++) {
+          validYears.push(y);
+        }
+
+        const options = validYears
+          .map(y => `<option value="${y}" ${y === projectedYear ? 'selected' : ''}>${y}</option>`)
+          .join('');
+
+        yearDisplay = `<select class="projection-year-selector" data-current-year="${projectedYear}">${options}</select>`;
+      }
+
       const title = isProspect
         ? `Peak Year Projection <span style="font-weight: normal; opacity: 0.8;">(Age ${projectionAge})</span>`
-        : `${projectedYear} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>`;
+        : `${yearDisplay} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>`;
       const note = isProspect
         ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance.'
         : '* Projection based on prior year True Ratings. Delta = Projected - Actual. Hover cells to show ratings.';
@@ -530,5 +583,149 @@ export class PlayerProfileModal {
         cell.classList.toggle('is-flipped');
       });
     });
+  }
+
+  private bindYearSelector(): void {
+    if (!this.overlay) return;
+    const selector = this.overlay.querySelector<HTMLSelectElement>('.projection-year-selector');
+    if (!selector) return;
+
+    selector.addEventListener('change', async (e) => {
+      const newYear = parseInt((e.target as HTMLSelectElement).value, 10);
+      if (!isNaN(newYear)) {
+        await this.updateProjectionForYear(newYear);
+      }
+    });
+  }
+
+  private async updateProjectionForYear(targetYear: number): Promise<void> {
+    if (!this.currentPlayerData || !this.currentPlayer || !this.overlay) return;
+
+    const projectionSection = this.overlay.querySelector<HTMLElement>('.projection-section');
+    if (!projectionSection) return;
+
+    // Show loading state
+    projectionSection.innerHTML = '<div class="loading-message">Updating projection...</div>';
+
+    try {
+      const currentYear = await dateService.getCurrentYear();
+      const projectionBaseYear = targetYear - 1;
+      const historicalAge = projectionService.calculateAgeAtYear(this.currentPlayer, currentYear, projectionBaseYear);
+
+      // Recalculate projection
+      let proj = this.currentPlayerData.projectionOverride;
+
+      if (!proj && typeof this.currentPlayerData.estimatedStuff === 'number' &&
+          typeof this.currentPlayerData.estimatedControl === 'number' &&
+          typeof this.currentPlayerData.estimatedHra === 'number') {
+        try {
+          const leagueStats = await leagueStatsService.getLeagueStats(projectionBaseYear);
+          const leagueContext = {
+            fipConstant: leagueStats.fipConstant,
+            avgFip: leagueStats.avgFip,
+            runsPerWin: 8.5
+          };
+
+          const recent = this.currentMlbStats[0];
+          let isSp = recent && recent.ip > 80;
+          const projectionAge = historicalAge;
+
+          proj = projectionService.calculateProjection(
+            {
+              stuff: this.currentPlayerData.estimatedStuff,
+              control: this.currentPlayerData.estimatedControl,
+              hra: this.currentPlayerData.estimatedHra
+            },
+            projectionAge,
+            this.currentPlayerData.pitchCount ?? 0,
+            isSp ? 20 : 0,
+            leagueContext,
+            this.currentPlayerData.scoutStamina,
+            this.currentPlayerData.scoutInjuryProneness,
+            this.currentMlbStats,
+            this.currentPlayerData.trueRating ?? 0
+          );
+        } catch (e) {
+          console.warn('Failed to calculate projection', e);
+        }
+      }
+
+      if (!proj) {
+        projectionSection.innerHTML = '<div class="error-message">Failed to calculate projection.</div>';
+        return;
+      }
+
+      // Fetch actual stats for comparison if available
+      let actualStat: SeasonStatsRow | undefined;
+      if (targetYear < currentYear) {
+        try {
+          const targetStats = await trueRatingsService.getTruePitchingStats(targetYear);
+          const playerStat = targetStats.find(s => s.player_id === this.currentPlayerData!.playerId);
+          if (playerStat) {
+            const ip = trueRatingsService.parseIp(playerStat.ip);
+            actualStat = {
+              year: targetYear,
+              ip,
+              era: ip > 0 ? (playerStat.er / ip) * 9 : 0,
+              k9: ip > 0 ? (playerStat.k / ip) * 9 : 0,
+              bb9: ip > 0 ? (playerStat.bb / ip) * 9 : 0,
+              hr9: ip > 0 ? (playerStat.hra / ip) * 9 : 0,
+              war: playerStat.war,
+              gs: playerStat.gs
+            };
+          }
+        } catch {
+          // ignore if target year stats don't exist
+        }
+      }
+
+      let comparison: any = undefined;
+      if (actualStat && actualStat.ip >= 10) {
+        const targetLeague = await leagueStatsService.getLeagueStats(targetYear);
+        const k9 = actualStat.k9;
+        const bb9 = actualStat.bb9;
+        const hr9 = actualStat.hr9;
+        const actFip = fipWarService.calculateFip({ k9, bb9, hr9, ip: actualStat.ip }, targetLeague.fipConstant);
+        const diff = actFip - proj.projectedStats.fip;
+
+        let grade = 'F';
+        const absDiff = Math.abs(diff);
+        if (absDiff < 0.50) grade = 'A';
+        else if (absDiff < 1.00) grade = 'B';
+        else if (absDiff < 1.50) grade = 'C';
+        else if (absDiff < 2.00) grade = 'D';
+
+        comparison = {
+          fip: actFip,
+          war: actualStat.war,
+          ip: actualStat.ip,
+          k9: actualStat.k9,
+          bb9: actualStat.bb9,
+          hr9: actualStat.hr9,
+          diff,
+          grade
+        };
+      }
+
+      const displayAge = historicalAge + 1;
+      const projectionHtml = this.renderProjection(
+        proj,
+        displayAge,
+        targetYear,
+        comparison,
+        false, // Not a prospect projection
+        currentYear,
+        this.mlbDebutYear
+      );
+
+      projectionSection.outerHTML = projectionHtml;
+
+      // Re-bind events after rendering
+      this.bindFlipCardLocking();
+      this.bindYearSelector();
+    } catch (error) {
+      console.error('Failed to update projection:', error);
+      projectionSection.innerHTML = '<div class="error-message">Failed to update projection.</div>';
+    }
   }
 }
