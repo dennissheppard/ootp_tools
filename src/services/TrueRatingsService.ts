@@ -586,13 +586,13 @@ class TrueRatingsService {
    * Leverages existing caching for each year's data.
    *
    * @param endYear - The most recent year to include
-   * @param yearsBack - Number of years to fetch (default 3)
+   * @param yearsBack - Number of years to fetch (default 4 to support dynamic season weighting)
    * @param minIpPerYear - Minimum IP in a year to include that year's stats (default 1)
    * @returns Map of playerId → YearlyPitchingStats[]
    */
   public async getMultiYearPitchingStats(
     endYear: number,
-    yearsBack: number = 3,
+    yearsBack: number = 4,
     minIpPerYear: number = 1
   ): Promise<Map<number, YearlyPitchingStats[]>> {
     // Fetch all years in parallel (leverages existing caching)

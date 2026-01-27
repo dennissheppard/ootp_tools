@@ -1,3 +1,6 @@
+/** Represents how much of the baseball season has completed */
+export type SeasonStage = 'early' | 'q1_done' | 'q2_done' | 'q3_done' | 'complete';
+
 class DateService {
   private cachedDate: string | null = null;
   private fetchPromise: Promise<string> | null = null;
@@ -34,6 +37,38 @@ class DateService {
     } catch {
       // Fallback to current year if API fails
       return new Date().getFullYear();
+    }
+  }
+
+  /**
+   * Get the current stage of the baseball season based on the game date.
+   * Season runs Apr 1 - Oct 1, with quarterly thresholds:
+   * - early: Apr 1 - May 14 (Q1 in progress)
+   * - q1_done: May 15 - Jun 30
+   * - q2_done: Jul 1 - Aug 14
+   * - q3_done: Aug 15 - Sep 30
+   * - complete: Oct 1+
+   */
+  async getSeasonStage(): Promise<SeasonStage> {
+    try {
+      const date = await this.getCurrentDate();
+      const [, monthStr, dayStr] = date.split('-');
+      const month = parseInt(monthStr, 10);
+      const day = parseInt(dayStr, 10);
+
+      // Oct 1+ = season complete
+      if (month >= 10) return 'complete';
+      // Aug 15 - Sep 30 = Q3 done
+      if (month > 8 || (month === 8 && day >= 15)) return 'q3_done';
+      // Jul 1 - Aug 14 = Q2 done
+      if (month >= 7) return 'q2_done';
+      // May 15 - Jun 30 = Q1 done
+      if (month > 5 || (month === 5 && day >= 15)) return 'q1_done';
+      // Apr 1 - May 14 = early season (Q1 in progress)
+      return 'early';
+    } catch {
+      // Fallback to early season if API fails
+      return 'early';
     }
   }
 

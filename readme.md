@@ -279,6 +279,56 @@ DEFAULT_WEIGHT_PARAMS = {
 
 ---
 
+## Dynamic Current Season Weighting
+
+True Ratings incorporate current season stats progressively as the season advances. This prevents early-season noise from dominating while still reflecting recent performance.
+
+### How It Works
+
+When viewing the **current year's** True Ratings, the system dynamically adjusts year weights based on how much of the season has completed:
+
+| Season Stage | Current | N-1 | N-2 | N-3 | Description |
+|--------------|---------|-----|-----|-----|-------------|
+| Early (Apr 1 - May 14) | 0 | 5 | 3 | 2 | Q1 in progress - no current season yet |
+| Q1 Done (May 15 - Jun 30) | 1.0 | 5.0 | 2.5 | 1.5 | Start incorporating current stats |
+| Q2 Done (Jul 1 - Aug 14) | 2.5 | 4.5 | 2.0 | 1.0 | Half season weight |
+| Q3 Done (Aug 15 - Sep 30) | 4.0 | 4.0 | 1.5 | 0.5 | Current year nearly dominant |
+| Complete (Oct 1+) | 5 | 3 | 2 | 0 | Standard 3-year weighting |
+
+**Key points:**
+- Weights always sum to 10
+- Historical year views (e.g., viewing 2020 while in 2021) use standard [5, 3, 2] weights
+- Both individual True Ratings (True Stuff, True Control, True HRA) and the main True Rating are affected since they're all derived from the same blended rate stats
+
+### Implementation
+
+**Season Stage Detection** (`DateService.ts`):
+
+The `SeasonStage` type and `getSeasonStage()` method determine progress based on the in-game date:
+
+```typescript
+export type SeasonStage = 'early' | 'q1_done' | 'q2_done' | 'q3_done' | 'complete';
+```
+
+**Important:** These date thresholds are **estimates**. The actual baseball season schedule varies slightly each year. For True Ratings weight calculations, being off by a week doesn't matter - the exact timing isn't critical. However, any feature that critically depends on the exact season start or end should NOT rely on `SeasonStage`.
+
+**Dynamic Weights** (`TrueRatingsCalculationService.ts`):
+
+```typescript
+export function getYearWeights(stage: SeasonStage): number[] {
+  switch (stage) {
+    case 'early':    return [0, 5, 3, 2];
+    case 'q1_done':  return [1.0, 5.0, 2.5, 1.5];
+    case 'q2_done':  return [2.5, 4.5, 2.0, 1.0];
+    case 'q3_done':  return [4.0, 4.0, 1.5, 0.5];
+    case 'complete': return [5, 3, 2, 0];
+    default:         return [0, 5, 3, 2];
+  }
+}
+```
+
+---
+
 ## Three-Tier Regression with IP-Aware Scaling
 
 To prevent over-projection of bad players (especially on rebuilding teams) and low-IP pitchers, the system uses intelligent regression:

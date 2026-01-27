@@ -1,7 +1,7 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { Player, getFullName, isPitcher } from '../models/Player';
 import { scoutingDataService } from '../services/ScoutingDataService';
-import { trueRatingsCalculationService, YearlyPitchingStats } from '../services/TrueRatingsCalculationService';
+import { trueRatingsCalculationService, YearlyPitchingStats, getYearWeights } from '../services/TrueRatingsCalculationService';
 import { TruePlayerStats, TruePlayerBattingStats, trueRatingsService } from '../services/TrueRatingsService';
 import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
@@ -239,7 +239,7 @@ export class TrueRatingsView {
             No scouting data found. <button class="btn-link" id="go-to-data-mgmt">Manage Data</button>
         </div>
 
-        <div class="ratings-help-text">
+        <div class="ratings-help-text" style="${this.showRawStats ? '' : 'display: none'}">
           <p>* <strong>Estimated Ratings</strong> (visible when hovering over K/9, BB/9, HR/9) are snapshots based solely on that single stat. <strong>True Ratings</strong> use sophisticated multi-year analysis and regression.</p>
         </div>
         <div id="true-ratings-table-container"></div>
@@ -432,6 +432,11 @@ export class TrueRatingsView {
           btn.classList.toggle('active', isActive);
           btn.setAttribute('aria-pressed', String(isActive));
         });
+
+        const helpText = this.container.querySelector<HTMLElement>('.ratings-help-text');
+        if (helpText) {
+          helpText.style.display = this.showRawStats ? '' : 'none';
+        }
 
         this.updatePitcherColumns();
         this.updateRatingsControlsVisibility();
@@ -891,8 +896,19 @@ export class TrueRatingsView {
   }
 
   private async buildTrueRatingsStats(pitchers: PitcherRow[]): Promise<PitcherRow[]> {
+    // Determine if we should use dynamic season weighting
+    const currentYear = await dateService.getCurrentYear();
+    const isCurrentYear = this.selectedYear === currentYear;
+
+    // Get dynamic year weights if viewing current year, otherwise use standard weights
+    let yearWeights: number[] | undefined;
+    if (isCurrentYear) {
+      const stage = await dateService.getSeasonStage();
+      yearWeights = getYearWeights(stage);
+    }
+
     const [multiYearStats, leagueAverages] = await Promise.all([
-      trueRatingsService.getMultiYearPitchingStats(this.selectedYear, 3),
+      trueRatingsService.getMultiYearPitchingStats(this.selectedYear),
       trueRatingsService.getLeagueAverages(this.selectedYear),
     ]);
     const scoutingLookup = this.buildScoutingLookup(this.scoutingRatings);
@@ -920,7 +936,7 @@ export class TrueRatingsView {
       pitchersWithStats.push(pitcher);
     });
 
-    const results = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages);
+    const results = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages, yearWeights);
     const resultMap = new Map(results.map(result => [result.playerId, result]));
 
     const enrichedPitchers: PitcherRow[] = pitchersWithStats.map((pitcher) => {

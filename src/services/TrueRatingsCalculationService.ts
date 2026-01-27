@@ -18,6 +18,7 @@
  */
 
 import { PotentialStatsService } from './PotentialStatsService';
+import { SeasonStage } from './DateService';
 
 // ============================================================================
 // Interfaces
@@ -106,8 +107,27 @@ interface WeightedRates {
 // Constants
 // ============================================================================
 
-/** Year weights for multi-year averaging (most recent first) */
+/** Year weights for multi-year averaging (most recent first) - used for historical years */
 const YEAR_WEIGHTS = [5, 3, 2];
+
+/**
+ * Get dynamic year weights based on the current stage of the season.
+ * During the season, current year stats are gradually weighted in,
+ * stealing weight from older years as the season progresses.
+ *
+ * Returns weights for [current year, N-1, N-2, N-3].
+ * Weights always sum to 10.
+ */
+export function getYearWeights(stage: SeasonStage): number[] {
+  switch (stage) {
+    case 'early':    return [0, 5, 3, 2];           // Q1 in progress - no current season yet
+    case 'q1_done':  return [1.0, 5.0, 2.5, 1.5];   // May 15 - Jun 30
+    case 'q2_done':  return [2.5, 4.5, 2.0, 1.0];   // Jul 1 - Aug 14
+    case 'q3_done':  return [4.0, 4.0, 1.5, 0.5];   // Aug 15 - Sep 30
+    case 'complete': return [5, 3, 2, 0];           // Oct 1+ - standard 3-year weights
+    default:         return [0, 5, 3, 2];           // Fallback to no current season
+  }
+}
 
 /** Stabilization constants (IP needed for stat to stabilize) */
 const STABILIZATION = {
@@ -174,15 +194,17 @@ class TrueRatingsCalculationService {
    *
    * @param inputs - Array of pitcher inputs with yearly stats and optional scouting
    * @param leagueAverages - League-wide averages for regression (uses defaults if not provided)
+   * @param yearWeights - Optional custom year weights for dynamic season weighting
    * @returns Array of TrueRatingResult with percentiles and ratings
    */
   calculateTrueRatings(
     inputs: TrueRatingInput[],
-    leagueAverages: LeagueAverages = DEFAULT_LEAGUE_AVERAGES
+    leagueAverages: LeagueAverages = DEFAULT_LEAGUE_AVERAGES,
+    yearWeights?: number[]
   ): TrueRatingResult[] {
     // Step 1-4: Calculate blended rates for each pitcher
     const results: TrueRatingResult[] = inputs.map(input =>
-      this.calculateSinglePitcher(input, leagueAverages)
+      this.calculateSinglePitcher(input, leagueAverages, yearWeights)
     );
 
     // Step 5: Calculate percentiles across all pitchers
@@ -202,10 +224,11 @@ class TrueRatingsCalculationService {
    */
   private calculateSinglePitcher(
     input: TrueRatingInput,
-    leagueAverages: LeagueAverages
+    leagueAverages: LeagueAverages,
+    yearWeights?: number[]
   ): TrueRatingResult {
     // Step 1: Multi-year weighted average
-    const weighted = this.calculateWeightedRates(input.yearlyStats);
+    const weighted = this.calculateWeightedRates(input.yearlyStats, yearWeights);
 
     // Step 2: Two-tier regression (toward league avg or replacement level)
     let regressedK9 = this.regressToLeagueMean(
@@ -257,13 +280,17 @@ class TrueRatingsCalculationService {
   /**
    * Step 2.2: Calculate multi-year weighted average of rate stats
    *
-   * Weights: Year N (most recent) = 5, N-1 = 3, N-2 = 2
+   * Weights: Year N (most recent) = 5, N-1 = 3, N-2 = 2 (or dynamic based on season progress)
    * IP-weighted within each year for accuracy
    *
    * @param yearlyStats - Stats by year (most recent first)
+   * @param yearWeights - Optional custom weights array (defaults to standard [5, 3, 2])
    * @returns Weighted rates and total IP
    */
-  calculateWeightedRates(yearlyStats: YearlyPitchingStats[]): WeightedRates {
+  calculateWeightedRates(
+    yearlyStats: YearlyPitchingStats[],
+    yearWeights: number[] = YEAR_WEIGHTS
+  ): WeightedRates {
     if (yearlyStats.length === 0) {
       return { k9: 0, bb9: 0, hr9: 0, totalIp: 0 };
     }
@@ -274,12 +301,15 @@ class TrueRatingsCalculationService {
     let totalWeight = 0;
     let totalIp = 0;
 
-    // Process up to 3 years
-    const yearsToProcess = Math.min(yearlyStats.length, YEAR_WEIGHTS.length);
+    // Process up to the number of weights provided
+    const yearsToProcess = Math.min(yearlyStats.length, yearWeights.length);
 
     for (let i = 0; i < yearsToProcess; i++) {
       const stats = yearlyStats[i];
-      const yearWeight = YEAR_WEIGHTS[i];
+      const yearWeight = yearWeights[i];
+
+      // Skip years with 0 weight (e.g., early season before current year counts)
+      if (yearWeight === 0) continue;
 
       // Weight is yearWeight * IP for that year
       const weight = yearWeight * stats.ip;
