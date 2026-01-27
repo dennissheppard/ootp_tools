@@ -4,6 +4,6 @@
 
 [[redirects]]
   from = "/api/*"
-  to = "https://atl-01.statsplus.net/world/api/:splat"
+  to = "/.netlify/functions/proxy/:splat"
   status = 200
   force = true

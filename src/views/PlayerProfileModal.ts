@@ -432,10 +432,13 @@ export class PlayerProfileModal {
         }
 
         const options = validYears
-          .map(y => `<option value="${y}" ${y === projectedYear ? 'selected' : ''}>${y}</option>`)
+          .map(y => `<div class="year-option ${y === projectedYear ? 'selected' : ''}" data-year="${y}">${y}</div>`)
           .join('');
 
-        yearDisplay = `<select class="projection-year-selector" data-current-year="${projectedYear}">${options}</select>`;
+        yearDisplay = `<span class="projection-year-wrapper">
+          <strong class="projection-year-trigger">${projectedYear}</strong>
+          <div class="projection-year-dropdown">${options}</div>
+        </span>`;
       }
 
       const title = isProspect
@@ -587,14 +590,33 @@ export class PlayerProfileModal {
 
   private bindYearSelector(): void {
     if (!this.overlay) return;
-    const selector = this.overlay.querySelector<HTMLSelectElement>('.projection-year-selector');
-    if (!selector) return;
+    const wrapper = this.overlay.querySelector<HTMLElement>('.projection-year-wrapper');
+    if (!wrapper) return;
 
-    selector.addEventListener('change', async (e) => {
-      const newYear = parseInt((e.target as HTMLSelectElement).value, 10);
-      if (!isNaN(newYear)) {
-        await this.updateProjectionForYear(newYear);
-      }
+    const trigger = wrapper.querySelector<HTMLElement>('.projection-year-trigger');
+    const dropdown = wrapper.querySelector<HTMLElement>('.projection-year-dropdown');
+    const options = wrapper.querySelectorAll<HTMLElement>('.year-option');
+
+    if (!trigger || !dropdown || options.length === 0) return;
+
+    // Show dropdown on hover
+    wrapper.addEventListener('mouseenter', () => {
+      dropdown.classList.add('visible');
+    });
+
+    wrapper.addEventListener('mouseleave', () => {
+      dropdown.classList.remove('visible');
+    });
+
+    // Handle option clicks
+    options.forEach(option => {
+      option.addEventListener('click', async () => {
+        const newYear = parseInt(option.dataset.year || '', 10);
+        if (!isNaN(newYear)) {
+          dropdown.classList.remove('visible');
+          await this.updateProjectionForYear(newYear);
+        }
+      });
     });
   }
 

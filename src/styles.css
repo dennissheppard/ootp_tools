@@ -2900,40 +2900,63 @@ td.player-cell.player-name {
 }
 
 /* Projection Year Selector */
-.projection-year-selector {
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    background-color: transparent;
-    border: none;
-    font-family: inherit;
-    font-size: inherit;
-    font-weight: 700;
-    color: inherit;
-    cursor: pointer;
-    padding: 0 1.5rem 0 0;
-    margin: 0;
-    display: inline;
+.projection-year-wrapper {
     position: relative;
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%238b98a5' d='M6 9L1.5 4.5h9z'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right center;
-    background-size: 12px;
-    transition: all 0.2s ease;
+    display: inline-block;
 }
 
-.projection-year-selector:hover {
-    color: var(--color-primary);
-    background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3e%3cpath fill='%231d9bf0' d='M6 9L1.5 4.5h9z'/%3e%3c/svg%3e");
+.projection-year-trigger {
+    font-weight: 700;
+    cursor: pointer;
+    transition: color 0.2s ease;
 }
 
-.projection-year-selector:focus {
-    outline: none;
+.projection-year-wrapper:hover .projection-year-trigger {
     color: var(--color-primary);
 }
 
-.projection-year-selector option {
+.projection-year-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 0.25rem;
     background-color: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--border-radius);
+    box-shadow: var(--shadow);
+    min-width: 80px;
+    max-height: 300px;
+    overflow-y: auto;
+    z-index: 1000;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.projection-year-dropdown.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.year-option {
+    padding: 0.5rem 0.75rem;
+    cursor: pointer;
+    text-align: center;
+    transition: background-color 0.15s ease;
     color: var(--color-text);
-    padding: 0.5rem;
+}
+
+.year-option:hover {
+    background-color: var(--color-surface-hover);
+}
+
+.year-option.selected {
+    background-color: var(--color-primary);
+    color: white;
+    font-weight: 600;
+}
+
+.year-option.selected:hover {
+    background-color: var(--color-primary-hover);
 }
