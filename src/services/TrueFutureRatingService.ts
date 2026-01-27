@@ -347,7 +347,7 @@ class TrueFutureRatingService {
     source: 'my' | 'osa' = 'my'
   ): Promise<TrueFutureRatingResult[]> {
     // Get scouting data
-    const scoutingRatings = scoutingDataService.getScoutingRatings(year, source);
+    const scoutingRatings = await scoutingDataService.getScoutingRatings(year, source);
     if (scoutingRatings.length === 0) {
       return [];
     }
@@ -379,7 +379,7 @@ class TrueFutureRatingService {
       if (scouting.playerId <= 0) continue;
 
       // Get minor league stats for this player (last 3 years)
-      const minorStats = minorLeagueStatsService.getPlayerStats(
+      const minorStats = await minorLeagueStatsService.getPlayerStats(
         scouting.playerId,
         year - 2,
         year

@@ -1,8 +1,10 @@
 import { MinorLeagueStats, MinorLeagueStatsWithLevel, MinorLeagueLevel } from '../models/Stats';
+import { indexedDBService } from './IndexedDBService';
 
 export type { MinorLeagueLevel };
 
 const STORAGE_KEY_PREFIX = 'wbl_minor_stats_';
+const USE_INDEXEDDB = true; // Feature flag to switch between localStorage and IndexedDB
 
 type StatsHeaderKey = 'id' | 'name' | 'ip' | 'hr' | 'bb' | 'k' | 'hr9' | 'bb9' | 'k9';
 
@@ -97,17 +99,34 @@ class MinorLeagueStatsService {
     return results;
   }
 
-  saveStats(year: number, level: MinorLeagueLevel, stats: MinorLeagueStats[]): void {
+  async saveStats(year: number, level: MinorLeagueLevel, stats: MinorLeagueStats[]): Promise<void> {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem(this.storageKey(year, level), JSON.stringify(stats));
+      if (USE_INDEXEDDB) {
+        await indexedDBService.saveStats(year, level, stats);
+      } else {
+        localStorage.setItem(this.storageKey(year, level), JSON.stringify(stats));
+      }
     } catch (e) {
       console.error('Failed to save stats', e);
+      throw e; // Re-throw so UI can handle errors
     }
   }
 
-  getStats(year: number, level: MinorLeagueLevel): MinorLeagueStats[] {
+  async getStats(year: number, level: MinorLeagueLevel): Promise<MinorLeagueStats[]> {
     if (typeof window === 'undefined') return [];
+
+    // Try IndexedDB first
+    if (USE_INDEXEDDB) {
+      try {
+        const data = await indexedDBService.getStats(year, level);
+        if (data) return data;
+      } catch (err) {
+        console.error('Error fetching from IndexedDB:', err);
+      }
+    }
+
+    // Fallback to localStorage
     try {
       const raw = localStorage.getItem(this.storageKey(year, level));
       if (!raw) return [];
@@ -118,31 +137,95 @@ class MinorLeagueStatsService {
     }
   }
 
-  hasStats(year: number, level: MinorLeagueLevel): boolean {
+  async hasStats(year: number, level: MinorLeagueLevel): Promise<boolean> {
     if (typeof window === 'undefined') return false;
+
+    // Check IndexedDB first
+    if (USE_INDEXEDDB) {
+      try {
+        const data = await indexedDBService.getStats(year, level);
+        if (data && data.length > 0) return true;
+      } catch (err) {
+        console.error('Error checking IndexedDB:', err);
+      }
+    }
+
+    // Fallback to localStorage
     return !!localStorage.getItem(this.storageKey(year, level));
   }
-  
-  clearStats(year: number, level: MinorLeagueLevel): void {
-      if (typeof window === 'undefined') return;
-      localStorage.removeItem(this.storageKey(year, level));
+
+  async clearStats(year: number, level: MinorLeagueLevel): Promise<void> {
+    if (typeof window === 'undefined') return;
+
+    // Clear from IndexedDB
+    if (USE_INDEXEDDB) {
+      try {
+        await indexedDBService.deleteStats(year, level);
+      } catch (err) {
+        console.error('Error deleting from IndexedDB:', err);
+      }
+    }
+
+    // Also clear from localStorage for backward compatibility
+    localStorage.removeItem(this.storageKey(year, level));
+  }
+
+  /**
+   * Get all minor league stats for all players across all levels within a year range.
+   * Returns a Map of playerId -> array of stats. Much faster than individual queries.
+   */
+  async getAllPlayerStatsBatch(
+    startYear: number,
+    endYear: number
+  ): Promise<Map<number, MinorLeagueStatsWithLevel[]>> {
+    const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
+    const playerStatsMap = new Map<number, MinorLeagueStatsWithLevel[]>();
+
+    // Fetch all stats for all years/levels in parallel
+    const fetchPromises: Promise<{ year: number; level: MinorLeagueLevel; stats: MinorLeagueStats[] }>[] = [];
+
+    for (let year = startYear; year <= endYear; year++) {
+      for (const level of levels) {
+        fetchPromises.push(
+          this.getStats(year, level).then(stats => ({ year, level, stats }))
+        );
+      }
+    }
+
+    const results = await Promise.all(fetchPromises);
+
+    // Build the map
+    for (const { year, level, stats } of results) {
+      for (const stat of stats) {
+        if (!playerStatsMap.has(stat.id)) {
+          playerStatsMap.set(stat.id, []);
+        }
+        playerStatsMap.get(stat.id)!.push({
+          ...stat,
+          year,
+          level,
+        });
+      }
+    }
+
+    return playerStatsMap;
   }
 
   /**
    * Get all minor league stats for a specific player across all levels within a year range.
    * Returns stats with level information attached.
    */
-  getPlayerStats(
+  async getPlayerStats(
     playerId: number,
     startYear: number,
     endYear: number
-  ): MinorLeagueStatsWithLevel[] {
+  ): Promise<MinorLeagueStatsWithLevel[]> {
     const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
     const results: MinorLeagueStatsWithLevel[] = [];
 
     for (let year = startYear; year <= endYear; year++) {
       for (const level of levels) {
-        const stats = this.getStats(year, level);
+        const stats = await this.getStats(year, level);
         const playerStats = stats.find((s) => s.id === playerId);
         if (playerStats) {
           results.push({
@@ -161,7 +244,7 @@ class MinorLeagueStatsService {
   /**
    * Get all stored year/level combinations that have data.
    */
-  getAvailableDataSets(): Array<{ year: number; level: MinorLeagueLevel }> {
+  async getAvailableDataSets(): Promise<Array<{ year: number; level: MinorLeagueLevel }>> {
     if (typeof window === 'undefined') return [];
     const results: Array<{ year: number; level: MinorLeagueLevel }> = [];
     const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
@@ -170,7 +253,7 @@ class MinorLeagueStatsService {
     const maxYear = new Date().getFullYear() + 5;
     for (let year = 2000; year <= maxYear; year++) {
       for (const level of levels) {
-        if (this.hasStats(year, level)) {
+        if (await this.hasStats(year, level)) {
           results.push({ year, level });
         }
       }

@@ -14,13 +14,11 @@ class App {
   private statsView!: StatsView;
   private loadingView!: LoadingView;
   private errorView!: ErrorView;
-  private activeTabId = 'tab-calculators';
+  private activeTabId = 'tab-true-ratings';
   private calculatorsView!: CalculatorsView;
   private projectionsView?: ProjectionsView;
-  private trueRatingsView?: TrueRatingsView;
   private teamRatingsView?: TeamRatingsView;
   private projectionsContainer!: HTMLElement;
-  private trueRatingsContainer!: HTMLElement;
   private teamRatingsContainer!: HTMLElement;
 
   private selectedYear?: number;
@@ -57,11 +55,7 @@ class App {
       </header>
 
       <nav class="tabs">
-        <button class="tab-button active" data-tab-target="tab-calculators">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-          <span>Calculators</span>
-        </button>
-        <button class="tab-button" data-tab-target="tab-true-ratings">
+        <button class="tab-button active" data-tab-target="tab-true-ratings">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
           <span>True Ratings</span>
         </button>
@@ -77,9 +71,9 @@ class App {
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           <span>Team Ratings</span>
         </button>
-        <button class="tab-button" data-tab-target="tab-data-management">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-          <span>Data Management</span>
+        <button class="tab-button" data-tab-target="tab-calculators">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          <span>Calculators</span>
         </button>
       </nav>
 
@@ -91,7 +85,7 @@ class App {
           <div id="stats-container"></div>
         </section>
 
-        <section id="tab-calculators" class="tab-panel active">
+        <section id="tab-calculators" class="tab-panel">
           <div id="calculators-container"></div>
         </section>
 
@@ -99,7 +93,7 @@ class App {
           <div id="draft-board-container"></div>
         </section>
 
-        <section id="tab-true-ratings" class="tab-panel">
+        <section id="tab-true-ratings" class="tab-panel active">
           <div id="true-ratings-container"></div>
         </section>
         
@@ -164,7 +158,7 @@ class App {
     });
     this.calculatorsView = new CalculatorsView(calculatorsContainer);
     new DraftBoardView(draftBoardContainer);
-    this.trueRatingsContainer = trueRatingsContainer;
+    new TrueRatingsView(trueRatingsContainer);
     this.projectionsContainer = projectionsContainer;
     new FarmRankingsView(farmRankingsContainer);
     this.teamRatingsContainer = teamRatingsContainer;
@@ -183,6 +177,14 @@ class App {
         }
       });
     });
+
+    // Double-click logo to access Data Management
+    const logo = document.querySelector<HTMLImageElement>('.app-logo');
+    if (logo) {
+      logo.addEventListener('dblclick', () => {
+        this.setActiveTab('tab-data-management');
+      });
+    }
   }
 
   private setActiveTab(tabId: string): void {
@@ -202,9 +204,6 @@ class App {
 
     if (tabId === 'tab-projections' && !this.projectionsView) {
       this.projectionsView = new ProjectionsView(this.projectionsContainer);
-    }
-    if (tabId === 'tab-true-ratings' && !this.trueRatingsView) {
-      this.trueRatingsView = new TrueRatingsView(this.trueRatingsContainer);
     }
     if (tabId === 'tab-team-ratings' && !this.teamRatingsView) {
       this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);

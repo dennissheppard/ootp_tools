@@ -102,7 +102,7 @@ export class PlayerController {
           const currentYear = await dateService.getCurrentYear();
           const startYear = currentYear - 2;
           const endYear = currentYear;
-          minorLeagueStats = minorLeagueStatsService.getPlayerStats(playerId, startYear, endYear);
+          minorLeagueStats = await minorLeagueStatsService.getPlayerStats(playerId, startYear, endYear);
         } catch (error) {
           console.warn(`Could not fetch minor league stats for player ${playerId}:`, error);
           // Continue with empty minor league stats

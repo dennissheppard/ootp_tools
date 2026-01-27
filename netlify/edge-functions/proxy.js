@@ -1,7 +1,3 @@
-export const config = {
-  runtime: 'edge',
-};
-
 const UPSTREAM_BASE = 'https://atl-01.statsplus.net/world/api/';
 
 const PUBLIC_CACHE_CONTROL = 'public, s-maxage=86400, stale-while-revalidate=604800, stale-if-error=604800';
@@ -16,22 +12,21 @@ function getCacheControl(path) {
   return PUBLIC_CACHE_CONTROL;
 }
 
-export default async function handler(req) {
-  const { searchParams, pathname } = new URL(req.url);
-  const path = pathname.replace('/api/', '');
-  const targetUrl = `${UPSTREAM_BASE}${path}${searchParams.toString() ? '?' + searchParams.toString() : ''}`;
+export default async (request, context) => {
+  const url = new URL(request.url);
+  const path = url.pathname.replace('/api/', '');
+  const targetUrl = `${UPSTREAM_BASE}${path}${url.search}`;
 
   // Try to get from cache first (only for public endpoints)
   if (!isPrivateEndpoint(path)) {
-    const cache = caches.default;
+    const cache = await caches.open('statsplus-proxy');
     const cachedResponse = await cache.match(targetUrl);
     if (cachedResponse) {
+      const headers = new Headers(cachedResponse.headers);
+      headers.set('X-Cache', 'HIT');
       return new Response(cachedResponse.body, {
         status: cachedResponse.status,
-        headers: {
-          ...Object.fromEntries(cachedResponse.headers),
-          'X-Cache': 'HIT',
-        },
+        headers,
       });
     }
   }
@@ -48,19 +43,19 @@ export default async function handler(req) {
     'referer'
   ];
   passthrough.forEach((key) => {
-    const value = req.headers.get(key);
+    const value = request.headers.get(key);
     if (value) headers.set(key, value);
   });
 
   if (isPrivateEndpoint(path)) {
-    const cookie = req.headers.get('cookie');
+    const cookie = request.headers.get('cookie');
     if (cookie) headers.set('cookie', cookie);
   }
 
   let upstream;
   try {
     upstream = await fetch(targetUrl, {
-      method: req.method,
+      method: request.method,
       headers,
       redirect: 'manual',
     });
@@ -95,9 +90,9 @@ export default async function handler(req) {
 
   // Cache the response for public endpoints
   if (!isPrivateEndpoint(path) && upstream.ok) {
-    const cache = caches.default;
+    const cache = await caches.open('statsplus-proxy');
     await cache.put(targetUrl, response.clone());
   }
 
   return response;
-}
+};

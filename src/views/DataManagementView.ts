@@ -2,6 +2,7 @@ import { minorLeagueStatsService, MinorLeagueLevel } from '../services/MinorLeag
 import { scoutingDataService, ScoutingSource } from '../services/ScoutingDataService';
 import { dateService } from '../services/DateService';
 import { MessageModal } from './MessageModal';
+import { storageMigration } from '../services/StorageMigration';
 
 type DataMode = 'stats' | 'scouting';
 
@@ -35,7 +36,17 @@ export class DataManagementView {
     this.container.innerHTML = `
       <div class="potential-stats-section">
         <h2 class="section-title">Data Management</h2>
-        <p class="section-subtitle">Manage historical statistics and scouting reports (MLB stats are always current and fetched from the S+ API)</p>        
+        <p class="section-subtitle">Manage historical statistics and scouting reports (MLB stats are always current and fetched from the S+ API)</p>
+
+        <div id="migration-banner" style="display: none; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <strong>Storage Migration Available</strong>
+              <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Your data is stored in localStorage which has limited space. Migrate to IndexedDB for unlimited storage.</p>
+            </div>
+            <button id="migrate-btn" class="btn btn-primary">Migrate Now</button>
+          </div>
+        </div>
 
         <div class="draft-header" style="margin-bottom: 1.5rem;">
             <div class="toggle-group" role="tablist" aria-label="Data type">
@@ -123,6 +134,7 @@ export class DataManagementView {
 
     this.bindEvents();
     this.updateModeUI();
+    this.checkMigrationNeeded();
   }
 
   private bindEvents(): void {
@@ -196,6 +208,10 @@ export class DataManagementView {
     });
 
     uploadBtn?.addEventListener('click', () => this.handleUpload());
+
+    // Migration button
+    const migrateBtn = this.container.querySelector<HTMLButtonElement>('#migrate-btn');
+    migrateBtn?.addEventListener('click', () => this.handleMigration());
   }
 
   private updateModeUI(): void {
@@ -325,7 +341,7 @@ export class DataManagementView {
                 const info = this.detectFileInfo(file.name);
                 const year = info.year || this.selectedYear;
                 const level = info.level || this.selectedLevel;
-                minorLeagueStatsService.saveStats(year, level, stats);
+                await minorLeagueStatsService.saveStats(year, level, stats);
                 successCount++;
             } else {
                 const ratings = scoutingDataService.parseScoutingCsv(content, this.selectedScoutingSource);
@@ -337,7 +353,7 @@ export class DataManagementView {
                 
                 // Use current game date if available, otherwise default to today
                 const saveDate = this.currentGameDate || new Date().toISOString().split('T')[0];
-                scoutingDataService.saveScoutingRatings(saveDate, ratings, this.selectedScoutingSource);
+                await scoutingDataService.saveScoutingRatings(saveDate, ratings, this.selectedScoutingSource);
                 successCount++;
             }
 
@@ -377,7 +393,7 @@ export class DataManagementView {
       });
   }
 
-  private refreshExistingDataList(): void {
+  private async refreshExistingDataList(): Promise<void> {
       const tbody = this.container.querySelector<HTMLElement>('#existing-data-list');
       if (!tbody) return;
 
@@ -387,8 +403,8 @@ export class DataManagementView {
       // Check Stats range 2000-2030
       for (let y = 2000; y <= 2030; y++) {
           for (const l of levels) {
-              if (minorLeagueStatsService.hasStats(y, l)) {
-                  const stats = minorLeagueStatsService.getStats(y, l);
+              if (await minorLeagueStatsService.hasStats(y, l)) {
+                  const stats = await minorLeagueStatsService.getStats(y, l);
                   foundData.push({ type: 'Stats', yearOrDate: y.toString(), details: l.toUpperCase(), count: stats.length, id: `stats_${y}_${l}` });
               }
           }
@@ -396,9 +412,13 @@ export class DataManagementView {
       
       // Check Scouting Snapshots
       // Iterate year range 2000-2030 to find scouting data
+      let totalScoutingSnapshots = 0;
       for (let y = 2000; y <= 2030; y++) {
-          ['my', 'osa'].forEach(source => {
-              const snapshots = scoutingDataService.getAvailableScoutingSnapshots(y, source as ScoutingSource);
+          for (const source of ['my', 'osa']) {
+              const snapshots = await scoutingDataService.getAvailableScoutingSnapshots(y, source as ScoutingSource);
+              if (snapshots.length > 0) {
+                  totalScoutingSnapshots += snapshots.length;
+              }
               snapshots.forEach((snap, index) => {
                   foundData.push({
                       type: 'Scout',
@@ -409,7 +429,7 @@ export class DataManagementView {
                       isLatest: index === 0 // Assuming getAvailableScoutingSnapshots sorts desc
                   });
               });
-          });
+          }
       }
 
       // Sort by Date desc
@@ -440,24 +460,81 @@ export class DataManagementView {
       }).join('');
 
       tbody.querySelectorAll('.delete-btn').forEach(btn => {
-          btn.addEventListener('click', (e) => {
+          btn.addEventListener('click', async (e) => {
               const el = e.target as HTMLElement;
               const id = el.dataset.id;
               if (!id) return;
-              
+
               if (confirm(`Are you sure you want to delete this data?`)) {
                   if (id.startsWith('wbl_scouting_ratings_')) {
                       scoutingDataService.clearScoutingRatings(id);
-                  } else {
-                      // Stats ID format: stats_2021_aaa
+                  } else if (id.includes('_')) {
+                      // Check if it's IndexedDB format (date_source) or stats format (year_level)
                       const parts = id.split('_');
-                      const year = parseInt(parts[1], 10);
-                      const detail = parts[2];
-                      minorLeagueStatsService.clearStats(year, detail as MinorLeagueLevel);
+                      if (parts.length >= 2) {
+                          // Stats ID format: stats_2021_aaa OR 2021_aaa
+                          const yearPart = parts[0] === 'stats' ? parts[1] : parts[0];
+                          const levelPart = parts[0] === 'stats' ? parts[2] : parts[1];
+                          const year = parseInt(yearPart, 10);
+                          if (!isNaN(year)) {
+                              await minorLeagueStatsService.clearStats(year, levelPart as MinorLeagueLevel);
+                          }
+                      }
                   }
-                  this.refreshExistingDataList();
+                  await this.refreshExistingDataList();
               }
           });
       });
+  }
+
+  private checkMigrationNeeded(): void {
+    const banner = this.container.querySelector<HTMLElement>('#migration-banner');
+    if (!banner) return;
+
+    if (storageMigration.needsMigration()) {
+      banner.style.display = 'block';
+
+      // Show usage stats
+      // Optional: Log storage usage for debugging
+      // const usage = storageMigration.getLocalStorageUsage();
+      // const totalMB = (usage.total / 1024 / 1024).toFixed(2);
+      // console.log(`localStorage usage: ${totalMB} MB`);
+    }
+  }
+
+  private async handleMigration(): Promise<void> {
+    const migrateBtn = this.container.querySelector<HTMLButtonElement>('#migrate-btn');
+    if (!migrateBtn) return;
+
+    if (!confirm('This will migrate all your data from localStorage to IndexedDB. This process cannot be undone. Continue?')) {
+      return;
+    }
+
+    migrateBtn.disabled = true;
+    migrateBtn.textContent = 'Migrating...';
+
+    try {
+      const result = await storageMigration.migrateAll();
+
+      let message = `Migration complete!\n\nScouting datasets migrated: ${result.scouting}\nStats datasets migrated: ${result.stats}`;
+
+      if (result.errors.length > 0) {
+        message += '\n\nErrors:\n' + result.errors.join('\n');
+      }
+
+      this.messageModal.show('Migration Complete', message);
+
+      // Hide banner and refresh list
+      const banner = this.container.querySelector<HTMLElement>('#migration-banner');
+      if (banner) banner.style.display = 'none';
+
+      await this.refreshExistingDataList();
+    } catch (error) {
+      this.messageModal.show('Migration Failed', `An error occurred: ${error}`);
+      console.error('Migration error:', error);
+    } finally {
+      migrateBtn.disabled = false;
+      migrateBtn.textContent = 'Migrate Now';
+    }
   }
 }

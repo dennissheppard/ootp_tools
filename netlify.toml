@@ -2,8 +2,6 @@
   command = "npm run build"
   publish = "dist"
 
-[[redirects]]
-  from = "/api/*"
-  to = "/.netlify/functions/proxy/:splat"
-  status = 200
-  force = true
+[[edge_functions]]
+  function = "proxy"
+  path = "/api/*"

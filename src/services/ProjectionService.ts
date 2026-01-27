@@ -59,7 +59,14 @@ const PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
   { threshold: 0.0, rating: 0.5 },
 ];
 
+const LEAGUE_START_YEAR = 2000;
+
 class ProjectionService {
+  // League IP distribution for percentile-based projections
+  private spStaminaDistribution: number[] = [];
+  private spIpDistribution: number[] = [];
+  private spMaxIp: number = 240; // Max IP from distribution, default to reasonable cap
+
   private percentileToRating(percentile: number): number {
     for (const { threshold, rating } of PERCENTILE_TO_RATING) {
       if (percentile >= threshold) {
@@ -87,15 +94,30 @@ class ProjectionService {
     const currentYearStats = await this.safeGetPitchingStats(year);
 
     const totalCurrentIp = currentYearStats.reduce((sum, stat) => sum + trueRatingsService.parseIp(stat.ip), 0);
+
+    // Check if we have meaningful starter workloads (anyone with 10+ GS indicates mid-season or later)
+    const hasStarterWorkloads = currentYearStats.some(stat => stat.gs >= 10);
+    console.log(`[IP Distribution Setup] Year=${year}, totalCurrentIp=${totalCurrentIp}, hasStarterWorkloads=${hasStarterWorkloads}`);
+
     let statsYear = year;
     let usedFallbackStats = false;
     let pitchingStats = currentYearStats;
 
-    if (totalCurrentIp <= 0 && year > 1900) {
+    if (totalCurrentIp <= 0 && year > LEAGUE_START_YEAR) {
       statsYear = year - 1;
       usedFallbackStats = true;
       pitchingStats = await this.safeGetPitchingStats(statsYear);
     }
+
+    // Build league IP distribution for percentile-based projections
+    // Use previous year's stats if current season doesn't have meaningful starter workloads yet
+    const distributionYear = !hasStarterWorkloads && year > LEAGUE_START_YEAR ? year - 1 : year;
+    console.log(`[IP Distribution Setup] distributionYear=${distributionYear}, willFetchNew=${distributionYear !== year}`);
+    const distributionStats = distributionYear !== year
+      ? await this.safeGetPitchingStats(distributionYear)
+      : currentYearStats;
+    console.log(`[IP Distribution Setup] Fetched ${distributionStats.length} stats for distribution`);
+    this.buildLeagueIpDistribution(distributionStats, scoutingRatings, distributionYear);
 
     const multiYearEndYear = usedFallbackStats ? statsYear : year;
     const [leagueAverages, leagueStats, multiYearStats] = await Promise.all([
@@ -125,8 +147,10 @@ class ProjectionService {
     const statsMap = new Map(pitchingStats.map(stat => [stat.player_id, stat]));
 
     // Fetch Minor League Stats for Readiness Check
-    const aaaStats = minorLeagueStatsService.getStats(statsYear, 'aaa');
-    const aaStats = minorLeagueStatsService.getStats(statsYear, 'aa');
+    const [aaaStats, aaStats] = await Promise.all([
+      minorLeagueStatsService.getStats(statsYear, 'aaa'),
+      minorLeagueStatsService.getStats(statsYear, 'aa')
+    ]);
     const aaaOrAaPlayerIds = new Set<number>([
         ...aaaStats.map(s => s.id),
         ...aaStats.map(s => s.id)
@@ -188,6 +212,13 @@ class ProjectionService {
              if (matches && matches.length === 1) scouting = matches[0];
         }
 
+        // Debug prospect scouting data - log first 3 prospects
+        //if (!hasRecentMlb && scouting && tempProjections.length < 3 && console && typeof console.log === 'function') {
+            console.log(`[Scouting Data Check] Player ${tr.playerId} (${tr.playerName}) scouting:`, scouting);
+            const pitchCount = scouting?.pitches ? Object.keys(scouting?.pitches).length : 0;
+            console.log(`[Scouting Data Check] Has ${pitchCount} pitches:`, scouting?.pitches);
+        //}
+
         if (!isMlbReady) {
             // ... (keep logic) ...
             const isUpperMinors = aaaOrAaPlayerIds.has(tr.playerId);
@@ -209,7 +240,7 @@ class ProjectionService {
         // Fall back to stats team_id only if current team is unknown (0).
         const teamId = player.teamId || currentStats?.team_id || 0;
         const team = teamMap.get(teamId);
-        const ipResult = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1, player.role, tr.trueRating);
+        const ipResult = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1, player.role, tr.trueRating, hasRecentMlb);
 
         const currentRatings = {
             stuff: tr.estimatedStuff,
@@ -348,7 +379,7 @@ class ProjectionService {
   /**
    * Project stats for a single player based on current estimated ratings
    */
-  calculateProjection(
+  async calculateProjection(
     currentRatings: { stuff: number; control: number; hra: number },
     age: number,
     pitchCount: number = 0,
@@ -357,21 +388,38 @@ class ProjectionService {
     stamina?: number,
     injuryProneness?: string,
     historicalStats?: YearlyPitchingStats[],
-    trueRating: number = 0
-  ): {
+    trueRating: number = 0,
+    pitchRatings?: Record<string, number>
+  ): Promise<{
     projectedStats: { k9: number; bb9: number; hr9: number; fip: number; war: number; ip: number };
     projectedRatings: { stuff: number; control: number; hra: number };
-  } {
+  }> {
+    // Ensure distributions are loaded (for percentile-based IP projections)
+    if (this.spStaminaDistribution.length === 0 || this.spIpDistribution.length === 0) {
+      await this.ensureDistributionsLoaded();
+    }
+
+    // Apply aging to get projected ratings first
+    const projectedRatings = agingService.applyAging(currentRatings, age);
+
+    // Calculate quick FIP estimate for skill-based IP modifier (using dummy 150 IP)
+    const tempStats = PotentialStatsService.calculatePitchingStats(
+        { ...projectedRatings, movement: 50, babip: 50 },
+        150, // dummy IP
+        leagueContext
+    );
+    const estimatedFip = tempStats.fip;
+
     // Construct dummy scouting object for IP calc
     const dummyScouting: Partial<PitcherScoutingRatings> = {
         stamina,
         injuryProneness,
-        pitches: pitchCount > 0 ? { 'Fastball': 50, 'Curveball': 50, 'Changeup': 50 } : undefined // Rough hack to simulate pitch count
+        // Use actual pitch ratings if provided, otherwise fall back to dummy values
+        pitches: pitchRatings || (pitchCount > 0 ? { 'Fastball': 50, 'Curveball': 50, 'Changeup': 50 } : undefined)
     };
-    
-    // If pitchCount < 3, ensure we pass that
-    if (pitchCount < 3 && dummyScouting.pitches) {
-         // remove keys
+
+    // If using fallback pitches and pitchCount < 3, trim
+    if (!pitchRatings && pitchCount < 3 && dummyScouting.pitches) {
          const keys = Object.keys(dummyScouting.pitches);
          while (Object.keys(dummyScouting.pitches).length > pitchCount) {
              delete dummyScouting.pitches[keys.pop()!];
@@ -380,19 +428,22 @@ class ProjectionService {
 
     const dummyStats: Partial<TruePlayerStats> | undefined = gs > 0 ? { gs } : undefined;
 
+    // Infer if player has MLB experience from historical stats
+    const totalHistoricalIp = historicalStats?.reduce((sum, s) => sum + s.ip, 0) ?? 0;
+    const hasRecentMlb = totalHistoricalIp > 20 || gs > 0;
+
     const ipResult = this.calculateProjectedIp(
         dummyScouting as PitcherScoutingRatings,
         dummyStats as TruePlayerStats,
         historicalStats,
         age + 1,
         0, // role
-        trueRating
+        trueRating,
+        hasRecentMlb,
+        estimatedFip
     );
 
-    // Apply Aging
-    const projectedRatings = agingService.applyAging(currentRatings, age);
-
-    // Calculate Stats
+    // Calculate Stats (projectedRatings already calculated earlier)
     const potStats = PotentialStatsService.calculatePitchingStats(
         { ...projectedRatings, movement: 50, babip: 50 },
         ipResult.ip,
@@ -422,28 +473,190 @@ class ProjectionService {
       return targetYear - birthYear;
   }
 
+  /**
+   * Ensure distributions are loaded (lazy-load if needed)
+   */
+  private async ensureDistributionsLoaded(): Promise<void> {
+    if (this.spStaminaDistribution.length > 0 && this.spIpDistribution.length > 0) {
+      return; // Already loaded
+    }
+
+    try {
+      const currentYear = await dateService.getCurrentYear();
+      const currentYearStats = await this.safeGetPitchingStats(currentYear);
+      const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
+
+      // Use previous year's stats if current season doesn't have meaningful starter workloads yet
+      const hasStarterWorkloads = currentYearStats.some(stat => stat.gs >= 10);
+      const distributionYear = !hasStarterWorkloads && currentYear > LEAGUE_START_YEAR ? currentYear - 1 : currentYear;
+      const distributionStats = distributionYear !== currentYear
+        ? await this.safeGetPitchingStats(distributionYear)
+        : currentYearStats;
+
+      this.buildLeagueIpDistribution(distributionStats, scoutingRatings, distributionYear);
+    } catch (error) {
+      console.warn('[IP Distribution] Failed to load distributions:', error);
+      // Distributions will remain empty, fallback to formula-based approach
+    }
+  }
+
+  /**
+   * Build league IP and stamina distributions for percentile-based projections.
+   * Separates SP from RP based on GS.
+   */
+  private buildLeagueIpDistribution(
+    stats: TruePlayerStats[],
+    scoutingRatings: PitcherScoutingRatings[],
+    year?: number
+  ): void {
+    const spIps: number[] = [];
+    const spStaminas: number[] = [];
+
+    const yearInfo = year ? ` from ${year}` : '';
+    console.log(`[IP Distribution] Building${yearInfo} with ${stats.length} stats, ${scoutingRatings.length} scouting ratings`);
+
+    // Debug: Check what years are in the stats
+    if (stats.length > 0) {
+      const years = new Set(stats.map(s => s.year));
+      console.log(`[IP Distribution] Stats years in data:`, Array.from(years).sort());
+      const totalIp = stats.reduce((sum, s) => sum + trueRatingsService.parseIp(s.ip), 0);
+      console.log(`[IP Distribution] Total IP in stats: ${totalIp.toFixed(1)}`);
+    }
+
+    // Build scouting map for quick lookups
+    const scoutingMap = new Map<number, PitcherScoutingRatings>();
+    const scoutingByName = new Map<string, PitcherScoutingRatings[]>();
+
+    scoutingRatings.forEach(s => {
+      if (s.playerId > 0) scoutingMap.set(s.playerId, s);
+      if (s.playerName) {
+        const norm = this.normalizeName(s.playerName);
+        if (norm) {
+          const list = scoutingByName.get(norm) ?? [];
+          list.push(s);
+          scoutingByName.set(norm, list);
+        }
+      }
+    });
+
+    // Collect SP IP distribution (players with 29+ GS - full season starters)
+    // Use 29+ GS to capture peak workload, excluding spot starters and injury-shortened seasons
+    let gsCount = 0;
+    let gsFullSeasonCount = 0;
+    let ipCount = 0;
+    const MIN_GS_FOR_PEAK = 29;
+
+    stats.forEach(stat => {
+      if (typeof stat.gs === 'number') gsCount++;
+      if (stat.gs >= MIN_GS_FOR_PEAK) {
+        gsFullSeasonCount++;
+        const ip = trueRatingsService.parseIp(stat.ip);
+        if (ip > 0) {
+          ipCount++;
+          spIps.push(ip);
+        }
+      }
+    });
+
+    console.log(`[IP Distribution] Stats analysis: ${stats.length} total, ${gsCount} with GS field, ${gsFullSeasonCount} with GS>=${MIN_GS_FOR_PEAK}, ${ipCount} with GS>=${MIN_GS_FOR_PEAK} and IP>0`);
+    console.log(`[IP Distribution] Sample stat:`, stats[0]);
+    console.log(`[IP Distribution] Found ${spIps.length} SP with ${MIN_GS_FOR_PEAK}+ GS (full season starters)`);
+
+    // Collect SP stamina distribution from scouting
+    scoutingRatings.forEach(s => {
+      const pitches = s.pitches ?? {};
+      const usablePitches = Object.values(pitches).filter(r => r > 25).length;
+      const stam = s.stamina ?? 0;
+
+      // Consider as SP if they have 3+ pitches and stamina >= 35
+      if (usablePitches >= 3 && stam >= 35) {
+        spStaminas.push(stam);
+      }
+    });
+
+    console.log(`[IP Distribution] Found ${spStaminas.length} SP prospects with 3+ pitches & stam >= 35`);
+
+    // Sort for percentile calculations
+    this.spIpDistribution = spIps.sort((a, b) => a - b);
+    this.spStaminaDistribution = spStaminas.sort((a, b) => a - b);
+
+    // Capture max IP for capping projections at 105% of historical max
+    if (this.spIpDistribution.length > 0) {
+      this.spMaxIp = this.spIpDistribution[this.spIpDistribution.length - 1];
+      const ipCap = Math.round(this.spMaxIp * 1.05);
+      console.log(`[IP Distribution] IP range: ${this.spIpDistribution[0]} to ${this.spMaxIp} (cap: ${ipCap})`);
+    }
+    if (this.spStaminaDistribution.length > 0) {
+      console.log(`[IP Distribution] Stamina range: ${this.spStaminaDistribution[0]} to ${this.spStaminaDistribution[this.spStaminaDistribution.length - 1]}`);
+    }
+  }
+
+  /**
+   * Get percentile rank for a value in a sorted distribution.
+   * Returns 0-100.
+   */
+  private getPercentile(value: number, distribution: number[]): number {
+    if (distribution.length === 0) return 50; // Default to median
+
+    let rank = 0;
+    for (const val of distribution) {
+      if (val < value) rank++;
+      else break;
+    }
+
+    return (rank / distribution.length) * 100;
+  }
+
+  /**
+   * Get value at a specific percentile in a sorted distribution.
+   */
+  private getValueAtPercentile(percentile: number, distribution: number[]): number {
+    if (distribution.length === 0) return 0;
+
+    const index = Math.floor((percentile / 100) * distribution.length);
+    const clampedIndex = Math.max(0, Math.min(distribution.length - 1, index));
+    return distribution[clampedIndex];
+  }
+
   private calculateProjectedIp(
     scouting: PitcherScoutingRatings | undefined,
     currentStats: TruePlayerStats | undefined,
     historicalStats: YearlyPitchingStats[] | undefined,
     age: number,
     playerRole: number = 0,
-    trueRating: number = 0
+    trueRating: number = 0,
+    hasRecentMlb: boolean = true,
+    projectedFip?: number
   ): { ip: number; isSp: boolean } {
     // 1. Determine Role (SP vs RP)
     let isSp = false;
 
     // Heuristic 1: Profile (User Priority)
-    // 3+ Pitches (>= 45) AND Stamina >= 35 AND True Rating >= 2.0
+    // 3+ Pitches (> 25) AND Stamina >= 35
+    // Count pitches > 25 as "real" pitches (not just organizational filler)
+    // For prospects without MLB track record, don't require proven performance
+    // For established players, require TR >= 2.0 to be considered a starter
     let meetsProfile = false;
     if (scouting) {
         const pitches = scouting.pitches ?? {};
-        const usablePitches = Object.values(pitches).filter(r => r >= 45).length;
+        const pitchValues = Object.values(pitches);
+        const usablePitches = pitchValues.filter(r => r > 25).length;
         const stam = scouting.stamina ?? 0;
-        
-        if (usablePitches >= 3 && stam >= 35 && trueRating >= 2.0) {
-            meetsProfile = true;
+
+        // Debug logging for role classification
+        if (console && typeof console.log === 'function') {
+            console.log(`[Role Check] usablePitches=${usablePitches}, stamina=${stam}, hasRecentMlb=${hasRecentMlb}, trueRating=${trueRating.toFixed(2)}, isSp=${meetsProfile || playerRole === 11}`);
         }
+
+        if (usablePitches >= 3 && stam >= 35) {
+            // If prospect (no MLB experience), profile alone is enough
+            // If established player, also require competent performance
+            if (!hasRecentMlb || trueRating >= 2.0) {
+                meetsProfile = true;
+            }
+        }
+    } else if (!hasRecentMlb && console && typeof console.log === 'function') {
+        console.log(`[Role Check] Prospect has NO scouting data`);
     }
 
     if (meetsProfile) {
@@ -466,47 +679,98 @@ class ProjectionService {
         }
     }
 
-    // 2. Base IP
-    // Default stamina if missing
+    // 2. Calculate Base IP using Percentile Approach
     const stamina = scouting?.stamina ?? (isSp ? 50 : 30);
-    
-    let baseIp = isSp 
-        ? 100 + (stamina * 1.2) // 30->136, 80->196
-        : 30 + (stamina * 0.6); // 20->42, 80->78
-    
-    // Clamp
-    if (isSp) baseIp = Math.max(100, Math.min(240, baseIp));
-    else baseIp = Math.max(30, Math.min(100, baseIp));
+    let baseIp: number;
+
+    if (isSp && this.spStaminaDistribution.length > 0 && this.spIpDistribution.length > 0) {
+        // Percentile-based approach for SP
+        // Get this player's stamina percentile
+        const staminaPercentile = this.getPercentile(stamina, this.spStaminaDistribution);
+
+        // Map to IP at that percentile
+        baseIp = this.getValueAtPercentile(staminaPercentile, this.spIpDistribution);
+
+        // Debug logging
+        if (console && typeof console.log === 'function') {
+            console.log(`[IP Projection] Percentile approach: stamina=${stamina}, staminaPct=${staminaPercentile.toFixed(1)}%, baseIP=${baseIp}, isSp=${isSp}`);
+        }
+
+        // Floor for prospects with good stamina (prevents unreasonably low projections)
+        if (baseIp < 100) baseIp = 100;
+    } else {
+        // Fallback to formula-based approach if distributions not available
+        baseIp = isSp
+            ? 100 + (stamina * 1.2) // 30->136, 80->196
+            : 30 + (stamina * 0.6); // 20->42, 80->78
+
+        // Clamp
+        if (isSp) baseIp = Math.max(100, Math.min(240, baseIp));
+        else baseIp = Math.max(30, Math.min(100, baseIp));
+
+        if (console && typeof console.log === 'function') {
+            console.log(`[IP Projection] Fallback approach: stamina=${stamina}, baseIP=${baseIp}, isSp=${isSp}, distSizes=[stam:${this.spStaminaDistribution.length}, ip:${this.spIpDistribution.length}]`);
+        }
+    }
 
     // 3. Injury Modifier
     const proneness = scouting?.injuryProneness?.toLowerCase() ?? 'normal';
     let injuryMod = 1.0;
     switch (proneness) {
         case 'iron man': injuryMod = 1.15; break;
-        case 'durable': injuryMod = 1.08; break; // bit better than normal
+        case 'durable': injuryMod = 1.08; break;
         case 'normal': injuryMod = 1.0; break;
-        case 'fragile': injuryMod = 0.85; break; // was 0.75
-        case 'wrecked': injuryMod = 0.60; break; // was 0.40
+        case 'fragile': injuryMod = 0.85; break;
+        case 'wrecked': injuryMod = 0.65; break;
     }
     baseIp *= injuryMod;
 
-    // 4. Historical Blend (Durability Evidence)
-    // Special case detection: Late-season callups / breakout candidates
+    // 4. Skill Modifier (managers give more IP to better pitchers)
+    // Scale IP based on projected skill level (FIP)
+    // League average FIP is typically around 4.20
+    let skillMod = 1.0;
+    if (projectedFip !== undefined) {
+        // Better pitchers (lower FIP) get more innings
+        if (projectedFip <= 3.50) {
+            skillMod = 1.20; // Elite
+        } else if (projectedFip <= 4.00) {
+            skillMod = 1.10; // Above average
+        } else if (projectedFip <= 4.50) {
+            skillMod = 1.0; // Average
+        } else if (projectedFip <= 5.00) {
+            skillMod = 0.90; // Below average
+        } else {
+            skillMod = 0.80; // Poor
+        }
+    }
+    baseIp *= skillMod;
+
+    // 5. Historical Blend (Durability Evidence)
+    // For established players, blend with historical data
     const totalHistoricalIp = historicalStats?.reduce((sum, s) => sum + s.ip, 0) ?? 0;
     const isLimitedExperience = totalHistoricalIp > 0 && totalHistoricalIp < 80 && age < 28;
     const hasStarterProfile = isSp && stamina >= 50;
 
     // Use weighted average of last 3 years if available
+    // Filter out incomplete seasons (< 50 IP for starters who normally throw 120+)
     if (historicalStats && historicalStats.length > 0) {
+        // For established starters, exclude seasons with very low IP (likely incomplete/injured)
+        const minIpThreshold = isSp ? 50 : 10;
+        const completedSeasons = historicalStats.filter(s => s.ip >= minIpThreshold);
+
+        if (console && typeof console.log === 'function' && completedSeasons.length < historicalStats.length) {
+            const filtered = historicalStats.filter(s => s.ip < minIpThreshold);
+            console.log(`[IP Projection] Filtered ${filtered.length} incomplete season(s): ${filtered.map(s => `${s.year}(${s.ip}IP)`).join(', ')}`);
+        }
+
         let totalWeightedIp = 0;
         let totalWeight = 0;
         const weights = [5, 3, 2]; // Most recent year gets weight 5
 
-        // historicalStats is sorted recent first (descending year)
-        for (let i = 0; i < Math.min(historicalStats.length, 3); i++) {
-            const stat = historicalStats[i];
+        // Use only completed seasons for weighted average
+        for (let i = 0; i < Math.min(completedSeasons.length, 3); i++) {
+            const stat = completedSeasons[i];
             const weight = weights[i];
-            // Use the IP directly (it's already parsed in YearlyPitchingStats)
             totalWeightedIp += stat.ip * weight;
             totalWeight += weight;
         }
@@ -514,33 +778,27 @@ class ProjectionService {
         if (totalWeight > 0) {
             let weightedIp = totalWeightedIp / totalWeight;
 
-            // NEW: Breakout / Ramp-Up Detection
+            // Breakout / Ramp-Up Detection
             // If the player just threw a full starter workload (>120 IP) and it was a massive jump
             // from the previous year (>1.5x), assume the recent year is the new baseline.
-            // This handles "Callup (95 IP) -> Full Season (186 IP)" scenarios where the weighted average
-            // would unfairly drag them down.
-            const recentStats = historicalStats[0];
-            if (historicalStats.length >= 2) {
-                const previousStats = historicalStats[1];
+            const recentStats = completedSeasons[0];
+            if (completedSeasons.length >= 2) {
+                const previousStats = completedSeasons[1];
                 if (recentStats.ip > 120 && recentStats.ip > previousStats.ip * 1.5) {
                     weightedIp = recentStats.ip;
                 }
             }
 
-            // Special case: Late-season callups / 2nd year starters
-            // If a young pitcher has limited MLB IP but projects as a full-time starter,
-            // heavily favor stamina-based projection over limited historical data
+            // Special case: Prospects/young players with limited MLB experience
+            // Favor model-based projection heavily to avoid anchoring on small samples
             if (isLimitedExperience && hasStarterProfile) {
-                // 90% stamina-based model, 10% limited history
-                // This prevents projecting 40 IP for a rookie who's expected to be a full-time starter
-                baseIp = (baseIp * 0.90) + (weightedIp * 0.10);
+                // 85% model, 15% limited history
+                baseIp = (baseIp * 0.85) + (weightedIp * 0.15);
             } else if (weightedIp > 50) {
-                // If the player has established history (>50 IP avg), trust history more
-                // 70% History, 30% Model
-                // This prevents "Wrecked" label from destroying the projection of a guy who just threw 180 IP
-                baseIp = (baseIp * 0.30) + (weightedIp * 0.70);
+                // Established players: trust history more (65% history, 35% model)
+                baseIp = (baseIp * 0.35) + (weightedIp * 0.65);
             } else {
-                // For low IP players, trust the model/scouting more (50/50)
+                // Low IP players: 50/50 blend
                 baseIp = (baseIp * 0.50) + (weightedIp * 0.50);
             }
         }
@@ -548,24 +806,35 @@ class ProjectionService {
         // Fallback to single year if no history array
         const rawIp = trueRatingsService.parseIp(currentStats.ip);
         if (rawIp > 0) {
-            // Similar logic: if young starter with limited IP, favor model
             const isYoungStarterCallup = rawIp < 80 && age < 28 && hasStarterProfile;
             if (isYoungStarterCallup) {
-                baseIp = (baseIp * 0.90) + (rawIp * 0.10);
+                baseIp = (baseIp * 0.85) + (rawIp * 0.15);
             } else {
                 baseIp = (baseIp * 0.50) + (rawIp * 0.50);
             }
         }
     }
 
-    // 5. Age Cliff (The "Geriatric Penalty")
-    // Severe penalties for 40+ to model rapid decline in durability/likelihood of playing
+    // 6. Age Cliff (The "Geriatric Penalty")
     if (age >= 46) {
-        baseIp *= 0.10; // 150 -> 15
+        baseIp *= 0.10;
     } else if (age >= 43) {
-        baseIp *= 0.40; // 150 -> 60
+        baseIp *= 0.40;
     } else if (age >= 40) {
-        baseIp *= 0.75; // 150 -> 112
+        baseIp *= 0.75;
+    }
+
+    // Apply cap at 105% of historical max (prevent unrealistic projections)
+    const ipCap = Math.round(this.spMaxIp * 1.05);
+    const uncappedIp = baseIp;
+    if (isSp && baseIp > ipCap) {
+        baseIp = ipCap;
+    }
+
+    // Final debug logging
+    if (console && typeof console.log === 'function') {
+        const cappedNote = uncappedIp > ipCap ? ` (capped from ${Math.round(uncappedIp)})` : '';
+        console.log(`[IP Projection] Final: ip=${Math.round(baseIp)}${cappedNote}, injuryMod=${injuryMod.toFixed(2)}, skillMod=${skillMod.toFixed(2)}, projectedFip=${projectedFip?.toFixed(2) ?? 'N/A'}, age=${age}`);
     }
 
     return { ip: Math.round(baseIp), isSp };
@@ -612,7 +881,7 @@ class ProjectionService {
       }
       return stats;
     } catch {
-      if (year > 1900) {
+      if (year > LEAGUE_START_YEAR) {
         try {
           const fallback = await leagueStatsService.getLeagueStats(year - 1);
           if (Number.isFinite(fallback.fipConstant) && Number.isFinite(fallback.avgFip)) {

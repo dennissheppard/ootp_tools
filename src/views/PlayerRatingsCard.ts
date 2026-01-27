@@ -340,17 +340,88 @@ export class PlayerRatingsCard {
   static renderHeaderPitches(data: PlayerRatingsData): string {
     if (!data.pitches || data.pitches.length === 0) return '';
 
-    const pitchItems = data.pitches.map(pitchName => {
-      const rating = data.pitchRatings?.[pitchName] ?? 0;
-      const ratingClass = rating >= 60 ? 'rating-plus' : rating >= 45 ? 'rating-avg' : 'rating-poor';
-      return `<div class="pitch-item ${ratingClass}">${pitchName} <span class="pitch-rating">(${rating})</span></div>`;
-    }).join('');
+    const pitchNameMap: Record<string, string> = {
+      fbp: 'Fastball',
+      chp: 'Changeup',
+      spp: 'Splitter',
+      cbp: 'Curveball',
+      slp: 'Slider',
+      ctp: 'Cutter',
+      fop: 'Forkball',
+      ccp: 'CircleChange',
+      scp: 'Screwball',
+      kcp: 'Knucklecurve',
+      knp: 'Knuckle'
+    };
+
+    const normalizePitchName = (pitchName: string): string => {
+      const normalized = pitchName.trim().toLowerCase();
+      return pitchNameMap[normalized]
+        ?? pitchNameMap[normalized.replace(/[^a-z]/g, '')]
+        ?? (pitchName.endsWith('p') ? pitchName.slice(0, -1) : pitchName);
+    };
+
+    const pitchList = data.pitches.map(pitchName => ({
+      raw: pitchName,
+      rating: data.pitchRatings?.[pitchName] ?? 0,
+      display: normalizePitchName(pitchName)
+    }));
+
+    pitchList.sort((a, b) => b.rating - a.rating);
+    const topPitches = pitchList.slice(0, 3);
+    const extraPitches = pitchList.slice(3);
+
+    const renderPitchItem = (pitch: { raw: string; rating: number; display: string }, showName = true): string => {
+      const rating = pitch.rating;
+      const ratingClass = rating >= 70 ? 'rating-elite' : rating >= 60 ? 'rating-plus' : rating >= 45 ? 'rating-avg' : 'rating-poor';
+
+      // Calculate percentage (20-80 scale, where 20 = 0% and 80 = 100%)
+      const percentage = Math.max(0, Math.min(100, ((rating - 20) / 60) * 100));
+
+      // SVG circle parameters
+      const radius = 7;
+      const circumference = 2 * Math.PI * radius;
+      const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+      const cleanPitchName = pitch.display;
+
+      return `
+        <div class="pitch-item" title="${cleanPitchName}: ${rating}">
+          <svg class="pitch-donut" viewBox="0 0 18 18" width="18" height="18">
+            <circle class="pitch-donut-bg" cx="9" cy="9" r="${radius}" />
+            <circle
+              class="pitch-donut-fill ${ratingClass}"
+              cx="9"
+              cy="9"
+              r="${radius}"
+              stroke-dasharray="${circumference}"
+              style="--donut-offset: ${strokeDashoffset}; --donut-circumference: ${circumference};"
+            />
+          </svg>
+          ${showName ? `<span class="pitch-name">${cleanPitchName}</span>` : ''}
+        </div>
+      `;
+    };
+
+    const pitchItems = topPitches.map(pitch => renderPitchItem(pitch, true)).join('');
+
+    const overflow = extraPitches.length > 0
+      ? `
+        <div class="pitch-overflow">
+          <span class="pitch-overflow-indicator" aria-label="More pitches">▲</span>
+          <div class="pitch-overflow-tooltip">
+            ${pitchList.map(pitch => renderPitchItem(pitch, true)).join('')}
+          </div>
+        </div>
+      `
+      : '';
 
     return `
       <div class="header-pitches">
         <div class="header-pitches-label">Pitches</div>
         <div class="header-pitches-list">
           ${pitchItems}
+          ${overflow}
         </div>
       </div>
     `;
@@ -486,7 +557,26 @@ export class PlayerRatingsCard {
    * Render a placeholder bar (no scout data)
    */
   static renderPlaceholderBar(label: string, estimated?: number): string {
-    const estValue = estimated ?? 0;
+    // If no estimated rating (no MLB stats), show placeholder on left too
+    if (estimated === undefined) {
+      return `
+        <div class="rating-row">
+          <span class="rating-label">${label}</span>
+          <div class="rating-bars">
+            <div class="bar-container bar-container-placeholder">
+              <span class="bar-placeholder-text">?</span>
+            </div>
+            <span class="bar-vs">vs</span>
+            <div class="bar-container bar-container-placeholder">
+              <span class="bar-placeholder-text">?</span>
+            </div>
+            <span class="rating-diff">—</span>
+          </div>
+        </div>
+      `;
+    }
+
+    const estValue = estimated;
     const estWidth = Math.max(20, Math.min(80, estValue));
     const estClass = this.getRatingClassForValue(estValue);
 
@@ -512,7 +602,21 @@ export class PlayerRatingsCard {
    * Render estimated-only bar (for modal when no scout data)
    */
   static renderEstimatedOnlyBar(label: string, estimated?: number): string {
-    const estValue = estimated ?? 0;
+    // If no estimated rating, show placeholder
+    if (estimated === undefined) {
+      return `
+        <div class="rating-row">
+          <span class="rating-label">${label}</span>
+          <div class="rating-bars single">
+            <div class="bar-container bar-container-placeholder">
+              <span class="bar-placeholder-text">?</span>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    const estValue = estimated;
     const estWidth = Math.max(20, Math.min(80, estValue));
     const estClass = this.getRatingClassForValue(estValue);
 

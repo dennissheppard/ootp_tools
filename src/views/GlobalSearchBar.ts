@@ -2,7 +2,7 @@ import { Player, getFullName, getPositionLabel } from '../models/Player';
 import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
 import { playerService } from '../services/PlayerService';
 import { dateService } from '../services/DateService';
-import { trueRatingsService } from '../services/TrueRatingsService';
+import { trueRatingsService, TruePlayerStats } from '../services/TrueRatingsService';
 import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
@@ -217,6 +217,10 @@ export class GlobalSearchBar {
 
       if (ratingsData) {
         await this.playerProfileModal.show(ratingsData, currentYear);
+      } else {
+        console.error('Failed to build ratings data for player', player.id);
+        // Show a user-friendly error
+        alert(`Unable to load profile for ${player.firstName} ${player.lastName}. Please try again.`);
       }
     } catch (error) {
       console.error('Failed to load player profile:', error);
@@ -227,7 +231,9 @@ export class GlobalSearchBar {
     try {
       // Get player info
       const player = await playerService.getPlayerById(playerId);
-      if (!player) return null;
+      if (!player) {
+        return null;
+      }
 
       const playerName = getFullName(player);
 
@@ -259,12 +265,17 @@ export class GlobalSearchBar {
       }
 
       // Get scouting data and build lookup. Use latest available data ("My Scout" preference).
-      const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+      const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
       const scoutingLookup = this.buildScoutingLookup(scoutingRatings);
       const scoutMatch = this.resolveScoutingFromLookup(playerId, playerName, scoutingLookup);
 
       // Try to get True Rating from cached data
-      const allPitchers = await trueRatingsService.getTruePitchingStats(year);
+      let allPitchers: TruePlayerStats[] = [];
+      try {
+        allPitchers = await trueRatingsService.getTruePitchingStats(year);
+      } catch (error) {
+        console.warn('No MLB pitching stats available for year:', year, error);
+      }
       const playerStats = allPitchers.find(p => p.player_id === playerId);
 
       let playerResult: any = null;
@@ -311,16 +322,26 @@ export class GlobalSearchBar {
           const age = player.age ?? 22;
 
           // Get minor league stats
-          const minorStats = minorLeagueStatsService.getPlayerStats(playerId, year - 2, year);
+          const minorStats = await minorLeagueStatsService.getPlayerStats(playerId, year - 2, year);
 
-          // Get MLB pitcher FIPs for percentile ranking
-          const [multiYearStats, leagueAverages] = await Promise.all([
-            trueRatingsService.getMultiYearPitchingStats(year, 3),
-            trueRatingsService.getLeagueAverages(year),
-          ]);
+          // Only calculate TFR if we have MLB pitchers for comparison
+          if (allPitchers.length === 0) {
+            console.warn('No MLB pitchers available for TFR calculation, skipping');
+            // Still set estimated ratings from scouting
+            playerResult = {
+              estimatedStuff: scoutMatch.stuff,
+              estimatedControl: scoutMatch.control,
+              estimatedHra: scoutMatch.hra,
+            };
+          } else {
+            // Get MLB pitcher FIPs for percentile ranking
+            const [multiYearStats, leagueAverages] = await Promise.all([
+              trueRatingsService.getMultiYearPitchingStats(year, 3),
+              trueRatingsService.getLeagueAverages(year),
+            ]);
 
-          // Calculate True Ratings for MLB pitchers to get FIP distribution
-          const mlbInputs = allPitchers.map(stat => {
+            // Calculate True Ratings for MLB pitchers to get FIP distribution
+            const mlbInputs = allPitchers.map(stat => {
             const scouting = this.resolveScoutingFromLookup(stat.player_id, stat.playerName, scoutingLookup);
             return {
               playerId: stat.player_id,
@@ -369,13 +390,14 @@ export class GlobalSearchBar {
               estimatedHra: Math.round((2.08 - tfrResult.projHr9) / 0.024),
             };
           }
+          } // Close else block for MLB pitchers check
         } catch (error) {
           console.warn('Error calculating TFR:', error);
         }
       }
 
-      // If we have neither calculated ratings nor scout opinions, return null
-      if (!playerResult && !scoutMatch) return null;
+      // Always show the modal, even without scouting or MLB data
+      // We can still display player info, team, and minor league stats
 
       // Extract pitch data from scouting
       const pitchData = (scoutMatch as any)?.pitches;
@@ -383,6 +405,7 @@ export class GlobalSearchBar {
       const pitchRatings = pitchData ?? {};
       const pitchCount = pitchData ? Object.values(pitchData).filter((rating: any) => rating >= 45).length : 0;
 
+      // Build the profile data - undefined values will show as placeholders in the modal
       return {
         playerId,
         playerName,

@@ -9,9 +9,9 @@ describe('ProjectionService', () => {
 
   const mockRatings = { stuff: 50, control: 50, hra: 50 };
 
-  test('should calculate higher IP for high stamina SP', () => {
+  test('should calculate higher IP for high stamina SP', async () => {
     // SP (3 pitches) with High Stamina (80)
-    const result = projectionService.calculateProjection(
+    const result = await projectionService.calculateProjection(
       mockRatings,
       25,
       3, // pitchCount
@@ -28,15 +28,15 @@ describe('ProjectionService', () => {
     expect(result.projectedStats.ip).toBeCloseTo(196, 0);
   });
 
-  test('should calculate lower IP for low stamina SP', () => {
+  test('should calculate lower IP for low stamina SP', async () => {
     // SP (3 pitches) with Low Stamina (40)
-    const result = projectionService.calculateProjection(
+    const result = await projectionService.calculateProjection(
       mockRatings,
       25,
-      3, 
-      0, 
+      3,
+      0,
       mockLeagueContext,
-      40, 
+      40,
       'Normal',
       undefined,
       3.0
@@ -47,15 +47,15 @@ describe('ProjectionService', () => {
     expect(result.projectedStats.ip).toBeCloseTo(148, 0);
   });
 
-  test('should calculate lower IP for Reliever', () => {
+  test('should calculate lower IP for Reliever', async () => {
     // RP (2 pitches) with High Stamina (80) - Likely Long Reliever
-    const result = projectionService.calculateProjection(
+    const result = await projectionService.calculateProjection(
       mockRatings,
       25,
-      2, 
-      0, 
+      2,
+      0,
       mockLeagueContext,
-      80, 
+      80,
       'Normal'
     );
 
@@ -64,28 +64,28 @@ describe('ProjectionService', () => {
     expect(result.projectedStats.ip).toBeCloseTo(78, 0);
   });
 
-  test('should apply injury penalties', () => {
+  test('should apply injury penalties', async () => {
     // SP with Normal vs Wrecked
-    const normal = projectionService.calculateProjection(
+    const normal = await projectionService.calculateProjection(
       mockRatings,
       25,
-      3, 
-      0, 
+      3,
+      0,
       mockLeagueContext,
-      50, 
+      50,
       'Normal',
       undefined,
       3.0
     );
     // Base: 100 + 60 = 160. Normal=160.
 
-    const wrecked = projectionService.calculateProjection(
+    const wrecked = await projectionService.calculateProjection(
       mockRatings,
       25,
-      3, 
-      0, 
+      3,
+      0,
       mockLeagueContext,
-      50, 
+      50,
       'Wrecked',
       undefined,
       3.0
@@ -96,22 +96,22 @@ describe('ProjectionService', () => {
     expect(wrecked.projectedStats.ip).toBeLessThan(100);
   });
 
-  test('should default to RP if stamina is missing or low with minimal pitches', () => {
+  test('should default to RP if stamina is missing or low with minimal pitches', async () => {
       // 2 pitches, no stamina provided
-      const result = projectionService.calculateProjection(
+      const result = await projectionService.calculateProjection(
         mockRatings,
         25,
-        2, 
-        0, 
+        2,
+        0,
         mockLeagueContext,
-        undefined, 
+        undefined,
         'Normal'
       );
       // Default RP logic: stamina 30. Base 30 + (30*0.6) = 48.
       expect(result.projectedStats.ip).toBeLessThan(60);
   });
 
-  test('should handle ramp-up scenario (95 IP -> 186 IP) correctly', () => {
+  test('should handle ramp-up scenario (95 IP -> 186 IP) correctly', async () => {
     // Scenario: Pitcher with good stamina (60)
     // Year 1: 95 IP (Call up)
     // Year 2: 186 IP (Full season)
@@ -121,19 +121,19 @@ describe('ProjectionService', () => {
         { year: 2023, ip: 95, gs: 15, k9: 8, bb9: 3, hr9: 1 }   // 2 Years Ago (Year 1)
     ];
 
-    const result = projectionService.calculateProjection(
+    const result = await projectionService.calculateProjection(
       mockRatings,
-      25, 
-      3, 
-      30, 
+      25,
+      3,
+      30,
       mockLeagueContext,
-      60, 
+      60,
       'Normal',
       historicalStats,
       3.0
     );
 
     // Expected: ~182 (was ~158 before fix)
-    expect(result.projectedStats.ip).toBeGreaterThan(175); 
+    expect(result.projectedStats.ip).toBeGreaterThan(175);
   });
 });

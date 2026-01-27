@@ -136,7 +136,7 @@ export class StatsView {
                 const currentYear = await dateService.getCurrentYear();
                 const historicalAge = projectionService.calculateAgeAtYear(player, currentYear, ratingsYear);
 
-                const proj = projectionService.calculateProjection(
+                const proj = await projectionService.calculateProjection(
                     { stuff: ratingsData.estimatedStuff, control: ratingsData.estimatedControl, hra: ratingsData.estimatedHra },
                     historicalAge,
                     0, // pitch count
@@ -144,9 +144,11 @@ export class StatsView {
                     leagueContext,
                     ratingsData.scoutStamina,
                     ratingsData.scoutInjuryProneness,
-                    mlbYearlyStats
+                    mlbYearlyStats,
+                    ratingsData.trueRating ?? 0,
+                    ratingsData.pitchRatings
                 );
-                
+
                 projectionHtml = this.renderProjection(proj, historicalAge + 1);
             }
         } catch (e) {
@@ -269,7 +271,7 @@ export class StatsView {
   private async fetchPlayerRatings(playerId: number, playerName: string, year: number): Promise<PlayerRatingsData | null> {
     try {
       // Get scouting data and build lookup. Use latest available data ("My Scout" preference).
-      const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+      const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
       const scoutingLookup = this.buildScoutingLookup(scoutingRatings);
       const scoutMatch = this.resolveScoutingFromLookup(playerId, playerName, scoutingLookup);
 
@@ -323,7 +325,7 @@ export class StatsView {
           const age = player?.age ?? 22;
 
           // Get minor league stats
-          const minorStats = minorLeagueStatsService.getPlayerStats(playerId, year - 2, year);
+          const minorStats = await minorLeagueStatsService.getPlayerStats(playerId, year - 2, year);
 
           // Get MLB pitcher FIPs for percentile ranking
           const [multiYearStats, leagueAverages] = await Promise.all([

@@ -1056,9 +1056,9 @@ export class ProjectionsView {
     // Get scouting (ONLY for current context, not historical analysis)
     const currentYear = await dateService.getCurrentYear();
     let scouting: any = undefined;
-    
+
     if (projectionYear >= currentYear) {
-      const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+      const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
       scouting = scoutingRatings.find(s => s.playerId === playerId);
     }
 

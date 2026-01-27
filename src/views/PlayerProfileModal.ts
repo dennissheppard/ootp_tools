@@ -1,4 +1,4 @@
-import { trueRatingsService } from '../services/TrueRatingsService';
+import { trueRatingsService, PlayerYearlyDetail } from '../services/TrueRatingsService';
 import { PlayerRatingsCard, PlayerRatingsData, SeasonStatsRow } from './PlayerRatingsCard';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { dateService } from '../services/DateService';
@@ -22,6 +22,9 @@ export class PlayerProfileModal {
   private currentPlayer: any | null = null;
   private currentMlbStats: SeasonStatsRow[] = [];
   private mlbDebutYear: number | null = null;
+
+  // League configuration
+  private readonly LEAGUE_START_YEAR = 2000;
 
   constructor() {
     this.ensureOverlayExists();
@@ -153,12 +156,37 @@ export class PlayerProfileModal {
     }
     if (headerSlot) {
       headerSlot.innerHTML = PlayerRatingsCard.renderRatingEmblem(data);
+      // Trigger shimmer animation on rating emblem
+      requestAnimationFrame(() => {
+        const emblem = headerSlot.querySelector<HTMLElement>('.rating-emblem');
+        const emblemFill = headerSlot.querySelector<HTMLElement>('.rating-emblem-bar-fill');
+        if (emblem) emblem.classList.add('shimmer-once');
+        if (emblemFill) emblemFill.classList.add('shimmer-once');
+      });
     }
     if (metadataSlot) {
       metadataSlot.innerHTML = PlayerRatingsCard.renderHeaderMetadata(data);
+      // Trigger shimmer animation on metadata bars
+      requestAnimationFrame(() => {
+        const metadataFills = metadataSlot.querySelectorAll<HTMLElement>('.header-metadata-bar-fill');
+        metadataFills.forEach(fill => fill.classList.add('shimmer-once'));
+      });
     }
     if (pitchesSlot) {
       pitchesSlot.innerHTML = PlayerRatingsCard.renderHeaderPitches(data);
+      requestAnimationFrame(() => {
+        const donutFills = pitchesSlot.querySelectorAll<SVGCircleElement>('.pitch-donut-fill');
+        donutFills.forEach(fill => {
+          fill.style.strokeDashoffset = 'var(--donut-circumference)';
+          fill.classList.remove('animate-once');
+        });
+        window.setTimeout(() => {
+          donutFills.forEach(fill => {
+            void fill.getBoundingClientRect();
+            fill.classList.add('animate-once');
+          });
+        }, 1000);
+      });
     }
 
     // Show loading state
@@ -181,13 +209,24 @@ export class PlayerProfileModal {
 
     // Fetch stats and render
     try {
-      const mlbStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, selectedYear, 5);
+      // Try to fetch MLB stats, but handle case where player has no MLB history
+      let mlbStats: PlayerYearlyDetail[] = [];
+      try {
+        mlbStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, selectedYear, 5);
+      } catch (error) {
+        console.warn('No MLB stats found for player, treating as minor league only:', error);
+      }
       this.currentMlbStats = mlbStats.map(s => ({ ...s, level: 'MLB' as const }));
 
       // Determine MLB debut year from stats (earliest year with IP > 0)
       // Fetch more years to get accurate debut for veterans
       const currentYear = await dateService.getCurrentYear();
-      const extendedStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, currentYear, 30);
+      let extendedStats: PlayerYearlyDetail[] = [];
+      try {
+        extendedStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, currentYear, 30);
+      } catch (error) {
+        console.warn('No extended MLB stats found for player:', error);
+      }
       const statsWithIp = extendedStats.filter(s => s.ip > 0);
       if (statsWithIp.length > 0) {
         this.mlbDebutYear = Math.min(...statsWithIp.map(s => s.year));
@@ -200,7 +239,7 @@ export class PlayerProfileModal {
         const currentYear = await dateService.getCurrentYear();
         const startYear = currentYear - 2;
         const endYear = currentYear;
-        const minorStats = minorLeagueStatsService.getPlayerStats(data.playerId, startYear, endYear);
+        const minorStats = await minorLeagueStatsService.getPlayerStats(data.playerId, startYear, endYear);
 
         // Convert minor league stats to SeasonStatsRow format
         const minorStatsConverted: SeasonStatsRow[] = minorStats.map(s => ({
@@ -236,7 +275,13 @@ export class PlayerProfileModal {
         // Readiness Check
         const currentYear = await dateService.getCurrentYear();
         const projectionTargetYear = data.projectionYear ?? (selectedYear + 1);
-        const projectionBaseYear = data.projectionBaseYear ?? (projectionTargetYear - 1);
+        let projectionBaseYear = data.projectionBaseYear ?? (projectionTargetYear - 1);
+
+        // Handle edge case: if base year is before league started, use earliest year
+        if (projectionBaseYear < this.LEAGUE_START_YEAR) {
+          projectionBaseYear = this.LEAGUE_START_YEAR;
+        }
+
         const historicalAge = projectionService.calculateAgeAtYear(player!, currentYear, projectionBaseYear);
 
         const hasRecentMlb = mlbStats.some(s => s.year >= projectionBaseYear - 1 && s.ip > 0);
@@ -281,7 +326,7 @@ export class PlayerProfileModal {
                     // For prospects, use peak age (27); for MLB players, use next season age
                     const projectionAge = isProspectProjection ? 26 : historicalAge; // Service adds 1, so 26 becomes 27
 
-                    proj = projectionService.calculateProjection(
+                    proj = await projectionService.calculateProjection(
                         { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
                         projectionAge,
                         data.pitchCount ?? 0,
@@ -290,7 +335,8 @@ export class PlayerProfileModal {
                         data.scoutStamina,
                         data.scoutInjuryProneness,
                         mlbStats,
-                        data.trueRating ?? 0
+                        data.trueRating ?? 0,
+                        data.pitchRatings
                     );
                 } catch (e) {
                     console.warn('Failed to calculate projection', e);
@@ -372,6 +418,11 @@ export class PlayerProfileModal {
 
         bodyEl.innerHTML = this.renderContent(data, combinedStats, hasMinorLeague, projectionHtml);
         this.bindScoutUploadLink();
+        // Trigger shimmer animation on True Ratings bars only (not scout bars)
+        requestAnimationFrame(() => {
+          const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
+          ratingBars.forEach(bar => bar.classList.add('shimmer-once'));
+        });
         this.bindFlipCardLocking();
         this.bindYearSelector();
       }
@@ -631,7 +682,13 @@ export class PlayerProfileModal {
 
     try {
       const currentYear = await dateService.getCurrentYear();
-      const projectionBaseYear = targetYear - 1;
+      let projectionBaseYear = targetYear - 1;
+
+      // Handle edge case: if base year is before league started, use earliest year
+      if (projectionBaseYear < this.LEAGUE_START_YEAR) {
+        projectionBaseYear = this.LEAGUE_START_YEAR;
+      }
+
       const historicalAge = projectionService.calculateAgeAtYear(this.currentPlayer, currentYear, projectionBaseYear);
 
       // Recalculate projection
@@ -652,7 +709,7 @@ export class PlayerProfileModal {
           let isSp = recent && recent.ip > 80;
           const projectionAge = historicalAge;
 
-          proj = projectionService.calculateProjection(
+          proj = await projectionService.calculateProjection(
             {
               stuff: this.currentPlayerData.estimatedStuff,
               control: this.currentPlayerData.estimatedControl,
@@ -665,7 +722,8 @@ export class PlayerProfileModal {
             this.currentPlayerData.scoutStamina,
             this.currentPlayerData.scoutInjuryProneness,
             this.currentMlbStats,
-            this.currentPlayerData.trueRating ?? 0
+            this.currentPlayerData.trueRating ?? 0,
+            this.currentPlayerData.pitchRatings
           );
         } catch (e) {
           console.warn('Failed to calculate projection', e);

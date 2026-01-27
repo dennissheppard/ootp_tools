@@ -1,8 +1,10 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
+import { indexedDBService } from './IndexedDBService';
 
 type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness';
 
 const STORAGE_KEY_PREFIX = 'wbl_scouting_ratings_';
+const USE_INDEXEDDB = true; // Feature flag to switch between localStorage and IndexedDB
 
 const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   playerId: ['playerid', 'player_id', 'id', 'pid'],
@@ -128,25 +130,40 @@ class ScoutingDataService {
     return results;
   }
 
-  saveScoutingRatings(date: string, ratings: PitcherScoutingRatings[], source: ScoutingSource = 'my'): void {
+  async saveScoutingRatings(date: string, ratings: PitcherScoutingRatings[], source: ScoutingSource = 'my'): Promise<void> {
     if (typeof window === 'undefined') return;
     try {
-      const key = this.storageKey(date, source);
-      localStorage.setItem(key, JSON.stringify(ratings));
+      if (USE_INDEXEDDB) {
+        await indexedDBService.saveScoutingRatings(date, source, ratings);
+      } else {
+        const key = this.storageKey(date, source);
+        localStorage.setItem(key, JSON.stringify(ratings));
+      }
     } catch (e) {
       console.error('Failed to save scouting ratings', e);
+      throw e; // Re-throw so UI can handle quota errors
     }
   }
 
-  getLatestScoutingRatings(source: ScoutingSource = 'my'): PitcherScoutingRatings[] {
+  async getLatestScoutingRatings(source: ScoutingSource = 'my'): Promise<PitcherScoutingRatings[]> {
     if (typeof window === 'undefined') return [];
-    
-    const allKeys = this.getAllKeys(source);
+
+    const allKeys = await this.getAllKeys(source);
     if (allKeys.length === 0) return [];
 
     // Sort by date descending
     allKeys.sort((a, b) => b.date.localeCompare(a.date));
-    
+
+    if (USE_INDEXEDDB) {
+      try {
+        const data = await indexedDBService.getScoutingRatings(allKeys[0].date, source);
+        if (data) return data;
+      } catch (err) {
+        console.error('Error fetching from IndexedDB:', err);
+      }
+    }
+
+    // Fallback to localStorage
     try {
         const raw = localStorage.getItem(allKeys[0].key);
         if (!raw) return [];
@@ -160,13 +177,10 @@ class ScoutingDataService {
    * Get the latest scouting ratings for a given year and source.
    * Scans all stored keys to find the latest date in that year.
    */
-  getScoutingRatings(year: number, source: ScoutingSource = 'my'): PitcherScoutingRatings[] {
+  async getScoutingRatings(year: number, source: ScoutingSource = 'my'): Promise<PitcherScoutingRatings[]> {
     if (typeof window === 'undefined') return [];
-    
-    // First, check for exact match with legacy format (just year) or date format
-    // But we need to search all keys to find the *latest* date for this year
-    
-    const relevantKeys = this.findKeysForYear(year, source);
+
+    const relevantKeys = await this.findKeysForYear(year, source);
     if (relevantKeys.length === 0) {
         // Fallback to legacy key: wbl_scouting_ratings_2021 (assumed 'my')
         if (source === 'my') {
@@ -180,7 +194,18 @@ class ScoutingDataService {
 
     // Sort by date descending
     relevantKeys.sort((a, b) => b.date.localeCompare(a.date));
-    
+
+    // Try IndexedDB first
+    if (USE_INDEXEDDB) {
+        try {
+            const data = await indexedDBService.getScoutingRatings(relevantKeys[0].date, source);
+            if (data) return data;
+        } catch (err) {
+            console.error('Error fetching from IndexedDB:', err);
+        }
+    }
+
+    // Fallback to localStorage
     const latestKey = relevantKeys[0].key;
     try {
         const raw = localStorage.getItem(latestKey);
@@ -191,9 +216,10 @@ class ScoutingDataService {
     }
   }
   
-  hasScoutingRatings(year: number, source: ScoutingSource = 'my'): boolean {
+  async hasScoutingRatings(year: number, source: ScoutingSource = 'my'): Promise<boolean> {
       if (typeof window === 'undefined') return false;
-      if (this.findKeysForYear(year, source).length > 0) return true;
+      const keys = await this.findKeysForYear(year, source);
+      if (keys.length > 0) return true;
       if (source === 'my' && localStorage.getItem(this.storageKeyLegacy(year))) return true;
       return false;
   }
@@ -201,10 +227,10 @@ class ScoutingDataService {
   /**
    * Returns a list of all available scouting data snapshots for a year
    */
-  getAvailableScoutingSnapshots(year: number, source: ScoutingSource = 'my'): { date: string, key: string, count: number }[] {
+  async getAvailableScoutingSnapshots(year: number, source: ScoutingSource = 'my'): Promise<{ date: string, key: string, count: number }[]> {
       if (typeof window === 'undefined') return [];
-      const keys = this.findKeysForYear(year, source);
-      
+      const keys = await this.findKeysForYear(year, source);
+
       // If none, check legacy
       if (keys.length === 0 && source === 'my') {
           const legacyKey = this.storageKeyLegacy(year);
@@ -212,22 +238,35 @@ class ScoutingDataService {
           if (legacyRaw) {
               try {
                   const data = JSON.parse(legacyRaw);
-                  // Legacy data essentially has date = year-01-01 or similar placeholder? 
-                  // Or just label it "Legacy"
                   return [{ date: `${year}-01-01`, key: legacyKey, count: data.length }];
               } catch {}
           }
       }
 
       // Add count info
-      return keys.map(k => {
+      const results = await Promise.all(keys.map(async k => {
           let count = 0;
+
+          // Try IndexedDB first
+          if (USE_INDEXEDDB) {
+              try {
+                  const data = await indexedDBService.getScoutingRatings(k.date, source);
+                  if (data) {
+                      count = data.length;
+                      return { date: k.date, key: `${k.date}_${source}`, count };
+                  }
+              } catch {}
+          }
+
+          // Fallback to localStorage
           try {
               const raw = localStorage.getItem(k.key);
               if (raw) count = JSON.parse(raw).length;
           } catch {}
           return { date: k.date, key: k.key, count };
-      }).sort((a, b) => b.date.localeCompare(a.date));
+      }));
+
+      return results.sort((a, b) => b.date.localeCompare(a.date));
   }
 
   clearScoutingRatings(dateOrKey: string): void {
@@ -249,29 +288,47 @@ class ScoutingDataService {
       return `${STORAGE_KEY_PREFIX}${year}`;
   }
 
-  private getAllKeys(source: ScoutingSource): { date: string, key: string }[] {
+  private async getAllKeys(source: ScoutingSource): Promise<{ date: string, key: string }[]> {
       if (typeof window === 'undefined') return [];
-      const results: { date: string, key: string }[] = [];
+      let results: { date: string, key: string }[] = [];
+
+      // Get keys from IndexedDB if enabled
+      if (USE_INDEXEDDB) {
+          try {
+              const idbKeys = await indexedDBService.getAllScoutingKeys(source);
+              results.push(...idbKeys);
+          } catch (err) {
+              console.error('Error getting keys from IndexedDB:', err);
+          }
+      }
+
+      // Also check localStorage for backward compatibility
       const prefix = STORAGE_KEY_PREFIX;
-      
+
       for (let i = 0; i < localStorage.length; i++) {
           const key = localStorage.key(i);
           if (!key || !key.startsWith(prefix)) continue;
-          
+
           const suffix = key.substring(prefix.length);
           const parts = suffix.split('_');
           const datePart = parts[0];
           const sourcePart = parts[1] || 'my';
-          
-          if (sourcePart !== source) continue;
-          
-          results.push({ date: datePart, key });
+
+          if (sourcePart !== source) {
+              continue;
+          }
+
+          // Check if not already in results from IndexedDB
+          if (!results.some(r => r.date === datePart)) {
+              results.push({ date: datePart, key });
+          }
       }
       return results;
   }
 
-  private findKeysForYear(year: number, source: ScoutingSource): { date: string, key: string }[] {
-      return this.getAllKeys(source).filter(k => k.date.startsWith(year.toString()));
+  private async findKeysForYear(year: number, source: ScoutingSource): Promise<{ date: string, key: string }[]> {
+      const allKeys = await this.getAllKeys(source);
+      return allKeys.filter(k => k.date.startsWith(year.toString()));
   }
 
   private getNumberFromIndex(cells: string[], index?: number): number | null {

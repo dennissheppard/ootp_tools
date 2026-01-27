@@ -1012,7 +1012,7 @@ export class TeamRatingsView {
     }
 
     // Get scouting
-    const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+    const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
     const scouting = scoutingRatings.find(s => s.playerId === row.playerId);
 
     // Extract pitch names and ratings if available
