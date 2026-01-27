@@ -3,22 +3,24 @@ import { Player } from './models';
 import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
-import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView } from './views';
+import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
 
 class App {
   private controller: PlayerController;
+  private globalSearchBar!: GlobalSearchBar;
   private searchView!: SearchView;
   private playerListView!: PlayerListView;
   private statsView!: StatsView;
   private loadingView!: LoadingView;
   private errorView!: ErrorView;
-  private activeTabId = 'tab-search';
+  private activeTabId = 'tab-calculators';
   private calculatorsView!: CalculatorsView;
   private projectionsView?: ProjectionsView;
   private projectionsContainer!: HTMLElement;
 
   private selectedYear?: number;
+  private isGlobalSearchActive = false;
 
   constructor() {
     this.controller = new PlayerController();
@@ -43,6 +45,7 @@ class App {
             <p class="app-subtitle">World Baseball League</p>
           </div>
         </div>
+        <div class="app-header-search" id="global-search-container"></div>
         <div class="app-header-date">
           <span class="game-date-label">Game Date</span>
           <span class="game-date-value" id="game-date">Loading...</span>
@@ -50,11 +53,7 @@ class App {
       </header>
 
       <nav class="tabs">
-        <button class="tab-button active" data-tab-target="tab-search">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <span>Player Search</span>
-        </button>
-        <button class="tab-button" data-tab-target="tab-calculators">
+        <button class="tab-button active" data-tab-target="tab-calculators">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           <span>Calculators</span>
         </button>
@@ -81,14 +80,14 @@ class App {
       </nav>
 
       <div class="tab-panels">
-        <section id="tab-search" class="tab-panel active">
+        <section id="tab-search" class="tab-panel">
           <div id="error-container"></div>
           <div id="search-container"></div>
           <div id="player-list-container"></div>
           <div id="stats-container"></div>
         </section>
 
-        <section id="tab-calculators" class="tab-panel">
+        <section id="tab-calculators" class="tab-panel active">
           <div id="calculators-container"></div>
         </section>
 
@@ -121,6 +120,7 @@ class App {
   }
 
   private initializeViews(): void {
+    const globalSearchContainer = document.querySelector<HTMLElement>('#global-search-container')!;
     const searchContainer = document.querySelector<HTMLElement>('#search-container')!;
     const playerListContainer = document.querySelector<HTMLElement>('#player-list-container')!;
     const statsContainer = document.querySelector<HTMLElement>('#stats-container')!;
@@ -133,6 +133,18 @@ class App {
     const dataManagementContainer = document.querySelector<HTMLElement>('#data-management-container')!;
     const loadingContainer = document.querySelector<HTMLElement>('#loading-container')!;
     const errorContainer = document.querySelector<HTMLElement>('#error-container')!;
+
+    // Initialize global search bar
+    this.globalSearchBar = new GlobalSearchBar(globalSearchContainer, {
+      onSearch: (query) => this.handleGlobalSearch(query),
+      onLoading: (isLoading) => {
+        if (isLoading) {
+          this.loadingView.show();
+        } else {
+          this.loadingView.hide();
+        }
+      },
+    });
 
     this.searchView = new SearchView(searchContainer, {
       onSearch: (query, year) => this.handleSearch(query, year),
@@ -184,10 +196,6 @@ class App {
       panel.classList.toggle('active', panel.id === tabId);
     });
 
-    if (tabId === 'tab-search') {
-      this.searchView.focus();
-    }
-
     if (tabId === 'tab-projections' && !this.projectionsView) {
       this.projectionsView = new ProjectionsView(this.projectionsContainer);
     }
@@ -196,9 +204,16 @@ class App {
   private bindController(): void {
     this.controller.setCallbacks({
       onSearch: (result) => {
-        this.playerListView.render(result.players, result.query);
-        // Clear stats when new search is performed
-        this.statsView.clear();
+        // Check if this is a global search (no context switches, just update dropdown)
+        if (this.isGlobalSearchActive) {
+          this.globalSearchBar.renderResults(result.players);
+          this.isGlobalSearchActive = false;
+        } else {
+          // Legacy tab-based search
+          this.playerListView.render(result.players, result.query);
+          // Clear stats when new search is performed
+          this.statsView.clear();
+        }
       },
       onStats: (result) => {
         this.statsView.render(
@@ -223,6 +238,11 @@ class App {
         this.searchView.setLoading(isLoading);
       },
     });
+  }
+
+  private handleGlobalSearch(query: string): void {
+    this.isGlobalSearchActive = true;
+    this.controller.searchPlayers(query);
   }
 
   private handleSearch(query: string, year?: number): void {

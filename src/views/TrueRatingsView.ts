@@ -1745,7 +1745,8 @@ export class TrueRatingsView {
       isProspect: row.isProspect,
       year: this.selectedYear,
       projectionYear: this.selectedYear,
-      projectionBaseYear: Math.max(2000, this.selectedYear - 1)
+      projectionBaseYear: Math.max(2000, this.selectedYear - 1),
+      forceProjection: row.isProspect // Force peak projection for prospects
     };
 
     await this.playerProfileModal.show(profileData, this.selectedYear);

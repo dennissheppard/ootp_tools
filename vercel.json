@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://atl-01.statsplus.net/world/api/$1"
+    },
+    {
+      "source": "/api-wbl/(.*)",
+      "destination": "https://statsplus.net/wbl/$1"
+    }
+  ]
+}

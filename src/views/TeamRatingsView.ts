@@ -101,6 +101,7 @@ export class TeamRatingsView {
       this.selectedYear = parseInt((e.target as HTMLSelectElement).value, 10);
       this.lastSelectedYear = this.selectedYear;
       this.updateViewNotice();
+      this.showLoadingState();
       this.loadData();
     });
 
@@ -133,9 +134,43 @@ export class TeamRatingsView {
             });
             
             this.updateViewNotice();
+            this.showLoadingState();
             this.loadData();
         });
     });
+  }
+
+  private showLoadingState(): void {
+      const rotContainer = this.container.querySelector('#rotation-rankings');
+      const penContainer = this.container.querySelector('#bullpen-rankings');
+      const improvements = this.container.querySelector<HTMLElement>('#projected-improvements');
+
+      if (rotContainer) {
+          rotContainer.innerHTML = `
+            <h3 class="section-title">Top Rotations</h3>
+            <div class="loading-message">Loading...</div>
+          `;
+      }
+
+      if (penContainer) {
+          penContainer.innerHTML = `
+            <h3 class="section-title">Top Bullpens</h3>
+            <div class="loading-message">Loading...</div>
+          `;
+      }
+
+      if (improvements) {
+          if (this.viewMode === 'projected') {
+              improvements.style.display = 'block';
+              improvements.innerHTML = `
+                <h3 class="section-title">Projected Most Improved</h3>
+                <div class="loading-message">Loading...</div>
+              `;
+          } else {
+              improvements.style.display = 'none';
+              improvements.innerHTML = '';
+          }
+      }
   }
 
   private updateViewNotice(): void {

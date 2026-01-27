@@ -458,7 +458,7 @@ export class PlayerRatingsCard {
 
   static formatTeamInfo(team?: string, parentTeam?: string): string {
     if (!team) return '';
-    return `${team}${parentTeam ? ` <span class="parent-org">(${parentTeam})</span>` : ''}`;
+    return `<span class="team-main">${team}</span>${parentTeam ? `<span class="parent-org">(${parentTeam})</span>` : ''}`;
   }
 
   static formatPositionAge(position?: 'SP' | 'RP', age?: number): string {

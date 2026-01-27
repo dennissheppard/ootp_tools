@@ -170,10 +170,16 @@ export class ProjectionsView {
               if (this.viewMode === 'analysis') {
                   this.renderAnalysisLanding();
               } else {
+                  this.showLoadingState();
                   this.fetchData();
               }
           });
       });
+  }
+
+  private showLoadingState(): void {
+      const container = this.container.querySelector('#projections-table-container');
+      if (container) container.innerHTML = '<div class="loading-message">Loading projections...</div>';
   }
 
   private async fetchData(): Promise<void> {

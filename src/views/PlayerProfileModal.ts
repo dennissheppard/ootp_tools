@@ -218,15 +218,18 @@ export class PlayerProfileModal {
         const projectionTargetYear = data.projectionYear ?? (selectedYear + 1);
         const projectionBaseYear = data.projectionBaseYear ?? (projectionTargetYear - 1);
         const historicalAge = projectionService.calculateAgeAtYear(player!, currentYear, projectionBaseYear);
-        
+
         const hasRecentMlb = mlbStats.some(s => s.year >= projectionBaseYear - 1 && s.ip > 0);
         const isUpperMinors = combinedStats.some(s => (s.level === 'aaa' || s.level === 'aa') && s.year === projectionBaseYear);
-        
+
         const ovr = data.scoutOvr ?? 20;
         const pot = data.scoutPot ?? 20;
         const starGap = pot - ovr;
         const isQualityProspect = (ovr >= 45) || (starGap <= 1.0 && pot >= 45);
-        
+
+        // Determine if this is a prospect (for peak projection) vs MLB-ready player (for current season)
+        const isProspectProjection = data.isProspect === true || (!hasRecentMlb && data.forceProjection);
+
         let showProjection = hasRecentMlb;
         if (!showProjection && isUpperMinors && (isQualityProspect || (data.trueRating ?? 0) >= 2.0)) {
              showProjection = true;
@@ -247,18 +250,27 @@ export class PlayerProfileModal {
                     };
 
                     // Estimate role from recent stats (IP > 80 implies starter/long reliever)
+                    // For prospects, use scouting data (3+ pitches + stamina >= 35)
                     const recent = mlbStats[0]; // Most recent year in history
-                    const isSp = recent && recent.ip > 80;
+                    let isSp = recent && recent.ip > 80;
+
+                    if (isProspectProjection && data.pitchCount && data.pitchCount >= 3 && (data.scoutStamina ?? 0) >= 35) {
+                        isSp = true;
+                    }
+
+                    // For prospects, use peak age (27); for MLB players, use next season age
+                    const projectionAge = isProspectProjection ? 26 : historicalAge; // Service adds 1, so 26 becomes 27
 
                     proj = projectionService.calculateProjection(
                         { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
-                        historicalAge,
-                        0, // Pitch count unknown
+                        projectionAge,
+                        data.pitchCount ?? 0,
                         isSp ? 20 : 0, // Mock GS to trigger SP logic in service
                         leagueContext,
                         data.scoutStamina,
                         data.scoutInjuryProneness,
-                        mlbStats
+                        mlbStats,
+                        data.trueRating ?? 0
                     );
                 } catch (e) {
                     console.warn('Failed to calculate projection', e);
@@ -324,7 +336,9 @@ export class PlayerProfileModal {
                     };
                 }
 
-                projectionHtml = this.renderProjection(proj, historicalAge + 1, projectionTargetYear, comparison);
+                // Display age: For prospects show peak age (27), for MLB show next season
+                const displayAge = isProspectProjection ? 27 : historicalAge + 1;
+                projectionHtml = this.renderProjection(proj, displayAge, projectionTargetYear, comparison, isProspectProjection);
             }
         }
 
@@ -368,24 +382,34 @@ export class PlayerProfileModal {
     `;
   }
 
-  private renderProjection(proj: { projectedStats: any, projectedRatings: any }, projectionAge: number, projectedYear: number, comparison?: any): string {
+  private renderProjection(proj: { projectedStats: any, projectedRatings: any }, projectionAge: number, projectedYear: number, comparison?: any, isProspect: boolean = false): string {
       const s = proj.projectedStats;
       const r = proj.projectedRatings;
-      const title = `${projectedYear} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>`;
-      const note = '* Projection based on prior year True Ratings. Delta = Actual - Projected. Hover cells to show ratings.';
+      const title = isProspect
+        ? `Peak Year Projection <span style="font-weight: normal; opacity: 0.8;">(Age ${projectionAge})</span>`
+        : `${projectedYear} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>`;
+      const note = isProspect
+        ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance.'
+        : '* Projection based on prior year True Ratings. Delta = Projected - Actual. Hover cells to show ratings.';
 
-      const formatDelta = (projVal: number, actVal: number, invert: boolean = false) => {
-          const delta = actVal - projVal;
+      const formatDelta = (projVal: number, actVal: number) => {
+          const delta = projVal - actVal;
           const sign = delta > 0 ? '+' : '';
-          const isGood = invert ? delta < 0 : delta > 0;
-          const className = isGood ? 'diff-positive' : 'diff-negative';
           if (Math.abs(delta) < 0.01) return `<span class="stat-delta">(0.00)</span>`;
+
+          const percentDiff = projVal !== 0 ? Math.abs(delta / projVal) * 100 : 0;
+          let className = 'diff-positive';
+          if (percentDiff > 15) {
+              className = 'diff-negative';
+          } else if (percentDiff > 10) {
+              className = 'diff-neutral';
+          }
           return `<span class="stat-delta ${className}">(${sign}${delta.toFixed(2)})</span>`;
       };
 
       const k9Delta = comparison ? formatDelta(s.k9, comparison.k9) : '';
-      const bb9Delta = comparison ? formatDelta(s.bb9, comparison.bb9, true) : '';
-      const hr9Delta = comparison ? formatDelta(s.hr9, comparison.hr9, true) : '';
+      const bb9Delta = comparison ? formatDelta(s.bb9, comparison.bb9) : '';
+      const hr9Delta = comparison ? formatDelta(s.hr9, comparison.hr9) : '';
       const ipDelta = comparison ? formatDelta(s.ip, comparison.ip) : '';
 
       const k9ProjFlip = this.renderFlipCell(s.k9.toFixed(2), Math.round(r.stuff).toString(), 'Projected True Stuff');
