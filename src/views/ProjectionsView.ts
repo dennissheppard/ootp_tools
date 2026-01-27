@@ -284,6 +284,9 @@ export class ProjectionsView {
       const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
       if (subtitle) subtitle.textContent = 'Aggregate analysis of projection accuracy across all years.';
 
+      // Hide pagination controls in analysis mode
+      this.updatePagination(0);
+
       if (!container) return;
 
       // Generate year options (2000-2020)
@@ -437,6 +440,9 @@ export class ProjectionsView {
       if (!this.analysisReport) return;
       const container = this.container.querySelector('#projections-table-container');
       if (!container) return;
+
+      // Hide pagination controls in analysis mode
+      this.updatePagination(0);
 
       const { overallMetrics, years, metricsByTeam, metricsByAge, metricsByRole } = this.analysisReport;
 
@@ -1103,14 +1109,22 @@ export class ProjectionsView {
       const info = this.container.querySelector('#page-info');
       const prev = this.container.querySelector<HTMLButtonElement>('#prev-page');
       const next = this.container.querySelector<HTMLButtonElement>('#next-page');
-      
+      const paginationContainer = this.container.querySelector<HTMLElement>('.pagination-controls');
+
+      const totalPages = Math.ceil(total / this.itemsPerPage);
+
+      // Hide pagination if in analysis mode, no data, or only one page of data
+      if (paginationContainer) {
+          const shouldShow = this.viewMode !== 'analysis' && totalPages > 1;
+          paginationContainer.style.display = shouldShow ? 'flex' : 'none';
+      }
+
       if (info) {
-          const totalPages = Math.ceil(total / this.itemsPerPage);
           info.textContent = total > 0 ? `Page ${this.currentPage} of ${totalPages}` : '';
       }
-      
+
       if (prev) prev.disabled = this.currentPage <= 1;
-      if (next) next.disabled = this.currentPage >= Math.ceil(total / this.itemsPerPage);
+      if (next) next.disabled = this.currentPage >= totalPages;
   }
 
   private loadColumnPrefs(defaults: ColumnConfig[]): ColumnConfig[] {

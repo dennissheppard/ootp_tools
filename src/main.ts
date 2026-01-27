@@ -17,7 +17,11 @@ class App {
   private activeTabId = 'tab-calculators';
   private calculatorsView!: CalculatorsView;
   private projectionsView?: ProjectionsView;
+  private trueRatingsView?: TrueRatingsView;
+  private teamRatingsView?: TeamRatingsView;
   private projectionsContainer!: HTMLElement;
+  private trueRatingsContainer!: HTMLElement;
+  private teamRatingsContainer!: HTMLElement;
 
   private selectedYear?: number;
   private isGlobalSearchActive = false;
@@ -160,10 +164,10 @@ class App {
     });
     this.calculatorsView = new CalculatorsView(calculatorsContainer);
     new DraftBoardView(draftBoardContainer);
-    new TrueRatingsView(trueRatingsContainer);
+    this.trueRatingsContainer = trueRatingsContainer;
     this.projectionsContainer = projectionsContainer;
     new FarmRankingsView(farmRankingsContainer);
-    new TeamRatingsView(teamRatingsContainer);
+    this.teamRatingsContainer = teamRatingsContainer;
     new DataManagementView(dataManagementContainer);
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
@@ -198,6 +202,12 @@ class App {
 
     if (tabId === 'tab-projections' && !this.projectionsView) {
       this.projectionsView = new ProjectionsView(this.projectionsContainer);
+    }
+    if (tabId === 'tab-true-ratings' && !this.trueRatingsView) {
+      this.trueRatingsView = new TrueRatingsView(this.trueRatingsContainer);
+    }
+    if (tabId === 'tab-team-ratings' && !this.teamRatingsView) {
+      this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);
     }
   }
 
