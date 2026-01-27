@@ -1055,12 +1055,19 @@ export class ProjectionsView {
 
     // Get scouting (ONLY for current context, not historical analysis)
     const currentYear = await dateService.getCurrentYear();
-    let scouting: any = undefined;
+    let myScouting: any = undefined;
+    let osaScouting: any = undefined;
 
     if (projectionYear >= currentYear) {
-      const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
-      scouting = scoutingRatings.find(s => s.playerId === playerId);
+      const [myRatings, osaRatings] = await Promise.all([
+        scoutingDataService.getLatestScoutingRatings('my'),
+        scoutingDataService.getLatestScoutingRatings('osa')
+      ]);
+      myScouting = myRatings.find(s => s.playerId === playerId);
+      osaScouting = osaRatings.find(s => s.playerId === playerId);
     }
+
+    const scouting = myScouting || osaScouting; // For pitches/pitch count
 
     // Extract pitch names and ratings if available
     const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
@@ -1081,13 +1088,30 @@ export class ProjectionsView {
       estimatedStuff: row.projectedRatings.stuff,
       estimatedControl: row.projectedRatings.control,
       estimatedHra: row.projectedRatings.hra,
-      scoutStuff: scouting?.stuff,
-      scoutControl: scouting?.control,
-      scoutHra: scouting?.hra,
-      scoutStamina: scouting?.stamina,
-      scoutInjuryProneness: scouting?.injuryProneness,
-      scoutOvr: scouting?.ovr,
-      scoutPot: scouting?.pot,
+
+      // My Scout data
+      scoutStuff: myScouting?.stuff,
+      scoutControl: myScouting?.control,
+      scoutHra: myScouting?.hra,
+      scoutStamina: myScouting?.stamina,
+      scoutInjuryProneness: myScouting?.injuryProneness,
+      scoutOvr: myScouting?.ovr,
+      scoutPot: myScouting?.pot,
+
+      // OSA data
+      osaStuff: osaScouting?.stuff,
+      osaControl: osaScouting?.control,
+      osaHra: osaScouting?.hra,
+      osaStamina: osaScouting?.stamina,
+      osaInjuryProneness: osaScouting?.injuryProneness,
+      osaOvr: osaScouting?.ovr,
+      osaPot: osaScouting?.pot,
+
+      // Toggle state
+      activeScoutSource: myScouting ? 'my' : 'osa',
+      hasMyScout: !!myScouting,
+      hasOsaScout: !!osaScouting,
+
       pitchCount: usablePitchCount,
       pitches,
       pitchRatings,

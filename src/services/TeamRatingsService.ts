@@ -1,6 +1,6 @@
 import { teamService } from './TeamService';
 import { trueRatingsService } from './TrueRatingsService';
-import { scoutingDataService } from './ScoutingDataService';
+import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { trueRatingsCalculationService } from './TrueRatingsCalculationService';
 import { leagueStatsService } from './LeagueStatsService';
 import { fipWarService } from './FipWarService';
@@ -229,14 +229,15 @@ class TeamRatingsService {
       : pitchingStatsPromise;
 
     // 1. Fetch Data
-    const [pitchingStats, leagueStats, scoutingRatings, multiYearStats, allTeams, combinedPitchingStats] = await Promise.all([
+    const [pitchingStats, leagueStats, scoutingFallback, multiYearStats, allTeams, combinedPitchingStats] = await Promise.all([
       pitchingStatsPromise,
       leagueStatsService.getLeagueStats(year),
-      scoutingDataService.getScoutingRatings(year),
+      scoutingDataFallbackService.getScoutingRatingsWithFallback(year),
       trueRatingsService.getMultiYearPitchingStats(year, 3),
       teamService.getAllTeams(),
       combinedPitchingStatsPromise
     ]);
+    const scoutingRatings = scoutingFallback.ratings;
 
     // Note: getLeagueAverages removed from promise all since it wasn't being used directly in inputs anymore?
     // Wait, TrueRatingsCalculationService needs leagueAverages.

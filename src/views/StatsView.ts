@@ -270,10 +270,21 @@ export class StatsView {
 
   private async fetchPlayerRatings(playerId: number, playerName: string, year: number): Promise<PlayerRatingsData | null> {
     try {
-      // Get scouting data and build lookup. Use latest available data ("My Scout" preference).
-      const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
-      const scoutingLookup = this.buildScoutingLookup(scoutingRatings);
-      const scoutMatch = this.resolveScoutingFromLookup(playerId, playerName, scoutingLookup);
+      // Fetch both 'my' and OSA scout data for UI display toggle
+      const [myScoutingRatings, osaScoutingRatings] = await Promise.all([
+        scoutingDataService.getLatestScoutingRatings('my'),
+        scoutingDataService.getLatestScoutingRatings('osa')
+      ]);
+
+      const myScoutingLookup = this.buildScoutingLookup(myScoutingRatings);
+      const osaScoutingLookup = this.buildScoutingLookup(osaScoutingRatings);
+
+      const myScoutMatch = this.resolveScoutingFromLookup(playerId, playerName, myScoutingLookup);
+      const osaScoutMatch = this.resolveScoutingFromLookup(playerId, playerName, osaScoutingLookup);
+
+      // For calculations, use fallback lookup (my > osa)
+      const scoutingLookup = myScoutingRatings.length > 0 ? myScoutingLookup : osaScoutingLookup;
+      const scoutMatch = myScoutMatch || osaScoutMatch;
 
       // Try to get True Rating from cached data
       const allPitchers = await trueRatingsService.getTruePitchingStats(year);
@@ -399,13 +410,30 @@ export class StatsView {
         estimatedStuff: playerResult?.estimatedStuff,
         estimatedControl: playerResult?.estimatedControl,
         estimatedHra: playerResult?.estimatedHra,
-        scoutStuff: scoutMatch?.stuff,
-        scoutControl: scoutMatch?.control,
-        scoutHra: scoutMatch?.hra,
-        scoutStamina: scoutMatch?.stamina,
-        scoutInjuryProneness: scoutMatch?.injuryProneness,
-        scoutOvr: (scoutMatch as any)?.ovr,
-        scoutPot: (scoutMatch as any)?.pot,
+
+        // My Scout data
+        scoutStuff: myScoutMatch?.stuff,
+        scoutControl: myScoutMatch?.control,
+        scoutHra: myScoutMatch?.hra,
+        scoutStamina: myScoutMatch?.stamina,
+        scoutInjuryProneness: myScoutMatch?.injuryProneness,
+        scoutOvr: (myScoutMatch as any)?.ovr,
+        scoutPot: (myScoutMatch as any)?.pot,
+
+        // OSA data
+        osaStuff: osaScoutMatch?.stuff,
+        osaControl: osaScoutMatch?.control,
+        osaHra: osaScoutMatch?.hra,
+        osaStamina: osaScoutMatch?.stamina,
+        osaInjuryProneness: osaScoutMatch?.injuryProneness,
+        osaOvr: (osaScoutMatch as any)?.ovr,
+        osaPot: (osaScoutMatch as any)?.pot,
+
+        // Toggle state
+        activeScoutSource: myScoutMatch ? 'my' : 'osa',
+        hasMyScout: !!myScoutMatch,
+        hasOsaScout: !!osaScoutMatch,
+
         isProspect,
         trueFutureRating: tfrData?.trueFutureRating,
         tfrPercentile: tfrData?.percentile,

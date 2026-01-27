@@ -418,6 +418,7 @@ export class PlayerProfileModal {
 
         bodyEl.innerHTML = this.renderContent(data, combinedStats, hasMinorLeague, projectionHtml);
         this.bindScoutUploadLink();
+        this.bindScoutSourceToggle(data, combinedStats, hasMinorLeague, projectionHtml);
         // Trigger shimmer animation on True Ratings bars only (not scout bars)
         requestAnimationFrame(() => {
           const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
@@ -624,6 +625,38 @@ export class PlayerProfileModal {
       const dataMgmtTab = document.querySelector<HTMLElement>('[data-tab-target="tab-data-management"]');
       if (dataMgmtTab) {
         dataMgmtTab.click();
+      }
+    });
+  }
+
+  private bindScoutSourceToggle(
+    data: PlayerRatingsData,
+    stats: SeasonStatsRow[],
+    hasMinorLeague: boolean,
+    projectionHtml: string
+  ): void {
+    if (!this.overlay) return;
+    const toggle = this.overlay.querySelector<HTMLSelectElement>('.scout-source-toggle');
+    if (!toggle) return;
+
+    toggle.addEventListener('change', (e) => {
+      const newSource = (e.target as HTMLSelectElement).value as 'my' | 'osa';
+
+      // Update data with new active source
+      const updatedData = {
+        ...data,
+        activeScoutSource: newSource
+      };
+
+      // Re-render the modal body with the new source
+      const bodyEl = this.overlay?.querySelector<HTMLElement>('.modal-body');
+      if (bodyEl) {
+        bodyEl.innerHTML = this.renderContent(updatedData, stats, hasMinorLeague, projectionHtml);
+        // Re-bind event listeners after re-render
+        this.bindScoutUploadLink();
+        this.bindScoutSourceToggle(updatedData, stats, hasMinorLeague, projectionHtml);
+        this.bindFlipCardLocking();
+        this.bindYearSelector();
       }
     });
   }

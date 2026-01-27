@@ -23,6 +23,8 @@ export interface PlayerRatingsData {
   estimatedStuff?: number;
   estimatedControl?: number;
   estimatedHra?: number;
+
+  // My Scout data
   scoutStuff?: number;
   scoutControl?: number;
   scoutHra?: number;
@@ -30,6 +32,16 @@ export interface PlayerRatingsData {
   scoutInjuryProneness?: string;
   scoutOvr?: number;
   scoutPot?: number;
+
+  // OSA data (parallel structure for toggle)
+  osaStuff?: number;
+  osaControl?: number;
+  osaHra?: number;
+  osaStamina?: number;
+  osaInjuryProneness?: string;
+  osaOvr?: number;
+  osaPot?: number;
+
   pitchCount?: number;
   pitches?: string[];  // List of pitch names
   pitchRatings?: Record<string, number>;  // Pitch name -> rating mapping
@@ -57,6 +69,11 @@ export interface PlayerRatingsData {
       hra: number;
     };
   };
+
+  // Toggle state
+  activeScoutSource?: 'my' | 'osa';  // Which source is currently displayed
+  hasMyScout?: boolean;               // Does 'my' data exist for this player?
+  hasOsaScout?: boolean;              // Does 'osa' data exist for this player?
 }
 
 export class PlayerRatingsCard {
@@ -432,20 +449,48 @@ export class PlayerRatingsCard {
    */
   static renderRatingsComparison(data: PlayerRatingsData, hasScout: boolean): string {
     if (hasScout) {
+      // Determine which scout data to display
+      const activeSource = data.activeScoutSource ?? 'my'; // Default to 'my'
+      const hasMyScout = data.hasMyScout ?? (data.scoutStuff !== undefined);
+      const hasOsaScout = data.hasOsaScout ?? (data.osaStuff !== undefined);
+      const hasAlternative = hasMyScout && hasOsaScout;
+
+      // Get active scout values based on toggle state
+      const scoutStuff = activeSource === 'my' ? data.scoutStuff : data.osaStuff;
+      const scoutControl = activeSource === 'my' ? data.scoutControl : data.osaControl;
+      const scoutHra = activeSource === 'my' ? data.scoutHra : data.osaHra;
+
+      // Build header with toggle (if both sources exist) or badge (if only one)
+      let headerLabel = '';
+      if (hasAlternative) {
+        headerLabel = `
+          <div class="scout-header-toggle">
+            Scout Opinions
+            <select class="scout-source-toggle" data-player-id="${data.playerId}">
+              <option value="my" ${activeSource === 'my' ? 'selected' : ''}>My Scout</option>
+              <option value="osa" ${activeSource === 'osa' ? 'selected' : ''}>OSA</option>
+            </select>
+          </div>`;
+      } else {
+        const sourceLabel = activeSource === 'my' ? 'MY' : 'OSA';
+        const sourceClass = activeSource === 'my' ? 'my' : 'osa';
+        headerLabel = `Scout Opinions <span class="source-badge ${sourceClass}">${sourceLabel}</span>`;
+      }
+
       return `
-        <div class="ratings-comparison">          
+        <div class="ratings-comparison">
           <div class="rating-row rating-row-header">
             <span class="rating-label"></span>
             <div class="rating-bars">
               <span class="bar-header">True Ratings</span>
               <span class="bar-vs"></span>
-              <span class="bar-header">Scout Opinions</span>
+              <span class="bar-header">${headerLabel}</span>
               <span class="rating-diff"></span>
             </div>
           </div>
-          ${this.renderRatingBar('Stuff', data.estimatedStuff, data.scoutStuff)}
-          ${this.renderRatingBar('Control', data.estimatedControl, data.scoutControl)}
-          ${this.renderRatingBar('HRA', data.estimatedHra, data.scoutHra)}
+          ${this.renderRatingBar('Stuff', data.estimatedStuff, scoutStuff)}
+          ${this.renderRatingBar('Control', data.estimatedControl, scoutControl)}
+          ${this.renderRatingBar('HRA', data.estimatedHra, scoutHra)}
         </div>
       `;
     }
@@ -642,9 +687,14 @@ export class PlayerRatingsCard {
   }
 
   static hasScoutingData(data: PlayerRatingsData): boolean {
-    return data.scoutStuff !== undefined
+    // Has scouting data if either 'my' or 'osa' source has complete data
+    const hasMy = data.scoutStuff !== undefined
       && data.scoutControl !== undefined
       && data.scoutHra !== undefined;
+    const hasOsa = data.osaStuff !== undefined
+      && data.osaControl !== undefined
+      && data.osaHra !== undefined;
+    return hasMy || hasOsa;
   }
 
   static getTrueRatingClass(value: number): string {

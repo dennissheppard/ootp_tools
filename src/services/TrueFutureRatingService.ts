@@ -14,7 +14,7 @@ import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { MinorLeagueStatsWithLevel, MinorLeagueLevel } from '../models/Stats';
 import { PotentialStatsService } from './PotentialStatsService';
 import { minorLeagueStatsService } from './MinorLeagueStatsService';
-import { scoutingDataService } from './ScoutingDataService';
+import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { trueRatingsService } from './TrueRatingsService';
 import { trueRatingsCalculationService } from './TrueRatingsCalculationService';
 
@@ -339,15 +339,14 @@ class TrueFutureRatingService {
    * Get all prospects with scouting data for a given year and calculate their TFR.
    *
    * @param year - The year to analyze
-   * @param source - Scouting data source ('my' or 'osa')
    * @returns Array of TrueFutureRatingResult
    */
   async getProspectTrueFutureRatings(
-    year: number,
-    source: 'my' | 'osa' = 'my'
+    year: number
   ): Promise<TrueFutureRatingResult[]> {
-    // Get scouting data
-    const scoutingRatings = await scoutingDataService.getScoutingRatings(year, source);
+    // Get scouting data with fallback (My Scout > OSA)
+    const scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
+    const scoutingRatings = scoutingFallback.ratings;
     if (scoutingRatings.length === 0) {
       return [];
     }
@@ -407,10 +406,9 @@ class TrueFutureRatingService {
    */
   async getPlayerTrueFutureRating(
     playerId: number,
-    year: number,
-    source: 'my' | 'osa' = 'my'
+    year: number
   ): Promise<TrueFutureRatingResult | null> {
-    const allResults = await this.getProspectTrueFutureRatings(year, source);
+    const allResults = await this.getProspectTrueFutureRatings(year);
     return allResults.find(r => r.playerId === playerId) ?? null;
   }
 }

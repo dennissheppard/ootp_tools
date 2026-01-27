@@ -1756,8 +1756,14 @@ td.player-cell.player-name {
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
   margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: linear-gradient(135deg, rgba(25, 39, 52, 0.9), rgba(15, 20, 25, 0.85));
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.2);
+  flex-wrap: wrap;
 }
 
 .pagination-controls button {
@@ -1765,20 +1771,92 @@ td.player-cell.player-name {
   font-size: 0.875rem;
   font-weight: 600;
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background-color: var(--color-surface);
+  border-radius: var(--border-radius);
+  background-color: rgba(25, 39, 52, 0.85);
   color: var(--color-text);
   cursor: pointer;
-  transition: background-color 0.2s;
+  transition: background-color 0.2s, border-color 0.2s, transform 0.12s;
 }
 
 .pagination-controls button:hover:not(:disabled) {
-  background-color: var(--color-surface-hover);
+  background-color: rgba(29, 155, 240, 0.18);
+  border-color: rgba(29, 155, 240, 0.5);
+  transform: translateY(-1px);
 }
 
 .pagination-controls button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.pagination-controls select {
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background-color: rgba(25, 39, 52, 0.95);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.pagination-controls select:hover {
+  border-color: rgba(29, 155, 240, 0.55);
+}
+
+.pagination-controls select:focus {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px rgba(29, 155, 240, 0.18);
+}
+
+.page-info {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--border-radius);
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.page-current-select {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.85rem;
+  border-radius: calc(var(--border-radius) - 2px);
+  border: 1px solid rgba(29, 155, 240, 0.35);
+  background: rgba(25, 39, 52, 0.9);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: border-color 0.2s, background-color 0.2s, transform 0.12s;
+}
+
+.page-current-select:hover {
+  background: rgba(29, 155, 240, 0.18);
+  border-color: rgba(29, 155, 240, 0.7);
+  transform: translateY(-1px);
+}
+
+.page-current-select option {
+  background: rgba(15, 20, 25, 0.98);
+  color: var(--color-text);
+}
+
+.items-per-page {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.items-per-page label {
+  font-size: 0.7rem;
 }
 
 .table-wrapper-outer {
@@ -2647,6 +2725,95 @@ td.player-cell.player-name {
 .scout-upload-link {
   color: var(--color-primary);
   text-decoration: none;
+}
+
+/* Scout Source Toggle */
+.scout-header-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scout-source-toggle {
+  font-size: 0.75em;
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.scout-source-toggle:hover {
+  background: var(--color-surface-hover);
+}
+
+.scout-source-toggle:focus {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+
+/* Source Badge */
+.source-badge {
+  font-size: 0.65em;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.source-badge.my {
+  background: #4a9eff;
+  color: white;
+}
+
+.source-badge.osa {
+  background: #ff9f43;
+  color: white;
+}
+
+/* Info Banners for OSA Fallback */
+.info-banner {
+  padding: 0.75rem 1rem;
+  margin-bottom: 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.info-banner .banner-icon {
+  font-size: 1.2rem;
+}
+
+.info-banner.osa-fallback {
+  background: rgba(255, 159, 67, 0.15);
+  border-left: 3px solid #ff9f43;
+  color: var(--color-text);
+}
+
+.info-banner.mixed-sources {
+  background: rgba(74, 158, 255, 0.15);
+  border-left: 3px solid #4a9eff;
+  color: var(--color-text);
+}
+
+.info-banner .btn-link {
+  background: none;
+  border: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  text-decoration: underline;
+  font-size: inherit;
+  padding: 0;
+  margin: 0 0.25rem;
+}
+
+.info-banner .btn-link:hover {
+  color: var(--color-primary-hover);
 }
 
 .scout-upload-link:hover {

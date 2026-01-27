@@ -1,6 +1,6 @@
 import { playerService } from './PlayerService';
 import { trueRatingsService, TruePlayerStats } from './TrueRatingsService';
-import { scoutingDataService } from './ScoutingDataService';
+import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { dateService } from './DateService';
 import { trueRatingsCalculationService, YearlyPitchingStats } from './TrueRatingsCalculationService';
 import { agingService } from './AgingService';
@@ -85,11 +85,12 @@ class ProjectionService {
     // 1. Fetch Data
     const forceRosterRefresh = options?.forceRosterRefresh ?? false;
     const useEnsemble = options?.useEnsemble ?? true; // DEFAULT: Use ensemble (calibrated Jan 2026)
-    const [scoutingRatings, allPlayers, allTeams] = await Promise.all([
-      scoutingDataService.getLatestScoutingRatings('my'),
+    const [scoutingFallback, allPlayers, allTeams] = await Promise.all([
+      scoutingDataFallbackService.getScoutingRatingsWithFallback(),
       playerService.getAllPlayers(forceRosterRefresh),
       teamService.getAllTeams()
     ]);
+    const scoutingRatings = scoutingFallback.ratings;
 
     const currentYearStats = await this.safeGetPitchingStats(year);
 
@@ -484,7 +485,8 @@ class ProjectionService {
     try {
       const currentYear = await dateService.getCurrentYear();
       const currentYearStats = await this.safeGetPitchingStats(currentYear);
-      const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
+      const scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
+      const scoutingRatings = scoutingFallback.ratings;
 
       // Use previous year's stats if current season doesn't have meaningful starter workloads yet
       const hasStarterWorkloads = currentYearStats.some(stat => stat.gs >= 10);

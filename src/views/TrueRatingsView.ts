@@ -1,6 +1,7 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { Player, getFullName, isPitcher } from '../models/Player';
 import { scoutingDataService } from '../services/ScoutingDataService';
+import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
 import { trueRatingsCalculationService, YearlyPitchingStats, getYearWeights } from '../services/TrueRatingsCalculationService';
 import { TruePlayerStats, TruePlayerBattingStats, trueRatingsService } from '../services/TrueRatingsService';
 import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
@@ -125,7 +126,10 @@ export class TrueRatingsView {
   private preferences: Record<string, unknown> = {};
   private pitcherColumns: PitcherColumn[] = [];
   private isDraggingColumn = false;
-  private scoutingRatings: PitcherScoutingRatings[] = [];
+  private scoutingRatings: PitcherScoutingRatings[] = []; // Merged fallback (my > osa)
+  private myScoutingRatings: PitcherScoutingRatings[] = [];
+  private osaScoutingRatings: PitcherScoutingRatings[] = [];
+  private scoutingMetadata: { hasMyScoutData: boolean; fromMyScout: number; fromOSA: number } | null = null;
   private rawPitcherStats: PitcherRow[] = [];
   private playerProfileModal: PlayerProfileModal;
   private scoutingLookup: ScoutingLookup | null = null;
@@ -245,14 +249,21 @@ export class TrueRatingsView {
         <div id="true-ratings-table-container"></div>
         <div class="pagination-controls">
           <button id="prev-page" disabled>Previous</button>
-          <span id="page-info"></span>
+          <div id="page-info" class="page-info">
+            <span class="page-label">Page</span>
+            <select id="page-jump-select" class="page-current-select" aria-label="Page"></select>
+            <span class="page-total" id="page-total"></span>
+          </div>
           <button id="next-page" disabled>Next</button>
-          <select id="items-per-page">
-            <option value="10" ${this.itemsPerPageSelection === '10' ? 'selected' : ''}>10 per page</option>
-            <option value="50" ${this.itemsPerPageSelection === '50' ? 'selected' : ''}>50 per page</option>
-            <option value="200" ${this.itemsPerPageSelection === '200' ? 'selected' : ''}>200 per page</option>
-            <option value="all" ${this.itemsPerPageSelection === 'all' ? 'selected' : ''}>All</option>
-          </select>
+          <div class="items-per-page">
+            <label for="items-per-page">Rows</label>
+            <select id="items-per-page">
+              <option value="10" ${this.itemsPerPageSelection === '10' ? 'selected' : ''}>10 per page</option>
+              <option value="50" ${this.itemsPerPageSelection === '50' ? 'selected' : ''}>50 per page</option>
+              <option value="200" ${this.itemsPerPageSelection === '200' ? 'selected' : ''}>200 per page</option>
+              <option value="all" ${this.itemsPerPageSelection === 'all' ? 'selected' : ''}>All</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="modal-overlay" id="scouting-missing-modal" aria-hidden="true">
@@ -354,6 +365,15 @@ export class TrueRatingsView {
       this.currentPage = 1;
       this.saveFilterPreferences();
       this.renderStats();
+    });
+
+    this.container.querySelector('#page-jump-select')?.addEventListener('change', (e) => {
+      const nextPage = parseInt((e.target as HTMLSelectElement).value, 10);
+      if (!Number.isNaN(nextPage) && nextPage !== this.currentPage) {
+        this.currentPage = nextPage;
+        this.saveFilterPreferences();
+        this.renderStats();
+      }
     });
 
     this.container.querySelector('#true-ratings-team')?.addEventListener('change', (e) => {
@@ -1738,17 +1758,33 @@ export class TrueRatingsView {
   private updatePaginationControls(totalItems: number): void {
     const totalPages = this.itemsPerPage === totalItems ? 1 : Math.ceil(totalItems / this.itemsPerPage);
     const pageInfo = this.container.querySelector<HTMLElement>('#page-info')!;
+    const pageTotal = this.container.querySelector<HTMLElement>('#page-total');
+    const pageJumpSelect = this.container.querySelector<HTMLSelectElement>('#page-jump-select');
     const prevButton = this.container.querySelector<HTMLButtonElement>('#prev-page')!;
     const nextButton = this.container.querySelector<HTMLButtonElement>('#next-page')!;
 
     if (totalPages <= 1) {
-        pageInfo.textContent = '';
-        prevButton.disabled = true;
-        nextButton.disabled = true;
-        return;
+      pageInfo.style.display = 'none';
+      prevButton.disabled = true;
+      nextButton.disabled = true;
+      return;
     }
-    
-    pageInfo.textContent = `Page ${this.currentPage} of ${totalPages}`;
+
+    pageInfo.style.display = '';
+    if (pageTotal) {
+      pageTotal.textContent = `of ${totalPages}`;
+    }
+
+    if (pageJumpSelect) {
+      if (pageJumpSelect.options.length !== totalPages) {
+        pageJumpSelect.innerHTML = Array.from({ length: totalPages }, (_, index) => {
+          const page = index + 1;
+          return `<option value="${page}">${page}</option>`;
+        }).join('');
+      }
+      pageJumpSelect.value = String(this.currentPage);
+    }
+
     prevButton.disabled = this.currentPage === 1;
     nextButton.disabled = this.currentPage === totalPages;
   }
@@ -1756,7 +1792,25 @@ export class TrueRatingsView {
   private async loadScoutingRatingsForYear(): Promise<void> {
     const currentYear = this.currentGameYear ?? new Date().getFullYear();
     const useScouting = this.selectedYear >= currentYear;
-    this.scoutingRatings = useScouting ? await scoutingDataService.getLatestScoutingRatings('my') : [];
+
+    if (useScouting) {
+      // Fetch both my and OSA scouting data for current year
+      const fallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
+      this.scoutingRatings = fallback.ratings;
+      this.scoutingMetadata = fallback.metadata;
+
+      // Also fetch individual sources for toggle UI
+      [this.myScoutingRatings, this.osaScoutingRatings] = await Promise.all([
+        scoutingDataService.getLatestScoutingRatings('my'),
+        scoutingDataService.getLatestScoutingRatings('osa')
+      ]);
+    } else {
+      this.scoutingRatings = [];
+      this.myScoutingRatings = [];
+      this.osaScoutingRatings = [];
+      this.scoutingMetadata = null;
+    }
+
     // this.updateScoutingUploadLabel(); // Removed
     this.updatePitcherColumns();
     this.updateScoutingStatus();
@@ -1765,14 +1819,53 @@ export class TrueRatingsView {
   private updateScoutingUploadVisibility(): void {
     const notice = this.container.querySelector<HTMLElement>('#scouting-notice');
     if (!notice) return;
-    
-    // Show notice if pitching mode and no scouting data
+
     const currentYear = this.currentGameYear ?? new Date().getFullYear();
     const allowScouting = this.selectedYear >= currentYear;
-    if (this.mode === 'pitchers' && allowScouting && this.scoutingRatings.length === 0) {
+
+    if (this.mode === 'pitchers' && allowScouting) {
+      if (this.scoutingMetadata) {
+        const { hasMyScoutData, fromOSA, fromMyScout } = this.scoutingMetadata;
+
+        if (!hasMyScoutData && fromOSA > 0) {
+          // Using OSA fallback
+          notice.innerHTML = `
+            <span class="banner-icon">ℹ️</span>
+            Using OSA scouting data (${fromOSA} players).
+            <button class="btn-link" id="go-to-data-mgmt">Upload your scout reports</button> for custom scouting.
+          `;
+          notice.style.display = 'block';
+          notice.className = 'info-banner osa-fallback';
+        } else if (hasMyScoutData && fromOSA > 0) {
+          // Using both sources
+          notice.innerHTML = `
+            <span class="banner-icon">📊</span>
+            ${fromMyScout} players from My Scout, ${fromOSA} from OSA.
+          `;
+          notice.style.display = 'block';
+          notice.className = 'info-banner mixed-sources';
+        } else if (!hasMyScoutData && fromOSA === 0) {
+          // No scouting at all
+          notice.innerHTML = `
+            No scouting data found. <button class="btn-link" id="go-to-data-mgmt">Manage Data</button>
+          `;
+          notice.style.display = 'block';
+          notice.className = 'scout-upload-notice';
+        } else {
+          notice.style.display = 'none';
+        }
+      } else if (this.scoutingRatings.length === 0) {
+        // Legacy fallback for old code
+        notice.innerHTML = `
+          No scouting data found. <button class="btn-link" id="go-to-data-mgmt">Manage Data</button>
+        `;
         notice.style.display = 'block';
-    } else {
+        notice.className = 'scout-upload-notice';
+      } else {
         notice.style.display = 'none';
+      }
+    } else {
+      notice.style.display = 'none';
     }
   }
 
@@ -1835,11 +1928,17 @@ export class TrueRatingsView {
 
     const scouting = this.scoutingLookup ? this.resolveScoutingRating(row, this.scoutingLookup) : undefined;
 
+    // Resolve scouting from both sources for toggle UI
+    const myScoutingLookup = this.buildScoutingLookup(this.myScoutingRatings);
+    const osaScoutingLookup = this.buildScoutingLookup(this.osaScoutingRatings);
+    const myScouting = this.resolveScoutingRating(row, myScoutingLookup);
+    const osaScouting = this.resolveScoutingRating(row, osaScoutingLookup);
+
     // Fetch team info
     const player = await playerService.getPlayerById(playerId);
     let teamLabel = '';
     let parentLabel = '';
-    
+
     if (player) {
       const team = await teamService.getTeamById(player.teamId);
       if (team) {
@@ -1863,13 +1962,30 @@ export class TrueRatingsView {
       estimatedStuff: row.estimatedStuff,
       estimatedControl: row.estimatedControl,
       estimatedHra: row.estimatedHra,
-      scoutStuff: scouting?.stuff,
-      scoutControl: scouting?.control,
-      scoutHra: scouting?.hra,
-      scoutStamina: scouting?.stamina,
-      scoutInjuryProneness: scouting?.injuryProneness,
-      scoutOvr: scouting?.ovr,
-      scoutPot: scouting?.pot,
+
+      // My Scout data
+      scoutStuff: myScouting?.stuff,
+      scoutControl: myScouting?.control,
+      scoutHra: myScouting?.hra,
+      scoutStamina: myScouting?.stamina,
+      scoutInjuryProneness: myScouting?.injuryProneness,
+      scoutOvr: myScouting?.ovr,
+      scoutPot: myScouting?.pot,
+
+      // OSA data
+      osaStuff: osaScouting?.stuff,
+      osaControl: osaScouting?.control,
+      osaHra: osaScouting?.hra,
+      osaStamina: osaScouting?.stamina,
+      osaInjuryProneness: osaScouting?.injuryProneness,
+      osaOvr: osaScouting?.ovr,
+      osaPot: osaScouting?.pot,
+
+      // Toggle state
+      activeScoutSource: myScouting ? 'my' : 'osa',
+      hasMyScout: !!myScouting,
+      hasOsaScout: !!osaScouting,
+
       pitchCount: scouting?.pitches ? Object.values(scouting.pitches).filter(rating => rating >= 45).length : 0,
       pitches: scouting?.pitches ? Object.keys(scouting.pitches) : [],
       pitchRatings: scouting?.pitches ?? {},

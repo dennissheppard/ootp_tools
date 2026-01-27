@@ -1011,9 +1011,14 @@ export class TeamRatingsView {
       }
     }
 
-    // Get scouting
-    const scoutingRatings = await scoutingDataService.getLatestScoutingRatings('my');
-    const scouting = scoutingRatings.find(s => s.playerId === row.playerId);
+    // Get scouting from both sources
+    const [myRatings, osaRatings] = await Promise.all([
+      scoutingDataService.getLatestScoutingRatings('my'),
+      scoutingDataService.getLatestScoutingRatings('osa')
+    ]);
+    const myScouting = myRatings.find(s => s.playerId === row.playerId);
+    const osaScouting = osaRatings.find(s => s.playerId === row.playerId);
+    const scouting = myScouting || osaScouting;
 
     // Extract pitch names and ratings if available
     const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
@@ -1034,13 +1039,30 @@ export class TeamRatingsView {
       estimatedStuff: row.trueStuff,
       estimatedControl: row.trueControl,
       estimatedHra: row.trueHra,
-      scoutStuff: scouting?.stuff,
-      scoutControl: scouting?.control,
-      scoutHra: scouting?.hra,
-      scoutStamina: scouting?.stamina,
-      scoutInjuryProneness: scouting?.injuryProneness,
-      scoutOvr: scouting?.ovr,
-      scoutPot: scouting?.pot,
+
+      // My Scout data
+      scoutStuff: myScouting?.stuff,
+      scoutControl: myScouting?.control,
+      scoutHra: myScouting?.hra,
+      scoutStamina: myScouting?.stamina,
+      scoutInjuryProneness: myScouting?.injuryProneness,
+      scoutOvr: myScouting?.ovr,
+      scoutPot: myScouting?.pot,
+
+      // OSA data
+      osaStuff: osaScouting?.stuff,
+      osaControl: osaScouting?.control,
+      osaHra: osaScouting?.hra,
+      osaStamina: osaScouting?.stamina,
+      osaInjuryProneness: osaScouting?.injuryProneness,
+      osaOvr: osaScouting?.ovr,
+      osaPot: osaScouting?.pot,
+
+      // Toggle state
+      activeScoutSource: myScouting ? 'my' : 'osa',
+      hasMyScout: !!myScouting,
+      hasOsaScout: !!osaScouting,
+
       pitchCount: usablePitchCount,
       pitches,
       pitchRatings,
