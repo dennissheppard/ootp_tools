@@ -15,7 +15,9 @@
       "Bash(npm test:*)",
       "Bash(node -e:*)",
       "Bash(npx stylelint:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(npx tsx:*)",
+      "Bash(powershell -Command \"Get-Content ''C:\\\\Users\\\\neags\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-neags-Downloads-dev-projects-wbl\\\\tasks\\\\b372623.output'' -Tail 40\")"
     ]
   }
 }

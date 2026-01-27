@@ -30,17 +30,22 @@ export interface YearAnalysisResult {
   metrics: StatMetrics; // Overall metrics for this year
   metricsByTeam: Map<string, StatMetrics>;
   metricsByAge: Map<string, StatMetrics>;
+  metricsByRole: Map<string, StatMetrics>; // SP vs RP breakdown
   details: {
       playerId: number;
       name: string;
       teamName: string;
       age: number;
-      
+      trueRating: number;
+      percentile: number;
+
       projected: { k9: number; bb9: number; hr9: number; fip: number; };
+      projectedRatings: { stuff: number; control: number; hra: number; };
       actual: { k9: number; bb9: number; hr9: number; fip: number; };
       diff: StatDiffs; // Actual - Projected
-      
+
       ip: number;
+      gs: number; // Games started (for role classification)
   }[];
 }
 
@@ -49,11 +54,12 @@ export interface AggregateAnalysisReport {
   overallMetrics: StatMetrics;
   metricsByTeam: Map<string, StatMetrics>;
   metricsByAge: Map<string, StatMetrics>;
+  metricsByRole: Map<string, StatMetrics>; // SP vs RP breakdown
 }
 
 class ProjectionAnalysisService {
   
-  async runAnalysis(startYear: number, endYear: number, progressCallback?: (year: number) => void): Promise<AggregateAnalysisReport> {
+  async runAnalysis(startYear: number, endYear: number, progressCallback?: (year: number) => void, minIp: number = 10, maxIp: number = 999): Promise<AggregateAnalysisReport> {
     const results: YearAnalysisResult[] = [];
     const allTeams = await teamService.getAllTeams();
     const teamLookup = new Map(allTeams.map(t => [t.id, t]));
@@ -61,7 +67,7 @@ class ProjectionAnalysisService {
     for (let year = startYear; year <= endYear; year++) {
       if (progressCallback) progressCallback(year);
       try {
-        const result = await this.analyzeYear(year, teamLookup);
+        const result = await this.analyzeYear(year, teamLookup, minIp, maxIp);
         if (result) {
             results.push(result);
         }
@@ -73,11 +79,11 @@ class ProjectionAnalysisService {
     return this.aggregateResults(results);
   }
 
-  private async analyzeYear(year: number, teamLookup: Map<number, any>): Promise<YearAnalysisResult | null> {
+  private async analyzeYear(year: number, teamLookup: Map<number, any>, minIp: number = 10, maxIp: number = 999): Promise<YearAnalysisResult | null> {
     // 1. Get Projections
     const statsBaseYear = year - 1;
     const context = await projectionService.getProjectionsWithContext(statsBaseYear);
-    
+
     // 2. Get Actuals
     const actuals = await trueRatingsService.getTruePitchingStats(year);
     if (!actuals || actuals.length === 0) return null;
@@ -87,13 +93,13 @@ class ProjectionAnalysisService {
 
     // 3. Match and Calculate Details
     const details: YearAnalysisResult['details'] = [];
-    
+
     for (const proj of context.projections) {
         const act = actualsMap.get(proj.playerId);
         if (!act) continue;
 
         const actualIp = trueRatingsService.parseIp(act.ip);
-        if (actualIp < 10) continue; // Ignore small sample sizes
+        if (actualIp < minIp || actualIp > maxIp) continue; // Filter by IP range
 
         // Calculate Actual Rate Stats
         const actualK9 = (act.k / actualIp) * 9;
@@ -107,9 +113,11 @@ class ProjectionAnalysisService {
         const projHR9 = proj.projectedStats.hr9;
         const projFip = proj.projectedStats.fip;
 
-        // Resolve Team Name
-        let teamName = proj.teamName;
-        const team = teamLookup.get(proj.teamId);
+        // Resolve Team Name (use ACTUAL team, not projected team)
+        // This ensures trades/FA signings/call-ups count for the right team
+        let teamName = 'Unknown';
+        const actualTeamId = act.team_id ?? proj.teamId; // Fallback to projected if no actual
+        const team = teamLookup.get(actualTeamId);
         if (team && team.parentTeamId !== 0) {
             const parent = teamLookup.get(team.parentTeamId);
             if (parent) teamName = parent.nickname;
@@ -122,7 +130,10 @@ class ProjectionAnalysisService {
             name: proj.name,
             teamName,
             age: proj.age,
+            trueRating: proj.currentTrueRating,
+            percentile: proj.currentPercentile || 0,
             projected: { k9: projK9, bb9: projBB9, hr9: projHR9, fip: projFip },
+            projectedRatings: proj.projectedRatings,
             actual: { k9: actualK9, bb9: actualBB9, hr9: actualHR9, fip: actualFip },
             diff: {
                 k9: actualK9 - projK9,
@@ -130,7 +141,8 @@ class ProjectionAnalysisService {
                 hr9: actualHR9 - projHR9,
                 fip: actualFip - projFip
             },
-            ip: actualIp
+            ip: actualIp,
+            gs: act.gs || 0 // Games started
         });
     }
 
@@ -160,11 +172,23 @@ class ProjectionAnalysisService {
     const metricsByAge = new Map<string, StatMetrics>();
     ageGroups.forEach((diffs, key) => metricsByAge.set(key, this.calculateStatMetrics(diffs)));
 
+    // Group by Role (SP vs RP)
+    const roleGroups = new Map<string, StatDiffs[]>();
+    details.forEach(d => {
+        const role = this.getRole(d.gs, d.ip);
+        const list = roleGroups.get(role) ?? [];
+        list.push(d.diff);
+        roleGroups.set(role, list);
+    });
+    const metricsByRole = new Map<string, StatMetrics>();
+    roleGroups.forEach((diffs, key) => metricsByRole.set(key, this.calculateStatMetrics(diffs)));
+
     return {
         year,
         metrics,
         metricsByTeam,
         metricsByAge,
+        metricsByRole,
         details
     };
   }
@@ -194,11 +218,23 @@ class ProjectionAnalysisService {
       const metricsByAge = new Map<string, StatMetrics>();
       ageGroups.forEach((diffs, key) => metricsByAge.set(key, this.calculateStatMetrics(diffs)));
 
+      // Aggregate by Role (SP vs RP)
+      const roleGroups = new Map<string, StatDiffs[]>();
+      allDetails.forEach(d => {
+          const role = this.getRole(d.gs, d.ip);
+          const list = roleGroups.get(role) ?? [];
+          list.push(d.diff);
+          roleGroups.set(role, list);
+      });
+      const metricsByRole = new Map<string, StatMetrics>();
+      roleGroups.forEach((diffs, key) => metricsByRole.set(key, this.calculateStatMetrics(diffs)));
+
       return {
           years,
           overallMetrics,
           metricsByTeam,
-          metricsByAge
+          metricsByAge,
+          metricsByRole
       };
   }
 
@@ -233,6 +269,18 @@ class ProjectionAnalysisService {
       if (age <= 29) return '27-29'; // Peak plateau
       if (age <= 33) return '30-33'; // Decline
       return '34+';
+  }
+
+  /**
+   * Classify pitcher role based on games started and IP
+   * SP = Starter (GS >= 10), RP = Reliever (GS < 10)
+   */
+  private getRole(gs: number, ip: number): string {
+      // If GS >= 10, probably a starter
+      // Edge case: long relievers with high IP but few starts
+      if (gs >= 10) return 'SP';
+      if (gs < 10 && ip >= 60) return 'Swingman'; // Long reliever / spot starter
+      return 'RP';
   }
 }
 

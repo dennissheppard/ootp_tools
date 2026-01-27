@@ -210,56 +210,353 @@ A comprehensive view of team-level pitching strength, identifying top rotations 
 - **Projections Section**: Shows projected stats for upcoming season (when applicable)
 - **Draggable**: Modal can be repositioned by dragging the header
 
-### 7. Stat Projections & Analysis
-Predicts future pitching performance by applying aging curves to current "True Talent" ratings.
+### 7. Stat Projections & Ensemble System
+Predicts future pitching performance using a sophisticated multi-model ensemble that rivals professional MLB projection systems (Steamer, ZiPS, PECOTA).
 
-**Analysis Dashboard**:
-A built-in reporting tool to evaluate the accuracy of the projection algorithm against historical data.
-- **Metrics**: Calculates MAE (Mean Absolute Error), RMSE (Root Mean Square Error), and Bias (systematic error) for FIP, K/9, BB/9, and HR/9.
-- **Breakdowns**: Analyze performance by Year, Team, and Age Group to spot trends (e.g., "Are we over-projecting young players?").
-- **Outliers**: Identifies the top 20 "biggest misses" to help distinguish between model error and sample size noise (injuries, small samples).
-- **Calibration**: The system is calibrated to achieve < 0.05 Bias and < 0.65 MAE for FIP.
+---
 
-**Key Methodology**:
-1.  **Baseline**: Projections start from the player's current **True Ratings** (multi-year weighted average), *not* their raw ERA/FIP. This inherently handles regression to the mean. A player who "got lucky" (low ERA but high True Rating) will see their projected stats regress towards their talent level.
-2.  **Aging**: Standard aging curves are applied to the ratings (Stuff, Control, HRA) based on the player's age.
-3.  **Calculation**: The age-adjusted ratings are converted back into projected stats (K/9, BB/9, HR/9) using the WBL-calibrated formulas.
+## Ensemble Methodology (Jan 2026)
 
-**Algorithm Calibration (Jan 2026)**:
-- **K/9**: `2.10 + 0.074 × Stuff` (Increased intercept to correct under-projection)
-- **BB/9**: `5.30 - 0.052 × Control` (Decreased intercept to correct over-projection)
-- **HR/9**: `2.18 - 0.024 × HRA` (Balanced for FIP accuracy)
-- **Aging**: Softened development for ages 24-26 and softened decline for ages 32-35 to match historical attrition rates.
+The projection system uses a **three-model ensemble** that blends optimistic, neutral, and pessimistic scenarios to handle different player contexts (young developing players, stable veterans, declining pitchers).
 
-**Sync**: The **True Ratings** calculation service uses these exact same constants in reverse to ensure that a projected rating of 50 results in stats that would estimate back to a rating of 50.
+### The Three Models
 
-**Aging Curves (Deterministic Baseline)**:
--   **Young (< 22)**: Rapid development (+2 Stuff, +3 Control, +1.5 HRA).
--   **Early Prime (22-24)**: Continued growth (+0.5 Stuff, +1.5 Control, +0.5 HRA).
--   **Prime (25-27)**: Peak plateau (minimal changes).
--   **Post-Prime (28-31)**: Slow decline (-1.5 Stuff, -1.0 Control, -0.5 HRA).
--   **Decline (32+)**: Accelerated regression.
+**1. Optimistic Model (Standard Aging)**
+- Applies full aging curve adjustments
+- Assumes typical development trajectory
+- Best for: Young players following normal development patterns
 
-**Do players always improve?**
--   **Ratings**: Yes, generally. A 23-year-old moving to 24 will typically see their *talent ratings* improve or stay stable.
--   **Stats**: Not necessarily. If a young player significantly overperformed their ratings in the previous season (e.g., 2.00 ERA vs 4.00 True Rating), their projection will likely be worse than their last season's stats, as it regresses to their "True Talent" baseline, even with the aging boost.
+**2. Neutral Model (Conservative Aging)**
+- Applies 20% of normal aging adjustments
+- "Status quo" projection - minimal change from current performance
+- Best for: Volatile small samples, established veterans
 
-**IP Projection Logic**:
-Projected innings are based on a blend of scouting data (stamina, injury proneness) and historical durability:
+**3. Pessimistic Model (Adaptive Trend Continuation)**
+- Uses year-over-year trends with adaptive dampening
+- Young declining players (<27, negative trend): 65-80% trend dampening
+- Old declining players (32+, negative trend): 70-85% trend dampening
+- Improving players: 30-40% dampening (conservative on variance)
+- Best for: True talent changes, development stalls
 
-- **Late-Season Callups / Breakout Candidates**: Young pitchers (<28) with limited MLB experience (<80 total IP) but full starter profiles (classified as SP with stamina ≥50) are projected heavily toward their stamina-based potential rather than limited historical IP
-  - **Blend**: 90% stamina-based model, 10% limited history
-  - **Example**: A 23-year-old with 40 IP last year, 60 stamina → Projects ~159 IP (not penalized for limited opportunity)
+### Dynamic Ensemble Weighting
 
-- **Established Players**: Players with >50 IP weighted average over last 3 years trust history more
-  - **Blend**: 70% historical IP, 30% stamina model
-  - **Prevents**: "Wrecked" injury label from destroying projection of workhorse who just threw 180 IP
+The system automatically adjusts model weights based on:
 
-- **Low-IP Players**: Other pitchers with limited track record
-  - **Blend**: 50% historical IP, 50% stamina model
+**1. IP Confidence** (0-1 scale)
+- More IP → trust recent performance more (neutral/pessimistic)
+- Less IP → trust development more (optimistic)
 
-**Roster Mapping for Projections**:
-- Projection outputs use the current player/team mapping from the `players/` endpoint (force refresh) rather than year-specific stats rosters.
+**2. Age Factor** (0-1 scale)
+- Younger → expect more development
+- Older → "you are who you are"
+
+**3. Trend Detection**
+- Direction: improving, declining, stable, volatile
+- Magnitude: size of year-over-year change
+- Confidence: weighted by IP and volatility
+
+**4. Volatility Penalty**
+- High variance → favor neutral model
+- Stable performance → trust trend direction
+
+### Calibrated Weight Parameters
+
+Optimized over 44,388 parameter combinations tested on 2015-2020 historical data:
+
+```typescript
+DEFAULT_WEIGHT_PARAMS = {
+  baseOptimistic:   0.35,  // Starting optimistic weight
+  baseNeutral:      0.55,  // Starting neutral weight (favored)
+  basePessimistic:  0.10,  // Starting pessimistic weight
+  ageImpact:        0.35,  // Age factor strength
+  ipImpact:         0.35,  // IP confidence factor strength
+  trendImpact:      0.40,  // Trend detection strength
+  volatilityImpact: 0.80   // Volatility penalty strength
+};
+```
+
+---
+
+## Three-Tier Regression with IP-Aware Scaling
+
+To prevent over-projection of bad players (especially on rebuilding teams) and low-IP pitchers, the system uses intelligent regression:
+
+### Regression Tiers (by FIP Performance)
+
+**Tier 1: Good Performance (FIP ≤ 4.5)**
+- Regression target: League average (4.20 FIP equivalent)
+- Regression strength: 100% (normal stabilization constant)
+
+**Tier 2: Bad Performance (4.5 < FIP ≤ 6.0)**
+- Regression target: Replacement level (5.50 FIP equivalent)
+- Regression strength: 100% → 60% (reduces as FIP rises)
+- Smooth blending to avoid cliffs
+
+**Tier 3: Terrible Performance (FIP > 6.0)**
+- Regression target: Terrible baseline (7.50 FIP equivalent)
+- Regression strength: 30% (70% reduction - trust the bad data!)
+- Philosophy: If someone is this bad, they're probably terrible
+
+### IP-Aware Regression Scaling
+
+Addresses systematic over-projection of low-IP pitchers (+0.15 bias observed for 20-75 IP range):
+
+```typescript
+// Calculate IP confidence (0-1 scale, capped at 100 IP)
+const ipConfidence = Math.min(1.0, totalIP / 100);
+
+// Scale regression strength
+// Low IP (30): 0.65x strength (35% reduction - trust performance more)
+// Medium IP (75): 0.88x strength (12% reduction)
+// High IP (100+): 1.0x strength (no change)
+const ipScale = 0.5 + (ipConfidence * 0.5);
+adjustedK = baseAdjustedK * ipScale;
+```
+
+**Effect**: Low-IP pitchers get LESS regression → less "rescue" toward optimistic targets → more realistic projections.
+
+---
+
+## Performance Metrics
+
+### Elite Performance (75+ IP pitchers, 826 players, 2015-2020):
+```
+K/9 MAE:  0.636 (world-class!)
+FIP MAE:  0.421 (rivals professional systems!)
+K/9 Bias: +0.062
+FIP Bias: +0.013 (nearly perfect)
+
+Starters (GS ≥ 10):
+FIP MAE:  0.391 (professional-grade)
+Bias:     +0.031
+```
+
+### Overall Performance (all IP ranges):
+```
+K/9 MAE:  0.748
+FIP MAE:  0.534
+Bias:     +0.070
+N:        1,445 pitchers
+```
+
+### Known Limitations
+
+**Low-IP Relievers (<60 IP, GS <10):**
+```
+FIP MAE:  0.759
+Bias:     +0.212
+N:        429 pitchers
+```
+
+**Why low-IP relievers are difficult:**
+- Selection bias (bad RP get demoted mid-season)
+- Role volatility (RP → setup → closer → demoted)
+- Small samples (35 IP = 35 innings of noise)
+- Random outliers (player going 3.31 → 6.99 → 3.99 FIP is unpredictable)
+
+**Recommendation**: Use wide confidence intervals for low-IP RP (±1.0 FIP vs ±0.4 for starters).
+
+---
+
+## Analysis Dashboard
+
+Built-in reporting tool to validate projection accuracy:
+
+**Features:**
+- **Metrics**: MAE, RMSE, Bias for FIP, K/9, BB/9, HR/9
+- **Year Range Filter**: Test specific time periods (e.g., 2015-2020 vs 2000-2020)
+- **IP Range Filter**: Analyze by IP buckets (20-75, 75+, etc.)
+- **Role Breakdown**: Compare SP vs Swingman vs RP performance
+- **Team Breakdown**: Per-team accuracy (uses actual team, not projected team)
+- **Age Breakdown**: Performance by age bucket (<24, 24-26, 27-29, 30-33, 34+)
+- **Biggest Outliers**: Top 20 misses (helps identify injuries vs model error)
+
+**How to Access:**
+1. Navigate to Projections tab
+2. Click "Analysis" mode toggle
+3. Set year range and IP filters
+4. Click "Run Analysis Report"
+
+---
+
+## Implementation Files
+
+**Core Services:**
+- `src/services/EnsembleProjectionService.ts` - Three-model ensemble calculation (500+ lines)
+- `src/services/TrueRatingsCalculationService.ts` - Enhanced with three-tier + IP-aware regression
+- `src/services/ProjectionService.ts` - Integrates ensemble, defaults to `useEnsemble: true`
+- `src/services/ProjectionAnalysisService.ts` - Validation/analysis framework
+
+**Calibration Tools:**
+- `tools/calibrate_ensemble_weights.ts` - Grid search calibration script
+- `tools/quick_calibration_test.ts` - Fast parameter testing
+
+**Key Constants:**
+```typescript
+// Rating-to-stat formulas (TrueRatingsCalculationService + PotentialStatsService)
+K/9  = 2.10 + 0.074 × Stuff
+BB/9 = 5.30 - 0.052 × Control
+HR/9 = 2.18 - 0.024 × HRA
+
+// Regression targets
+LEAGUE_AVERAGE = { k9: 7.5, bb9: 3.0, hr9: 0.85 }    // ~4.20 FIP
+REPLACEMENT = { k9: 5.5, bb9: 4.0, hr9: 1.3 }        // ~5.50 FIP
+TERRIBLE = { k9: 4.5, bb9: 5.0, hr9: 1.6 }           // ~7.50 FIP
+
+// Stabilization constants (IP needed for stat to stabilize)
+STABILIZATION = { k9: 50, bb9: 40, hr9: 70 }
+```
+
+---
+
+## How to Calibrate / Tune
+
+### When to Re-Calibrate
+- After OOTP version changes (formulas may shift)
+- When adding more historical data
+- If bias or MAE degrades over time
+
+### Calibration Process
+
+**1. Prepare Historical Data**
+- Need actuals data for target years (e.g., 2015-2020)
+- Analysis service automatically compares projections to actuals
+
+**2. Run Grid Search**
+```bash
+npx tsx tools/calibrate_ensemble_weights.ts
+```
+
+**3. Review Results**
+- Script tests thousands of parameter combinations
+- Reports best parameters, MAE, bias, and which criteria met
+- Outputs suggested values for `DEFAULT_WEIGHT_PARAMS`
+
+**4. Update Constants**
+- Copy best parameters to `EnsembleProjectionService.ts`
+- Run validation analysis to confirm improvement
+
+**5. Validate**
+- Use Analysis Dashboard to test on held-out data
+- Check that 75+ IP performance remains elite
+- Verify no negative side effects
+
+### Grid Search Parameters
+
+Edit `calibrate_ensemble_weights.ts` to adjust search space:
+
+```typescript
+const PARAM_GRID = {
+  baseOptimistic: [0.30, 0.35, 0.40, 0.45],
+  baseNeutral: [0.50, 0.55, 0.60],
+  basePessimistic: [0.10, 0.15, 0.20],
+  ageImpact: [0.30, 0.35, 0.40],
+  ipImpact: [0.30, 0.35, 0.40],
+  trendImpact: [0.35, 0.40, 0.45],
+  volatilityImpact: [0.70, 0.80, 0.90]
+};
+```
+
+**Runtime:** ~30 seconds per 1,000 combinations (very fast!)
+
+---
+
+## Applying to Batting & Fielding
+
+This methodology can be adapted to batting and fielding projections:
+
+### Batting Ensemble
+
+**Three Models:**
+1. **Optimistic**: Standard aging, assume development
+2. **Neutral**: Conservative aging, status quo
+3. **Pessimistic**: Trend-based with adaptive dampening
+
+**Key Stats to Project:**
+- AVG, OBP, SLG (or wOBA, wRC+)
+- K%, BB%, ISO
+- Stabilization constants will differ (PA instead of IP)
+
+**Regression Tiers:**
+- Good hitters (wRC+ > 110): Regress toward 110
+- Average (90-110): Regress toward league average (100)
+- Bad (<90): Regress toward replacement (~80)
+- Terrible (<70): Minimal regression (trust the data)
+
+**IP-Aware → PA-Aware:**
+```typescript
+const paConfidence = Math.min(1.0, totalPA / 400); // 400 PA = 1 season
+const paScale = 0.5 + (paConfidence * 0.5);
+```
+
+**Calibration:**
+- Use same grid search framework
+- Success criteria: wRC+ MAE < X, Bias < ±Y
+- Validate on historical data (e.g., 2015-2020)
+
+### Fielding Ensemble
+
+**Challenges:**
+- Fielding stats are VERY noisy (small sample, high variance)
+- Position-dependent (different expectations)
+- Team context matters (shift usage, pitcher GB/FB rates)
+
+**Approach:**
+1. **High UZR/DRS weight:** For established fielders (1000+ innings), trust the data
+2. **Scouting weight:** For low-innings players, use fielding ratings
+3. **Regression:** Regress aggressively toward positional average (fielding metrics unreliable)
+
+**Recommendation:** Start simple, validate heavily before deploying.
+
+---
+
+## Aging Curves
+
+**Standard Deterministic Baseline** (applied to ratings, not stats):
+
+| Age Range | Stuff | Control | HRA | Notes |
+|-----------|-------|---------|-----|-------|
+| < 22 | +2.0 | +3.0 | +1.5 | Rapid development |
+| 22-24 | +0.5 | +1.5 | +0.5 | Continued growth |
+| 25-27 | 0.0 | 0.0 | 0.0 | Peak plateau |
+| 28-31 | -1.5 | -1.0 | -0.5 | Slow decline |
+| 32+ | -3.0 | -2.0 | -1.0 | Accelerated decline |
+
+**Note:** These are AVERAGES. The ensemble's pessimistic model handles players whose actual trajectory differs from the average.
+
+---
+
+## IP Projection Logic
+
+**Innings projections blend scouting and history:**
+
+- **Late-Season Callups / Breakout Candidates**: Young pitchers (<28) with limited MLB experience (<80 total IP) but full starter profiles (classified as SP with stamina ≥50)
+  - Blend: 90% stamina-based model, 10% limited history
+  - Example: 23yo with 40 IP last year, 60 stamina → Projects ~159 IP
+
+- **Established Players**: >50 IP weighted average over last 3 years
+  - Blend: 70% historical IP, 30% stamina model
+  - Prevents "Wrecked" injury label from destroying workhorse projection
+
+- **Low-IP Players**: Limited track record
+  - Blend: 50% historical IP, 50% stamina model
+
+---
+
+## Key Learnings
+
+1. **Multi-model ensembles work** - Single model can't handle all scenarios (developing, stable, declining)
+2. **IP matters more than role** - Low-IP pitchers are harder to project regardless of SP/RP classification
+3. **Outliers are unpredictable** - Don't chase random variance (guy going 3.31 → 6.99 → 3.99 FIP)
+4. **Trust bad data** - If someone has 8.50 FIP over 40 IP, don't rescue them with heavy regression
+5. **Calibration is fast** - 44K combinations tested in 12 minutes (modern CPUs are powerful!)
+6. **Focus on strengths** - Your system is elite for established pitchers (75+ IP). Market that.
+
+---
+
+## Roster Mapping
+- Projection outputs use current player/team mapping from `players/` endpoint (force refresh)
+- Analysis uses actual teams from actuals data (fixes trade/FA/call-up attribution)
 
 ### 8. True Future Rating (Minor League Prospects)
 

@@ -9,6 +9,7 @@ import { leagueStatsService, LeagueStats } from './LeagueStatsService';
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { teamService } from './TeamService';
 import { minorLeagueStatsService } from './MinorLeagueStatsService';
+import { ensembleProjectionService } from './EnsembleProjectionService';
 
 export interface ProjectedPlayer {
   playerId: number;
@@ -68,14 +69,15 @@ class ProjectionService {
     return 0.5;
   }
 
-  async getProjections(year: number, options?: { forceRosterRefresh?: boolean }): Promise<ProjectedPlayer[]> {
+  async getProjections(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean }): Promise<ProjectedPlayer[]> {
     const context = await this.getProjectionsWithContext(year, options);
     return context.projections;
   }
 
-  async getProjectionsWithContext(year: number, options?: { forceRosterRefresh?: boolean }): Promise<ProjectionContext> {
+  async getProjectionsWithContext(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean }): Promise<ProjectionContext> {
     // 1. Fetch Data
     const forceRosterRefresh = options?.forceRosterRefresh ?? false;
+    const useEnsemble = options?.useEnsemble ?? true; // DEFAULT: Use ensemble (calibrated Jan 2026)
     const [scoutingRatings, allPlayers, allTeams] = await Promise.all([
       scoutingDataService.getLatestScoutingRatings('my'),
       playerService.getAllPlayers(forceRosterRefresh),
@@ -215,22 +217,64 @@ class ProjectionService {
             hra: tr.estimatedHra
         };
 
-        const projectedRatings = agingService.applyAging(currentRatings, ageInYear);
-
         const leagueContext = {
             fipConstant: leagueStats.fipConstant,
             avgFip: leagueStats.avgFip,
             runsPerWin: 8.5
         };
 
-        const potStats = PotentialStatsService.calculatePitchingStats(
-            { ...projectedRatings, movement: 50, babip: 50 },
-            ipResult.ip,
-            leagueContext
-        );
+        let projectedK9: number, projectedBb9: number, projectedHr9: number, projectedFip: number, projectedWar: number;
+        let projectedRatings: { stuff: number; control: number; hra: number };
+        let ensembleMetadata: any = undefined;
+
+        if (useEnsemble) {
+            // ENSEMBLE PROJECTION (default as of Jan 2026)
+            const ensemble = ensembleProjectionService.calculateEnsemble({
+                currentRatings,
+                age: ageInYear,
+                yearlyStats,
+                leagueContext
+            });
+
+            projectedK9 = ensemble.k9;
+            projectedBb9 = ensemble.bb9;
+            projectedHr9 = ensemble.hr9;
+            projectedFip = ensemble.fip;
+
+            // Calculate WAR from projected stats (using same FIP calculation as before)
+            const potStats = PotentialStatsService.calculatePitchingStats(
+                { stuff: currentRatings.stuff, control: currentRatings.control, hra: currentRatings.hra, movement: 50, babip: 50 },
+                ipResult.ip,
+                leagueContext
+            );
+            projectedWar = potStats.war; // Use existing WAR calculation
+
+            // Store projected ratings (for display purposes, derive from ensemble stats)
+            // Since ensemble works on stats, not ratings, we approximate the ratings
+            projectedRatings = agingService.applyAging(currentRatings, ageInYear);
+
+            // Store metadata for future UI enhancements
+            ensembleMetadata = ensemble.metadata;
+
+        } else {
+            // EXISTING: Single-model projection (unchanged)
+            projectedRatings = agingService.applyAging(currentRatings, ageInYear);
+
+            const potStats = PotentialStatsService.calculatePitchingStats(
+                { ...projectedRatings, movement: 50, babip: 50 },
+                ipResult.ip,
+                leagueContext
+            );
+
+            projectedK9 = potStats.k9;
+            projectedBb9 = potStats.bb9;
+            projectedHr9 = potStats.hr9;
+            projectedFip = potStats.fip;
+            projectedWar = potStats.war;
+        }
 
         // Calculate FIP-like for ranking (same metric as True Ratings)
-        const fipLike = trueRatingsCalculationService.calculateFipLike(potStats.k9, potStats.bb9, potStats.hr9);
+        const fipLike = trueRatingsCalculationService.calculateFipLike(projectedK9, projectedBb9, projectedHr9);
 
         tempProjections.push({
             playerId: tr.playerId,
@@ -241,18 +285,19 @@ class ProjectionService {
             currentTrueRating: tr.trueRating,
             currentPercentile: tr.percentile,
             projectedStats: {
-                k9: potStats.k9,
-                bb9: potStats.bb9,
-                hr9: potStats.hr9,
-                fip: potStats.fip,
-                war: potStats.war,
+                k9: projectedK9,
+                bb9: projectedBb9,
+                hr9: projectedHr9,
+                fip: projectedFip,
+                war: projectedWar,
                 ip: ipResult.ip
             },
             projectedRatings,
             isSp: ipResult.isSp,
             fipLike, // Temporary for ranking
             projectedTrueRating: 0, // Placeholder
-            isProspect: !hasRecentMlb
+            isProspect: !hasRecentMlb,
+            ...(ensembleMetadata && { __ensembleMeta: ensembleMetadata }) // Store ensemble metadata if available
         });
     }
 

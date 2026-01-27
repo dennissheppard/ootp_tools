@@ -7,6 +7,7 @@ import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
 import { trueRatingsService } from '../services/TrueRatingsService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { fipWarService } from '../services/FipWarService';
+import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { projectionAnalysisService, AggregateAnalysisReport } from '../services/ProjectionAnalysisService';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
@@ -50,6 +51,11 @@ export class ProjectionsView {
   private hasActualStats = false;
   private teamLookup: Map<number, any> = new Map();
   private analysisReport: AggregateAnalysisReport | null = null;
+  private analysisStartYear = 2015; // Default to recent 5-6 years
+  private analysisEndYear = 2020;
+  private analysisMinIp = 20; // Default minimum IP filter
+  private analysisMaxIp = 999; // Default maximum IP filter (effectively unlimited)
+  private analysisUseIpFilter = true; // Default to filtering enabled
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -271,22 +277,111 @@ export class ProjectionsView {
       const container = this.container.querySelector('#projections-table-container');
       const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
       if (subtitle) subtitle.textContent = 'Aggregate analysis of projection accuracy across all years.';
-      
+
       if (!container) return;
+
+      // Generate year options (2000-2020)
+      const yearOptions = Array.from({ length: 21 }, (_, i) => 2000 + i).reverse();
 
       container.innerHTML = `
         <div class="analysis-landing" style="text-align: center; padding: 40px;">
             <h3>Projection Accuracy Analysis</h3>
             <p style="max-width: 600px; margin: 0 auto 20px; color: var(--color-text-secondary);">
-                This report will iterate through all available historical years, run the projection algorithm for each year based on prior data, 
-                and compare it against the actual results. This process may take a few moments.
+                This report will iterate through the selected year range, run the projection algorithm for each year based on prior data,
+                and compare it against the actual results.
             </p>
+
+            <div style="display: flex; gap: 20px; justify-content: center; align-items: center; margin-bottom: 20px;">
+                <div class="form-field">
+                    <label for="analysis-start-year">Start Year:</label>
+                    <select id="analysis-start-year">
+                        ${yearOptions.map(y => `<option value="${y}" ${y === this.analysisStartYear ? 'selected' : ''}>${y}</option>`).join('')}
+                    </select>
+                </div>
+                <div class="form-field">
+                    <label for="analysis-end-year">End Year:</label>
+                    <select id="analysis-end-year">
+                        ${yearOptions.map(y => `<option value="${y}" ${y === this.analysisEndYear ? 'selected' : ''}>${y}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 15px; justify-content: center; align-items: center; margin-bottom: 20px;">
+                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                    <input type="checkbox" id="analysis-use-ip-filter" ${this.analysisUseIpFilter ? 'checked' : ''}>
+                    <span>Filter IP range:</span>
+                </label>
+                <input
+                    type="number"
+                    id="analysis-min-ip"
+                    min="0"
+                    max="300"
+                    value="${this.analysisMinIp}"
+                    style="width: 60px; padding: 4px 8px; text-align: center;"
+                    ${!this.analysisUseIpFilter ? 'disabled' : ''}
+                    placeholder="Min"
+                >
+                <span>to</span>
+                <input
+                    type="number"
+                    id="analysis-max-ip"
+                    min="0"
+                    max="300"
+                    value="${this.analysisMaxIp}"
+                    style="width: 60px; padding: 4px 8px; text-align: center;"
+                    ${!this.analysisUseIpFilter ? 'disabled' : ''}
+                    placeholder="Max"
+                >
+                <span>IP</span>
+            </div>
+            <p style="margin-bottom: 10px; color: var(--color-text-secondary); font-size: 0.85em; text-align: center;">
+                Examples: 75-999 (established pitchers), 20-75 (small samples/relievers), 0-999 (all pitchers)
+            </p>
+
+            <p style="margin-bottom: 20px; color: var(--color-text-secondary); font-size: 0.9em;">
+                <strong>Recommended:</strong> Use recent 5-6 years (2015-2020) for most accurate results.<br>
+                OOTP version changes may affect older data.
+            </p>
+
             <button id="run-analysis-btn" class="btn btn-primary">Run Analysis Report</button>
             <div id="analysis-progress" style="margin-top: 20px; display: none;">
                 <div class="loading-message">Analyzing Year <span id="analysis-year-indicator">...</span></div>
             </div>
         </div>
       `;
+
+      // Add event listeners for year selectors
+      container.querySelector('#analysis-start-year')?.addEventListener('change', (e) => {
+          this.analysisStartYear = parseInt((e.target as HTMLSelectElement).value);
+      });
+      container.querySelector('#analysis-end-year')?.addEventListener('change', (e) => {
+          this.analysisEndYear = parseInt((e.target as HTMLSelectElement).value);
+      });
+
+      // Add event listeners for IP filter
+      const ipFilterCheckbox = container.querySelector<HTMLInputElement>('#analysis-use-ip-filter');
+      const ipFilterMinInput = container.querySelector<HTMLInputElement>('#analysis-min-ip');
+      const ipFilterMaxInput = container.querySelector<HTMLInputElement>('#analysis-max-ip');
+
+      ipFilterCheckbox?.addEventListener('change', (e) => {
+          this.analysisUseIpFilter = (e.target as HTMLInputElement).checked;
+          if (ipFilterMinInput) ipFilterMinInput.disabled = !this.analysisUseIpFilter;
+          if (ipFilterMaxInput) ipFilterMaxInput.disabled = !this.analysisUseIpFilter;
+      });
+
+      ipFilterMinInput?.addEventListener('change', (e) => {
+          const value = parseInt((e.target as HTMLInputElement).value);
+          if (!isNaN(value) && value >= 0) {
+              this.analysisMinIp = value;
+          }
+      });
+
+      ipFilterMaxInput?.addEventListener('change', (e) => {
+          const value = parseInt((e.target as HTMLInputElement).value);
+          if (!isNaN(value) && value >= 0) {
+              this.analysisMaxIp = value;
+          }
+      });
 
       container.querySelector('#run-analysis-btn')?.addEventListener('click', () => this.runAnalysis());
   }
@@ -295,20 +390,34 @@ export class ProjectionsView {
       const btn = this.container.querySelector<HTMLButtonElement>('#run-analysis-btn');
       const progress = this.container.querySelector<HTMLElement>('#analysis-progress');
       const indicator = this.container.querySelector<HTMLElement>('#analysis-year-indicator');
-      
+
       if (btn) btn.disabled = true;
       if (progress) progress.style.display = 'block';
 
       try {
           const currentYear = await dateService.getCurrentYear();
-          // Analyze from 2000 up to last completed season (currentYear - 1)
-          // If we are in 2026, we can analyze up to 2025 actuals.
-          // Wait, backcasting logic: to analyze 2025, we project from 2024 and compare to 2025 actuals.
-          // So endYear should be currentYear - 1.
-          
-          this.analysisReport = await projectionAnalysisService.runAnalysis(2000, currentYear - 1, (year) => {
-              if (indicator) indicator.textContent = year.toString();
-          });
+          const maxEndYear = currentYear - 1; // Can only analyze up to last completed season
+
+          // Validate year range
+          if (this.analysisStartYear > this.analysisEndYear) {
+              throw new Error('Start year must be before end year');
+          }
+          if (this.analysisEndYear > maxEndYear) {
+              throw new Error(`End year cannot exceed ${maxEndYear} (last completed season)`);
+          }
+
+          const minIp = this.analysisUseIpFilter ? this.analysisMinIp : 0;
+          const maxIp = this.analysisUseIpFilter ? this.analysisMaxIp : 999;
+
+          this.analysisReport = await projectionAnalysisService.runAnalysis(
+              this.analysisStartYear,
+              this.analysisEndYear,
+              (year) => {
+                  if (indicator) indicator.textContent = year.toString();
+              },
+              minIp,
+              maxIp
+          );
 
           this.renderAnalysisResults();
       } catch (err) {
@@ -323,7 +432,7 @@ export class ProjectionsView {
       const container = this.container.querySelector('#projections-table-container');
       if (!container) return;
 
-      const { overallMetrics, years, metricsByTeam, metricsByAge } = this.analysisReport;
+      const { overallMetrics, years, metricsByTeam, metricsByAge, metricsByRole } = this.analysisReport;
 
       const getBiasClass = (bias: number) => {
           if (Math.abs(bias) < 0.10) return 'text-success'; 
@@ -402,6 +511,23 @@ export class ProjectionsView {
           </tr>
       `).join('');
 
+      // Role Table (FIP only) - SP vs RP vs Swingman
+      const roleOrder = ['SP', 'Swingman', 'RP']; // Custom sort order
+      const sortedRoles = Array.from(metricsByRole.entries()).sort((a, b) => {
+          const aIndex = roleOrder.indexOf(a[0]);
+          const bIndex = roleOrder.indexOf(b[0]);
+          return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+      });
+      const roleRows = sortedRoles.map(([role, m]) => `
+          <tr>
+              <td>${role}</td>
+              <td class="${getMaeClass(m.fip.mae)}">${m.fip.mae.toFixed(3)}</td>
+              <td>${m.fip.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(m.fip.bias)}">${m.fip.bias > 0 ? '+' : ''}${m.fip.bias.toFixed(3)}</td>
+              <td>${m.fip.count}</td>
+          </tr>
+      `).join('');
+
       // Stat Breakdown Table
       const statRows = [
           renderStatRow('FIP', overallMetrics.fip),
@@ -419,7 +545,7 @@ export class ProjectionsView {
       const outlierRows = outliers.map(d => `
           <tr>
               <td>${d.year}</td>
-              <td>${this.renderPlayerName({ ...d, playerId: d.playerId, name: d.name } as any)}</td>
+              <td>${this.renderPlayerName({ ...d, playerId: d.playerId, name: d.name } as any, d.year)}</td>
               <td>${d.teamName}</td>
               <td>${d.age}</td>
               <td>${d.projected.fip.toFixed(2)}</td>
@@ -433,6 +559,10 @@ export class ProjectionsView {
           <div class="analysis-results">
               <div class="analysis-summary">
                   <h4>Overall Performance (FIP)</h4>
+                  <p style="color: var(--color-text-secondary); font-size: 0.9em; margin-bottom: 10px;">
+                      Analysis Period: ${this.analysisStartYear}-${this.analysisEndYear} (${years.length} years)
+                      ${this.analysisUseIpFilter ? `<br>IP Range: ${this.analysisMinIp}-${this.analysisMaxIp === 999 ? '∞' : this.analysisMaxIp} innings` : ''}
+                  </p>
                   <div class="metrics-grid">
                       ${renderMetricsCard(overallMetrics.fip)}
                   </div>
@@ -452,6 +582,27 @@ export class ProjectionsView {
                               </tr>
                           </thead>
                           <tbody>${statRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-split" style="grid-template-columns: 1fr; margin-top: 20px;">
+                  <div class="analysis-section">
+                      <h4>Accuracy by Role (FIP)</h4>
+                      <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">
+                          SP = Starters (GS ≥ 10), Swingman = Long relievers (GS < 10, IP ≥ 60), RP = Relievers (GS < 10, IP < 60)
+                      </p>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Role</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${roleRows}</tbody>
                       </table>
                   </div>
               </div>
@@ -718,8 +869,9 @@ export class ProjectionsView {
       }
   }
 
-  private renderPlayerName(player: ProjectedPlayer): string {
-    return `<button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}</button>`;
+  private renderPlayerName(player: ProjectedPlayer, year?: number): string {
+    const yearAttr = year ? ` data-year="${year}"` : '';
+    return `<button class="btn-link player-name-link" data-player-id="${player.playerId}"${yearAttr}>${player.name}</button>`;
   }
 
   private renderRatingBadge(player: ProjectedPlayer): string {
@@ -758,14 +910,118 @@ export class ProjectionsView {
         e.stopPropagation();
         const playerId = parseInt(link.dataset.playerId ?? '', 10);
         if (!playerId) return;
-        this.openPlayerProfile(playerId);
+        const year = link.dataset.year ? parseInt(link.dataset.year, 10) : undefined;
+        this.openPlayerProfile(playerId, year);
       });
     });
   }
 
-  private async openPlayerProfile(playerId: number): Promise<void> {
-    const row = this.playerRowLookup.get(playerId);
+  private async openPlayerProfile(playerId: number, explicitYear?: number): Promise<void> {
+    let row: ProjectedPlayerWithActuals | undefined;
+    let projectionYear = explicitYear ?? this.selectedYear;
+    let projectionBaseYear = explicitYear ? explicitYear - 1 : (this.statsYearUsed ?? this.selectedYear - 1);
+    
+    // If we have an explicit year, we should prioritize finding the data for THAT year
+    if (explicitYear && this.analysisReport) {
+      for (const yearResult of this.analysisReport.years) {
+        if (yearResult.year === explicitYear) {
+          const detail = yearResult.details.find(d => d.playerId === playerId);
+          if (detail) {
+            row = {
+              playerId: detail.playerId,
+              name: detail.name,
+              teamId: 0,
+              age: detail.age,
+              currentTrueRating: (detail as any).trueRating || 0,
+              currentPercentile: (detail as any).percentile || 0,
+              projectedStats: {
+                ...detail.projected,
+                war: 0,
+                ip: detail.ip
+              },
+              projectedRatings: (detail as any).projectedRatings || {
+                stuff: 0,
+                control: 0,
+                hra: 0
+              },
+              isProspect: false,
+              actualStats: {
+                fip: detail.actual.fip,
+                war: 0,
+                ip: detail.ip,
+                diff: detail.diff.fip,
+                grade: Math.abs(detail.diff.fip) < 0.5 ? 'A' : (Math.abs(detail.diff.fip) < 1.0 ? 'B' : 'C')
+              }
+            } as ProjectedPlayerWithActuals;
+            break;
+          }
+        }
+      }
+    }
+
+    // Standard lookup if not found yet
+    if (!row) {
+      row = this.playerRowLookup.get(playerId);
+    }
+    
+    // Fallback: Check allStats if not on current page
+    if (!row) {
+      row = this.allStats.find(p => p.playerId === playerId);
+    }
+
+    // Fallback 2: Check analysis results if we are in analysis mode but didn't have an explicit year or it wasn't found
+    if (!row && this.analysisReport) {
+      // Look for the player in the analysis details
+      for (const yearResult of this.analysisReport.years) {
+        const detail = yearResult.details.find(d => d.playerId === playerId);
+        if (detail) {
+          projectionYear = yearResult.year;
+          projectionBaseYear = yearResult.year - 1;
+          
+          // Construct a skeleton row from analysis data
+          row = {
+            playerId: detail.playerId,
+            name: detail.name,
+            teamId: 0, // Will be fetched from playerService below
+            age: detail.age,
+            isSp: detail.gs > (detail.ip / 5), // Heuristic
+            currentTrueRating: (detail as any).trueRating || 0,
+            currentPercentile: (detail as any).percentile || 0,
+            projectedStats: {
+              ...detail.projected,
+              war: 0,
+              ip: detail.ip
+            },
+            projectedRatings: (detail as any).projectedRatings || {
+              stuff: 0,
+              control: 0,
+              hra: 0
+            },
+            isProspect: false,
+            actualStats: {
+              fip: detail.actual.fip,
+              war: 0,
+              ip: detail.ip,
+              diff: detail.diff.fip,
+              grade: Math.abs(detail.diff.fip) < 0.5 ? 'A' : (Math.abs(detail.diff.fip) < 1.0 ? 'B' : 'C')
+            }
+          } as ProjectedPlayerWithActuals;
+          break;
+        }
+      }
+    }
+
     if (!row) return;
+
+    // Ensure ratings are estimated if they are 0 (common for historical analysis outliers)
+    if (row.projectedRatings.stuff === 0 && row.projectedRatings.control === 0 && row.projectedRatings.hra === 0) {
+      const estimated = RatingEstimatorService.estimateAll(row.projectedStats);
+      row.projectedRatings = {
+        stuff: estimated.stuff.rating,
+        control: estimated.control.rating,
+        hra: estimated.hra.rating
+      };
+    }
 
     // Fetch full player info for team labels
     const player = await playerService.getPlayerById(playerId);
@@ -785,20 +1041,22 @@ export class ProjectionsView {
       }
     }
 
-    // Get scouting
-    const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
-    const scouting = scoutingRatings.find(s => s.playerId === playerId);
+    // Get scouting (ONLY for current context, not historical analysis)
+    const currentYear = await dateService.getCurrentYear();
+    let scouting: any = undefined;
+    
+    if (projectionYear >= currentYear) {
+      const scoutingRatings = scoutingDataService.getLatestScoutingRatings('my');
+      scouting = scoutingRatings.find(s => s.playerId === playerId);
+    }
 
     // Extract pitch names and ratings if available
     const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
     const pitchRatings = scouting?.pitches ?? {};
-    const usablePitchCount = scouting?.pitches ? Object.values(scouting.pitches).filter(rating => rating >= 45).length : 0;
+    const usablePitchCount = scouting?.pitches ? Object.values(scouting.pitches).filter(rating => (rating as number) >= 45).length : 0;
 
     // Determine if we should show the year label (only for historical data)
-    // The year shown is the base year for the projection (statsYearUsed or selectedYear - 1)
-    const baseYear = this.statsYearUsed ?? this.selectedYear - 1;
-    const currentYear = await dateService.getCurrentYear();
-    const isHistorical = baseYear < currentYear - 1;
+    const isHistorical = projectionBaseYear < currentYear - 1;
 
     const profileData: PlayerProfileData = {
       playerId: row.playerId,
@@ -822,13 +1080,17 @@ export class ProjectionsView {
       pitches,
       pitchRatings,
       isProspect: row.isProspect,
-      year: this.selectedYear,
-      projectionYear: this.selectedYear,
-      projectionBaseYear: this.statsYearUsed ?? this.selectedYear - 1,
-      showYearLabel: isHistorical
+      year: projectionYear,
+      projectionYear: projectionYear,
+      projectionBaseYear: projectionBaseYear,
+      showYearLabel: isHistorical || projectionYear !== this.selectedYear,
+      projectionOverride: {
+        projectedStats: row.projectedStats,
+        projectedRatings: row.projectedRatings
+      }
     };
 
-    await this.playerProfileModal.show(profileData, this.statsYearUsed ?? this.selectedYear - 1);
+    await this.playerProfileModal.show(profileData, projectionBaseYear);
   }
 
   private updatePagination(total: number): void {

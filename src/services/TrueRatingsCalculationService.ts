@@ -6,7 +6,11 @@
  *
  * Process:
  * 1. Multi-year weighted average (recent years weighted more)
- * 2. Regression to league mean (small sample sizes regress more)
+ * 2. THREE-TIER REGRESSION (prevents over-projection of bad players):
+ *    - Good performance (FIP ≤ 4.5): Regress toward league average (4.20 FIP)
+ *    - Bad performance (4.5 < FIP ≤ 6.0): Regress toward replacement level (5.50 FIP)
+ *    - Terrible performance (FIP > 6.0): MINIMAL regression - trust their awful performance
+ *    - Smooth blending between tiers to avoid cliffs
  * 3. Optional blend with scouting ratings
  * 4. Calculate FIP-like metric
  * 5. Rank percentile across all pitchers
@@ -123,6 +127,26 @@ const DEFAULT_LEAGUE_AVERAGES: LeagueAverages = {
 };
 
 /**
+ * Replacement-level rates (for fringe MLB pitchers, ~5.50 FIP)
+ * Used for multi-tier regression to avoid over-projecting bad players
+ */
+const REPLACEMENT_LEVEL_RATES = {
+  k9: 5.5,   // Well below league average
+  bb9: 4.0,  // Above league average (poor control)
+  hr9: 1.3,  // Above league average (gopher balls)
+};
+
+/**
+ * Terrible pitcher rates (for truly awful pitchers, ~7.50 FIP)
+ * Used for minimal regression - trust their bad performance
+ */
+const TERRIBLE_LEVEL_RATES = {
+  k9: 4.5,   // Truly awful strikeout rate
+  bb9: 5.0,  // Terrible control
+  hr9: 1.6,  // Serves up homers
+};
+
+/**
  * Percentile thresholds for True Rating conversion
  * Based on normal distribution (bell curve) buckets
  * Lower bound is inclusive, maps to corresponding rating
@@ -183,15 +207,15 @@ class TrueRatingsCalculationService {
     // Step 1: Multi-year weighted average
     const weighted = this.calculateWeightedRates(input.yearlyStats);
 
-    // Step 2: Regression to league mean
+    // Step 2: Two-tier regression (toward league avg or replacement level)
     let regressedK9 = this.regressToLeagueMean(
-      weighted.k9, weighted.totalIp, leagueAverages.avgK9, STABILIZATION.k9
+      weighted.k9, weighted.totalIp, leagueAverages.avgK9, STABILIZATION.k9, 'k9', weighted
     );
     let regressedBb9 = this.regressToLeagueMean(
-      weighted.bb9, weighted.totalIp, leagueAverages.avgBb9, STABILIZATION.bb9
+      weighted.bb9, weighted.totalIp, leagueAverages.avgBb9, STABILIZATION.bb9, 'bb9', weighted
     );
     let regressedHr9 = this.regressToLeagueMean(
-      weighted.hr9, weighted.totalIp, leagueAverages.avgHr9, STABILIZATION.hr9
+      weighted.hr9, weighted.totalIp, leagueAverages.avgHr9, STABILIZATION.hr9, 'hr9', weighted
     );
 
     // Step 3: Optional scouting blend
@@ -281,27 +305,98 @@ class TrueRatingsCalculationService {
   }
 
   /**
-   * Step 2.3: Regress a rate stat toward the league mean
+   * Step 2.3: Regress a rate stat toward the appropriate target
    *
-   * Formula: regressed = (weighted × IP + leagueAvg × K) / (IP + K)
-   * Where K is the stabilization constant for that stat
+   * THREE-TIER REGRESSION SYSTEM WITH IP-AWARE SCALING:
+   * - Good performance (FIP ≤ 4.5): Regress toward league average (4.20 FIP)
+   * - Bad performance (4.5 < FIP ≤ 6.0): Regress toward replacement level (5.50 FIP)
+   * - Terrible performance (FIP > 6.0): MINIMAL regression - trust their awful performance
+   *
+   * IP-AWARE SCALING (addresses low-IP over-projection):
+   * - Low IP (20-60): Reduced regression strength (trust their performance more)
+   * - Medium IP (60-100): Moderate reduction
+   * - High IP (100+): Full regression strength (standard behavior)
+   *
+   * This prevents over-projection of low-IP pitchers and rebuilding team players.
+   *
+   * Formula: regressed = (weighted × IP + target × adjustedK) / (IP + adjustedK)
+   * Where adjustedK varies by both performance tier AND IP confidence
    *
    * @param weightedRate - The weighted average rate
    * @param totalIp - Total innings pitched
    * @param leagueRate - League average for this rate
    * @param stabilizationK - IP needed for stat to stabilize
+   * @param statType - Type of stat ('k9', 'bb9', 'hr9') for replacement-level lookup
+   * @param weightedRates - All weighted rates (for FIP calculation to determine quality tier)
    * @returns Regressed rate
    */
   regressToLeagueMean(
     weightedRate: number,
     totalIp: number,
     leagueRate: number,
-    stabilizationK: number
+    stabilizationK: number,
+    statType: 'k9' | 'bb9' | 'hr9' = 'k9',
+    weightedRates?: WeightedRates
   ): number {
     if (totalIp + stabilizationK === 0) {
       return leagueRate;
     }
-    return (weightedRate * totalIp + leagueRate * stabilizationK) / (totalIp + stabilizationK);
+
+    // Determine regression target and strength using three-tier system
+    let regressionTarget = leagueRate;
+    let adjustedK = stabilizationK; // Default: normal regression strength
+
+    if (weightedRates) {
+      // Calculate estimated FIP from weighted rates (using constant 3.47)
+      const estimatedFip = this.calculateFipLike(
+        weightedRates.k9,
+        weightedRates.bb9,
+        weightedRates.hr9
+      );
+
+      // Get replacement-level and terrible-level targets for this stat
+      const replacementRate = REPLACEMENT_LEVEL_RATES[statType];
+      const terribleRate = TERRIBLE_LEVEL_RATES[statType];
+
+      // Three-tier regression logic:
+      if (estimatedFip > 6.0) {
+        // TERRIBLE performance - minimal regression, trust the bad data
+        // Reduce regression strength by 70% (use only 30% of stabilization constant)
+        adjustedK = stabilizationK * 0.3;
+        regressionTarget = terribleRate;
+      } else if (estimatedFip > 5.0) {
+        // BAD performance - regress toward replacement level
+        // Blend replacement and terrible if FIP is 5.0-6.0
+        if (estimatedFip > 5.5) {
+          // Very bad (5.5-6.0): blend replacement and terrible
+          const blendFactor = (estimatedFip - 5.5) / 0.5; // 0 to 1
+          regressionTarget = replacementRate * (1 - blendFactor) + terribleRate * blendFactor;
+          // Also reduce regression strength slightly
+          adjustedK = stabilizationK * (1 - blendFactor * 0.4); // 100% to 60%
+        } else {
+          // Bad (5.0-5.5): pure replacement level
+          regressionTarget = replacementRate;
+        }
+      } else if (estimatedFip > 4.5) {
+        // MARGINAL performance - blend league avg and replacement level
+        // Linear interpolation: 4.5 FIP = 100% league, 5.0 FIP = 100% replacement
+        const blendFactor = (estimatedFip - 4.5) / 0.5; // 0 to 1
+        regressionTarget = leagueRate * (1 - blendFactor) + replacementRate * blendFactor;
+      }
+      // else: Good performance (FIP ≤ 4.5) - use normal league average
+    }
+
+    // IP-AWARE SCALING: Reduce regression strength for low-IP pitchers
+    // This addresses systematic over-projection of low-IP pitchers (+0.153 bias)
+    // Low IP (30): ipScale = 0.65 (35% reduction in regression)
+    // Medium IP (75): ipScale = 0.88 (12% reduction)
+    // High IP (100+): ipScale = 1.0 (no reduction)
+    const ipConfidence = Math.min(1.0, totalIp / 100); // 0-1 scale
+    const ipScale = 0.5 + (ipConfidence * 0.5); // 0.5 to 1.0 scale
+    adjustedK = adjustedK * ipScale;
+
+    // Regression formula with IP-aware adjusted strength
+    return (weightedRate * totalIp + regressionTarget * adjustedK) / (totalIp + adjustedK);
   }
 
   /**
