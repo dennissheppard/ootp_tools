@@ -1068,7 +1068,7 @@ body {
 
 .table-wrapper {
   overflow-x: auto;
-  max-height: 504px;
+  max-height: 460px;
   overflow-y: auto;
   border-radius: var(--border-radius);
   border: 1px solid var(--color-border);
@@ -1940,6 +1940,140 @@ td.player-cell.player-name {
 .true-ratings-table .flip-cell-front,
 .true-ratings-table .flip-cell-back {
     justify-content: flex-start !important;
+}
+
+/* True Rating Column Gradients - only apply to td cells, not th headers */
+.true-ratings-table td[data-col-key="trueRating"] {
+  background: linear-gradient(to bottom, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.02));
+}
+
+.true-ratings-table td[data-col-key="estimatedStuff"] {
+  background: linear-gradient(to bottom, rgba(99, 102, 241, 0.08), rgba(99, 102, 241, 0.02));
+}
+
+.true-ratings-table td[data-col-key="estimatedControl"] {
+  background: linear-gradient(to bottom, rgba(34, 197, 94, 0.08), rgba(34, 197, 94, 0.02));
+}
+
+.true-ratings-table td[data-col-key="estimatedHra"] {
+  background: linear-gradient(to bottom, rgba(251, 146, 60, 0.08), rgba(251, 146, 60, 0.02));
+}
+
+/* Projections Column Gradients */
+.true-ratings-table td[data-col-key="currentTrueRating"] {
+  background: linear-gradient(to bottom, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.02));
+}
+
+.true-ratings-table td[data-col-key="projFIP"] {
+  background: linear-gradient(to bottom, rgba(168, 85, 247, 0.08), rgba(168, 85, 247, 0.02));
+}
+
+.true-ratings-table td[data-col-key="projWAR"] {
+  background: linear-gradient(to bottom, rgba(29, 155, 240, 0.08), rgba(29, 155, 240, 0.02));
+}
+
+/* Rating Bar Container */
+.rating-with-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.rating-bar {
+  width: 50px;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.rating-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  width: 0;
+}
+
+.rating-bar-fill.animate-fill {
+  animation: rating-bar-fill 1.1s ease-out forwards;
+}
+
+@keyframes rating-bar-fill {
+  from {
+    width: 0%;
+  }
+  to {
+    width: var(--bar-width);
+  }
+}
+
+.rating-bar-fill.tr {
+  background: linear-gradient(to right, rgba(245, 158, 11, 0.6), rgba(245, 158, 11, 1));
+  box-shadow: 0 0 4px rgba(245, 158, 11, 0.4);
+}
+
+.rating-bar-fill.tr.high-value {
+  filter: brightness(1.3) saturate(1.1);
+  box-shadow: 0 0 6px rgba(245, 158, 11, 0.6);
+}
+
+.rating-bar-fill.stuff {
+  background: linear-gradient(to right, rgba(99, 102, 241, 0.6), rgba(99, 102, 241, 1));
+  box-shadow: 0 0 4px rgba(99, 102, 241, 0.4);
+}
+
+.rating-bar-fill.stuff.high-value {
+  filter: brightness(1.3) saturate(1.1);
+  box-shadow: 0 0 6px rgba(99, 102, 241, 0.6);
+}
+
+.rating-bar-fill.control {
+  background: linear-gradient(to right, rgba(34, 197, 94, 0.6), rgba(34, 197, 94, 1));
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.4);
+}
+
+.rating-bar-fill.control.high-value {
+  filter: brightness(1.3) saturate(1.1);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
+}
+
+.rating-bar-fill.hra {
+  background: linear-gradient(to right, rgba(251, 146, 60, 0.6), rgba(251, 146, 60, 1));
+  box-shadow: 0 0 4px rgba(251, 146, 60, 0.4);
+}
+
+.rating-bar-fill.hra.high-value {
+  filter: brightness(1.3) saturate(1.1);
+  box-shadow: 0 0 6px rgba(251, 146, 60, 0.6);
+}
+
+.rating-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  font-size: 0.9em;
+}
+
+.rating-value.tr {
+  color: rgb(245, 158, 11);
+}
+
+.rating-value.stuff {
+  color: rgb(99, 102, 241);
+}
+
+.rating-value.control {
+  color: rgb(34, 197, 94);
+}
+
+.rating-value.hra {
+  color: rgb(251, 146, 60);
+}
+
+
+.rating-bar {
+  position: relative;
 }
 
 .form-field {
@@ -3383,6 +3517,8 @@ td.player-cell.player-name {
   height: 24px;
   display: inline-block;
   vertical-align: middle;
+  position: relative;
+  z-index: 1;
 }
 
 .flip-cell-inner {
@@ -3433,7 +3569,7 @@ td.player-cell.player-name {
   white-space: nowrap;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0,0,0,0.4);
-  z-index: 10;
+  z-index: 1000;
   font-weight: 500;
   text-transform: none;
   line-height: 1.2;
@@ -3448,6 +3584,19 @@ td.player-cell.player-name {
   border-width: 4px;
   border-style: solid;
   border-color: rgba(15, 20, 25, 0.95) transparent transparent transparent;
+}
+
+.flip-cell.tooltip-below .flip-tooltip {
+  bottom: auto;
+  top: 100%;
+  margin-bottom: 0;
+  margin-top: 8px;
+}
+
+.flip-cell.tooltip-below .flip-tooltip::after {
+  top: auto;
+  bottom: 100%;
+  border-color: transparent transparent rgba(15, 20, 25, 0.95) transparent;
 }
 
 .derived-stats-grid {
@@ -3605,6 +3754,9 @@ td.player-cell.player-name {
     font-weight: 700;
     cursor: pointer;
     transition: color 0.2s ease;
+    text-decoration: underline;
+    text-decoration-color: rgba(255, 255, 255, 0.2);
+    text-underline-offset: 3px;
 }
 
 .projection-year-wrapper:hover .projection-year-trigger {

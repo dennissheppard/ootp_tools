@@ -36,6 +36,7 @@ export class ProjectionsView {
   private itemsPerPageSelection: '10' | '50' | '200' | 'all' = '50';
   private selectedYear = 2020;
   private selectedTeam = 'all';
+  private selectedPosition: 'all' | 'SP' | 'RP' = 'all';
   private teamOptions: string[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i);
   private isOffseason = false;
@@ -110,23 +111,37 @@ export class ProjectionsView {
         <p class="section-subtitle" id="projections-subtitle"></p>
         
         <div class="true-ratings-controls">
-          <div class="form-field">
-            <label for="proj-team">Team:</label>
-            <select id="proj-team">
-              <option value="all">All</option>
-            </select>
-          </div>
-          <div class="form-field">
-            <label>View:</label>
-            <div class="toggle-group" role="group" aria-label="Projection view mode">
+          <div class="filter-bar" id="projections-filter-bar">
+            <label>Filters:</label>
+            <div class="filter-group" role="group" aria-label="Projection filters">
+              <div class="filter-dropdown" data-filter="team">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Team: <span id="selected-team-display">All</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="team-dropdown-menu">
+                  <div class="filter-dropdown-item selected" data-value="all">All</div>
+                </div>
+              </div>
+              <div class="filter-dropdown" data-filter="position">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Position: <span id="selected-position-display">All</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="position-dropdown-menu">
+                  <div class="filter-dropdown-item selected" data-value="all">All</div>
+                  <div class="filter-dropdown-item" data-value="SP">SP</div>
+                  <div class="filter-dropdown-item" data-value="RP">RP</div>
+                </div>
+              </div>
+              <div class="filter-dropdown" data-filter="year" id="proj-year-field" style="display: none;">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Year: <span id="selected-year-display">${this.selectedYear}</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="year-dropdown-menu"></div>
+              </div>
               <button class="toggle-btn ${this.viewMode === 'projections' ? 'active' : ''}" data-proj-mode="projections" aria-pressed="${this.viewMode === 'projections'}">Projections</button>
               <button class="toggle-btn ${this.viewMode === 'backcasting' ? 'active' : ''}" data-proj-mode="backcasting" aria-pressed="${this.viewMode === 'backcasting'}">Backcasting</button>
               <button class="toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-proj-mode="analysis" aria-pressed="${this.viewMode === 'analysis'}">Analysis</button>
             </div>
-          </div>
-          <div class="form-field" id="proj-year-field" style="display: none;">
-            <label for="proj-year">Year:</label>
-            <select id="proj-year"></select>
           </div>
         </div>
 
@@ -161,16 +176,40 @@ export class ProjectionsView {
   }
 
   private bindEvents(): void {
-      this.container.querySelector('#proj-year')?.addEventListener('change', (e) => {
-          this.selectedYear = parseInt((e.target as HTMLSelectElement).value, 10);
-          this.fetchData();
+      // Handle filter dropdown button clicks
+      this.container.querySelectorAll('.filter-dropdown-btn').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const dropdown = btn.closest('.filter-dropdown');
+
+              // Close other dropdowns
+              this.container.querySelectorAll('.filter-dropdown').forEach(d => {
+                  if (d !== dropdown) {
+                      d.classList.remove('open');
+                  }
+              });
+
+              // Toggle this dropdown
+              dropdown?.classList.toggle('open');
+          });
       });
 
-      this.container.querySelector('#proj-team')?.addEventListener('change', (e) => {
-          this.selectedTeam = (e.target as HTMLSelectElement).value;
-          this.currentPage = 1;
-          this.filterAndRender();
+      // Close dropdowns when clicking outside
+      document.addEventListener('click', (e) => {
+          if (!(e.target as HTMLElement).closest('.filter-dropdown')) {
+              this.container.querySelectorAll('.filter-dropdown').forEach(d => {
+                  d.classList.remove('open');
+              });
+          }
       });
+
+      // Handle Team dropdown item clicks
+      this.bindTeamDropdownListeners();
+
+      // Handle Position dropdown item clicks
+      this.bindPositionDropdownListeners();
+
+      // Year listener will be bound in updateModeControls when items are rendered
 
       this.container.querySelector('#items-per-page')?.addEventListener('change', (e) => {
           const value = (e.target as HTMLSelectElement).value as '10' | '50' | '200' | 'all';
@@ -770,21 +809,125 @@ export class ProjectionsView {
       this.bindPlayerNameClicks();
   }
 
+  private bindTeamDropdownListeners(): void {
+      this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+              const value = (e.target as HTMLElement).dataset.value;
+              if (!value) return;
+
+              this.selectedTeam = value;
+              this.currentPage = 1;
+
+              // Update display text
+              const displaySpan = this.container.querySelector('#selected-team-display');
+              if (displaySpan) {
+                  displaySpan.textContent = value === 'all' ? 'All' : value;
+              }
+
+              // Update selected state
+              this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+              (e.target as HTMLElement).classList.add('selected');
+
+              // Close dropdown
+              (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+              this.filterAndRender();
+          });
+      });
+  }
+
+  private bindPositionDropdownListeners(): void {
+      this.container.querySelectorAll('#position-dropdown-menu .filter-dropdown-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+              const value = (e.target as HTMLElement).dataset.value as 'all' | 'SP' | 'RP';
+              if (!value) return;
+
+              this.selectedPosition = value;
+              this.currentPage = 1;
+
+              // Update display text
+              const displaySpan = this.container.querySelector('#selected-position-display');
+              if (displaySpan) {
+                  displaySpan.textContent = value === 'all' ? 'All' : value;
+              }
+
+              // Update selected state
+              this.container.querySelectorAll('#position-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+              (e.target as HTMLElement).classList.add('selected');
+
+              // Close dropdown
+              (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+              this.filterAndRender();
+          });
+      });
+  }
+
+  private bindYearDropdownListeners(): void {
+      this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+              const value = (e.target as HTMLElement).dataset.value;
+              if (!value) return;
+
+              this.selectedYear = parseInt(value, 10);
+              this.currentPage = 1;
+
+              // Update display text
+              const displaySpan = this.container.querySelector('#selected-year-display');
+              if (displaySpan) {
+                  displaySpan.textContent = value;
+              }
+
+              // Update selected state
+              this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+              (e.target as HTMLElement).classList.add('selected');
+
+              // Close dropdown
+              (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+              this.showLoadingState();
+              this.fetchData();
+          });
+      });
+  }
+
   private updateTeamFilter(): void {
-      const select = this.container.querySelector<HTMLSelectElement>('#proj-team');
-      if (!select) return;
-      select.innerHTML = '<option value="all">All</option>' + 
-          this.teamOptions.map(t => `<option value="${t}">${t}</option>`).join('');
-      select.value = this.selectedTeam;
+      const menu = this.container.querySelector<HTMLElement>('#team-dropdown-menu');
+      if (!menu) return;
+      
+      const items = ['all', ...this.teamOptions].map(t => {
+          const label = t === 'all' ? 'All' : t;
+          const selectedClass = t === this.selectedTeam ? 'selected' : '';
+          return `<div class="filter-dropdown-item ${selectedClass}" data-value="${t}">${label}</div>`;
+      }).join('');
+      
+      menu.innerHTML = items;
+      
+      // Update display text
+      const displaySpan = this.container.querySelector('#selected-team-display');
+      if (displaySpan) {
+          displaySpan.textContent = this.selectedTeam === 'all' ? 'All' : this.selectedTeam;
+      }
+      
+      this.bindTeamDropdownListeners();
   }
 
   private filterAndRender(): void {
-      if (this.selectedTeam === 'all') {
-          this.stats = [...this.allStats];
-      } else {
-          // Filter by parent org name (resolves minor league teams to their MLB parent)
-          this.stats = this.allStats.filter(p => this.getParentOrgName(p.teamId) === this.selectedTeam);
+      let filtered = [...this.allStats];
+
+      if (this.selectedTeam !== 'all') {
+          filtered = filtered.filter(p => this.getParentOrgName(p.teamId) === this.selectedTeam);
       }
+
+      if (this.selectedPosition !== 'all') {
+          filtered = filtered.filter(p => {
+              if (this.selectedPosition === 'SP') return p.isSp;
+              if (this.selectedPosition === 'RP') return !p.isSp;
+              return true;
+          });
+      }
+
+      this.stats = filtered;
       this.sortStats();
       if (this.itemsPerPageSelection === 'all') {
           this.itemsPerPage = Math.max(this.stats.length, 1);
@@ -854,7 +997,9 @@ export class ProjectionsView {
       const rowsHtml = pageData.map(p => {
           const cells = this.columns.map(col => {
               const val = col.accessor ? col.accessor(p) : (p as any)[col.key];
-              return `<td>${val ?? ''}</td>`;
+              const columnKey = String(col.key);
+              
+              return `<td data-col-key="${columnKey}">${val ?? ''}</td>`;
           }).join('');
           return `<tr>${cells}</tr>`;
       }).join('');
@@ -1001,6 +1146,34 @@ export class ProjectionsView {
       cell.addEventListener('click', (e) => {
         e.stopPropagation();
         cell.classList.toggle('is-flipped');
+      });
+    });
+
+    this.bindFlipTooltipPositioning();
+  }
+
+  private bindFlipTooltipPositioning(): void {
+    const flipCells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
+
+    flipCells.forEach((cell) => {
+      cell.addEventListener('mouseenter', () => {
+        // Check if this cell is in the first tbody row
+        const row = cell.closest('tr');
+        if (!row) return;
+
+        const tbody = row.closest('tbody');
+        if (!tbody) return;
+
+        const firstRow = tbody.querySelector('tr');
+        if (row === firstRow) {
+          cell.classList.add('tooltip-below');
+        } else {
+          cell.classList.remove('tooltip-below');
+        }
+      });
+
+      cell.addEventListener('mouseleave', () => {
+        cell.classList.remove('tooltip-below');
       });
     });
   }
@@ -1387,27 +1560,24 @@ export class ProjectionsView {
   }
 
   private updateModeControls(): void {
-    const select = this.container.querySelector<HTMLSelectElement>('#proj-year');
-    const teamSelect = this.container.querySelector<HTMLSelectElement>('#proj-team')?.parentElement;
     const yearField = this.container.querySelector<HTMLElement>('#proj-year-field');
+    const teamDropdown = this.container.querySelector<HTMLElement>('[data-filter="team"]');
+    const positionDropdown = this.container.querySelector<HTMLElement>('[data-filter="position"]');
     
-    if (!select) return;
-
     const isAnalysis = this.viewMode === 'analysis';
     
     // Hide filters in analysis mode
     if (isAnalysis) {
-        select.parentElement!.style.display = 'none';
-        if (teamSelect) teamSelect.style.display = 'none';
+        if (yearField) yearField.style.display = 'none';
+        if (teamDropdown) teamDropdown.style.display = 'none';
+        if (positionDropdown) positionDropdown.style.display = 'none';
     } else {
-        if (teamSelect) teamSelect.style.display = '';
+        if (teamDropdown) teamDropdown.style.display = '';
+        if (positionDropdown) positionDropdown.style.display = '';
         
         const showYear = this.viewMode === 'backcasting';
         if (yearField) {
             yearField.style.display = showYear ? '' : 'none';
-        } else {
-            select.style.display = showYear ? '' : 'none';
-            select.parentElement!.style.display = ''; // Ensure parent wrapper is visible
         }
 
         if (showYear) {
@@ -1417,11 +1587,20 @@ export class ProjectionsView {
                 ? this.selectedYear
                 : (backcastYears[0] ?? this.selectedYear - 1);
 
-            select.innerHTML = backcastYears
-                .map(year => `<option value="${year}" ${year === nextSelected ? 'selected' : ''}>${year}</option>`)
-                .join('');
-            select.value = String(nextSelected);
-            this.selectedYear = nextSelected;
+            const menu = this.container.querySelector('#year-dropdown-menu');
+            if (menu) {
+                menu.innerHTML = backcastYears
+                    .map(year => `<div class="filter-dropdown-item ${year === nextSelected ? 'selected' : ''}" data-value="${year}">${year}</div>`)
+                    .join('');
+                
+                const displaySpan = this.container.querySelector('#selected-year-display');
+                if (displaySpan) {
+                    displaySpan.textContent = String(nextSelected);
+                }
+                
+                this.selectedYear = nextSelected;
+                this.bindYearDropdownListeners();
+            }
         }
     }
 

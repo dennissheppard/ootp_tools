@@ -642,5 +642,33 @@ export class StatsView {
         cell.classList.toggle('is-flipped');
       });
     });
+
+    this.bindFlipTooltipPositioning();
+  }
+
+  private bindFlipTooltipPositioning(): void {
+    const flipCells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
+
+    flipCells.forEach((cell) => {
+      cell.addEventListener('mouseenter', () => {
+        // Check if this cell is in the first tbody row
+        const row = cell.closest('tr');
+        if (!row) return;
+
+        const tbody = row.closest('tbody');
+        if (!tbody) return;
+
+        const firstRow = tbody.querySelector('tr');
+        if (row === firstRow) {
+          cell.classList.add('tooltip-below');
+        } else {
+          cell.classList.remove('tooltip-below');
+        }
+      });
+
+      cell.addEventListener('mouseleave', () => {
+        cell.classList.remove('tooltip-below');
+      });
+    });
   }
 }

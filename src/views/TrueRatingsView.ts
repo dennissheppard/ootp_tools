@@ -782,12 +782,52 @@ export class TrueRatingsView {
 
     const paginatedStats = this.getPaginatedStats();
     tableContainer.innerHTML = this.renderTable(paginatedStats);
+    this.triggerBarAnimations();
     this.updatePaginationControls(this.stats.length);
     this.bindSortHeaders();
     this.bindScrollButtons();
     this.bindPitcherColumnDragAndDrop();
     this.bindPlayerNameClicks();
     this.bindFlipCardLocking();
+  }
+
+  private triggerBarAnimations(): void {
+    requestAnimationFrame(() => {
+      const barFills = this.container.querySelectorAll<HTMLElement>('.rating-bar-fill');
+      barFills.forEach(bar => {
+        bar.style.width = '0%';
+        bar.classList.remove('animate-fill');
+      });
+      window.setTimeout(() => {
+        barFills.forEach(bar => {
+          void bar.getBoundingClientRect();
+          bar.classList.add('animate-fill');
+        });
+      }, 1000);
+    });
+
+    this.bindBarHoverAnimations();
+  }
+
+  private bindBarHoverAnimations(): void {
+    const ratingCells = this.container.querySelectorAll<HTMLElement>(
+      'td[data-col-key="trueRating"], td[data-col-key="estimatedStuff"], td[data-col-key="estimatedControl"], td[data-col-key="estimatedHra"]'
+    );
+
+    ratingCells.forEach(cell => {
+      cell.addEventListener('mouseenter', () => {
+        const barFill = cell.querySelector<HTMLElement>('.rating-bar-fill');
+        if (!barFill) return;
+
+        barFill.style.width = '0%';
+        barFill.classList.remove('animate-fill');
+
+        requestAnimationFrame(() => {
+          void barFill.getBoundingClientRect();
+          barFill.classList.add('animate-fill');
+        });
+      });
+    });
   }
 
   private applyFilters(): void {
@@ -807,8 +847,15 @@ export class TrueRatingsView {
 
       // Filter by position
       if (this.selectedPosition !== 'all-pitchers' && this.selectedPosition !== 'all-batters') {
-        const position = (row as any).position || '';
-        if (position !== this.selectedPosition) return false;
+        if (this.mode === 'pitchers') {
+          // For pitchers, calculate SP/RP dynamically
+          const pitcherRole = this.determinePitcherRoleLabel(row as PitcherRow);
+          if (pitcherRole !== this.selectedPosition) return false;
+        } else {
+          // For batters, use the position field directly
+          const position = getPositionLabel((row as BatterRow).position);
+          if (position !== this.selectedPosition) return false;
+        }
       }
 
       return true;
@@ -1521,6 +1568,28 @@ export class TrueRatingsView {
           return `<td data-col-key="${column.key}" class="name-col"><button class="btn-link player-name-link" data-player-id="${player.player_id}" title="${tooltip}">${displayValue}${prospectBadge}</button></td>`;
         }
 
+        // Add rating bars for True Rating columns
+        if (column.key === 'estimatedStuff' || column.key === 'estimatedControl' || column.key === 'estimatedHra') {
+          const ratingValue = rawValue;
+          if (typeof ratingValue === 'number' && !isNaN(ratingValue)) {
+            const barType = column.key === 'estimatedStuff' ? 'stuff' :
+                           column.key === 'estimatedControl' ? 'control' : 'hra';
+            
+            // 20-80 scale
+            const percentage = Math.min(Math.max((ratingValue - 20) / 60 * 100, 0), 100);
+              
+            const highValueClass = ratingValue >= 65 ? 'high-value' : '';
+            return `<td data-col-key="${column.key}">
+              <div class="rating-with-bar">
+                <div class="rating-bar">
+                  <div class="rating-bar-fill ${barType} ${highValueClass} animate-fill" style="--bar-width: ${percentage}%"></div>
+                </div>
+                <span class="rating-value ${barType}">${displayValue}</span>
+              </div>
+            </td>`;
+          }
+        }
+
         return `<td data-col-key="${column.key}">${displayValue}</td>`;
       }).join('');
       const rowClass = isProspect ? 'prospect-row' : '';
@@ -1567,6 +1636,34 @@ export class TrueRatingsView {
       cell.addEventListener('click', (e) => {
         e.stopPropagation();
         cell.classList.toggle('is-flipped');
+      });
+    });
+
+    this.bindFlipTooltipPositioning();
+  }
+
+  private bindFlipTooltipPositioning(): void {
+    const flipCells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
+
+    flipCells.forEach((cell) => {
+      cell.addEventListener('mouseenter', () => {
+        // Check if this cell is in the first tbody row
+        const row = cell.closest('tr');
+        if (!row) return;
+
+        const tbody = row.closest('tbody');
+        if (!tbody) return;
+
+        const firstRow = tbody.querySelector('tr');
+        if (row === firstRow) {
+          cell.classList.add('tooltip-below');
+        } else {
+          cell.classList.remove('tooltip-below');
+        }
+      });
+
+      cell.addEventListener('mouseleave', () => {
+        cell.classList.remove('tooltip-below');
       });
     });
   }
