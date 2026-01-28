@@ -471,13 +471,14 @@ export class PlayerRatingsCard {
       let headerLabel = '';
       if (hasAlternative) {
         headerLabel = `
-          <div class="scout-header-toggle">
-            <select class="scout-source-toggle" data-player-id="${data.playerId}">
-              <option value="my" ${activeSource === 'my' ? 'selected' : ''}>My Scout</option>
-              <option value="osa" ${activeSource === 'osa' ? 'selected' : ''}>OSA</option>
-            </select>
-            Scout Opinions
-          </div>`;
+          <div class="scout-header-toggle custom-dropdown">
+            <span class="dropdown-trigger" data-player-id="${data.playerId}">${activeSource === 'my' ? 'My' : 'OSA'}</span>
+            <div class="dropdown-menu">
+              <div class="dropdown-item ${activeSource === 'my' ? 'active' : ''}" data-value="my">My</div>
+              <div class="dropdown-item ${activeSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
+            </div>
+          </div>
+          Scout Opinions`;
       } else {
         const sourceLabel = activeSource === 'my' ? 'My Scout' : 'OSA';
         const sourceClass = activeSource === 'my' ? 'my' : 'osa';

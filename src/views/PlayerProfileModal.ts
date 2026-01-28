@@ -710,28 +710,37 @@ export class PlayerProfileModal {
     projectionHtml: string
   ): void {
     if (!this.overlay) return;
-    const toggle = this.overlay.querySelector<HTMLSelectElement>('.scout-source-toggle');
-    if (!toggle) return;
+    const toggleContainer = this.overlay.querySelector<HTMLElement>('.scout-header-toggle.custom-dropdown');
+    if (!toggleContainer) return;
 
-    toggle.addEventListener('change', (e) => {
-      const newSource = (e.target as HTMLSelectElement).value as 'my' | 'osa';
+    const items = toggleContainer.querySelectorAll<HTMLElement>('.dropdown-item');
+    items.forEach(item => {
+      item.addEventListener('click', (e) => {
+        const newSource = (e.target as HTMLElement).dataset.value as 'my' | 'osa';
+        if (!newSource || newSource === data.activeScoutSource) return;
 
-      // Update data with new active source
-      const updatedData = {
-        ...data,
-        activeScoutSource: newSource
-      };
+        // Update data with new active source
+        const updatedData = {
+          ...data,
+          activeScoutSource: newSource
+        };
 
-      // Re-render the modal body with the new source
-      const bodyEl = this.overlay?.querySelector<HTMLElement>('.modal-body');
-      if (bodyEl) {
-        bodyEl.innerHTML = this.renderContent(updatedData, stats, hasMinorLeague, projectionHtml);
-        // Re-bind event listeners after re-render
-        this.bindScoutUploadLink();
-        this.bindScoutSourceToggle(updatedData, stats, hasMinorLeague, projectionHtml);
-        this.bindFlipCardLocking();
-        this.bindYearSelector();
-      }
+        // Re-render the modal body with the new source
+        const bodyEl = this.overlay?.querySelector<HTMLElement>('.modal-body');
+        if (bodyEl) {
+          bodyEl.innerHTML = this.renderContent(updatedData, stats, hasMinorLeague, projectionHtml);
+          // Re-bind event listeners after re-render
+          this.bindScoutUploadLink();
+          this.bindScoutSourceToggle(updatedData, stats, hasMinorLeague, projectionHtml);
+          // Trigger shimmer animation on rating bars when source changes
+          requestAnimationFrame(() => {
+             const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
+             ratingBars.forEach(bar => bar.classList.add('shimmer-once'));
+          });
+          this.bindFlipCardLocking();
+          this.bindYearSelector();
+        }
+      });
     });
   }
 

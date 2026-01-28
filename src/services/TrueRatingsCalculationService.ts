@@ -531,31 +531,31 @@ class TrueRatingsCalculationService {
 
   /**
    * Estimate Stuff rating from K/9
-   * Inverse of: K/9 = 2.10 + 0.074×Stuff
-   * Stuff = (K/9 - 2.10) / 0.074
+   * Inverse of: K/9 = 2.07 + 0.074×Stuff
+   * Stuff = (K/9 - 2.07) / 0.074
    */
   private estimateStuffFromK9(k9: number): number {
-    const rating = (k9 - 2.10) / 0.074;
+    const rating = (k9 - 2.07) / 0.074;
     return Math.max(20, Math.min(80, rating));
   }
 
   /**
    * Estimate Control rating from BB/9
-   * Inverse of: BB/9 = 5.30 - 0.052×Control
-   * Control = (5.30 - BB/9) / 0.052
+   * Inverse of: BB/9 = 5.22 - 0.052×Control
+   * Control = (5.22 - BB/9) / 0.052
    */
   private estimateControlFromBb9(bb9: number): number {
-    const rating = (5.30 - bb9) / 0.052;
+    const rating = (5.22 - bb9) / 0.052;
     return Math.max(20, Math.min(80, rating));
   }
 
   /**
    * Estimate HRA rating from HR/9
-   * Inverse of: HR/9 = 2.18 - 0.024×HRA
-   * HRA = (2.18 - HR/9) / 0.024
+   * Inverse of: HR/9 = 2.08 - 0.024×HRA
+   * HRA = (2.08 - HR/9) / 0.024
    */
   private estimateHraFromHr9(hr9: number): number {
-    const rating = (2.18 - hr9) / 0.024;
+    const rating = (2.08 - hr9) / 0.024;
     return Math.max(20, Math.min(80, rating));
   }
 
