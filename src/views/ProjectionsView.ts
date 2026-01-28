@@ -33,6 +33,7 @@ export class ProjectionsView {
   private allStats: ProjectedPlayerWithActuals[] = [];
   private currentPage = 1;
   private itemsPerPage = 50;
+  private itemsPerPageSelection: '10' | '50' | '200' | 'all' = '50';
   private selectedYear = 2020;
   private selectedTeam = 'all';
   private teamOptions: string[] = [];
@@ -68,6 +69,7 @@ export class ProjectionsView {
 
   private initColumns(): void {
     const defaults: ColumnConfig[] = [
+        { key: 'position', label: 'Pos', sortKey: 'position', accessor: p => this.renderPositionLabel(p) },
         { key: 'name', label: 'Name', accessor: p => this.renderPlayerName(p) },
         { key: 'teamName', label: 'Team' },
         { key: 'age', label: 'Age', accessor: p => this.renderAge(p) },
@@ -136,8 +138,21 @@ export class ProjectionsView {
         
         <div class="pagination-controls">
           <button id="prev-page" disabled>Previous</button>
-          <span id="page-info"></span>
+          <div id="page-info" class="page-info">
+            <span class="page-label">Page</span>
+            <select id="page-jump-select" class="page-current-select" aria-label="Page"></select>
+            <span class="page-total" id="page-total"></span>
+          </div>
           <button id="next-page" disabled>Next</button>
+          <div class="items-per-page">
+            <label for="items-per-page">Show:</label>
+            <select id="items-per-page">
+              <option value="10" ${this.itemsPerPageSelection === '10' ? 'selected' : ''}>10 per page</option>
+              <option value="50" ${this.itemsPerPageSelection === '50' ? 'selected' : ''}>50 per page</option>
+              <option value="200" ${this.itemsPerPageSelection === '200' ? 'selected' : ''}>200 per page</option>
+              <option value="all" ${this.itemsPerPageSelection === 'all' ? 'selected' : ''}>All</option>
+            </select>
+          </div>
         </div>
       </div>
     `;
@@ -155,6 +170,22 @@ export class ProjectionsView {
           this.selectedTeam = (e.target as HTMLSelectElement).value;
           this.currentPage = 1;
           this.filterAndRender();
+      });
+
+      this.container.querySelector('#items-per-page')?.addEventListener('change', (e) => {
+          const value = (e.target as HTMLSelectElement).value as '10' | '50' | '200' | 'all';
+          this.itemsPerPageSelection = value;
+          this.itemsPerPage = value === 'all' ? this.stats.length : parseInt(value, 10);
+          this.currentPage = 1;
+          this.renderTable();
+      });
+
+      this.container.querySelector('#page-jump-select')?.addEventListener('change', (e) => {
+          const nextPage = parseInt((e.target as HTMLSelectElement).value, 10);
+          if (!Number.isNaN(nextPage) && nextPage !== this.currentPage) {
+              this.currentPage = nextPage;
+              this.renderTable();
+          }
       });
 
       this.container.querySelector('#prev-page')?.addEventListener('click', () => {
@@ -755,6 +786,9 @@ export class ProjectionsView {
           this.stats = this.allStats.filter(p => this.getParentOrgName(p.teamId) === this.selectedTeam);
       }
       this.sortStats();
+      if (this.itemsPerPageSelection === 'all') {
+          this.itemsPerPage = Math.max(this.stats.length, 1);
+      }
       this.renderTable();
   }
 
@@ -925,6 +959,10 @@ export class ProjectionsView {
           this.saveColumnPrefs();
           this.renderTable();
       }
+  }
+
+  private renderPositionLabel(player: ProjectedPlayerWithActuals): string {
+    return player.isSp ? 'SP' : 'RP';
   }
 
   private renderPlayerName(player: ProjectedPlayer, year?: number): string {
@@ -1212,19 +1250,21 @@ export class ProjectionsView {
     // (Projections are forward-looking, so current year league averages don't apply)
     const defaultLeagueAverages = { avgK9: 7.5, avgBb9: 3.0, avgHr9: 0.85 };
 
-    await this.playerProfileModal.show(profileData, projectionBaseYear, {
+    await this.playerProfileModal.show(profileData, projectionYear, {
       leagueFipLikes,
       leagueAverages: defaultLeagueAverages
     });
   }
 
   private updatePagination(total: number): void {
-      const info = this.container.querySelector('#page-info');
-      const prev = this.container.querySelector<HTMLButtonElement>('#prev-page');
-      const next = this.container.querySelector<HTMLButtonElement>('#next-page');
+      const pageInfo = this.container.querySelector<HTMLElement>('#page-info')!;
+      const pageTotal = this.container.querySelector<HTMLElement>('#page-total');
+      const pageJumpSelect = this.container.querySelector<HTMLSelectElement>('#page-jump-select');
+      const prev = this.container.querySelector<HTMLButtonElement>('#prev-page')!;
+      const next = this.container.querySelector<HTMLButtonElement>('#next-page')!;
       const paginationContainer = this.container.querySelector<HTMLElement>('.pagination-controls');
 
-      const totalPages = Math.ceil(total / this.itemsPerPage);
+      const totalPages = this.itemsPerPage === total ? 1 : Math.ceil(total / this.itemsPerPage);
 
       // Hide pagination if in analysis mode, no data, or only one page of data
       if (paginationContainer) {
@@ -1232,19 +1272,43 @@ export class ProjectionsView {
           paginationContainer.style.display = shouldShow ? 'flex' : 'none';
       }
 
-      if (info) {
-          info.textContent = total > 0 ? `Page ${this.currentPage} of ${totalPages}` : '';
+      if (totalPages <= 1) {
+          if (pageInfo) pageInfo.style.display = 'none';
+          if (prev) prev.disabled = true;
+          if (next) next.disabled = true;
+          return;
       }
 
-      if (prev) prev.disabled = this.currentPage <= 1;
-      if (next) next.disabled = this.currentPage >= totalPages;
+      if (pageInfo) pageInfo.style.display = '';
+      if (pageTotal) {
+          pageTotal.textContent = `of ${totalPages}`;
+      }
+
+      if (pageJumpSelect) {
+          if (pageJumpSelect.options.length !== totalPages) {
+              pageJumpSelect.innerHTML = Array.from({ length: totalPages }, (_, index) => {
+                  const page = index + 1;
+                  return `<option value="${page}">${page}</option>`;
+              }).join('');
+          }
+          pageJumpSelect.value = String(this.currentPage);
+      }
+
+      if (prev) prev.disabled = this.currentPage === 1;
+      if (next) next.disabled = this.currentPage === totalPages;
   }
 
   private loadColumnPrefs(defaults: ColumnConfig[]): ColumnConfig[] {
       try {
           const saved = localStorage.getItem(this.prefKey);
           if (saved) {
-              const keys = JSON.parse(saved) as string[];
+              let keys = JSON.parse(saved) as string[];
+              
+              // Migration: Ensure 'position' is included if it was added recently
+              if (!keys.includes('position')) {
+                  keys.unshift('position');
+              }
+
               // Reconstruct order based on keys, filtering out any that no longer exist
               const ordered: ColumnConfig[] = [];
               keys.forEach(k => {

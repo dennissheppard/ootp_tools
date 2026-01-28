@@ -3,14 +3,14 @@
 ## Recent Decisions
 
 ### xFIP Removal from True Ratings Page
-**Status**: To be implemented
+**Status**: ✅ Completed
 
 **Rationale**:
 - xFIP is a descriptive stat (backward-looking) that measures what a pitcher's FIP *should have been* after removing HR luck
 - This creates confusion when compared to projections (forward-looking), especially for aging players
 - Example: A 37-year-old shows xFIP 3.36 (past performance adjusted) vs projected FIP 3.68 (future with age decline)
 - The True Rating blend already captures talent level without needing xFIP
-- Better placement would be in a future "Luck Indicators" section alongside ERA-FIP, BABIP deviation, etc.
+- Removed from True Ratings toggle; will be added to future Analytics/Metrics section
 
 ---
 
@@ -85,6 +85,22 @@ How accurate is the True Future Rating system?
 - [ ] Backtest TFR predictions against actual MLB outcomes
 - [ ] Automate analysis page for ongoing validation?
 - [ ] Generate accuracy reports
+
+### Analytics/Metrics Dashboard
+**Priority**: Low
+Advanced analytics and luck indicators for deeper performance analysis.
+
+- [ ] **Luck Indicators Section**
+  - xFIP (expected FIP with normalized HR/FB rate)
+  - ERA-FIP differential
+  - BABIP deviation from league average
+  - LOB% (Left On Base percentage)
+- [ ] **Peripheral Stats**
+  - GB/FB ratio
+  - Soft/Medium/Hard contact rates (if available)
+  - First pitch strike percentage
+- [ ] **Year-over-year comparisons** for detecting trends
+- [ ] **Regression candidates** - players likely to regress or improve based on luck indicators
 
 ---
 

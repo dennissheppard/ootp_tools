@@ -22,6 +22,41 @@
   box-sizing: border-box;
 }
 
+/* Global scrollbar styling */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  transition: scrollbar-color 0.3s ease;
+}
+
+*:hover {
+  scrollbar-color: var(--color-border) transparent;
+}
+
+/* Webkit scrollbar styling (Chrome, Safari, Edge) */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 10px;
+  transition: background 0.3s ease;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted) !important;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -1033,6 +1068,10 @@ body {
 
 .table-wrapper {
   overflow-x: auto;
+  max-height: 504px;
+  overflow-y: auto;
+  border-radius: var(--border-radius);
+  border: 1px solid var(--color-border);
 }
 
 .stats-table {
@@ -1322,9 +1361,10 @@ td.player-cell.player-name {
 .stats-table th {
   font-weight: 600;
   color: var(--color-text-muted);
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--color-surface);
   position: sticky;
   top: 0;
+  z-index: 5;
 }
 
 .stats-table th:first-child,
@@ -1782,6 +1822,110 @@ td.player-cell.player-name {
   gap: 1rem;
   margin-bottom: 1rem;
   align-items: center;
+}
+
+.filter-bar {
+  display: flex;
+  gap: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.filter-bar > label {
+  font-weight: 600;
+  margin-right: 1rem;
+}
+
+.filter-group {
+  display: inline-flex;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  overflow: visible;
+}
+
+.filter-dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.filter-dropdown-btn {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-right: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+  border-radius: 0;
+}
+
+.filter-dropdown-btn:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.filter-dropdown-btn span {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
+.filter-dropdown-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  min-width: 200px;
+  max-height: 300px;
+  overflow-y: auto;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-10px);
+  transition: opacity 0.2s, transform 0.2s, visibility 0.2s;
+}
+
+.filter-dropdown.open .filter-dropdown-menu {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: all;
+  transform: translateY(0);
+}
+
+.filter-dropdown-item {
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  white-space: nowrap;
+}
+
+.filter-dropdown-item:hover {
+  background-color: var(--color-bg-hover);
+}
+
+.filter-dropdown-item.selected {
+  background-color: var(--color-primary);
+  color: #fff;
+  font-weight: 600;
+}
+
+.filter-group .toggle-btn {
+  border: none;
+  border-right: 1px solid var(--color-border);
+  border-radius: 0;
+  margin: 0;
+}
+
+.filter-group > *:last-child,
+.filter-group > *:last-child .filter-dropdown-btn,
+.filter-group > *:last-child .toggle-btn {
+  border-right: none;
 }
 
 .true-ratings-table {

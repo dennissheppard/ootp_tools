@@ -47,6 +47,7 @@ interface TeamInfoFields {
   teamDisplay?: string;
   teamFilter?: string;
   teamIsMajor?: boolean;
+  age?: number;
 }
 
 interface StatsAvailabilityFields {
@@ -72,6 +73,7 @@ interface ScoutingLookup {
 const RAW_PITCHER_COLUMNS: PitcherColumn[] = [
   { key: 'position', label: 'Pos', sortKey: 'position' },
   { key: 'playerName', label: 'Name', accessor: (row: PitcherRow) => `<span class="name-col">${row.playerName}</span>` },
+  { key: 'age', label: 'Age', sortKey: 'age' },
   { key: 'ip', label: 'IP', sortKey: 'ipOuts' },
   { key: 'k', label: 'K' },
   { key: 'bb', label: 'BB' },
@@ -102,7 +104,6 @@ const RAW_PITCHER_STAT_KEYS = new Set([
 ]);
 
 const MISSING_STAT_DISPLAY = '&mdash;';
-const FIP_CONSTANT = 3.47;
 
 export class TrueRatingsView {
   private container: HTMLElement;
@@ -112,6 +113,7 @@ export class TrueRatingsView {
   private itemsPerPageSelection: '10' | '50' | '200' | 'all' = '50';
   private selectedYear = 2020;
   private selectedTeam = 'all';
+  private selectedPosition = 'all-pitchers';
   private teamOptions: string[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private sortKey: string | null = 'ra9war';
@@ -157,6 +159,21 @@ export class TrueRatingsView {
     if (typeof this.preferences.selectedTeam === 'string') {
       this.selectedTeam = this.preferences.selectedTeam;
     }
+    if (typeof this.preferences.selectedPosition === 'string') {
+      this.selectedPosition = this.preferences.selectedPosition;
+      // Restore mode based on position
+      const pitcherPositions = ['all-pitchers', 'SP', 'RP'];
+      const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+      if (pitcherPositions.includes(this.selectedPosition)) {
+        this.mode = 'pitchers';
+      } else if (batterPositions.includes(this.selectedPosition)) {
+        this.mode = 'batters';
+      }
+    } else if (this.preferences.mode === 'pitchers' || this.preferences.mode === 'batters') {
+      // Handle old preferences that only have mode (for backward compatibility)
+      this.mode = this.preferences.mode;
+      this.selectedPosition = this.mode === 'pitchers' ? 'all-pitchers' : 'all-batters';
+    }
     if (this.preferences.itemsPerPageSelection === '10' ||
         this.preferences.itemsPerPageSelection === '50' ||
         this.preferences.itemsPerPageSelection === '200' ||
@@ -179,9 +196,6 @@ export class TrueRatingsView {
     if (typeof this.preferences.showUndraftedPlayers === 'boolean') {
       this.showUndraftedPlayers = this.preferences.showUndraftedPlayers;
     }
-    if (this.preferences.mode === 'pitchers' || this.preferences.mode === 'batters') {
-      this.mode = this.preferences.mode;
-    }
     if (typeof this.preferences.currentPage === 'number') {
       this.currentPage = this.preferences.currentPage;
     }
@@ -197,6 +211,7 @@ export class TrueRatingsView {
     this.updatePreferences({
       selectedYear: this.selectedYear,
       selectedTeam: this.selectedTeam,
+      selectedPosition: this.selectedPosition,
       itemsPerPageSelection: this.itemsPerPageSelection,
       showProspects: this.showProspects,
       showMlbPlayers: this.showMlbPlayers,
@@ -217,21 +232,33 @@ export class TrueRatingsView {
             <h2 class="view-title">True Player Ratings</h2>
         </div>
         <div class="true-ratings-controls">
-          <div class="form-field">
-            <select id="true-ratings-year">
-              ${this.yearOptions.map(year => `<option value="${year}" ${year === this.selectedYear ? 'selected' : ''}>${year}</option>`).join('')}
-            </select>
-          </div>
-          <div class="form-field">
-            <select id="true-ratings-team">
-              <option value="all">All Teams</option>
-            </select>
-          </div>
-          <div class="form-field" id="ratings-view-toggle">
-            <label>View:</label>
-            <div class="toggle-group" role="group" aria-label="Ratings view">
-              <button class="toggle-btn ${this.mode === 'pitchers' ? 'active' : ''}" data-mode="pitchers" aria-pressed="${this.mode === 'pitchers'}">Pitchers</button>
-              <button class="toggle-btn ${this.mode === 'batters' ? 'active' : ''}" data-mode="batters" aria-pressed="${this.mode === 'batters'}">Batters</button>
+          <div class="filter-bar" id="ratings-view-toggle">
+            <label>Filters:</label>
+            <div class="filter-group" role="group" aria-label="Ratings filters">
+              <div class="filter-dropdown" data-filter="year">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Year: <span id="selected-year-display">${this.selectedYear}</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="year-dropdown-menu">
+                  ${this.yearOptions.map(year => `<div class="filter-dropdown-item ${year === this.selectedYear ? 'selected' : ''}" data-value="${year}">${year}</div>`).join('')}
+                </div>
+              </div>
+              <div class="filter-dropdown" data-filter="team">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Team: <span id="selected-team-display">All Teams</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="team-dropdown-menu">
+                  <div class="filter-dropdown-item selected" data-value="all">All Teams</div>
+                </div>
+              </div>
+              <div class="filter-dropdown" data-filter="position">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Position: <span id="selected-position-display">${this.getPositionDisplayName(this.selectedPosition)}</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="position-dropdown-menu">
+                  ${this.renderPositionDropdownItems()}
+                </div>
+              </div>
               <button class="toggle-btn ${this.showRawStats ? 'active' : ''}" data-ratings-toggle="raw" aria-pressed="${this.showRawStats}">Raw Stats</button>
               <button class="toggle-btn ${this.showTrueRatings ? 'active' : ''}" data-ratings-toggle="true" aria-pressed="${this.showTrueRatings}">True Ratings</button>
               <button class="toggle-btn ${this.showMlbPlayers ? 'active' : ''}" data-player-toggle="mlb" aria-pressed="${this.showMlbPlayers}">MLB Players</button>
@@ -245,9 +272,6 @@ export class TrueRatingsView {
             No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
         </div>
 
-        <div class="ratings-help-text" style="${this.showRawStats ? '' : 'display: none'}">
-          <p>* <strong>Estimated Ratings</strong> (visible when hovering over K/9, BB/9, HR/9) are snapshots based solely on that single stat. <strong>True Ratings</strong> use sophisticated multi-year analysis and regression.</p>
-        </div>
         <div id="true-ratings-table-container"></div>
         <div class="pagination-controls">
           <button id="prev-page" disabled>Previous</button>
@@ -266,6 +290,9 @@ export class TrueRatingsView {
               <option value="all" ${this.itemsPerPageSelection === 'all' ? 'selected' : ''}>All</option>
             </select>
           </div>
+        </div>
+        <div class="ratings-help-text" style="${this.showRawStats ? '' : 'display: none'}">
+          <p>* <strong>Estimated Ratings</strong> (visible when hovering over K/9, BB/9, HR/9) are snapshots based solely on that single stat. <strong>True Ratings</strong> use sophisticated multi-year analysis and regression.</p>
         </div>
       </div>
       <div class="modal-overlay" id="scouting-missing-modal" aria-hidden="true">
@@ -350,13 +377,33 @@ export class TrueRatingsView {
   }
 
   private bindEventListeners(): void {
-    this.container.querySelector('#true-ratings-year')?.addEventListener('change', (e) => {
-      this.selectedYear = parseInt((e.target as HTMLSelectElement).value, 10);
-      this.currentPage = 1;
-      this.saveFilterPreferences();
-      this.updateProspectsAvailability().then(async () => {
-        await this.loadScoutingRatingsForYear();
-        this.fetchAndRenderStats();
+    // Handle year dropdown item clicks
+    this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const value = (e.target as HTMLElement).dataset.value;
+        if (!value) return;
+
+        this.selectedYear = parseInt(value, 10);
+        this.currentPage = 1;
+        this.saveFilterPreferences();
+
+        // Update display text
+        const displaySpan = this.container.querySelector('#selected-year-display');
+        if (displaySpan) {
+          displaySpan.textContent = value;
+        }
+
+        // Update selected state
+        this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+        (e.target as HTMLElement).classList.add('selected');
+
+        // Close dropdown
+        (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+        this.updateProspectsAvailability().then(async () => {
+          await this.loadScoutingRatingsForYear();
+          this.fetchAndRenderStats();
+        });
       });
     });
 
@@ -378,11 +425,37 @@ export class TrueRatingsView {
       }
     });
 
-    this.container.querySelector('#true-ratings-team')?.addEventListener('change', (e) => {
-      this.selectedTeam = (e.target as HTMLSelectElement).value;
-      this.currentPage = 1;
-      this.saveFilterPreferences();
-      this.applyFiltersAndRender();
+    // Handle team dropdown item clicks
+    this.bindTeamDropdownListeners();
+
+    // Handle position dropdown item clicks
+    this.bindPositionDropdownListeners();
+
+    // Handle filter dropdown button clicks
+    this.container.querySelectorAll('.filter-dropdown-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dropdown = btn.closest('.filter-dropdown');
+
+        // Close other dropdowns
+        this.container.querySelectorAll('.filter-dropdown').forEach(d => {
+          if (d !== dropdown) {
+            d.classList.remove('open');
+          }
+        });
+
+        // Toggle this dropdown
+        dropdown?.classList.toggle('open');
+      });
+    });
+
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('.filter-dropdown')) {
+        this.container.querySelectorAll('.filter-dropdown').forEach(d => {
+          d.classList.remove('open');
+        });
+      }
     });
 
     this.container.querySelector('#prev-page')?.addEventListener('click', () => {
@@ -400,22 +473,6 @@ export class TrueRatingsView {
         this.saveFilterPreferences();
         this.renderStats();
       }
-    });
-
-    this.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const newMode = btn.dataset.mode as StatsMode | undefined;
-        if (!newMode || this.mode === newMode) return;
-        this.mode = newMode;
-        this.sortKey = this.mode === 'pitchers' ? 'ra9war' : 'war';
-        this.sortDirection = 'desc';
-        this.saveFilterPreferences();
-        this.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        this.updateRatingsControlsVisibility();
-        this.updateScoutingUploadVisibility();
-        this.fetchAndRenderStats();
-      });
     });
 
     this.bindRatingsViewToggle();
@@ -490,12 +547,16 @@ export class TrueRatingsView {
     buttons.forEach(button => {
       button.addEventListener('click', () => {
         const toggle = button.dataset.playerToggle;
+        let ratingsViewChanged = false;
+
         if (toggle === 'prospect') {
           const nextProspects = !this.showProspects;
           if (!nextProspects && !this.showMlbPlayers && !this.showUndraftedPlayers) return;
           this.showProspects = nextProspects;
-          if (this.showProspects) {
+          if (this.showProspects && this.showRawStats) {
             this.showRawStats = false;
+            this.showTrueRatings = true;
+            ratingsViewChanged = true;
           }
         } else if (toggle === 'mlb') {
           const nextMlb = !this.showMlbPlayers;
@@ -505,8 +566,10 @@ export class TrueRatingsView {
           const nextUndrafted = !this.showUndraftedPlayers;
           if (!nextUndrafted && !this.showProspects && !this.showMlbPlayers) return;
           this.showUndraftedPlayers = nextUndrafted;
-          if (this.showUndraftedPlayers) {
+          if (this.showUndraftedPlayers && this.showRawStats) {
             this.showRawStats = false;
+            this.showTrueRatings = true;
+            ratingsViewChanged = true;
           }
         } else {
           return;
@@ -516,7 +579,12 @@ export class TrueRatingsView {
         this.updatePlayerToggleButtons();
         this.updateRatingsToggleButtons(); // Sync raw stats button state
 
-        this.applyFiltersAndRender();
+        // If we changed from Raw Stats to True Ratings, we need to refetch the data
+        if (ratingsViewChanged) {
+          this.fetchAndRenderStats();
+        } else {
+          this.applyFiltersAndRender();
+        }
       });
     });
   }
@@ -603,6 +671,10 @@ export class TrueRatingsView {
         rows.forEach(row => {
           const teamId = (row as any).team_id;
           const team = teamMap.get(teamId);
+          
+          // Also set age if player info is available (even for historical, we show current age as fallback)
+          // Ideally we'd calculate age in year, but let's keep it consistent with other views for now.
+          
           if (!team) return;
 
           if (team.parentTeamId !== 0) {
@@ -627,10 +699,43 @@ export class TrueRatingsView {
       const allPlayers = await playerService.getAllPlayers();
       const playerMap = new Map(allPlayers.map(p => [p.id, p]));
 
+      if (useHistoricalTeams) {
+        rows.forEach(row => {
+          const playerId = (row as any).player_id;
+          const player = playerMap.get(playerId);
+          if (player) {
+            row.age = player.age;
+          }
+
+          const teamId = (row as any).team_id;
+          const team = teamMap.get(teamId);
+          if (!team) return;
+
+          if (team.parentTeamId !== 0) {
+            const parent = teamMap.get(team.parentTeamId);
+            if (parent) {
+              const levelId = (row as any).level_id;
+              const levelLabel = this.getLevelLabelFromId(levelId);
+              row.teamDisplay = levelLabel ? `${parent.nickname} <span class="league-level">${levelLabel}</span>` : parent.nickname;
+              row.teamFilter = parent.nickname;
+              row.teamIsMajor = false;
+              return;
+            }
+          }
+
+          row.teamDisplay = team.nickname;
+          row.teamFilter = team.nickname;
+          row.teamIsMajor = true;
+        });
+        return;
+      }
+
       rows.forEach(row => {
         const playerId = (row as any).player_id;
         const player = playerMap.get(playerId);
         if (!player) return;
+
+        row.age = player.age;
 
         const team = teamMap.get(player.teamId);
         if (!team) return;
@@ -697,8 +802,16 @@ export class TrueRatingsView {
       const teamValue = (row as TeamInfoFields).teamFilter ?? '';
       if (!this.showUndraftedPlayers && teamValue === '') return false;
 
-      if (this.selectedTeam === 'all') return true;
-      return teamValue === this.selectedTeam;
+      // Filter by team
+      if (this.selectedTeam !== 'all' && teamValue !== this.selectedTeam) return false;
+
+      // Filter by position
+      if (this.selectedPosition !== 'all-pitchers' && this.selectedPosition !== 'all-batters') {
+        const position = (row as any).position || '';
+        if (position !== this.selectedPosition) return false;
+      }
+
+      return true;
     });
   }
 
@@ -768,17 +881,18 @@ export class TrueRatingsView {
 
   private getPitcherColumnsForView(): PitcherColumn[] {
     if (this.mode !== 'pitchers') {
-      const [posColumn, nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
+      const [posColumn, nameColumn, ageColumn, ...rest] = RAW_PITCHER_COLUMNS;
       return [
         posColumn,
         nameColumn,
+        ageColumn,
         { key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' },
         ...rest
       ];
     }
 
-    const [posColumn, nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
-    const columns: PitcherColumn[] = [posColumn, nameColumn];
+    const [posColumn, nameColumn, ageColumn, ...rest] = RAW_PITCHER_COLUMNS;
+    const columns: PitcherColumn[] = [posColumn, nameColumn, ageColumn];
     
     // Add Team column
     columns.push({ key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' });
@@ -1298,6 +1412,9 @@ export class TrueRatingsView {
       lookup.delete('position');
     }
 
+    // Always force age to be after name if name is in rawOrder, or just ensure it's not lost
+    // Actually, let's just make sure it's included in the ordered list if it's missing from rawOrder
+    
     for (const key of rawOrder) {
       if (typeof key !== 'string') continue;
       const column = lookup.get(key);
@@ -1307,6 +1424,7 @@ export class TrueRatingsView {
       }
     }
 
+    // Add any remaining columns (like the new 'age' column if it wasn't in preferences)
     ordered.push(...lookup.values());
     return ordered;
   }
@@ -1458,8 +1576,9 @@ export class TrueRatingsView {
     const excludedKeys = ['id', 'player_id', 'team_id', 'game_id', 'league_id', 'level_id', 'split_id', 'year', ...batterExcludedKeys];
     let headers = Object.keys(stats[0]).filter(key => !excludedKeys.includes(key));
     
-    headers = headers.filter(h => h !== 'playerName' && h !== 'position');
+    headers = headers.filter(h => h !== 'playerName' && h !== 'position' && h !== 'age');
     headers.unshift('teamDisplay');
+    headers.unshift('age');
     headers.unshift('playerName');
     headers.unshift('position');
 
@@ -1775,14 +1894,6 @@ export class TrueRatingsView {
           // For prospects, show TFR percentile
           const pct = row.isProspect ? row.tfrPercentile : row.percentile;
           return typeof pct === 'number' ? pct.toFixed(1) : '';
-        },
-      },
-      {
-        key: 'fipLike',
-        label: 'xFIP',
-        accessor: (row) => {
-          if (typeof row.fipLike !== 'number') return '';
-          return (row.fipLike + FIP_CONSTANT).toFixed(2);
         },
       },
     ];
@@ -2131,9 +2242,94 @@ export class TrueRatingsView {
     });
   }
 
+  private bindTeamDropdownListeners(): void {
+    this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const value = (e.target as HTMLElement).dataset.value;
+        if (!value) return;
+
+        this.selectedTeam = value;
+        this.currentPage = 1;
+        this.saveFilterPreferences();
+
+        // Update display text
+        const displaySpan = this.container.querySelector('#selected-team-display');
+        const itemText = (e.target as HTMLElement).textContent;
+        if (displaySpan && itemText) {
+          displaySpan.textContent = itemText;
+        }
+
+        // Update selected state
+        this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+        (e.target as HTMLElement).classList.add('selected');
+
+        // Close dropdown
+        (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+        this.applyFiltersAndRender();
+      });
+    });
+  }
+
+  private bindPositionDropdownListeners(): void {
+    this.container.querySelectorAll('#position-dropdown-menu .filter-dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const value = (e.target as HTMLElement).dataset.value;
+        if (!value) return;
+
+        const previousMode = this.mode;
+        this.selectedPosition = value;
+        this.currentPage = 1;
+
+        // Determine mode based on position selection
+        const pitcherPositions = ['all-pitchers', 'SP', 'RP'];
+        const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+
+        if (pitcherPositions.includes(value)) {
+          this.mode = 'pitchers';
+        } else if (batterPositions.includes(value)) {
+          this.mode = 'batters';
+        }
+
+        // If mode changed, update sort key
+        if (previousMode !== this.mode) {
+          this.sortKey = this.mode === 'pitchers' ? 'ra9war' : 'war';
+          this.sortDirection = 'desc';
+        }
+
+        this.saveFilterPreferences();
+
+        // Update display text
+        const displaySpan = this.container.querySelector('#selected-position-display');
+        const itemText = (e.target as HTMLElement).textContent;
+        if (displaySpan && itemText) {
+          displaySpan.textContent = itemText;
+        }
+
+        // Update selected state
+        this.container.querySelectorAll('#position-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+        (e.target as HTMLElement).classList.add('selected');
+
+        // Close dropdown
+        (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+        // Update visibility of controls based on mode
+        this.updateRatingsControlsVisibility();
+        this.updateScoutingUploadVisibility();
+
+        // If mode changed, we need to fetch new data
+        if (previousMode !== this.mode) {
+          this.fetchAndRenderStats();
+        } else {
+          this.applyFiltersAndRender();
+        }
+      });
+    });
+  }
+
   private updateTeamOptions(): void {
-    const select = this.container.querySelector<HTMLSelectElement>('#true-ratings-team');
-    if (!select) return;
+    const menu = this.container.querySelector('#team-dropdown-menu');
+    if (!menu) return;
 
     const options = new Set<string>();
     this.allStats.forEach(row => {
@@ -2148,10 +2344,47 @@ export class TrueRatingsView {
       this.selectedTeam = 'all';
     }
 
-    select.innerHTML = [
-      '<option value="all">All Teams</option>',
-      ...this.teamOptions.map(team => `<option value="${team}">${team}</option>`)
+    menu.innerHTML = [
+      `<div class="filter-dropdown-item ${this.selectedTeam === 'all' ? 'selected' : ''}" data-value="all">All Teams</div>`,
+      ...this.teamOptions.map(team => `<div class="filter-dropdown-item ${team === this.selectedTeam ? 'selected' : ''}" data-value="${team}">${team}</div>`)
     ].join('');
-    select.value = this.selectedTeam;
+
+    // Update display text
+    const displaySpan = this.container.querySelector('#selected-team-display');
+    if (displaySpan) {
+      const selectedItem = menu.querySelector('.filter-dropdown-item.selected');
+      displaySpan.textContent = selectedItem?.textContent || 'All Teams';
+    }
+
+    // Re-bind event listeners after updating the menu
+    this.bindTeamDropdownListeners();
+  }
+
+  private getPositionDisplayName(position: string): string {
+    if (position === 'all-pitchers') return 'All Pitchers';
+    if (position === 'all-batters') return 'All Batters';
+    return position;
+  }
+
+  private renderPositionDropdownItems(): string {
+    const positions = [
+      { value: 'all-pitchers', label: 'All Pitchers' },
+      { value: 'SP', label: 'SP' },
+      { value: 'RP', label: 'RP' },
+      { value: 'all-batters', label: 'All Batters' },
+      { value: 'C', label: 'C' },
+      { value: '1B', label: '1B' },
+      { value: '2B', label: '2B' },
+      { value: '3B', label: '3B' },
+      { value: 'SS', label: 'SS' },
+      { value: 'LF', label: 'LF' },
+      { value: 'CF', label: 'CF' },
+      { value: 'RF', label: 'RF' },
+      { value: 'DH', label: 'DH' },
+    ];
+
+    return positions.map(pos =>
+      `<div class="filter-dropdown-item ${pos.value === this.selectedPosition ? 'selected' : ''}" data-value="${pos.value}">${pos.label}</div>`
+    ).join('');
   }
 }

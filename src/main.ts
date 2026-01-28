@@ -3,7 +3,7 @@ import { Player } from './models';
 import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
-import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar } from './views';
+import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TradeAnalyzerView } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
 
 class App {
@@ -19,8 +19,12 @@ class App {
   private calculatorsView!: CalculatorsView;
   private projectionsView?: ProjectionsView;
   private teamRatingsView?: TeamRatingsView;
+  private devTrackerView?: DevTrackerView;
+  private tradeAnalyzerView?: TradeAnalyzerView;
   private projectionsContainer!: HTMLElement;
   private teamRatingsContainer!: HTMLElement;
+  private devTrackerContainer!: HTMLElement;
+  private tradeAnalyzerContainer!: HTMLElement;
 
   private selectedYear?: number;
   private isGlobalSearchActive = false;
@@ -74,6 +78,14 @@ class App {
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           <span>Team Ratings</span>
         </button>
+        <button class="tab-button" data-tab-target="tab-dev-tracker">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M12 2v10l4.5 4.5"/><circle cx="12" cy="12" r="10"/></svg>
+          <span>Dev Tracker</span>
+        </button>
+        <button class="tab-button" data-tab-target="tab-trade-analyzer">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M16 3h5v5"></path><path d="M8 21H3v-5"></path><path d="M21 3l-7.5 7.5"></path><path d="M10.5 13.5L3 21"></path></svg>
+          <span>Trade Analyzer</span>
+        </button>
         <button class="tab-button" data-tab-target="tab-calculators">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           <span>Calculators</span>
@@ -112,6 +124,14 @@ class App {
           <div id="team-ratings-container">Team Ratings Content Here</div>
         </section>
 
+        <section id="tab-dev-tracker" class="tab-panel">
+          <div id="dev-tracker-container"></div>
+        </section>
+
+        <section id="tab-trade-analyzer" class="tab-panel">
+          <div id="trade-analyzer-container"></div>
+        </section>
+
         <section id="tab-data-management" class="tab-panel">
           <div id="data-management-container"></div>
         </section>
@@ -131,6 +151,8 @@ class App {
     const projectionsContainer = document.querySelector<HTMLElement>('#projections-container')!;
     const farmRankingsContainer = document.querySelector<HTMLElement>('#farm-rankings-container')!;
     const teamRatingsContainer = document.querySelector<HTMLElement>('#team-ratings-container')!;
+    const devTrackerContainer = document.querySelector<HTMLElement>('#dev-tracker-container')!;
+    const tradeAnalyzerContainer = document.querySelector<HTMLElement>('#trade-analyzer-container')!;
     const dataManagementContainer = document.querySelector<HTMLElement>('#data-management-container')!;
     const loadingContainer = document.querySelector<HTMLElement>('#loading-container')!;
     const errorContainer = document.querySelector<HTMLElement>('#error-container')!;
@@ -166,6 +188,8 @@ class App {
     this.projectionsContainer = projectionsContainer;
     new FarmRankingsView(farmRankingsContainer);
     this.teamRatingsContainer = teamRatingsContainer;
+    this.devTrackerContainer = devTrackerContainer;
+    this.tradeAnalyzerContainer = tradeAnalyzerContainer;
     new DataManagementView(dataManagementContainer);
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
@@ -236,6 +260,12 @@ class App {
     }
     if (tabId === 'tab-team-ratings' && !this.teamRatingsView) {
       this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);
+    }
+    if (tabId === 'tab-dev-tracker' && !this.devTrackerView) {
+      this.devTrackerView = new DevTrackerView(this.devTrackerContainer);
+    }
+    if (tabId === 'tab-trade-analyzer' && !this.tradeAnalyzerView) {
+      this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
     }
   }
 

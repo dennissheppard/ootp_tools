@@ -15,3 +15,5 @@ export * from './DataManagementView';
 export * from './PlayerRatingsCard';
 export * from './PlayerProfileModal';
 export * from './ProjectionsView';
+export * from './DevTrackerView';
+export * from './TradeAnalyzerView';
