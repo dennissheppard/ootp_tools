@@ -2049,7 +2049,7 @@ td.player-cell.player-name {
 
 /* Player Profile Modal */
 .modal-lg {
-  width: min(665px, 95vw);
+  width: min(705px, 95vw);
 }
 
 /* Draggable modal */

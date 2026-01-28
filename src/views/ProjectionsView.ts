@@ -1152,9 +1152,12 @@ export class ProjectionsView {
       playerName: row.name,
       team: teamLabel,
       parentTeam: parentLabel,
+      age: player?.age,
       position: row.isSp ? 'SP' : 'RP',
+      positionLabel: row.isSp ? 'SP' : 'RP',
       trueRating: row.currentTrueRating,
       percentile: row.currentPercentile,
+      fipLike: row.fipLike,
       estimatedStuff: row.projectedRatings.stuff,
       estimatedControl: row.projectedRatings.control,
       estimatedHra: row.projectedRatings.hra,
@@ -1196,7 +1199,23 @@ export class ProjectionsView {
       }
     };
 
-    await this.playerProfileModal.show(profileData, projectionBaseYear);
+    // Collect FIP-like distribution for percentile recalcs in modal
+    // IMPORTANT: Only use MLB pitchers (non-prospects) for the distribution
+    // Prospects have TFR-based fipLike (future projection) which shouldn't mix with TR-based (current performance)
+    const leagueFipLikes = this.allStats
+      .filter(p => p.playerId !== row.playerId)
+      .filter(p => !p.isProspect) // Exclude prospects with TFR
+      .map(p => p.fipLike)
+      .filter((f): f is number => typeof f === 'number');
+
+    // For projections, use default league averages for TR recalculation
+    // (Projections are forward-looking, so current year league averages don't apply)
+    const defaultLeagueAverages = { avgK9: 7.5, avgBb9: 3.0, avgHr9: 0.85 };
+
+    await this.playerProfileModal.show(profileData, projectionBaseYear, {
+      leagueFipLikes,
+      leagueAverages: defaultLeagueAverages
+    });
   }
 
   private updatePagination(total: number): void {

@@ -221,8 +221,11 @@ class TrueRatingsCalculationService {
   /**
    * Calculate blended rates and FIP-like for a single pitcher
    * (Steps 1-4 of the process)
+   *
+   * Note: This method does NOT calculate percentiles or true rating.
+   * Use this when you need to rank a single player against a custom distribution.
    */
-  private calculateSinglePitcher(
+  calculateSinglePitcher(
     input: TrueRatingInput,
     leagueAverages: LeagueAverages,
     yearWeights?: number[]
@@ -516,9 +519,10 @@ class TrueRatingsCalculationService {
   }
 
   /**
-   * Step 2.7: Convert percentile to True Rating (0.5-5.0 scale)
+   * Convert percentile to True Rating (0.5-5.0 scale)
    *
    * Uses bell curve buckets based on normal distribution
+   * Public so external callers can convert custom percentile calculations
    */
   percentileToRating(percentile: number): number {
     for (const { threshold, rating } of PERCENTILE_TO_RATING) {

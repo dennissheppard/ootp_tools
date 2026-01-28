@@ -35,6 +35,8 @@ export interface ProjectedPlayer {
   };
   /** Role classification (true = starter, false = reliever) */
   isSp: boolean;
+  /** FIP-like metric for ranking */
+  fipLike?: number;
   /** Flag indicating this is a prospect without MLB stats */
   isProspect?: boolean;
 }

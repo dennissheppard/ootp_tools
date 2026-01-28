@@ -422,6 +422,8 @@ export class GlobalSearchBar {
         playerName,
         team: teamLabel,
         parentTeam: parentLabel,
+        age: player.age,
+        positionLabel: getPositionLabel(player.position),
         trueRating: playerResult?.trueRating,
         percentile: playerResult?.percentile,
         estimatedStuff: playerResult?.estimatedStuff,

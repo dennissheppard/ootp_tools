@@ -1,5 +1,5 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
-import { Player, getFullName, isPitcher } from '../models/Player';
+import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Player';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
 import { trueRatingsCalculationService, YearlyPitchingStats, getYearWeights } from '../services/TrueRatingsCalculationService';
@@ -136,6 +136,7 @@ export class TrueRatingsView {
   private playerRowLookup: Map<number, PitcherRow> = new Map();
   private yearDefaultsInitialized = false;
   private currentGameYear: number | null = null;
+  private cachedLeagueAverages: any = null; // Store for passing to modal
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -999,6 +1000,8 @@ export class TrueRatingsView {
       trueRatingsService.getMultiYearPitchingStats(this.selectedYear),
       trueRatingsService.getLeagueAverages(this.selectedYear),
     ]);
+    // Store league averages for passing to modal (ensures consistent recalculation)
+    this.cachedLeagueAverages = leagueAverages;
     const scoutingLookup = this.buildScoutingLookup(this.scoutingRatings);
     this.scoutingLookup = scoutingLookup;
     const scoutingMatchMap = new Map<number, PitcherScoutingRatings>();
@@ -2021,8 +2024,11 @@ export class TrueRatingsView {
       playerName: row.playerName,
       team: teamLabel,
       parentTeam: parentLabel,
+      age: player?.age,
+      positionLabel: player ? getPositionLabel(player.position) : undefined,
       trueRating: row.trueRating,
       percentile: row.percentile,
+      fipLike: row.fipLike,
       estimatedStuff: row.estimatedStuff,
       estimatedControl: row.estimatedControl,
       estimatedHra: row.estimatedHra,
@@ -2064,7 +2070,26 @@ export class TrueRatingsView {
       forceProjection: row.isProspect // Force peak projection for prospects
     };
 
-    await this.playerProfileModal.show(profileData, this.selectedYear);
+    // Collect FIP-like distribution for percentile recalcs in modal
+    // IMPORTANT: Only use MLB pitchers (non-prospects) for the distribution
+    // Prospects have TFR-based fipLike (future projection) which shouldn't mix with TR-based (current performance)
+    const leagueFipLikes = this.mode === 'pitchers'
+        ? (this.allStats as PitcherRow[])
+            .filter(p => p.player_id !== row.player_id)
+            .filter(p => !p.isProspect) // Exclude prospects with TFR
+            .map(p => p.fipLike)
+            .filter((f): f is number => typeof f === 'number')
+        : [];
+
+    // Get MLB stats for this specific player (same data the table used)
+    const multiYearStats = await trueRatingsService.getMultiYearPitchingStats(this.selectedYear);
+    const playerMlbStats = multiYearStats.get(row.player_id) ?? [];
+
+    await this.playerProfileModal.show(profileData, this.selectedYear, {
+      leagueFipLikes,
+      leagueAverages: this.cachedLeagueAverages,
+      mlbStats: playerMlbStats
+    });
   }
 
   private updateTeamOptions(): void {

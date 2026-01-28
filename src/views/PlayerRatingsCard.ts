@@ -18,6 +18,7 @@ export interface PlayerRatingsData {
   parentTeam?: string;
   age?: number;
   position?: 'SP' | 'RP';
+  positionLabel?: string;
   trueRating?: number;
   percentile?: number;
   fipLike?: number;

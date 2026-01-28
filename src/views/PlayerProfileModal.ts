@@ -1,4 +1,5 @@
-import { trueRatingsCalculationService, getYearWeights } from '../services/TrueRatingsCalculationService';
+import { Player, Position, getPositionLabel } from '../models/Player';
+import { trueRatingsCalculationService, getYearWeights, YearlyPitchingStats } from '../services/TrueRatingsCalculationService';
 import { trueRatingsService, PlayerYearlyDetail } from '../services/TrueRatingsService';
 import { PlayerRatingsCard, PlayerRatingsData, SeasonStatsRow } from './PlayerRatingsCard';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
@@ -18,12 +19,17 @@ export class PlayerProfileModal {
   private boundKeyHandler: ((e: KeyboardEvent) => void) | null = null;
   private isDragging = false;
   private dragOffset = { x: 0, y: 0 };
+  private positionAgeElement: HTMLElement | null = null;
 
   // State for interactive year selection
   private currentPlayerData: PlayerRatingsData | null = null;
+  private originalPlayerData: PlayerRatingsData | null = null; // Immutable original data for toggle calculations
   private currentPlayer: any | null = null;
   private currentMlbStats: SeasonStatsRow[] = [];
   private mlbDebutYear: number | null = null;
+  private leagueFipLikes: number[] = [];
+  private cachedLeagueAverages: any = null; // Store league averages from table for consistent recalculation
+  private cachedMlbStats: YearlyPitchingStats[] | null = null; // Store MLB stats from table for consistent recalculation
 
   // League configuration
   private readonly LEAGUE_START_YEAR = 2000;
@@ -126,12 +132,25 @@ export class PlayerProfileModal {
     });
   }
 
-  async show(data: PlayerRatingsData, selectedYear: number): Promise<void> {
+  async show(data: PlayerRatingsData, selectedYear: number, context?: { leagueFipLikes?: number[]; leagueAverages?: any; mlbStats?: YearlyPitchingStats[] }): Promise<void> {
     this.ensureOverlayExists();
     if (!this.overlay) return;
 
+    // Store context
+    if (context?.leagueFipLikes) {
+        this.leagueFipLikes = context.leagueFipLikes;
+    }
+    if (context?.leagueAverages) {
+        this.cachedLeagueAverages = context.leagueAverages;
+    }
+    if (context?.mlbStats) {
+        this.cachedMlbStats = context.mlbStats;
+    }
+
     // Store current data for interactive year selection
     this.currentPlayerData = data;
+    // Store immutable original for toggle calculations
+    this.originalPlayerData = { ...data };
 
     // Fetch player info first for age display
     const player = await playerService.getPlayerById(data.playerId);
@@ -140,7 +159,7 @@ export class PlayerProfileModal {
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
     const teamEl = this.overlay.querySelector<HTMLElement>('.player-team-info');
-    const positionAgeEl = this.overlay.querySelector<HTMLElement>('.player-position-age');
+    this.positionAgeElement = this.overlay.querySelector<HTMLElement>('.player-position-age');
     const headerSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
     const metadataSlot = this.overlay.querySelector<HTMLElement>('.metadata-header-slot');
     const pitchesSlot = this.overlay.querySelector<HTMLElement>('.pitches-header-slot');
@@ -151,11 +170,7 @@ export class PlayerProfileModal {
       teamEl.innerHTML = teamInfo;
       teamEl.style.display = teamInfo ? '' : 'none';
     }
-    if (positionAgeEl) {
-      const posAgeInfo = PlayerRatingsCard.formatPositionAge(data.position, player?.age);
-      positionAgeEl.textContent = posAgeInfo;
-      positionAgeEl.style.display = posAgeInfo ? '' : 'none';
-    }
+    this.refreshPositionAgeLabel();
     if (headerSlot) {
       headerSlot.innerHTML = PlayerRatingsCard.renderRatingEmblem(data);
       // Trigger shimmer animation on rating emblem
@@ -219,6 +234,7 @@ export class PlayerProfileModal {
         console.warn('No MLB stats found for player, treating as minor league only:', error);
       }
       this.currentMlbStats = mlbStats.map(s => ({ ...s, level: 'MLB' as const }));
+      this.refreshPositionAgeLabel();
 
       // Determine MLB debut year from stats (earliest year with IP > 0)
       // Fetch more years to get accurate debut for veterans
@@ -478,6 +494,7 @@ export class PlayerProfileModal {
         }
 
         bodyEl.innerHTML = this.renderContent(data, combinedStats, hasMinorLeague, projectionHtml);
+
         this.bindScoutUploadLink();
         this.bindScoutSourceToggle(data, combinedStats, hasMinorLeague, projectionHtml);
         // Trigger shimmer animation on True Ratings bars only (not scout bars)
@@ -792,54 +809,90 @@ export class PlayerProfileModal {
         if (bodyEl) bodyEl.style.opacity = '0.5';
 
         try {
+            // IMPORTANT: Always calculate from ORIGINAL data, not mutated data
+            const baseData = this.originalPlayerData || data;
+
             // Update data with new active source
             const updatedData = {
-              ...data,
+              ...baseData,
               activeScoutSource: newSource
             };
 
-            // 1. Re-calculate True Ratings with new scout source
+            // 1. Re-calculate True Ratings for THIS player only
             const scoutRatings = newSource === 'osa'
-                ? { stuff: data.osaStuff, control: data.osaControl, hra: data.osaHra }
-                : { stuff: data.scoutStuff, control: data.scoutControl, hra: data.scoutHra };
+                ? { stuff: baseData.osaStuff, control: baseData.osaControl, hra: baseData.osaHra }
+                : { stuff: baseData.scoutStuff, control: baseData.scoutControl, hra: baseData.scoutHra };
+
+            // Use cached league averages from table to ensure consistency
+            // If not available, fetch them (but this should rarely happen)
+            const year = baseData.year ?? await dateService.getCurrentYear();
+            const leagueAverages = this.cachedLeagueAverages ?? await trueRatingsService.getLeagueAverages(year);
+
+            // We need year weights
+            const currentYear = await dateService.getCurrentYear();
+            let yearWeights: number[] | undefined;
+            if (year === currentYear) {
+                const stage = await dateService.getSeasonStage();
+                yearWeights = getYearWeights(stage);
+            }
 
             if (scoutRatings.stuff !== undefined && this.currentMlbStats.length > 0) {
-                const year = data.year ?? await dateService.getCurrentYear();
-                const leagueAverages = await trueRatingsService.getLeagueAverages(year);
+                // Use cached MLB stats from table if available (ensures exact match with table calculation)
+                // Otherwise fall back to fetched stats
+                const statsToUse = this.cachedMlbStats ?? this.currentMlbStats;
+
+                // Calculate for single player (without percentile ranking)
+                const trInput = {
+                    playerId: baseData.playerId,
+                    playerName: baseData.playerName,
+                    yearlyStats: statsToUse,
+                    scoutingRatings: { ...scoutRatings, playerId: baseData.playerId } as any
+                };
+
+                const trResult = trueRatingsCalculationService.calculateSinglePitcher(trInput, leagueAverages, yearWeights);
                 
-                const currentYear = await dateService.getCurrentYear();
-                let yearWeights: number[] | undefined;
-                if (year === currentYear) {
-                    const stage = await dateService.getSeasonStage();
-                    yearWeights = getYearWeights(stage);
-                }
-
-                // Prepare stats input (convert to YearlyPitchingStats if needed, but structure matches)
-                const trInput = [{
-                    playerId: data.playerId,
-                    playerName: data.playerName,
-                    yearlyStats: this.currentMlbStats,
-                    scoutingRatings: { ...scoutRatings, playerId: data.playerId } as any
-                }];
-
-                const trResult = trueRatingsCalculationService.calculateTrueRatings(trInput, leagueAverages, yearWeights)[0];
                 if (trResult) {
                     updatedData.trueRating = trResult.trueRating;
                     updatedData.estimatedStuff = trResult.estimatedStuff;
                     updatedData.estimatedControl = trResult.estimatedControl;
                     updatedData.estimatedHra = trResult.estimatedHra;
                     updatedData.fipLike = trResult.fipLike;
-                    updatedData.percentile = trResult.percentile;
+                    
+                    // 2. Re-rank against cached league distribution
+                    if (this.leagueFipLikes.length > 0) {
+                        const val = trResult.fipLike;
+
+                        // Sort all FIPs including the player's new value
+                        const allFips = [...this.leagueFipLikes, val].sort((a, b) => a - b);
+                        const n = allFips.length;
+
+                        // Count how many are worse (higher FIP)
+                        const worseCount = allFips.filter(f => f > val).length;
+
+                        // Count ties
+                        const tieCount = allFips.filter(f => f === val).length;
+
+                        // Rank calculation (lower FIP = better = lower rank number)
+                        // rank = 1 + (players better than me) + (ties / 2)
+                        const betterCount = n - worseCount - tieCount;
+                        const rank = betterCount + 1 + (tieCount - 1) / 2;
+
+                        // Convert rank to percentile (inverted so higher = better)
+                        // percentile = (players worse than me) / total
+                        const percentile = ((n - rank + 0.5) / n) * 100;
+                        updatedData.percentile = Math.round(percentile * 10) / 10;
+                        updatedData.trueRating = trueRatingsCalculationService.percentileToRating(updatedData.percentile);
+                    }
                 }
             }
 
             // 2. Re-calculate Projection
             // Only if not a force-projected prospect (TFR)
             let newProjectionHtml = projectionHtml;
-            if (!data.isProspect) {
+            if (!baseData.isProspect) {
                 const currentYear = await dateService.getCurrentYear();
-                const projectionTargetYear = data.projectionYear ?? (data.year ? data.year + 1 : currentYear + 1);
-                let projectionBaseYear = data.projectionBaseYear ?? (projectionTargetYear - 1);
+                const projectionTargetYear = baseData.projectionYear ?? (baseData.year ? baseData.year + 1 : currentYear + 1);
+                let projectionBaseYear = baseData.projectionBaseYear ?? (projectionTargetYear - 1);
                 
                 if (projectionBaseYear < this.LEAGUE_START_YEAR) projectionBaseYear = this.LEAGUE_START_YEAR;
 
@@ -1089,9 +1142,83 @@ export class PlayerProfileModal {
       // Re-bind events after rendering
       this.bindFlipCardLocking();
       this.bindYearSelector();
+      this.refreshPositionAgeLabel();
     } catch (error) {
       console.error('Failed to update projection:', error);
       projectionSection.innerHTML = '<div class="error-message">Failed to update projection.</div>';
     }
+  }
+
+  private refreshPositionAgeLabel(): void {
+    if (!this.positionAgeElement || !this.currentPlayerData) return;
+    const positionAgeText = this.buildPositionAgeText(this.currentPlayerData, this.currentPlayer ?? null);
+    this.positionAgeElement.textContent = positionAgeText;
+    this.positionAgeElement.style.display = positionAgeText ? '' : 'none';
+  }
+
+  private buildPositionAgeText(data: PlayerRatingsData, player: Player | null): string {
+    const parts: string[] = [];
+    const positionLabel = this.getProfilePositionLabel(data, player);
+    if (positionLabel) {
+      parts.push(positionLabel);
+    }
+    const ageValue = this.getProfileAgeValue(data, player);
+    if (typeof ageValue === 'number') {
+      parts.push(`Age: ${ageValue}`);
+    }
+    return parts.join(', ');
+  }
+
+  private getProfilePositionLabel(data: PlayerRatingsData, player: Player | null): string | undefined {
+    if (data.positionLabel && data.positionLabel !== 'P') {
+      return data.positionLabel;
+    }
+    if (data.position) {
+      return data.position;
+    }
+    const playerPositionLabel = player ? getPositionLabel(player.position) : undefined;
+    if (playerPositionLabel === 'P' || data.positionLabel === 'P') {
+      const pitcherRole = this.determinePitcherRoleLabel(data, player);
+      return pitcherRole ?? playerPositionLabel;
+    }
+    return playerPositionLabel;
+  }
+
+  private getProfileAgeValue(data: PlayerRatingsData, player: Player | null): number | undefined {
+    if (typeof data.age === 'number') {
+      return data.age;
+    }
+    return player?.age;
+  }
+
+  private determinePitcherRoleLabel(data: PlayerRatingsData, player: Player | null): 'SP' | 'RP' | undefined {
+    const playerRoleValue = player?.role ?? 0;
+    const hasRecentMlb = this.currentMlbStats.some((stat) => stat.ip > 0);
+    const usablePitches = data.pitchRatings
+      ? Object.values(data.pitchRatings).filter((rating) => rating >= 25).length
+      : 0;
+    const stamina = data.scoutStamina ?? 0;
+    const trueRating = data.trueRating ?? 0;
+
+    const meetsProfile = usablePitches >= 3 && stamina >= 35 && (!hasRecentMlb || trueRating >= 2);
+    if (meetsProfile || playerRoleValue === 11) {
+      return 'SP';
+    }
+
+    const hasStarterStats = this.currentMlbStats.some((stat) => stat.gs >= 5 && stat.ip > 10);
+    if (hasStarterStats) {
+      return 'SP';
+    }
+
+    const isPitcher = player ? player.position === Position.Pitcher : data.position === 'SP' || data.position === 'RP';
+    if (!isPitcher) {
+      return undefined;
+    }
+
+    if (stamina < 35 || (data.pitchCount ?? 0) < 3) {
+      return 'RP';
+    }
+
+    return undefined;
   }
 }
