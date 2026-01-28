@@ -1,3 +1,5 @@
+import { apiFetch } from './ApiClient';
+
 /** Represents how much of the baseball season has completed */
 export type SeasonStage = 'early' | 'q1_done' | 'q2_done' | 'q3_done' | 'complete';
 
@@ -82,7 +84,7 @@ class DateService {
 
   private async fetchDate(): Promise<string> {
     // Proxied to https://atl-01.statsplus.net/world/api/date/
-    const response = await fetch('/api/date/');
+    const response = await apiFetch('/api/date/');
     if (!response.ok) {
       throw new Error(`Failed to fetch date: ${response.status}`);
     }

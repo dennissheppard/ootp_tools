@@ -1,4 +1,5 @@
 import { Team } from '../models/Team';
+import { apiFetch } from './ApiClient';
 
 const API_BASE = '/api';
 const CACHE_KEY = 'wbl_teams_cache';
@@ -45,7 +46,7 @@ export class TeamService {
   }
 
   private async fetchTeams(): Promise<Team[]> {
-    const response = await fetch(`${API_BASE}/teams/`);
+    const response = await apiFetch(`${API_BASE}/teams/`);
     if (!response.ok) {
       throw new Error(`Failed to fetch teams: ${response.statusText}`);
     }

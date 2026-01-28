@@ -3,6 +3,7 @@ import { playerService } from './PlayerService';
 import { statsService } from './StatsService';
 import { dateService } from './DateService';
 import { LeagueAverages, YearlyPitchingStats } from './TrueRatingsCalculationService';
+import { apiFetch } from './ApiClient';
 
 /**
  * Yearly stats detail for player profile modal
@@ -214,7 +215,7 @@ class TrueRatingsService {
   private async fetchAndProcessStats(year: number, type: StatsType, apiEndpoint: string): Promise<(TruePlayerStats | TruePlayerBattingStats)[]> {
     if (year < LEAGUE_START_YEAR) return [];
     
-    const response = await fetch(`${API_BASE}/${apiEndpoint}/?year=${year}`);
+    const response = await apiFetch(`${API_BASE}/${apiEndpoint}/?year=${year}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch true ${type} stats for ${year}`);
     }

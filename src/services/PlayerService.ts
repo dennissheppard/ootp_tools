@@ -1,4 +1,5 @@
 import { Player, Position } from '../models/Player';
+import { apiFetch } from './ApiClient';
 
 const API_BASE = '/api';
 const CACHE_KEY = 'wbl_players_cache';
@@ -65,7 +66,7 @@ export class PlayerService {
   }
 
   private async fetchPlayers(): Promise<Player[]> {
-    const response = await fetch(`${API_BASE}/players/`);
+    const response = await apiFetch(`${API_BASE}/players/`);
     if (!response.ok) {
       throw new Error(`Failed to fetch players: ${response.statusText}`);
     }

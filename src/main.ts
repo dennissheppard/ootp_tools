@@ -14,6 +14,7 @@ class App {
   private statsView!: StatsView;
   private loadingView!: LoadingView;
   private errorView!: ErrorView;
+  private rateLimitView!: ErrorView;
   private activeTabId = 'tab-true-ratings';
   private calculatorsView!: CalculatorsView;
   private projectionsView?: ProjectionsView;
@@ -28,6 +29,7 @@ class App {
     this.controller = new PlayerController();
     this.initializeDOM();
     this.initializeViews();
+    this.setupRateLimitHandling();
     this.setupTabs();
     this.bindController();
     this.preloadPlayers();
@@ -53,6 +55,7 @@ class App {
           <span class="game-date-value" id="game-date">Loading...</span>
         </div>
       </header>
+      <div id="rate-limit-container"></div>
 
       <nav class="tabs">
         <button class="tab-button active" data-tab-target="tab-true-ratings">
@@ -131,6 +134,7 @@ class App {
     const dataManagementContainer = document.querySelector<HTMLElement>('#data-management-container')!;
     const loadingContainer = document.querySelector<HTMLElement>('#loading-container')!;
     const errorContainer = document.querySelector<HTMLElement>('#error-container')!;
+    const rateLimitContainer = document.querySelector<HTMLElement>('#rate-limit-container')!;
 
     // Initialize global search bar
     this.globalSearchBar = new GlobalSearchBar(globalSearchContainer, {
@@ -165,6 +169,22 @@ class App {
     new DataManagementView(dataManagementContainer);
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
+    this.rateLimitView = new ErrorView(rateLimitContainer);
+  }
+
+  private setupRateLimitHandling(): void {
+    window.addEventListener('wbl:rate-limited', (event) => {
+      const detail = (event as CustomEvent<{ waitMs: number; attempt: number; maxAttempts: number }>).detail;
+      const seconds = Math.max(1, Math.round(detail.waitMs / 1000));
+      const attempt = detail.attempt ?? 1;
+      const maxAttempts = detail.maxAttempts ?? 1;
+      const message = `StatsPlus is grouchy right now. Taking a few breaths (${seconds}s) before retrying... (${attempt}/${maxAttempts})`;
+      this.rateLimitView.show(new Error(message));
+    });
+
+    window.addEventListener('wbl:rate-limit-clear', () => {
+      this.rateLimitView.hide();
+    });
   }
 
   private setupTabs(): void {

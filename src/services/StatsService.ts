@@ -1,4 +1,5 @@
 import { PitchingStats, BattingStats } from '../models/Stats';
+import { apiFetch } from './ApiClient';
 
 const API_BASE = '/api';
 
@@ -9,7 +10,7 @@ export class StatsService {
       url += `&year=${year}`;
     }
 
-    const response = await fetch(url);
+    const response = await apiFetch(url);
     if (response.status === 204 || response.status === 404 || response.status === 500) {
       return [];
     }
@@ -31,7 +32,7 @@ export class StatsService {
       url += `&year=${year}`;
     }
 
-    const response = await fetch(url);
+    const response = await apiFetch(url);
     if (response.status === 204 || response.status === 404 || response.status === 500) {
       return [];
     }
