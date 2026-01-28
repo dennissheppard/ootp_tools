@@ -20,6 +20,7 @@ export interface PlayerRatingsData {
   position?: 'SP' | 'RP';
   trueRating?: number;
   percentile?: number;
+  fipLike?: number;
   estimatedStuff?: number;
   estimatedControl?: number;
   estimatedHra?: number;
@@ -104,10 +105,12 @@ export class PlayerRatingsCard {
 
     if (isProspect) {
       indicator = '<span class="badge-indicator-tfr" title="True Future Rating (Projected)">F</span>';
-      badgeTitle = 'True Future Rating (Projected)';
+      badgeTitle = 'True Future Rating (Projected)\nDerived from a secret blend of scouting potential, minor league performance, and the ashes of Hank Aaron\'s bat.';
     } else {
       indicator = hasScout ? '' : '<span class="badge-indicator" title="Stats only - no scouting data">#</span>';
-      badgeTitle = hasScout ? 'True Rating (with scouting)' : 'True Rating (stats only)';
+      badgeTitle = hasScout 
+        ? 'True Rating (with scouting)\nDerived from a proprietary blend of scouting reports, advanced metrics, and the tears of Nolan Ryan\'s victims.'
+        : 'True Rating (stats only)\nBased purely on performance metrics (and a pinch of wizardry).';
     }
 
     const badgeHtml = `${ratingValue.toFixed(1)}${indicator}`;
@@ -500,7 +503,7 @@ export class PlayerRatingsCard {
           <div class="rating-row rating-row-header">
             <span class="rating-label"></span>
             <div class="rating-bars">
-              <span class="bar-header">True Ratings</span>
+              <span class="bar-header" title="Derived from a proprietary blend of scouting reports, advanced metrics, and the tears of Nolan Ryan's victims." style="cursor: help;">True Ratings</span>
               <span class="bar-vs"></span>
               <span class="bar-header">${headerLabel}</span>
               <span class="rating-diff"></span>
@@ -518,7 +521,7 @@ export class PlayerRatingsCard {
         <div class="rating-row rating-row-header">
           <span class="rating-label"></span>
           <div class="rating-bars">
-            <span class="bar-header">True Ratings</span>
+            <span class="bar-header" title="Derived from a proprietary blend of scouting reports, advanced metrics, and the tears of Nolan Ryan's victims." style="cursor: help;">True Ratings</span>
             <span class="bar-vs"></span>
             <span class="bar-header bar-header-missing">Scout Opinions</span>
             <span class="rating-diff"></span>

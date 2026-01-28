@@ -1,3 +1,4 @@
+import { trueRatingsCalculationService, getYearWeights } from '../services/TrueRatingsCalculationService';
 import { trueRatingsService, PlayerYearlyDetail } from '../services/TrueRatingsService';
 import { PlayerRatingsCard, PlayerRatingsData, SeasonStatsRow } from './PlayerRatingsCard';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
@@ -781,30 +782,133 @@ export class PlayerProfileModal {
 
     const items = toggleContainer.querySelectorAll<HTMLElement>('.dropdown-item');
     items.forEach(item => {
-      item.addEventListener('click', (e) => {
+      item.addEventListener('click', async (e) => {
         const newSource = (e.target as HTMLElement).dataset.value as 'my' | 'osa';
         if (!newSource || newSource === data.activeScoutSource) return;
 
-        // Update data with new active source
-        const updatedData = {
-          ...data,
-          activeScoutSource: newSource
-        };
-
-        // Re-render the modal body with the new source
+        // Show loading state for modal content? Or just update.
+        // Since we are doing async calculations, maybe show a spinner or opacity?
         const bodyEl = this.overlay?.querySelector<HTMLElement>('.modal-body');
-        if (bodyEl) {
-          bodyEl.innerHTML = this.renderContent(updatedData, stats, hasMinorLeague, projectionHtml);
-          // Re-bind event listeners after re-render
-          this.bindScoutUploadLink();
-          this.bindScoutSourceToggle(updatedData, stats, hasMinorLeague, projectionHtml);
-          // Trigger shimmer animation on rating bars when source changes
-          requestAnimationFrame(() => {
-             const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
-             ratingBars.forEach(bar => bar.classList.add('shimmer-once'));
-          });
-          this.bindFlipCardLocking();
-          this.bindYearSelector();
+        if (bodyEl) bodyEl.style.opacity = '0.5';
+
+        try {
+            // Update data with new active source
+            const updatedData = {
+              ...data,
+              activeScoutSource: newSource
+            };
+
+            // 1. Re-calculate True Ratings with new scout source
+            const scoutRatings = newSource === 'osa'
+                ? { stuff: data.osaStuff, control: data.osaControl, hra: data.osaHra }
+                : { stuff: data.scoutStuff, control: data.scoutControl, hra: data.scoutHra };
+
+            if (scoutRatings.stuff !== undefined && this.currentMlbStats.length > 0) {
+                const year = data.year ?? await dateService.getCurrentYear();
+                const leagueAverages = await trueRatingsService.getLeagueAverages(year);
+                
+                const currentYear = await dateService.getCurrentYear();
+                let yearWeights: number[] | undefined;
+                if (year === currentYear) {
+                    const stage = await dateService.getSeasonStage();
+                    yearWeights = getYearWeights(stage);
+                }
+
+                // Prepare stats input (convert to YearlyPitchingStats if needed, but structure matches)
+                const trInput = [{
+                    playerId: data.playerId,
+                    playerName: data.playerName,
+                    yearlyStats: this.currentMlbStats,
+                    scoutingRatings: { ...scoutRatings, playerId: data.playerId } as any
+                }];
+
+                const trResult = trueRatingsCalculationService.calculateTrueRatings(trInput, leagueAverages, yearWeights)[0];
+                if (trResult) {
+                    updatedData.trueRating = trResult.trueRating;
+                    updatedData.estimatedStuff = trResult.estimatedStuff;
+                    updatedData.estimatedControl = trResult.estimatedControl;
+                    updatedData.estimatedHra = trResult.estimatedHra;
+                    updatedData.fipLike = trResult.fipLike;
+                    updatedData.percentile = trResult.percentile;
+                }
+            }
+
+            // 2. Re-calculate Projection
+            // Only if not a force-projected prospect (TFR)
+            let newProjectionHtml = projectionHtml;
+            if (!data.isProspect) {
+                const currentYear = await dateService.getCurrentYear();
+                const projectionTargetYear = data.projectionYear ?? (data.year ? data.year + 1 : currentYear + 1);
+                let projectionBaseYear = data.projectionBaseYear ?? (projectionTargetYear - 1);
+                
+                if (projectionBaseYear < this.LEAGUE_START_YEAR) projectionBaseYear = this.LEAGUE_START_YEAR;
+
+                const historicalAge = projectionService.calculateAgeAtYear(this.currentPlayer!, currentYear, projectionBaseYear);
+                
+                const leagueStats = await leagueStatsService.getLeagueStats(projectionBaseYear);
+                const leagueContext = {
+                    fipConstant: leagueStats.fipConstant,
+                    avgFip: leagueStats.avgFip,
+                    runsPerWin: 8.5
+                };
+
+                const recent = this.currentMlbStats[0];
+                let isSp = recent && recent.ip > 80;
+                
+                const proj = await projectionService.calculateProjection(
+                    { 
+                        stuff: updatedData.estimatedStuff!, 
+                        control: updatedData.estimatedControl!, 
+                        hra: updatedData.estimatedHra! 
+                    },
+                    historicalAge,
+                    updatedData.pitchCount ?? 0,
+                    isSp ? 20 : 0,
+                    leagueContext,
+                    updatedData.scoutStamina,
+                    updatedData.scoutInjuryProneness,
+                    this.currentMlbStats,
+                    updatedData.trueRating ?? 0,
+                    updatedData.pitchRatings
+                );
+
+                // Re-render projection HTML (simplified - assuming no comparison update needed for basic toggle)
+                const displayAge = historicalAge + 1;
+                newProjectionHtml = this.renderProjection(
+                    proj,
+                    displayAge,
+                    projectionTargetYear,
+                    undefined, // No comparison re-calc for now
+                    false,
+                    currentYear,
+                    this.mlbDebutYear
+                );
+            }
+
+            if (bodyEl) {
+              bodyEl.style.opacity = '1';
+              bodyEl.innerHTML = this.renderContent(updatedData, stats, hasMinorLeague, newProjectionHtml);
+              
+              // Re-render Header (Badge)
+              const headerSlot = this.overlay?.querySelector<HTMLElement>('.ratings-header-slot');
+              if (headerSlot) {
+                  headerSlot.innerHTML = PlayerRatingsCard.renderRatingEmblem(updatedData);
+                  const emblem = headerSlot.querySelector<HTMLElement>('.rating-emblem');
+                  if (emblem) emblem.classList.add('shimmer-once');
+              }
+
+              this.bindScoutUploadLink();
+              this.bindScoutSourceToggle(updatedData, stats, hasMinorLeague, newProjectionHtml);
+              requestAnimationFrame(() => {
+                 const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
+                 ratingBars.forEach(bar => bar.classList.add('shimmer-once'));
+              });
+              this.bindFlipCardLocking();
+              this.bindYearSelector();
+            }
+        } catch (error) {
+            console.error('Error updating scout source:', error);
+            if (bodyEl) bodyEl.style.opacity = '1';
         }
       });
     });
