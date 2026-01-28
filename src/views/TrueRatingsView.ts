@@ -70,7 +70,8 @@ interface ScoutingLookup {
 }
 
 const RAW_PITCHER_COLUMNS: PitcherColumn[] = [
-  { key: 'playerName', label: 'Name' },
+  { key: 'position', label: 'Pos', sortKey: 'position' },
+  { key: 'playerName', label: 'Name', accessor: (row: PitcherRow) => `<span class="name-col">${row.playerName}</span>` },
   { key: 'ip', label: 'IP', sortKey: 'ipOuts' },
   { key: 'k', label: 'K' },
   { key: 'bb', label: 'BB' },
@@ -767,16 +768,17 @@ export class TrueRatingsView {
 
   private getPitcherColumnsForView(): PitcherColumn[] {
     if (this.mode !== 'pitchers') {
-      const [nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
+      const [posColumn, nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
       return [
+        posColumn,
         nameColumn,
         { key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' },
         ...rest
       ];
     }
 
-    const [nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
-    const columns: PitcherColumn[] = [nameColumn];
+    const [posColumn, nameColumn, ...rest] = RAW_PITCHER_COLUMNS;
+    const columns: PitcherColumn[] = [posColumn, nameColumn];
     
     // Add Team column
     columns.push({ key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' });
@@ -922,6 +924,7 @@ export class TrueRatingsView {
         war: 0,
         ra9war: 0,
         playerName: getFullName(player),
+        position: player.position,
       };
 
       return {
@@ -1181,6 +1184,7 @@ export class TrueRatingsView {
           ra9war: 0,
           wpa: 0,
           gs: 0,
+          position: 1,
           // Derived fields
           ipOuts: prospectOuts,
           kPer9: prospectK9,
@@ -1288,6 +1292,12 @@ export class TrueRatingsView {
     const ordered: PitcherColumn[] = [];
     const lookup = new Map(columns.map(column => [String(column.key), column]));
 
+    // Always force position to be first if it exists
+    if (lookup.has('position')) {
+      ordered.push(lookup.get('position')!);
+      lookup.delete('position');
+    }
+
     for (const key of rawOrder) {
       if (typeof key !== 'string') continue;
       const column = lookup.get(key);
@@ -1337,7 +1347,8 @@ export class TrueRatingsView {
     const headerRow = this.pitcherColumns.map(column => {
       const sortKey = column.sortKey ?? column.key;
       const activeClass = this.sortKey === sortKey ? 'sort-active' : '';
-      return `<th data-sort-key="${sortKey}" data-col-key="${column.key}" class="${activeClass}" draggable="true">${column.label}</th>`;
+      const nameClass = column.key === 'playerName' ? 'name-col' : '';
+      return `<th data-sort-key="${sortKey}" data-col-key="${column.key}" class="${activeClass} ${nameClass}" draggable="true">${column.label}</th>`;
     }).join('');
 
     const rows = stats.map(player => {
@@ -1347,6 +1358,8 @@ export class TrueRatingsView {
       const cells = this.pitcherColumns.map(column => {
         const rawValue = column.accessor ? column.accessor(player) : (player as any)[column.key];
         const columnKey = String(column.key);
+        
+        const displayValue = this.formatValue(rawValue, columnKey, player);
 
         if (isProspect) {
           const prospectAllowedStatKeys = ['ip', 'k', 'bb', 'hra'];
@@ -1362,8 +1375,6 @@ export class TrueRatingsView {
         if (!isProspect && !hasStats && RAW_PITCHER_STAT_KEYS.has(columnKey)) {
           return `<td data-col-key="${column.key}" class="prospect-stat">${MISSING_STAT_DISPLAY}</td>`;
         }
-
-        const displayValue = this.formatValue(rawValue, String(column.key));
 
         if (column.key === 'kPer9' || column.key === 'bbPer9' || column.key === 'hraPer9') {
           if ((isProspect && !prospectHasStats) || (!hasStats && RAW_PITCHER_STAT_KEYS.has(columnKey))) {
@@ -1389,7 +1400,7 @@ export class TrueRatingsView {
         if (column.key === 'playerName') {
           const prospectBadge = isProspect ? ' <span class="prospect-badge">P</span>' : '';
           const tooltip = `Player ID: ${player.player_id}`;
-          return `<td data-col-key="${column.key}"><button class="btn-link player-name-link" data-player-id="${player.player_id}" title="${tooltip}">${displayValue}${prospectBadge}</button></td>`;
+          return `<td data-col-key="${column.key}" class="name-col"><button class="btn-link player-name-link" data-player-id="${player.player_id}" title="${tooltip}">${displayValue}${prospectBadge}</button></td>`;
         }
 
         return `<td data-col-key="${column.key}">${displayValue}</td>`;
@@ -1443,18 +1454,20 @@ export class TrueRatingsView {
   }
 
   private renderBattersTable(stats: BatterRow[]): string {
-    const batterExcludedKeys = ['ci', 'd', 'game_id', 'id', 'league_id', 'level_id', 'pitches_seen', 'position', 'sf', 'sh', 'split_id', 'stint', 't', 'teamDisplay', 'hasStats'];
+    const batterExcludedKeys = ['ci', 'd', 'game_id', 'id', 'league_id', 'level_id', 'pitches_seen', 'sf', 'sh', 'split_id', 'stint', 't', 'teamDisplay', 'hasStats'];
     const excludedKeys = ['id', 'player_id', 'team_id', 'game_id', 'league_id', 'level_id', 'split_id', 'year', ...batterExcludedKeys];
     let headers = Object.keys(stats[0]).filter(key => !excludedKeys.includes(key));
     
-    headers = headers.filter(h => h !== 'playerName');
+    headers = headers.filter(h => h !== 'playerName' && h !== 'position');
     headers.unshift('teamDisplay');
     headers.unshift('playerName');
+    headers.unshift('position');
 
     const headerRow = headers.map(header => {
       const activeClass = this.sortKey === header ? 'sort-active' : '';
-      const label = header === 'teamDisplay' ? 'Team' : this.formatHeader(header);
-      return `<th data-sort-key="${header}" data-col-key="${header}" class="${activeClass}">${label}</th>`;
+      const nameClass = header === 'playerName' ? 'name-col' : '';
+      const label = header === 'teamDisplay' ? 'Team' : (header === 'position' ? 'Pos' : this.formatHeader(header));
+      return `<th data-sort-key="${header}" data-col-key="${header}" class="${activeClass} ${nameClass}">${label}</th>`;
     }).join('');
     
     const rows = stats.map(s => {
@@ -1465,9 +1478,9 @@ export class TrueRatingsView {
         }
         const value: any = (s as any)[header];
         if (header === 'playerName') {
-          return `<td data-col-key="${header}" title="Player ID: ${s.player_id}">${this.formatValue(value, header)}</td>`;
+          return `<td data-col-key="${header}" class="name-col" title="Player ID: ${s.player_id}">${this.formatValue(value, header, s)}</td>`;
         }
-        return `<td data-col-key="${header}">${this.formatValue(value, header)}</td>`;
+        return `<td data-col-key="${header}">${this.formatValue(value, header, s)}</td>`;
       }).join('');
       return `<tr>${cells}</tr>`;
     }).join('');
@@ -1684,7 +1697,33 @@ export class TrueRatingsView {
     });
   }
   
-  private formatValue(value: any, key: string): string {
+  private determinePitcherRoleLabel(row: PitcherRow): 'SP' | 'RP' {
+    // If we have gs (Games Started) and ip, use that
+    if (typeof row.gs === 'number' && typeof row.ip === 'string') {
+      const ip = parseFloat(row.ip);
+      if (row.gs >= 5 || (ip > 0 && row.gs / (parseFloat(row.g as any) || 1) > 0.5)) {
+        return 'SP';
+      }
+    }
+    
+    // Fallback to role from player model if available
+    const role = (row as any).role;
+    if (role === 11 || role === 12) return 'SP'; // SP or Long Relief/Emergency SP usually
+    
+    return 'RP';
+  }
+
+  private renderPositionLabel(row: TableRow): string {
+    if (this.mode === 'pitchers') {
+      return this.determinePitcherRoleLabel(row as PitcherRow);
+    }
+    return getPositionLabel((row as BatterRow).position);
+  }
+
+  private formatValue(value: any, key: string, row?: TableRow): string {
+    if (key === 'position' && row) {
+      return this.renderPositionLabel(row);
+    }
     if (typeof value === 'number') {
       if (Number.isInteger(value)) {
         return value.toString();

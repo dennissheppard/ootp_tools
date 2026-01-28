@@ -28,6 +28,7 @@ export interface TruePitchingStats {
   league_id: number;
   level_id: number;
   split_id: number;
+  position?: number;
   ip: string;
   ab: number;
   tb: number;
@@ -232,7 +233,8 @@ class TrueRatingsService {
         const player = playerMap.get(stat.player_id);
         return {
           ...stat,
-          playerName: player ? `${player.firstName} ${player.lastName}` : 'Unknown Player'
+          playerName: player ? `${player.firstName} ${player.lastName}` : 'Unknown Player',
+          position: player ? player.position : (type === 'pitching' ? 1 : (stat as any).position)
         };
       })
       .filter(s => s.split_id === 1);

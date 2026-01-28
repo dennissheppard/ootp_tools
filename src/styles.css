@@ -1330,7 +1330,9 @@ td.player-cell.player-name {
 .stats-table th:first-child,
 .stats-table td:first-child,
 .stats-table th[data-col-key="teamDisplay"],
-.stats-table td[data-col-key="teamDisplay"] {
+.stats-table td[data-col-key="teamDisplay"],
+.stats-table th.name-col,
+.stats-table td.name-col {
   text-align: left;
 }
 
@@ -1783,17 +1785,17 @@ td.player-cell.player-name {
 }
 
 .true-ratings-table {
-    table-layout: fixed;
+    table-layout: auto;
 }
 
 .true-ratings-table th,
 .true-ratings-table td {
-    width: 75px;
+    text-align: left !important;
 }
 
-.true-ratings-table th:first-child,
-.true-ratings-table td:first-child {
-    width: 150px;
+.true-ratings-table .flip-cell-front,
+.true-ratings-table .flip-cell-back {
+    justify-content: flex-start !important;
 }
 
 .form-field {

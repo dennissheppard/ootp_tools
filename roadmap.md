@@ -60,6 +60,7 @@ Currently the app only handles pitching. Need to duplicate core functionality fo
 **Priority**: Low
 
 - [ ] Add team logos throughout the app
+- [ ] Animate changes on scouting source change
 
 ### Player Development Tracker
 **Priority**: High
