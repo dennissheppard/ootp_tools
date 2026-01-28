@@ -119,7 +119,7 @@ export class ProjectionsView {
         </div>
 
         <div id="projections-table-container">
-            <div class="loading-message">Loading projections...</div>
+            ${this.renderTableLoadingState()}
         </div>
         
         <div class="pagination-controls">
@@ -179,12 +179,39 @@ export class ProjectionsView {
 
   private showLoadingState(): void {
       const container = this.container.querySelector('#projections-table-container');
-      if (container) container.innerHTML = '<div class="loading-message">Loading projections...</div>';
+      if (container) container.innerHTML = this.renderTableLoadingState();
+  }
+
+  private renderTableLoadingState(): string {
+      const columnCount = Math.max(this.columns.length, 6);
+      const rowCount = 10;
+      const headerCells = this.renderSkeletonCells('th', columnCount);
+      const bodyRows = this.renderSkeletonRows(columnCount, rowCount);
+
+      return `
+        <div class="table-wrapper-outer loading-skeleton">
+            <div class="table-wrapper">
+                <table class="stats-table true-ratings-table skeleton-table">
+                    <thead><tr>${headerCells}</tr></thead>
+                    <tbody>${bodyRows}</tbody>
+                </table>
+            </div>
+        </div>
+      `;
+  }
+
+  private renderSkeletonCells(tag: 'th' | 'td', count: number): string {
+      return Array.from({ length: count }, () => `<${tag}><span class="skeleton-line xs"></span></${tag}>`).join('');
+  }
+
+  private renderSkeletonRows(columnCount: number, rowCount: number): string {
+      const cells = this.renderSkeletonCells('td', columnCount);
+      return Array.from({ length: rowCount }, () => `<tr>${cells}</tr>`).join('');
   }
 
   private async fetchData(): Promise<void> {
       const container = this.container.querySelector('#projections-table-container');
-      if (container) container.innerHTML = '<div class="loading-message">Calculating projections...</div>';
+      if (container) container.innerHTML = this.renderTableLoadingState();
 
       try {
           const currentYear = await dateService.getCurrentYear();
@@ -354,7 +381,10 @@ export class ProjectionsView {
 
             <button id="run-analysis-btn" class="btn btn-primary">Run Analysis Report</button>
             <div id="analysis-progress" style="margin-top: 20px; display: none;">
-                <div class="loading-message">Analyzing Year <span id="analysis-year-indicator">...</span></div>
+                <div class="loading-message loading-skeleton">
+                    <span class="skeleton-line md"></span>
+                    <span class="loading-text">Analyzing Year <span id="analysis-year-indicator">...</span></span>
+                </div>
             </div>
         </div>
       `;

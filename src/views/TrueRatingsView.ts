@@ -425,6 +425,17 @@ export class TrueRatingsView {
         const tabBtn = document.querySelector<HTMLButtonElement>('[data-tab-target="tab-data-management"]');
         tabBtn?.click();
     });
+
+    // Listen for scouting data updates from DataManagementView
+    window.addEventListener('scoutingDataUpdated', () => {
+      this.loadScoutingRatingsForYear().then(() => {
+        // Re-render if we're showing the current year (which uses scouting)
+        const currentYear = this.currentGameYear ?? new Date().getFullYear();
+        if (this.selectedYear >= currentYear) {
+          this.fetchAndRenderStats();
+        }
+      });
+    });
   }
 
   private bindRatingsViewToggle(): void {
@@ -528,7 +539,7 @@ export class TrueRatingsView {
   private async fetchAndRenderStats(): Promise<void> {
     const tableContainer = this.container.querySelector<HTMLElement>('#true-ratings-table-container')!;
     const isTrueRatingsView = this.mode === 'pitchers' && this.showTrueRatings;
-    tableContainer.innerHTML = `<div class="loading-message">${isTrueRatingsView ? 'Calculating true ratings...' : 'Loading stats...'}</div>`;
+    tableContainer.innerHTML = this.renderTableLoadingState();
 
     try {
       if (this.mode === 'pitchers') {
@@ -688,6 +699,47 @@ export class TrueRatingsView {
     }
     // Don't reduce itemsPerPage - keep the user's selection even if there are fewer items
     // The pagination will handle showing just one page automatically
+  }
+
+  private renderTableLoadingState(): string {
+    const columns = this.getPitcherColumnsForView();
+    const columnCount = Math.max(columns.length, 6);
+    const rowCount = this.getSkeletonRowCount();
+    const headerCells = this.renderSkeletonCells('th', columnCount);
+    const bodyRows = this.renderSkeletonRows(columnCount, rowCount);
+
+    return `
+      <div class="table-wrapper-outer loading-skeleton">
+        <button class="scroll-btn scroll-btn-left" aria-hidden="true" tabindex="-1" disabled></button>
+        <div class="table-wrapper">
+          <table class="stats-table true-ratings-table skeleton-table">
+            <thead>
+              <tr>
+                ${headerCells}
+              </tr>
+            </thead>
+            <tbody>
+              ${bodyRows}
+            </tbody>
+          </table>
+        </div>
+        <button class="scroll-btn scroll-btn-right" aria-hidden="true" tabindex="-1" disabled></button>
+      </div>
+    `;
+  }
+
+  private renderSkeletonCells(tag: 'th' | 'td', count: number): string {
+    return Array.from({ length: count }, () => `<${tag}><span class="skeleton-line xs"></span></${tag}>`).join('');
+  }
+
+  private renderSkeletonRows(columnCount: number, rowCount: number): string {
+    const cells = this.renderSkeletonCells('td', columnCount);
+    return Array.from({ length: rowCount }, () => `<tr>${cells}</tr>`).join('');
+  }
+
+  private getSkeletonRowCount(): number {
+    if (this.itemsPerPageSelection === '10') return 10;
+    return 12;
   }
 
   private updatePitcherColumns(): void {

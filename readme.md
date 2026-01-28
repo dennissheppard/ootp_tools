@@ -855,7 +855,70 @@ const stats = minorLeagueStatsService.getStats(2021, 'aaa');
 import { scoutingDataService } from './services/ScoutingDataService';
 const myRatings = scoutingDataService.getScoutingRatings(2021, 'my');
 const osaRatings = scoutingDataService.getScoutingRatings(2021, 'osa');
+
+// OSA Fallback (My Scout > OSA)
+import { scoutingDataFallbackService } from './services/ScoutingDataFallbackService';
+const fallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback(2021);
+// fallback.ratings contains merged data (My Scout takes priority)
+// fallback.metadata contains source counts
 ```
+
+### 10. OSA Integration & Scout Source Fallback
+
+The app now supports **dual scouting sources** with intelligent fallback:
+
+**Sources**:
+1. **My Scout** - Your custom scouting reports (primary)
+2. **OSA** - OOTP Scouting Assistant ratings (fallback)
+
+**Priority System**:
+- **Calculations** (True Ratings, Projections, TFR): Per-player My Scout > OSA fallback
+- **UI Display**: Toggle between sources when both exist for a player
+
+**How It Works**:
+
+1. **Upload both sources** via Data Management tab:
+   - Upload your custom scout reports as "My Scout"
+   - Upload OSA exports as "OSA"
+
+2. **Automatic fallback**:
+   ```typescript
+   // For each player:
+   // - If My Scout data exists → use My Scout
+   // - Else if OSA data exists → use OSA
+   // - Else → stats-only (no scouting blend)
+   ```
+
+3. **UI Features**:
+   - **Toggle dropdown**: When both sources exist for a player, a dropdown appears to switch between them
+   - **Source badge**: When only one source exists, shows "My Scout" or "OSA" badge
+   - **Rating bars update**: Switching sources instantly updates Stuff/Control/HRA bars
+   - **Metadata bars**: Stamina, Injury, and Stars also respect the active source
+
+4. **Calculation Blend** (unchanged):
+   ```typescript
+   // The beloved blend formula remains unchanged:
+   statsWeight = totalIp / (totalIp + 60)
+   blended = statsWeight × statRate + (1 - statsWeight) × scoutRate
+
+   // Example weights:
+   // 0 IP   → 100% scouting
+   // 60 IP  → 50% scouting, 50% stats
+   // 180 IP → 75% stats, 25% scouting
+   ```
+
+5. **Banner notifications**:
+   - **OSA Fallback**: "Using OSA scouting data (X players). Upload your scout reports for custom scouting."
+   - **Mixed Sources**: "X players from My Scout, Y from OSA."
+
+**Service Architecture**:
+
+`ScoutingDataFallbackService` provides:
+- `getScoutingRatingsWithFallback(year)` - Returns merged ratings with metadata
+- `getPlayerScoutingWithFallback(playerId, name, year)` - Returns both sources for a single player
+
+**Auto-refresh**:
+After uploading new scouting data, the app automatically refreshes to make the toggle available without manual page reload.
 
 ## Tools Directory
 

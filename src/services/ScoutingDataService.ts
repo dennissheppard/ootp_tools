@@ -269,15 +269,31 @@ class ScoutingDataService {
       return results.sort((a, b) => b.date.localeCompare(a.date));
   }
 
-  clearScoutingRatings(dateOrKey: string): void {
+  async clearScoutingRatings(dateOrKey: string): Promise<void> {
     if (typeof window === 'undefined') return;
-    // If it's a full key, remove it
-    if (dateOrKey.startsWith(STORAGE_KEY_PREFIX)) {
-        localStorage.removeItem(dateOrKey);
-    } else {
-        // Assume it's a date or year? The UI should pass the key or date.
-        // For simplicity, let's assume the UI passes the Key ID.
+
+    // Try deleting from IndexedDB if enabled
+    if (USE_INDEXEDDB) {
+        // IDB keys are like "2021-01-01_my"
+        // If the key has the prefix, strip it
+        let dbKey = dateOrKey;
+        if (dateOrKey.startsWith(STORAGE_KEY_PREFIX)) {
+            dbKey = dateOrKey.substring(STORAGE_KEY_PREFIX.length);
+        }
+        try {
+            await indexedDBService.deleteScoutingRatings(dbKey);
+        } catch (e) {
+            console.error('Error deleting from IndexedDB', e);
+        }
     }
+
+    // Always try to delete from localStorage as well (legacy cleanup or if IDB disabled)
+    // If it doesn't have the prefix, add it for localStorage
+    let lsKey = dateOrKey;
+    if (!dateOrKey.startsWith(STORAGE_KEY_PREFIX)) {
+        lsKey = STORAGE_KEY_PREFIX + dateOrKey;
+    }
+    localStorage.removeItem(lsKey);
   }
 
   private storageKey(date: string, source: ScoutingSource): string {

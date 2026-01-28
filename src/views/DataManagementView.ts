@@ -376,7 +376,14 @@ export class DataManagementView {
 
     // Update list
     this.refreshExistingDataList();
-    
+
+    // Emit event to notify other views that scouting data was updated
+    if (this.currentMode === 'scouting' && successCount > 0) {
+      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
+        detail: { source: this.selectedScoutingSource }
+      }));
+    }
+
     let msg = `Process complete.\nSaved: ${successCount} files.\nFailed: ${failCount} files.`;
     if (errors.length > 0) {
         msg += '\n\nErrors:\n' + errors.join('\n');
@@ -466,21 +473,21 @@ export class DataManagementView {
               if (!id) return;
 
               if (confirm(`Are you sure you want to delete this data?`)) {
-                  if (id.startsWith('wbl_scouting_ratings_')) {
-                      scoutingDataService.clearScoutingRatings(id);
-                  } else if (id.includes('_')) {
-                      // Check if it's IndexedDB format (date_source) or stats format (year_level)
+                  // Handle Stats: ID format "stats_2021_aaa"
+                  if (id.startsWith('stats_')) {
                       const parts = id.split('_');
-                      if (parts.length >= 2) {
-                          // Stats ID format: stats_2021_aaa OR 2021_aaa
-                          const yearPart = parts[0] === 'stats' ? parts[1] : parts[0];
-                          const levelPart = parts[0] === 'stats' ? parts[2] : parts[1];
-                          const year = parseInt(yearPart, 10);
-                          if (!isNaN(year)) {
-                              await minorLeagueStatsService.clearStats(year, levelPart as MinorLeagueLevel);
-                          }
+                      if (parts.length >= 3) {
+                          const year = parseInt(parts[1], 10);
+                          const level = parts[2] as MinorLeagueLevel;
+                          await minorLeagueStatsService.clearStats(year, level);
                       }
+                  } 
+                  // Handle Scouting: ID format "wbl_scouting_ratings_..." (LS) or "YYYY-MM-DD_source" (IDB)
+                  else {
+                      // Assume anything else is scouting data since we only list Stats and Scout types
+                      await scoutingDataService.clearScoutingRatings(id);
                   }
+                  
                   await this.refreshExistingDataList();
               }
           });

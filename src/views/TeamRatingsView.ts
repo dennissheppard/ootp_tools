@@ -80,12 +80,10 @@ export class TeamRatingsView {
 
         <div class="team-ratings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
             <div id="rotation-rankings">
-                <h3 class="section-title">Top Rotations</h3>
-                <div class="loading-message">Loading...</div>
+                ${this.renderTeamLoadingState('Top Rotations')}
             </div>
             <div id="bullpen-rankings">
-                <h3 class="section-title">Top Bullpens</h3>
-                <div class="loading-message">Loading...</div>
+                ${this.renderTeamLoadingState('Top Bullpens')}
             </div>
         </div>
 
@@ -146,31 +144,84 @@ export class TeamRatingsView {
       const improvements = this.container.querySelector<HTMLElement>('#projected-improvements');
 
       if (rotContainer) {
-          rotContainer.innerHTML = `
-            <h3 class="section-title">Top Rotations</h3>
-            <div class="loading-message">Loading...</div>
-          `;
+          rotContainer.innerHTML = this.renderTeamLoadingState('Top Rotations');
       }
 
       if (penContainer) {
-          penContainer.innerHTML = `
-            <h3 class="section-title">Top Bullpens</h3>
-            <div class="loading-message">Loading...</div>
-          `;
+          penContainer.innerHTML = this.renderTeamLoadingState('Top Bullpens');
       }
 
       if (improvements) {
           if (this.viewMode === 'projected') {
               improvements.style.display = 'block';
-              improvements.innerHTML = `
-                <h3 class="section-title">Projected Most Improved</h3>
-                <div class="loading-message">Loading...</div>
-              `;
+              improvements.innerHTML = this.renderImprovementsLoadingState();
           } else {
               improvements.style.display = 'none';
               improvements.innerHTML = '';
           }
       }
+  }
+
+  private renderTeamLoadingState(title: string): string {
+      const note = this.getTeamSectionNote();
+      return `
+        <div class="team-collapsible loading-skeleton">
+          <div class="team-collapsible-summary">
+            <div>
+              <h3 class="section-title">${title} <span class="note-text">${note}</span></h3>
+              <div class="team-preview-list">
+                ${this.renderTeamPreviewSkeletonRows(3)}
+              </div>
+            </div>
+            <span class="team-collapsible-label"><span class="skeleton-line sm"></span></span>
+          </div>
+        </div>
+      `;
+  }
+
+  private renderTeamPreviewSkeletonRows(count: number): string {
+      return Array.from({ length: count }, () => `
+        <div class="team-preview-row">
+          <span class="team-preview-rank"><span class="skeleton-line xs"></span></span>
+          <span class="team-preview-name"><span class="skeleton-line md"></span></span>
+          <span class="team-preview-score"><span class="skeleton-line sm"></span></span>
+        </div>
+      `).join('');
+  }
+
+  private renderImprovementsLoadingState(): string {
+      const note = `(WAR vs ${this.selectedYear})`;
+      return `
+        <h3 class="section-title">Projected Most Improved <span class="note-text">${note}</span></h3>
+        <div class="projected-improvements-grid">
+          <div class="improvement-card loading-skeleton">
+            <h4 class="section-title">Rotations</h4>
+            ${this.renderImprovementSkeletonRows(5)}
+          </div>
+          <div class="improvement-card loading-skeleton">
+            <h4 class="section-title">Bullpens</h4>
+            ${this.renderImprovementSkeletonRows(5)}
+          </div>
+        </div>
+      `;
+  }
+
+  private renderImprovementSkeletonRows(count: number): string {
+      return Array.from({ length: count }, () => `
+        <div class="improvement-row">
+          <span class="improvement-rank"><span class="skeleton-line xs"></span></span>
+          <span class="improvement-team"><span class="skeleton-line md"></span></span>
+          <span class="improvement-badge-group"><span class="skeleton-line sm"></span></span>
+          <span class="improvement-badge-group"><span class="skeleton-line sm"></span></span>
+          <span class="improvement-badge-group"><span class="skeleton-line sm"></span></span>
+        </div>
+      `).join('');
+  }
+
+  private getTeamSectionNote(): string {
+      return this.viewMode === 'all-time'
+        ? '(All-time top 10, ranked by WAR)'
+        : '(Ranked by WAR)';
   }
 
   private updateViewNotice(): void {
@@ -195,12 +246,6 @@ export class TeamRatingsView {
   }
 
   private async loadData(): Promise<void> {
-    const rotContainer = this.container.querySelector('#rotation-rankings .loading-message');
-    const penContainer = this.container.querySelector('#bullpen-rankings .loading-message');
-    
-    if (rotContainer) rotContainer.innerHTML = 'Loading...';
-    if (penContainer) penContainer.innerHTML = 'Loading...';
-
     try {
         if (this.viewMode === 'year') {
             this.results = await teamRatingsService.getTeamRatings(this.selectedYear);

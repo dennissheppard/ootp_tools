@@ -52,7 +52,7 @@ export class PlayerProfileModal {
           <button class="modal-close" aria-label="Close">&times;</button>
         </div>
         <div class="modal-body">
-          <div class="loading-message">Loading player stats...</div>
+          ${this.renderLoadingContent()}
         </div>
       </div>
     `;
@@ -192,7 +192,7 @@ export class PlayerProfileModal {
     // Show loading state
     const bodyEl = this.overlay.querySelector<HTMLElement>('.modal-body');
     if (bodyEl) {
-      bodyEl.innerHTML = '<div class="loading-message">Loading player stats...</div>';
+      bodyEl.innerHTML = this.renderLoadingContent();
     }
 
     // Show modal
@@ -463,6 +463,80 @@ export class PlayerProfileModal {
     `;
   }
 
+  private renderProjectionSkeleton(): string {
+    return `
+      <div class="projection-section loading-skeleton">
+        <h4 class="skeleton-line md"></h4>
+        <div class="stats-table-container">
+          <table class="stats-table skeleton-table">
+            <thead>
+              <tr>
+                ${Array.from({ length: 11 }, () => '<th><span class="skeleton-line xs"></span></th>').join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${Array.from({ length: 2 }, () => `
+                <tr>
+                  ${Array.from({ length: 11 }, () => '<td><span class="skeleton-line xs"></span></td>').join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+          <div class="skeleton-line lg"></div>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderLoadingContent(): string {
+    return `
+      <div class="player-modal-loading">
+        <div class="ratings-comparison loading-skeleton">
+          <div class="rating-row rating-row-header">
+            <span class="rating-label"></span>
+            <div class="rating-bars">
+              <span class="bar-header skeleton-line sm"></span>
+              <span class="bar-vs"></span>
+              <span class="bar-header skeleton-line sm"></span>
+              <span class="rating-diff"></span>
+            </div>
+          </div>
+          ${Array.from({ length: 3 }, () => `
+            <div class="rating-row">
+              <span class="rating-label"><span class="skeleton-line xs"></span></span>
+              <div class="rating-bars">
+                <div class="bar-container skeleton-bar"></div>
+                <span class="rating-diff"><span class="skeleton-line xs"></span></span>
+                <span class="bar-vs">vs</span>
+                <div class="bar-container skeleton-bar"></div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        ${this.renderProjectionSkeleton()}
+        <div class="stats-history loading-skeleton">
+          <h4 class="section-label skeleton-line sm"></h4>
+          <div class="table-wrapper">
+            <table class="stats-table skeleton-table">
+              <thead>
+                <tr>
+                  ${Array.from({ length: 8 }, () => '<th><span class="skeleton-line xs"></span></th>').join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${Array.from({ length: 5 }, () => `
+                  <tr>
+                    ${Array.from({ length: 8 }, () => '<td><span class="skeleton-line xs"></span></td>').join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
   private renderProjection(
     proj: { projectedStats: any, projectedRatings: any },
     projectionAge: number,
@@ -711,7 +785,7 @@ export class PlayerProfileModal {
     if (!projectionSection) return;
 
     // Show loading state
-    projectionSection.innerHTML = '<div class="loading-message">Updating projection...</div>';
+    projectionSection.innerHTML = this.renderProjectionSkeleton();
 
     try {
       const currentYear = await dateService.getCurrentYear();

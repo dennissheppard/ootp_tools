@@ -1375,6 +1375,66 @@ td.player-cell.player-name {
   font-size: 1rem;
 }
 
+.loading-message.loading-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.loading-message.loading-skeleton .loading-text {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.loading-skeleton {
+  pointer-events: none;
+}
+
+.player-modal-loading {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.loading-skeleton .skeleton-line,
+.loading-skeleton .skeleton-bar {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.06));
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.skeleton-line {
+  display: inline-block;
+  height: 0.65rem;
+  border-radius: 4px;
+}
+
+.skeleton-line.xs {
+  width: 42px;
+}
+
+.skeleton-line.sm {
+  width: 90px;
+}
+
+.skeleton-line.md {
+  width: 220px;
+}
+
+.skeleton-line.lg {
+  width: 320px;
+}
+
+.skeleton-bar {
+  height: 20px;
+  border-radius: 4px;
+}
+
+.skeleton-table .skeleton-line {
+  display: block;
+  width: 100%;
+}
+
 /* Error container */
 .error-container {
   background-color: rgba(244, 33, 46, 0.1);
@@ -2735,14 +2795,15 @@ td.player-cell.player-name {
 }
 
 .scout-source-toggle {
-  font-size: 0.75em;
-  padding: 2px 8px;
+  font-size: 0.85em;
+  padding: 4px 10px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background: var(--color-surface);
   color: var(--color-text);
   cursor: pointer;
   transition: background-color 0.2s ease;
+  font-weight: 600;
 }
 
 .scout-source-toggle:hover {

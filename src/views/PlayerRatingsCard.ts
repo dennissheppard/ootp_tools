@@ -291,16 +291,23 @@ export class PlayerRatingsCard {
    * Render header metadata (injury bar, stamina bar, stars) - stacked vertically
    */
   static renderHeaderMetadata(data: PlayerRatingsData): string {
-    const hasAnyMetadata = data.scoutStamina !== undefined ||
-                           data.scoutOvr !== undefined || data.scoutPot !== undefined ||
-                           data.scoutInjuryProneness;
+    // Determine which scout source to use based on active source
+    const activeSource = data.activeScoutSource ?? 'my';
+    const stamina = activeSource === 'my' ? data.scoutStamina : data.osaStamina;
+    const injury = activeSource === 'my' ? data.scoutInjuryProneness : data.osaInjuryProneness;
+    const ovr = activeSource === 'my' ? data.scoutOvr : data.osaOvr;
+    const pot = activeSource === 'my' ? data.scoutPot : data.osaPot;
+
+    const hasAnyMetadata = stamina !== undefined ||
+                           ovr !== undefined || pot !== undefined ||
+                           injury;
 
     if (!hasAnyMetadata) return '';
 
     const items: string[] = [];
 
     // Injury bar
-    if (data.scoutInjuryProneness) {
+    if (injury) {
       const injuryMap: Record<string, number> = {
         'wrecked': 0,
         'fragile': 25,
@@ -308,9 +315,9 @@ export class PlayerRatingsCard {
         'durable': 75,
         'iron man': 100
       };
-      const injuryValue = injuryMap[data.scoutInjuryProneness.toLowerCase()] ?? 50;
+      const injuryValue = injuryMap[injury.toLowerCase()] ?? 50;
       const injuryClass = injuryValue <= 25 ? 'rating-poor' : injuryValue >= 75 ? 'rating-plus' : 'rating-avg';
-      const injuryLabel = data.scoutInjuryProneness;
+      const injuryLabel = injury;
 
       items.push(`
         <div class="header-metadata-item" title="${injuryLabel}">
@@ -323,12 +330,12 @@ export class PlayerRatingsCard {
     }
 
     // Stamina bar
-    if (data.scoutStamina !== undefined) {
-      const staminaPercent = Math.max(0, Math.min(100, (data.scoutStamina / 80) * 100));
-      const staminaClass = data.scoutStamina >= 60 ? 'rating-plus' : data.scoutStamina >= 40 ? 'rating-avg' : 'rating-poor';
+    if (stamina !== undefined) {
+      const staminaPercent = Math.max(0, Math.min(100, (stamina / 80) * 100));
+      const staminaClass = stamina >= 60 ? 'rating-plus' : stamina >= 40 ? 'rating-avg' : 'rating-poor';
 
       items.push(`
-        <div class="header-metadata-item" title="${data.scoutStamina}">
+        <div class="header-metadata-item" title="${stamina}">
           <span class="header-metadata-label">Stamina</span>
           <div class="header-metadata-bar ${staminaClass}">
             <div class="header-metadata-bar-fill" style="width: ${staminaPercent}%"></div>
@@ -338,10 +345,10 @@ export class PlayerRatingsCard {
     }
 
     // Stars (no label)
-    if (data.scoutOvr !== undefined && data.scoutPot !== undefined) {
+    if (ovr !== undefined && pot !== undefined) {
       items.push(`
         <div class="header-metadata-item">
-          <div class="header-metadata-text">${data.scoutOvr.toFixed(1)}★ / ${data.scoutPot.toFixed(1)}★</div>
+          <div class="header-metadata-text">${ovr.toFixed(1)}★ / ${pot.toFixed(1)}★</div>
         </div>
       `);
     }
@@ -465,16 +472,16 @@ export class PlayerRatingsCard {
       if (hasAlternative) {
         headerLabel = `
           <div class="scout-header-toggle">
-            Scout Opinions
             <select class="scout-source-toggle" data-player-id="${data.playerId}">
               <option value="my" ${activeSource === 'my' ? 'selected' : ''}>My Scout</option>
               <option value="osa" ${activeSource === 'osa' ? 'selected' : ''}>OSA</option>
             </select>
+            Scout Opinions
           </div>`;
       } else {
-        const sourceLabel = activeSource === 'my' ? 'MY' : 'OSA';
+        const sourceLabel = activeSource === 'my' ? 'My Scout' : 'OSA';
         const sourceClass = activeSource === 'my' ? 'my' : 'osa';
-        headerLabel = `Scout Opinions <span class="source-badge ${sourceClass}">${sourceLabel}</span>`;
+        headerLabel = `<span class="source-badge ${sourceClass}">${sourceLabel}</span> Scout Opinions`;
       }
 
       return `
