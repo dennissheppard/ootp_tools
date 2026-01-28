@@ -616,9 +616,13 @@ export class TrueRatingsView {
     if (rawStatsBtn) rawStatsBtn.style.display = showPitcherToggles ? '' : 'none';
     if (trueRatingsBtn) trueRatingsBtn.style.display = showPitcherToggles ? '' : 'none';
 
-    // Hide undrafted toggle if a specific team is selected
+    // Disable undrafted toggle if a specific team is selected
     if (undraftedBtn) {
-      undraftedBtn.style.display = this.selectedTeam === 'all' ? '' : 'none';
+      const isTeamSelected = this.selectedTeam !== 'all';
+      (undraftedBtn as HTMLButtonElement).disabled = isTeamSelected;
+      undraftedBtn.style.opacity = isTeamSelected ? '0.5' : '1';
+      undraftedBtn.style.cursor = isTeamSelected ? 'not-allowed' : 'pointer';
+      undraftedBtn.title = isTeamSelected ? 'Filter only available when viewing "All Teams"' : '';
     }
   }
 

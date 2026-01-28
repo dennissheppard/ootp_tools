@@ -122,7 +122,7 @@ export class ProjectionsView {
                   <div class="filter-dropdown-item selected" data-value="all">All</div>
                 </div>
               </div>
-              <div class="filter-dropdown" data-filter="position">
+              <div class="filter-dropdown position-filter" data-filter="position">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
                   Position: <span id="selected-position-display">All</span> ▾
                 </button>
@@ -998,7 +998,15 @@ export class ProjectionsView {
           const cells = this.columns.map(col => {
               const val = col.accessor ? col.accessor(p) : (p as any)[col.key];
               const columnKey = String(col.key);
-              
+
+              // Add percentile bars for Proj FIP and Proj WAR
+              if (columnKey === 'projFIP' || columnKey === 'projWAR') {
+                const statValue = columnKey === 'projFIP' ? p.projectedStats.fip : p.projectedStats.war;
+                const percentile = this.calculatePercentile(statValue, columnKey, p.isSp);
+                const barHtml = this.renderPercentileBar(val, percentile, columnKey, p.isSp);
+                return `<td data-col-key="${columnKey}">${barHtml}</td>`;
+              }
+
               return `<td data-col-key="${columnKey}">${val ?? ''}</td>`;
           }).join('');
           return `<tr>${cells}</tr>`;
@@ -1025,6 +1033,9 @@ export class ProjectionsView {
 
       // Flip cards (rating on hover)
       this.bindFlipCardLocking();
+
+      // Percentile bar animations
+      this.triggerBarAnimations();
 
       // Sorting
       this.container.querySelectorAll('th[data-sort]').forEach(th => {
@@ -1174,6 +1185,92 @@ export class ProjectionsView {
 
       cell.addEventListener('mouseleave', () => {
         cell.classList.remove('tooltip-below');
+      });
+    });
+  }
+
+  private calculatePercentile(value: number, statType: string, isSp: boolean): number {
+    // Filter all stats by role (SP or RP)
+    const roleStats = this.allStats.filter(p => p.isSp === isSp);
+
+    if (roleStats.length === 0) return 50; // Default to 50th percentile if no data
+
+    // Get the array of values for this stat
+    const values = roleStats.map(p =>
+      statType === 'projFIP' ? p.projectedStats.fip : p.projectedStats.war
+    ).filter(v => v != null && !isNaN(v));
+
+    if (values.length === 0) return 50;
+
+    // For FIP, lower is better, so we reverse the percentile calculation
+    // For WAR, higher is better
+    const isBetterLower = statType === 'projFIP';
+
+    const sorted = [...values].sort((a, b) => a - b);
+    const rank = sorted.filter(v => isBetterLower ? v > value : v < value).length;
+    const percentile = (rank / values.length) * 100;
+
+    return Math.round(percentile);
+  }
+
+  private renderPercentileBar(displayValue: string, percentile: number, statType: string, isSp: boolean): string {
+    // Determine bar type based on percentile ranges
+    let barClass = 'percentile-poor';
+    if (percentile >= 80) barClass = 'percentile-elite';
+    else if (percentile >= 60) barClass = 'percentile-plus';
+    else if (percentile >= 40) barClass = 'percentile-avg';
+    else if (percentile >= 20) barClass = 'percentile-fringe';
+
+    const roleLabel = isSp ? 'SP' : 'RP';
+    const statLabel = statType === 'projFIP' ? 'FIP' : 'WAR';
+    const tooltip = `${percentile}th percentile among ${roleLabel} (${statLabel})`;
+
+    return `
+      <div class="rating-with-bar">
+        <span class="rating-value">${displayValue}</span>
+        <div class="rating-bar">
+          <div class="rating-bar-fill percentile-bar ${barClass}" style="--bar-width: ${percentile}%"></div>
+        </div>
+        <div class="stat-tooltip">${tooltip}</div>
+      </div>
+    `;
+  }
+
+  private triggerBarAnimations(): void {
+    requestAnimationFrame(() => {
+      const barFills = this.container.querySelectorAll<HTMLElement>('.percentile-bar');
+      barFills.forEach(bar => {
+        bar.style.width = '0%';
+        bar.classList.remove('animate-fill');
+      });
+      window.setTimeout(() => {
+        barFills.forEach(bar => {
+          void bar.getBoundingClientRect();
+          bar.classList.add('animate-fill');
+        });
+      }, 1000);
+    });
+
+    this.bindBarHoverAnimations();
+  }
+
+  private bindBarHoverAnimations(): void {
+    const ratingCells = this.container.querySelectorAll<HTMLElement>(
+      'td[data-col-key="projFIP"], td[data-col-key="projWAR"]'
+    );
+
+    ratingCells.forEach(cell => {
+      cell.addEventListener('mouseenter', () => {
+        const barFill = cell.querySelector<HTMLElement>('.percentile-bar');
+        if (!barFill) return;
+
+        barFill.style.width = '0%';
+        barFill.classList.remove('animate-fill');
+
+        requestAnimationFrame(() => {
+          void barFill.getBoundingClientRect();
+          barFill.classList.add('animate-fill');
+        });
       });
     });
   }
@@ -1439,10 +1536,10 @@ export class ProjectionsView {
 
       const totalPages = this.itemsPerPage === total ? 1 : Math.ceil(total / this.itemsPerPage);
 
-      // Hide pagination if in analysis mode, no data, or only one page of data
+      // Always show pagination controls (they contain the items-per-page selector)
+      // But hide them in analysis mode
       if (paginationContainer) {
-          const shouldShow = this.viewMode !== 'analysis' && totalPages > 1;
-          paginationContainer.style.display = shouldShow ? 'flex' : 'none';
+          paginationContainer.style.display = this.viewMode === 'analysis' ? 'none' : 'flex';
       }
 
       if (totalPages <= 1) {
@@ -1668,12 +1765,12 @@ export class ProjectionsView {
     const baseYear = this.statsYearUsed ?? (targetYear - 1);
     
     if (this.isOffseason) {
-      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings and standard aging curves.`;
+      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings`;
     } else {
       const fallbackNote = this.usedFallbackStats && baseYear !== (targetYear - 1)
         ? ` <span class="note-text">No ${targetYear - 1} stats yet&mdash;using ${baseYear} data.</span>`
         : '';
-      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings and standard aging curves.${fallbackNote}`;
+      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings ${fallbackNote}`;
     }
     
     this.updateScoutingBanner();
