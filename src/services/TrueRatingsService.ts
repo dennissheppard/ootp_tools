@@ -686,67 +686,69 @@ class TrueRatingsService {
     endYear: number,
     yearsBack: number = 5
   ): Promise<PlayerYearlyDetail[]> {
-    const years = Array.from({ length: yearsBack }, (_, i) => endYear - i)
-      .filter(y => y >= LEAGUE_START_YEAR);
     const results: PlayerYearlyDetail[] = [];
+    const minYear = endYear - yearsBack + 1; // e.g. 2021 - 5 + 1 = 2017. Range: 2017..2021
 
-    // Check each year in the in-memory/localStorage cache
-    for (const year of years) {
-      let yearStats: TruePlayerStats[] = [];
-      try {
-        yearStats = await this.getTruePitchingStats(year);
-      } catch (error) {
-        console.warn(`Could not load stats for ${year} when building player history.`, error);
-        yearStats = [];
+    try {
+      // Fetch all historical stats for the player in one efficient API call
+      // This avoids downloading full league files for every year
+      const apiStats = await statsService.getPitchingStats(playerId);
+
+      // Filter and Group by Year
+      const statsByYear = new Map<number, {
+        ipOuts: number;
+        er: number;
+        k: number;
+        bb: number;
+        hr: number;
+        war: number;
+        gs: number;
+      }>();
+
+      for (const stat of apiStats) {
+        // Filter by year range and split (1 = overall)
+        if (stat.year > endYear || stat.year < minYear || stat.year < LEAGUE_START_YEAR || stat.splitId !== 1) {
+          continue;
+        }
+
+        if (!statsByYear.has(stat.year)) {
+          statsByYear.set(stat.year, { ipOuts: 0, er: 0, k: 0, bb: 0, hr: 0, war: 0, gs: 0 });
+        }
+
+        const entry = statsByYear.get(stat.year)!;
+        
+        // IP in apiStats is OOTP format (e.g. 150.2)
+        // Convert to outs for accurate summing
+        const outs = this.ipToOuts(stat.ip);
+        
+        entry.ipOuts += outs;
+        entry.er += stat.er;
+        entry.k += stat.k;
+        entry.bb += stat.bb;
+        entry.hr += stat.hr;
+        entry.war += stat.war;
+        entry.gs += stat.gs;
       }
-      const playerStats = yearStats.find(p => p.player_id === playerId);
 
-      if (playerStats) {
-        const ip = this.parseIp(playerStats.ip);
+      // Calculate rates and format
+      statsByYear.forEach((totals, year) => {
+        const ip = totals.ipOuts / 3;
         if (ip > 0) {
           results.push({
             year,
             ip: Math.round(ip * 10) / 10,
-            era: ip > 0 ? Math.round((playerStats.er / ip) * 9 * 100) / 100 : 0,
-            k9: ip > 0 ? Math.round((playerStats.k / ip) * 9 * 100) / 100 : 0,
-            bb9: ip > 0 ? Math.round((playerStats.bb / ip) * 9 * 100) / 100 : 0,
-            hr9: ip > 0 ? Math.round((playerStats.hra / ip) * 9 * 100) / 100 : 0,
-            war: Math.round(playerStats.war * 10) / 10,
-            gs: playerStats.gs
+            era: Math.round((totals.er / ip) * 9 * 100) / 100,
+            k9: Math.round((totals.k / ip) * 9 * 100) / 100,
+            bb9: Math.round((totals.bb / ip) * 9 * 100) / 100,
+            hr9: Math.round((totals.hr / ip) * 9 * 100) / 100,
+            war: Math.round(totals.war * 10) / 10,
+            gs: totals.gs
           });
         }
-      }
-    }
+      });
 
-    // If no cached data found, fall back to StatsService API call
-    if (results.length === 0) {
-      try {
-        const apiStats = await statsService.getPitchingStats(playerId);
-
-        // Filter to split_id === 1 (combined stats, not vs LHB/RHB splits)
-        // and to requested year range
-        const filteredStats = apiStats
-          .filter(s => s.splitId === 1 && years.includes(s.year))
-          .sort((a, b) => b.year - a.year);
-
-        for (const stat of filteredStats) {
-          const ip = stat.ip;
-          if (ip > 0) {
-            results.push({
-              year: stat.year,
-              ip: Math.round(ip * 10) / 10,
-              era: Math.round(stat.era * 100) / 100,
-              k9: Math.round(stat.k9 * 100) / 100,
-              bb9: Math.round(stat.bb9 * 100) / 100,
-              hr9: ip > 0 ? Math.round((stat.hr / ip) * 9 * 100) / 100 : 0,
-              war: Math.round(stat.war * 10) / 10,
-              gs: stat.gs
-            });
-          }
-        }
-      } catch (error) {
-        console.warn(`Could not fetch fallback stats for player ${playerId}:`, error);
-      }
+    } catch (error) {
+      console.warn(`Could not fetch stats for player ${playerId}:`, error);
     }
 
     // Sort by year descending (most recent first)
