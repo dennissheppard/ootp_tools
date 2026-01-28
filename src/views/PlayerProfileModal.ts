@@ -696,10 +696,8 @@ export class PlayerProfileModal {
 
     link.addEventListener('click', (e) => {
       e.preventDefault();
-      const dataMgmtTab = document.querySelector<HTMLElement>('[data-tab-target="tab-data-management"]');
-      if (dataMgmtTab) {
-        dataMgmtTab.click();
-      }
+      const tabId = link.dataset.tabTarget ?? 'tab-data-management';
+      window.dispatchEvent(new CustomEvent('wbl:navigate-tab', { detail: { tabId } }));
     });
   }
 

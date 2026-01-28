@@ -44,6 +44,10 @@ export interface ProjectionContext {
   statsYear: number;
   usedFallbackStats: boolean;
   totalCurrentIp: number;
+  scoutingMetadata?: {
+    fromMyScout: number;
+    fromOSA: number;
+  };
 }
 
 const PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
@@ -373,7 +377,11 @@ class ProjectionService {
       projections: projections.sort((a, b) => a.projectedStats.fip - b.projectedStats.fip),
       statsYear,
       usedFallbackStats,
-      totalCurrentIp
+      totalCurrentIp,
+      scoutingMetadata: {
+        fromMyScout: scoutingFallback.metadata.fromMyScout,
+        fromOSA: scoutingFallback.metadata.fromOSA
+      }
     };
   }
 
@@ -642,7 +650,9 @@ class ProjectionService {
     if (scouting) {
         const pitches = scouting.pitches ?? {};
         const pitchValues = Object.values(pitches);
-        const usablePitches = pitchValues.filter(r => r > 25).length;
+        // Relaxed threshold: count pitches >= 25 as potentially usable (was > 25)
+        // OSA often rates fringe pitches at 25 or 30, whereas My Scout might be 35+
+        const usablePitches = pitchValues.filter(r => r >= 25).length;
         const stam = scouting.stamina ?? 0;
 
         // Debug logging for role classification

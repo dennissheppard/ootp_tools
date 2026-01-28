@@ -260,6 +260,12 @@ class EnsembleProjectionService {
       return this.calculateNeutralModel(currentRatings, age, leagueContext);
     }
 
+    // Ignore trend if previous year was minimal sample (e.g. < 10 IP)
+    // It creates massive fake trends (e.g. 1 IP 9.00 HR/9 -> 75 IP 1.50 HR/9)
+    if (yearlyStats[1].ip < 10) {
+      return this.calculateNeutralModel(currentRatings, age, leagueContext);
+    }
+
     // Calculate recent trends (year-over-year change)
     const recentK9 = yearlyStats[0].k9;
     const previousK9 = yearlyStats[1].k9;
@@ -280,9 +286,9 @@ class EnsembleProjectionService {
     // ENHANCED: Adaptive dampening based on player context
     // Young declining players and old declining players need higher dampening
     // Improving players should be more conservative (could be variance)
-    const k9Dampening = this.calculateAdaptiveDampening(age, k9Trend, ipConfidence);
-    const bb9Dampening = this.calculateAdaptiveDampening(age, bb9Trend, ipConfidence);
-    const hr9Dampening = this.calculateAdaptiveDampening(age, hr9Trend, ipConfidence);
+    const k9Dampening = this.calculateAdaptiveDampening(age, k9Trend, ipConfidence, false);
+    const bb9Dampening = this.calculateAdaptiveDampening(age, bb9Trend, ipConfidence, true);
+    const hr9Dampening = this.calculateAdaptiveDampening(age, hr9Trend, ipConfidence, true);
 
     // Convert current ratings to stats as baseline
     const currentK9 = PotentialStatsService.calculateK9(currentRatings.stuff);
@@ -317,10 +323,18 @@ class EnsembleProjectionService {
    * - Stable/small trends: Moderate dampening (40-50%)
    * - More IP = more confidence in the trend
    */
-  private calculateAdaptiveDampening(age: number, trend: number, ipConfidence: number): number {
+  private calculateAdaptiveDampening(
+    age: number,
+    rawTrend: number,
+    ipConfidence: number,
+    isLowerBetter: boolean
+  ): number {
+    // Normalize trend: Positive = Improving, Negative = Declining
+    const trend = isLowerBetter ? -rawTrend : rawTrend;
+
     let baseDampening = 0.5; // Default 50%
 
-    // Young declining players (<27 years old, negative K/9 trend)
+    // Young declining players (<27 years old, negative trend)
     // These are the problematic cases - development may have stalled
     if (age < 27 && trend < -0.3) {
       baseDampening = 0.65 + (ipConfidence * 0.15); // 65-80%
@@ -383,6 +397,11 @@ class EnsembleProjectionService {
     confidence: number;
   } {
     if (!yearlyStats || yearlyStats.length < 2) {
+      return { direction: 'stable', magnitude: 0, confidence: 0 };
+    }
+
+    // Ignore trend if previous year was minimal sample
+    if (yearlyStats[1].ip < 10) {
       return { direction: 'stable', magnitude: 0, confidence: 0 };
     }
 

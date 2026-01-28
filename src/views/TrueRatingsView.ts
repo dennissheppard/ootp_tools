@@ -240,7 +240,7 @@ export class TrueRatingsView {
         </div>
         
         <div class="scout-upload-notice" id="scouting-notice" style="display: none; margin-bottom: 1rem;">
-            No scouting data found. <button class="btn-link" id="go-to-data-mgmt">Manage Data</button>
+            No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
         </div>
 
         <div class="ratings-help-text" style="${this.showRawStats ? '' : 'display: none'}">
@@ -420,12 +420,6 @@ export class TrueRatingsView {
     this.bindPlayerTypeToggle();
     this.updateRatingsControlsVisibility();
 
-    const goToDataLink = this.container.querySelector<HTMLButtonElement>('#go-to-data-mgmt');
-    goToDataLink?.addEventListener('click', () => {
-        const tabBtn = document.querySelector<HTMLButtonElement>('[data-tab-target="tab-data-management"]');
-        tabBtn?.click();
-    });
-
     // Listen for scouting data updates from DataManagementView
     window.addEventListener('scoutingDataUpdated', () => {
       this.loadScoutingRatingsForYear().then(() => {
@@ -447,6 +441,14 @@ export class TrueRatingsView {
           const nextRaw = !this.showRawStats;
           if (!nextRaw && !this.showTrueRatings) return;
           this.showRawStats = nextRaw;
+          if (this.showRawStats) {
+            this.showProspects = false;
+            this.showUndraftedPlayers = false;
+            // Ensure MLB players are visible since they are the only ones with stats
+            if (!this.showMlbPlayers) {
+              this.showMlbPlayers = true;
+            }
+          }
         } else if (toggle === 'true') {
           const nextTrue = !this.showTrueRatings;
           if (!nextTrue && !this.showRawStats) return;
@@ -456,13 +458,8 @@ export class TrueRatingsView {
         }
 
         this.saveFilterPreferences();
-
-        buttons.forEach(btn => {
-          const key = btn.dataset.ratingsToggle;
-          const isActive = key === 'raw' ? this.showRawStats : this.showTrueRatings;
-          btn.classList.toggle('active', isActive);
-          btn.setAttribute('aria-pressed', String(isActive));
-        });
+        this.updateRatingsToggleButtons();
+        this.updatePlayerToggleButtons(); // Sync prospect button state
 
         const helpText = this.container.querySelector<HTMLElement>('.ratings-help-text');
         if (helpText) {
@@ -476,6 +473,16 @@ export class TrueRatingsView {
     });
   }
 
+  private updateRatingsToggleButtons(): void {
+    const buttons = this.container.querySelectorAll<HTMLButtonElement>('[data-ratings-toggle]');
+    buttons.forEach(btn => {
+      const key = btn.dataset.ratingsToggle;
+      const isActive = key === 'raw' ? this.showRawStats : this.showTrueRatings;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', String(isActive));
+    });
+  }
+
   private bindPlayerTypeToggle(): void {
     const buttons = this.container.querySelectorAll<HTMLButtonElement>('[data-player-toggle]');
     buttons.forEach(button => {
@@ -483,20 +490,29 @@ export class TrueRatingsView {
         const toggle = button.dataset.playerToggle;
         if (toggle === 'prospect') {
           const nextProspects = !this.showProspects;
-          if (!nextProspects && !this.showMlbPlayers) return;
+          if (!nextProspects && !this.showMlbPlayers && !this.showUndraftedPlayers) return;
           this.showProspects = nextProspects;
+          if (this.showProspects) {
+            this.showRawStats = false;
+          }
         } else if (toggle === 'mlb') {
           const nextMlb = !this.showMlbPlayers;
-          if (!nextMlb && !this.showProspects) return;
+          if (!nextMlb && !this.showProspects && !this.showUndraftedPlayers) return;
           this.showMlbPlayers = nextMlb;
         } else if (toggle === 'undrafted') {
-          this.showUndraftedPlayers = !this.showUndraftedPlayers;
+          const nextUndrafted = !this.showUndraftedPlayers;
+          if (!nextUndrafted && !this.showProspects && !this.showMlbPlayers) return;
+          this.showUndraftedPlayers = nextUndrafted;
+          if (this.showUndraftedPlayers) {
+            this.showRawStats = false;
+          }
         } else {
           return;
         }
 
         this.saveFilterPreferences();
         this.updatePlayerToggleButtons();
+        this.updateRatingsToggleButtons(); // Sync raw stats button state
 
         this.applyFiltersAndRender();
       });
@@ -1366,15 +1382,11 @@ export class TrueRatingsView {
           return `<td data-col-key="${column.key}">${this.renderFlipCell(displayValue, rating.toString(), title)}</td>`;
         }
 
-        // Make player name clickable only in True Ratings view
-        if (column.key === 'playerName' && this.showTrueRatings) {
+        // Make player name clickable regardless of view mode
+        if (column.key === 'playerName') {
           const prospectBadge = isProspect ? ' <span class="prospect-badge">P</span>' : '';
           const tooltip = `Player ID: ${player.player_id}`;
           return `<td data-col-key="${column.key}"><button class="btn-link player-name-link" data-player-id="${player.player_id}" title="${tooltip}">${displayValue}${prospectBadge}</button></td>`;
-        }
-
-        if (column.key === 'playerName') {
-          return `<td data-col-key="${column.key}" title="Player ID: ${player.player_id}">${displayValue}</td>`;
         }
 
         return `<td data-col-key="${column.key}">${displayValue}</td>`;
@@ -1884,7 +1896,7 @@ export class TrueRatingsView {
           notice.innerHTML = `
             <span class="banner-icon">ℹ️</span>
             Using OSA scouting data (${fromOSA} players).
-            <button class="btn-link" id="go-to-data-mgmt">Upload your scout reports</button> for custom scouting.
+            <button class="btn-link" data-tab-target="tab-data-management" type="button">Upload your scout reports</button> for custom scouting.
           `;
           notice.style.display = 'block';
           notice.className = 'info-banner osa-fallback';
@@ -1899,7 +1911,7 @@ export class TrueRatingsView {
         } else if (!hasMyScoutData && fromOSA === 0) {
           // No scouting at all
           notice.innerHTML = `
-            No scouting data found. <button class="btn-link" id="go-to-data-mgmt">Manage Data</button>
+            No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
           `;
           notice.style.display = 'block';
           notice.className = 'scout-upload-notice';
@@ -1909,7 +1921,7 @@ export class TrueRatingsView {
       } else if (this.scoutingRatings.length === 0) {
         // Legacy fallback for old code
         notice.innerHTML = `
-          No scouting data found. <button class="btn-link" id="go-to-data-mgmt">Manage Data</button>
+          No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
         `;
         notice.style.display = 'block';
         notice.className = 'scout-upload-notice';
@@ -1961,7 +1973,7 @@ export class TrueRatingsView {
   }
 
   private bindPlayerNameClicks(): void {
-    if (this.mode !== 'pitchers' || !this.showTrueRatings) return;
+    if (this.mode !== 'pitchers') return;
 
     const links = this.container.querySelectorAll<HTMLButtonElement>('.player-name-link');
     links.forEach(link => {

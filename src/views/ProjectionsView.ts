@@ -40,6 +40,7 @@ export class ProjectionsView {
   private isOffseason = false;
   private statsYearUsed: number | null = null;
   private usedFallbackStats = false;
+  private scoutingMetadata?: { fromMyScout: number; fromOSA: number };
   private viewMode: 'projections' | 'backcasting' | 'analysis' = 'projections';
   private sortKey: string = 'projectedStats.fip';
   private sortDirection: 'asc' | 'desc' = 'asc';
@@ -71,9 +72,18 @@ export class ProjectionsView {
         { key: 'teamName', label: 'Team' },
         { key: 'age', label: 'Age', accessor: p => this.renderAge(p) },
         { key: 'currentTrueRating', label: 'Current TR', sortKey: 'currentTrueRating', accessor: p => this.renderRatingBadge(p) },
-        { key: 'projK9', label: 'Proj K/9', sortKey: 'projectedStats.k9', accessor: p => p.projectedStats.k9.toFixed(2) },
-        { key: 'projBB9', label: 'Proj BB/9', sortKey: 'projectedStats.bb9', accessor: p => p.projectedStats.bb9.toFixed(2) },
-        { key: 'projHR9', label: 'Proj HR/9', sortKey: 'projectedStats.hr9', accessor: p => p.projectedStats.hr9.toFixed(2) },
+        { key: 'projK9', label: 'Proj K/9', sortKey: 'projectedStats.k9', accessor: p => {
+            const estStuff = RatingEstimatorService.estimateStuff(p.projectedStats.k9, p.projectedStats.ip).rating;
+            return this.renderFlipCell(p.projectedStats.k9.toFixed(2), estStuff.toString(), 'Est Stuff Rating');
+        }},
+        { key: 'projBB9', label: 'Proj BB/9', sortKey: 'projectedStats.bb9', accessor: p => {
+            const estControl = RatingEstimatorService.estimateControl(p.projectedStats.bb9, p.projectedStats.ip).rating;
+            return this.renderFlipCell(p.projectedStats.bb9.toFixed(2), estControl.toString(), 'Est Control Rating');
+        }},
+        { key: 'projHR9', label: 'Proj HR/9', sortKey: 'projectedStats.hr9', accessor: p => {
+            const estHra = RatingEstimatorService.estimateHRA(p.projectedStats.hr9, p.projectedStats.ip).rating;
+            return this.renderFlipCell(p.projectedStats.hr9.toFixed(2), estHra.toString(), 'Est HRA Rating');
+        }},
         { key: 'projFIP', label: 'Proj FIP', sortKey: 'projectedStats.fip', accessor: p => p.projectedStats.fip.toFixed(2) },
         { key: 'projWAR', label: 'Proj WAR', sortKey: 'projectedStats.war', accessor: p => p.projectedStats.war.toFixed(1) },
         { key: 'projIP', label: 'Proj IP', sortKey: 'projectedStats.ip', accessor: p => p.projectedStats.ip }
@@ -117,6 +127,8 @@ export class ProjectionsView {
             <select id="proj-year"></select>
           </div>
         </div>
+
+        <div class="scout-upload-notice" id="proj-scouting-notice" style="display: none; margin-bottom: 1rem;"></div>
 
         <div id="projections-table-container">
             ${this.renderTableLoadingState()}
@@ -223,6 +235,7 @@ export class ProjectionsView {
           let allPlayers = context.projections;
           this.statsYearUsed = context.statsYear;
           this.usedFallbackStats = context.usedFallbackStats;
+          this.scoutingMetadata = context.scoutingMetadata;
 
           // Don't include prospects - they get peak year projections when viewed individually
           let combinedPlayers: ProjectedPlayerWithActuals[] = [...allPlayers];
@@ -831,6 +844,9 @@ export class ProjectionsView {
       // Player Names
       this.bindPlayerNameClicks();
 
+      // Flip cards (rating on hover)
+      this.bindFlipCardLocking();
+
       // Sorting
       this.container.querySelectorAll('th[data-sort]').forEach(th => {
           th.addEventListener('click', (e) => {
@@ -925,6 +941,30 @@ export class ProjectionsView {
     else if (value >= 2.0) className = 'rating-fringe';
 
     return `<span class="badge ${className}" title="Current True Rating">${value.toFixed(1)}</span>`;
+  }
+
+  private renderFlipCell(front: string, back: string, title: string): string {
+    return `
+      <div class="flip-cell">
+        <div class="flip-cell-inner">
+          <div class="flip-cell-front">${front}</div>
+          <div class="flip-cell-back">
+            ${back}
+            <span class="flip-tooltip">${title}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private bindFlipCardLocking(): void {
+    const cells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
+    cells.forEach((cell) => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        cell.classList.toggle('is-flipped');
+      });
+    });
   }
 
   private renderGrade(player: ProjectedPlayerWithActuals): string {
@@ -1312,6 +1352,52 @@ export class ProjectionsView {
 
 
 
+  private updateScoutingBanner(): void {
+    const notice = this.container.querySelector<HTMLElement>('#proj-scouting-notice');
+    if (!notice) return;
+
+    // Only show banner in Projections mode (current/future context)
+    if (this.viewMode !== 'projections') {
+      notice.style.display = 'none';
+      return;
+    }
+
+    if (this.scoutingMetadata) {
+      const { fromMyScout, fromOSA } = this.scoutingMetadata;
+      const hasMyScoutData = fromMyScout > 0;
+
+      if (!hasMyScoutData && fromOSA > 0) {
+        // Using OSA fallback
+        notice.innerHTML = `
+          <span class="banner-icon">ℹ️</span>
+          Using OSA scouting data (${fromOSA} players).
+          <button class="btn-link" data-tab-target="tab-data-management" type="button">Upload your scout reports</button> for custom scouting.
+        `;
+        notice.style.display = 'block';
+        notice.className = 'info-banner osa-fallback';
+      } else if (hasMyScoutData && fromOSA > 0) {
+        // Using both sources
+        notice.innerHTML = `
+          <span class="banner-icon">📊</span>
+          ${fromMyScout} players from My Scout, ${fromOSA} from OSA.
+        `;
+        notice.style.display = 'block';
+        notice.className = 'info-banner mixed-sources';
+      } else if (!hasMyScoutData && fromOSA === 0) {
+        // No scouting at all
+        notice.innerHTML = `
+          No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
+        `;
+        notice.style.display = 'block';
+        notice.className = 'scout-upload-notice';
+      } else {
+        // Only My Scout (clean state) or hidden
+        notice.style.display = 'none';
+      }
+    } else {
+      notice.style.display = 'none';
+    }
+  }
   private updateSubtitle(): void {
     const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
     if (!subtitle) return;
@@ -1327,5 +1413,7 @@ export class ProjectionsView {
         : '';
       subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings and standard aging curves.${fallbackNote}`;
     }
+    
+    this.updateScoutingBanner();
   }
 }

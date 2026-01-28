@@ -15,7 +15,7 @@ const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   age: ['age'],
   ovr: ['ovr', 'overall', 'cur', 'current'],
   pot: ['pot', 'potential', 'ceil', 'ceiling'],
-  stamina: ['stm', 'stamina', 'stam'],
+  stamina: ['stm', 'stamina', 'stam', 'staminarating', 'pitchingstamina', 'endurance'],
   injuryProneness: ['prone', 'injury', 'injuryproneness', 'inj']
 };
 

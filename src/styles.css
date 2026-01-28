@@ -448,6 +448,11 @@ body {
   white-space: nowrap;
 }
 
+.stats-table th[data-sort],
+.stats-table th[data-sort-key] {
+  cursor: pointer;
+}
+
 .draft-table thead th {
   cursor: default;
 }

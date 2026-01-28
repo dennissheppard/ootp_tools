@@ -168,14 +168,23 @@ class App {
   }
 
   private setupTabs(): void {
-    const tabButtons = document.querySelectorAll<HTMLButtonElement>('[data-tab-target]');
-    tabButtons.forEach((button) => {
-      button.addEventListener('click', () => {
-        const target = button.dataset.tabTarget;
-        if (target) {
-          this.setActiveTab(target);
-        }
-      });
+    document.addEventListener('click', (event) => {
+      const target = (event.target as HTMLElement | null)?.closest<HTMLElement>('[data-tab-target]');
+      if (!target) return;
+      const tabId = target.dataset.tabTarget;
+      if (!tabId) return;
+
+      if (target.tagName === 'A') {
+        event.preventDefault();
+      }
+      this.setActiveTab(tabId);
+    });
+
+    window.addEventListener('wbl:navigate-tab', (event) => {
+      const { tabId } = (event as CustomEvent<{ tabId?: string }>).detail ?? {};
+      if (tabId) {
+        this.setActiveTab(tabId);
+      }
     });
 
     // Double-click logo to access Data Management
