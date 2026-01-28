@@ -7,6 +7,7 @@ import { playerService } from '../services/PlayerService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { fipWarService } from '../services/FipWarService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
+import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 
 export type { PlayerRatingsData as PlayerProfileData };
 
@@ -267,6 +268,65 @@ export class PlayerProfileModal {
       }
 
       if (bodyEl) {
+        // Check if we should switch to TFR display for young players with limited MLB track record
+        // This ensures 23yo rookies show their potential (TFR) rather than a volatile small-sample TR
+        const totalIp = this.currentMlbStats.reduce((sum, s) => sum + s.ip, 0);
+        const age = player?.age ?? 30;
+        
+        if (age < 26 && totalIp < 50 && !data.isProspect && !data.trueFutureRating) {
+            try {
+                // We need to calculate TFR on the fly
+                // Get all minor league stats for context
+                const minorStats = combinedStats.filter(s => s.level !== 'MLB').map(s => ({
+                    id: data.playerId,
+                    name: data.playerName,
+                    year: s.year,
+                    level: s.level as any,
+                    ip: s.ip,
+                    k: 0, // Not needed for TFR calc if we have rates, but service might need them
+                    bb: 0,
+                    hr: 0,
+                    k9: s.k9,
+                    bb9: s.bb9,
+                    hr9: s.hr9
+                }));
+
+                const scouting = data.activeScoutSource === 'osa' 
+                    ? { stuff: data.osaStuff, control: data.osaControl, hra: data.osaHra, ovr: data.osaOvr, pot: data.osaPot }
+                    : { stuff: data.scoutStuff, control: data.scoutControl, hra: data.scoutHra, ovr: data.scoutOvr, pot: data.scoutPot };
+
+                if (scouting.stuff !== undefined) {
+                    // Need a reference MLB FIP for percentile. Use average ~4.20
+                    const mlbFips = [4.20]; 
+                    
+                    const tfrInput = {
+                        playerId: data.playerId,
+                        playerName: data.playerName,
+                        age: age,
+                        scouting: { ...scouting, playerId: data.playerId } as any,
+                        minorLeagueStats: minorStats
+                    };
+
+                    const tfrResult = trueFutureRatingService.calculateTrueFutureRatings([tfrInput], mlbFips)[0];
+                    
+                    if (tfrResult) {
+                        data.trueFutureRating = tfrResult.trueFutureRating;
+                        data.tfrPercentile = tfrResult.percentile;
+                        // data.isProspect = true; // REMOVED: Keep as MLB player to show current year stats/projections
+                        
+                        // Re-render header to show TFR badge
+                        if (headerSlot) {
+                            headerSlot.innerHTML = PlayerRatingsCard.renderRatingEmblem(data);
+                            const emblem = headerSlot.querySelector<HTMLElement>('.rating-emblem');
+                            if (emblem) emblem.classList.add('shimmer-once');
+                        }
+                    }
+                }
+            } catch (e) {
+                console.warn('Failed to calculate TFR for profile:', e);
+            }
+        }
+
         const hasMinorLeague = combinedStats.some(s => s.level && s.level !== 'MLB');
         
         // Calculate Projection
@@ -567,9 +627,17 @@ export class PlayerProfileModal {
         </span>`;
       }
 
+      // Determine confidence based on IP history
+      const totalIp = (this.currentMlbStats || []).reduce((sum, s) => sum + s.ip, 0);
+      const isLowConfidence = !isProspect && totalIp < 50;
+      
+      const confidenceWarning = isLowConfidence
+        ? ` <span class="confidence-warning" title="Low Confidence: Limited MLB track record (<50 IP). Projection relies heavily on scouting/ratings.">⚠️</span>`
+        : '';
+
       const title = isProspect
         ? `Peak Year Projection <span style="font-weight: normal; opacity: 0.8;">(Age ${projectionAge})</span>`
-        : `${yearDisplay} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>`;
+        : `${yearDisplay} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>${confidenceWarning}`;
       const note = isProspect
         ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance.'
         : '* Projection based on prior year True Ratings. Delta = Projected - Actual. Hover cells to show ratings.';

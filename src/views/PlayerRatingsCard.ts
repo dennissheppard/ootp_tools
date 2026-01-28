@@ -190,6 +190,15 @@ export class PlayerRatingsCard {
     const ariaLabel = `${baseLabel}${yearText}`;
     const emblemClass = badgeInfo.isProspect ? 'rating-emblem tfr-emblem' : 'rating-emblem';
 
+    // Check for "Upside" display (MLB player with higher TFR)
+    let upsideHtml = '';
+    if (!badgeInfo.isProspect && data.trueFutureRating && data.trueRating && (data.trueFutureRating - data.trueRating >= 0.25)) {
+        upsideHtml = `<div class="rating-emblem-upside" title="True Future Rating: ${data.trueFutureRating.toFixed(1)}">
+            <span class="upside-label">↗ Peak</span>
+            <span class="upside-value">${data.trueFutureRating.toFixed(1)}</span>
+        </div>`;
+    }
+
     return `
       <div class="${emblemClass} ${ratingClass}" title="${badgeInfo.badgeTitle}" aria-label="${ariaLabel} ${ratingValue}">
         <div class="rating-emblem-header">
@@ -202,6 +211,7 @@ export class PlayerRatingsCard {
           <div class="rating-emblem-score">${ratingValue}</div>
         </div>
         ${percentileText ? `<div class="rating-emblem-meta">${percentileText}</div>` : ''}
+        ${upsideHtml}
       </div>
     `;
   }

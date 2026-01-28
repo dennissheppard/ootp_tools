@@ -256,7 +256,7 @@ export class TrueRatingsView {
           </div>
           <button id="next-page" disabled>Next</button>
           <div class="items-per-page">
-            <label for="items-per-page">Rows</label>
+            <label for="items-per-page">Show:</label>
             <select id="items-per-page">
               <option value="10" ${this.itemsPerPageSelection === '10' ? 'selected' : ''}>10 per page</option>
               <option value="50" ${this.itemsPerPageSelection === '50' ? 'selected' : ''}>50 per page</option>

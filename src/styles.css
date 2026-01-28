@@ -2398,6 +2398,7 @@ td.player-cell.player-name {
 }
 
 .rating-emblem {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
@@ -2442,23 +2443,55 @@ td.player-cell.player-name {
 }
 
 .rating-emblem-meta {
+  margin-top: 0.25rem;
   font-size: 0.65rem;
-  color: var(--color-text-muted);
-  text-align: right;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-.rating-emblem-body {
-  display: grid;
-  grid-template-columns: 1fr auto;
+.rating-emblem-upside {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background-color: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--color-success);
+  border-radius: 8px;
+  padding: 1px 5px;
+  display: flex;
   align-items: center;
-  gap: 0.65rem;
+  gap: 3px;
+  backdrop-filter: blur(4px);
+  animation: popIn 0.3s ease-out backwards;
+  animation-delay: 0.2s;
+}
+
+.upside-label {
+  font-size: 0.5rem;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--color-success);
+  letter-spacing: 0.05em;
+}
+
+.upside-value {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: var(--color-text);
+}
+
+@keyframes popIn {
+  0% { transform: scale(0.5); opacity: 0; }
+  80% { transform: scale(1.1); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 .rating-emblem-bar {
-  height: 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  flex: 1;
+  height: 6px;
+  background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
   overflow: hidden;
 }
 
