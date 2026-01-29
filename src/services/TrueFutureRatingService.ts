@@ -106,13 +106,16 @@ class TrueFutureRatingService {
    *
    * Higher weight = trust scouting more (stats are noise)
    * Lower weight = trust stats more (player is developed)
+   *
+   * MiLB stats in OOTP are unreliable - correlation to potential is weak.
+   * When we HAVE scouting data, we should trust it heavily.
    */
   calculateScoutingWeight(age: number, starGap: number, totalMinorIp: number): number {
-    // Older players: stats should dominate regardless of star gap
+    // Older players: stats become more reliable as they mature
     if (age >= 30) return 0.40;
     if (age >= 27) return 0.50;
 
-    // For younger players, use gap and IP to determine weight
+    // For younger players, trust scouting heavily since MiLB stats are noisy
     const baseWeight = 0.65;
 
     // More raw (larger gap) = trust scouting more
@@ -345,9 +348,15 @@ class TrueFutureRatingService {
     year: number
   ): Promise<TrueFutureRatingResult[]> {
     // Get scouting data with fallback (My Scout > OSA)
-    const scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
+    let scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
+    if (scoutingFallback.ratings.length === 0) {
+        console.warn(`[TFR] No scouting data found for ${year}. Falling back to latest available data.`);
+        scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
+    }
+
     const scoutingRatings = scoutingFallback.ratings;
     if (scoutingRatings.length === 0) {
+      console.warn('[TFR] No scouting data found (even latest). Cannot calculate True Future Ratings.');
       return [];
     }
 

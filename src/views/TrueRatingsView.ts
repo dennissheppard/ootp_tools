@@ -1,5 +1,5 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
-import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Player';
+import { Player, getFullName, getPositionLabel, isPitcher, PitcherRole, determinePitcherRole, PitcherRoleInput } from '../models/Player';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
 import { trueRatingsCalculationService, YearlyPitchingStats, getYearWeights } from '../services/TrueRatingsCalculationService';
@@ -12,6 +12,8 @@ import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { MinorLeagueStatsWithLevel } from '../models/Stats';
 import { dateService } from '../services/DateService';
+import { fipWarService } from '../services/FipWarService';
+import { leagueStatsService } from '../services/LeagueStatsService';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -20,6 +22,7 @@ interface DerivedPitchingFields {
   kPer9: number;
   bbPer9: number;
   hraPer9: number;
+  fip: number;
 }
 
 interface TrueRatingFields {
@@ -86,6 +89,7 @@ const RAW_PITCHER_COLUMNS: PitcherColumn[] = [
   { key: 'kPer9', label: 'K/9' },
   { key: 'bbPer9', label: 'BB/9' },
   { key: 'hraPer9', label: 'HR/9' },
+  { key: 'fip', label: 'FIP' },
 ];
 
 const RAW_PITCHER_STAT_KEYS = new Set([
@@ -101,6 +105,7 @@ const RAW_PITCHER_STAT_KEYS = new Set([
   'kPer9',
   'bbPer9',
   'hraPer9',
+  'fip',
 ]);
 
 const MISSING_STAT_DISPLAY = '&mdash;';
@@ -969,16 +974,33 @@ export class TrueRatingsView {
     return this.stats.slice(startIndex, endIndex);
   }
 
-  private withDerivedPitchingFields(pitchingStats: TruePlayerStats[]): PitcherRow[] {
+  private async withDerivedPitchingFields(pitchingStats: TruePlayerStats[]): Promise<PitcherRow[]> {
+    // Get league FIP constant for accurate FIP calculation
+    let fipConstant = 3.47; // Default fallback
+    try {
+      const leagueStats = await leagueStatsService.getLeagueStats(this.selectedYear);
+      fipConstant = leagueStats.fipConstant;
+    } catch (error) {
+      console.warn(`Could not load league stats for ${this.selectedYear}, using default FIP constant`);
+    }
+
     return pitchingStats.map(stat => {
       const outs = this.parseIpToOuts(stat.ip);
       const innings = outs / 3;
+      const kPer9 = this.calculatePer9(stat.k, innings);
+      const bbPer9 = this.calculatePer9(stat.bb, innings);
+      const hraPer9 = this.calculatePer9(stat.hra, innings);
+
+      // Calculate FIP from rate stats
+      const fip = fipWarService.calculateFip({ ip: innings, k9: kPer9, bb9: bbPer9, hr9: hraPer9 }, fipConstant);
+
       return {
         ...stat,
         ipOuts: outs,
-        kPer9: this.calculatePer9(stat.k, innings),
-        bbPer9: this.calculatePer9(stat.bb, innings),
-        hraPer9: this.calculatePer9(stat.hra, innings),
+        kPer9,
+        bbPer9,
+        hraPer9,
+        fip,
         hasStats: true,
       };
     });
@@ -998,7 +1020,7 @@ export class TrueRatingsView {
       return { rows: this.buildPitcherRowsFromRoster(pitchers), hasStats: false };
     }
 
-    return { rows: this.withDerivedPitchingFields(pitchingStats), hasStats: true };
+    return { rows: await this.withDerivedPitchingFields(pitchingStats), hasStats: true };
   }
 
   private async getBatterStatsWithRosterFallback(): Promise<{ rows: BatterRow[]; hasStats: boolean }> {
@@ -1098,6 +1120,7 @@ export class TrueRatingsView {
         kPer9: 0,
         bbPer9: 0,
         hraPer9: 0,
+        fip: 0,
         hasStats: false,
       };
     });
@@ -1174,8 +1197,12 @@ export class TrueRatingsView {
     this.scoutingLookup = scoutingLookup;
     const scoutingMatchMap = new Map<number, PitcherScoutingRatings>();
 
-    const inputs: Array<{ playerId: number; playerName: string; yearlyStats: YearlyPitchingStats[]; scoutingRatings?: PitcherScoutingRatings }> = [];
+    const inputs: Array<{ playerId: number; playerName: string; yearlyStats: YearlyPitchingStats[]; scoutingRatings?: PitcherScoutingRatings; role?: PitcherRole }> = [];
     const pitchersWithStats: PitcherRow[] = [];
+
+    // Get all players for role determination
+    const allPlayers = await playerService.getAllPlayers();
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
 
     pitchers.forEach((pitcher) => {
       const scouting = this.resolveScoutingRating(pitcher, scoutingLookup);
@@ -1186,11 +1213,25 @@ export class TrueRatingsView {
       if (yearlyStats.length === 0) {
         return;
       }
+
+      // Minimum IP threshold: Don't calculate TR for pitchers with <50 total IP
+      // These players should appear as prospects with TFR, not in MLB table with TR
+      // 50 IP aligns with the TFR calculation threshold for young players
+      const totalIp = yearlyStats.reduce((sum, stat) => sum + stat.ip, 0);
+      if (totalIp < 50) {
+        return;
+      }
+
+      // Determine pitcher role from scouting data and player attributes
+      const player = playerMap.get(pitcher.player_id);
+      const role = this.determinePitcherRoleFromAttributes(scouting, player, pitcher);
+
       inputs.push({
         playerId: pitcher.player_id,
         playerName: pitcher.playerName,
         yearlyStats,
         scoutingRatings: scouting,
+        role,
       });
       pitchersWithStats.push(pitcher);
     });
@@ -1219,6 +1260,7 @@ export class TrueRatingsView {
         scoutOverall,
         scoutDiff,
         isProspect: false,
+        role: result.role,
       };
     });
 
@@ -1333,8 +1375,16 @@ export class TrueRatingsView {
         const prospectBb9 = seasonStats?.bb9 ?? (prospectIp > 0 ? (prospectBb / prospectIp) * 9 : 0);
         const prospectHr9 = seasonStats?.hr9 ?? (prospectIp > 0 ? (prospectHr / prospectIp) * 9 : 0);
 
+        // Determine role for prospect
+        const prospectRole = determinePitcherRole({
+          pitchRatings: scouting.pitches,
+          stamina: scouting.stamina,
+          ootpRole: player?.role,
+          inningsPitched: prospectIp,
+        });
+
         // Create a prospect row with placeholder stats
-        // Cast to PitcherRow - we only need the fields we display
+        // Cast through unknown then to PitcherRow - we only populate the fields we need
         const prospectRow = {
           // Required TruePlayerStats fields (will show as "-")
           player_id: scouting.playerId,
@@ -1355,6 +1405,7 @@ export class TrueRatingsView {
           kPer9: prospectK9,
           bbPer9: prospectBb9,
           hraPer9: prospectHr9,
+          fip: prospectHasStats ? fipWarService.calculateFip({ ip: prospectIp, k9: prospectK9, bb9: prospectBb9, hr9: prospectHr9 }, 3.47) : 0,
           // Team info
           teamDisplay,
           teamFilter,
@@ -1372,7 +1423,8 @@ export class TrueRatingsView {
           prospectHasStats,
           prospectLevel: seasonStats?.level,
           hasStats: prospectHasStats,
-        } as PitcherRow;
+          role: prospectRole,
+        } as unknown as PitcherRow;
 
       prospectRows.push(prospectRow);
     }
@@ -1917,6 +1969,26 @@ export class TrueRatingsView {
     });
   }
   
+  /**
+   * Determine pitcher role from player attributes (scouting, stamina, pitches)
+   * Uses the centralized determinePitcherRole function from Player model
+   */
+  private determinePitcherRoleFromAttributes(
+    scouting: PitcherScoutingRatings | undefined,
+    player: Player | null | undefined,
+    pitcher: PitcherRow
+  ): PitcherRole {
+    const input: PitcherRoleInput = {
+      pitchRatings: scouting?.pitches,
+      stamina: scouting?.stamina,
+      ootpRole: player?.role,
+      gamesStarted: pitcher.gs,
+      inningsPitched: pitcher.ipOuts ? pitcher.ipOuts / 3 : undefined,
+    };
+
+    return determinePitcherRole(input);
+  }
+
   private determinePitcherRoleLabel(row: PitcherRow): 'SP' | 'RP' {
     // If we have gs (Games Started) and ip, use that
     if (typeof row.gs === 'number' && typeof row.ip === 'string') {
@@ -1925,11 +1997,11 @@ export class TrueRatingsView {
         return 'SP';
       }
     }
-    
+
     // Fallback to role from player model if available
     const role = (row as any).role;
     if (role === 11 || role === 12) return 'SP'; // SP or Long Relief/Emergency SP usually
-    
+
     return 'RP';
   }
 
@@ -1988,6 +2060,12 @@ export class TrueRatingsView {
         },
       },
       {
+        key: 'tier',
+        label: 'Tier',
+        sortKey: 'ipOuts',
+        accessor: (row) => this.renderTierBadge(row),
+      },
+      {
         key: 'percentile',
         label: '%',
         sortKey: 'percentile',
@@ -2031,6 +2109,43 @@ export class TrueRatingsView {
     const className = this.getTrueRatingClass(value);
     // TFR badge has a different style to indicate it's a projection
     return `<span class="badge ${className} tfr-badge" title="True Future Rating (Projected)">${value.toFixed(1)}</span>`;
+  }
+
+  private renderTierBadge(row: PitcherRow): string {
+    // Use role if available (from player attributes), otherwise fall back to IP
+    let tier: string;
+    let className: string;
+    let title: string;
+
+    // Check if row has a role field (from TrueRatingResult)
+    const role = (row as any).role;
+    if (role === 'SP' || role === 'SW' || role === 'RP') {
+      tier = role;
+    } else {
+      // Fallback to IP-based determination
+      const ipOuts = row.ipOuts ?? 0;
+      const ip = ipOuts / 3;
+      if (ip >= 130) {
+        tier = 'SP';
+      } else if (ip >= 70) {
+        tier = 'SW';
+      } else {
+        tier = 'RP';
+      }
+    }
+
+    if (tier === 'SP') {
+      className = 'tier-starter';
+      title = 'Starter - Percentile ranked vs other starters';
+    } else if (tier === 'SW') {
+      className = 'tier-swingman';
+      title = 'Swingman - Percentile ranked vs other swingmen';
+    } else {
+      className = 'tier-reliever';
+      title = 'Reliever - Percentile ranked vs other relievers';
+    }
+
+    return `<span class="badge ${className}" title="${title}">${tier}</span>`;
   }
 
   private getTrueRatingClass(value: number): string {

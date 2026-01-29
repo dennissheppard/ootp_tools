@@ -415,6 +415,14 @@ class ProjectionService {
     // Apply aging to get projected ratings first
     const projectedRatings = agingService.applyAging(currentRatings, age);
 
+    // DEBUG: Log for specific player only
+    const isDebugPlayer = age === 21 && Math.abs(currentRatings.stuff - 61) < 1;
+    if (isDebugPlayer) {
+      console.log(`BACH,TOM: [PROJECTION] Age ${age} → ${age+1}`);
+      console.log(`BACH,TOM:   Input (True Ratings): Stuff=${currentRatings.stuff.toFixed(1)}, Control=${currentRatings.control.toFixed(1)}, HRA=${currentRatings.hra.toFixed(1)}`);
+      console.log(`BACH,TOM:   After aging curve: Stuff=${projectedRatings.stuff.toFixed(1)}, Control=${projectedRatings.control.toFixed(1)}, HRA=${projectedRatings.hra.toFixed(1)}`);
+    }
+
     // Calculate quick FIP estimate for skill-based IP modifier (using dummy 150 IP)
     const tempStats = PotentialStatsService.calculatePitchingStats(
         { ...projectedRatings, movement: 50, babip: 50 },
@@ -847,13 +855,45 @@ class ProjectionService {
         baseIp = ipCap;
     }
 
+    // Apply continuous sliding scale IP boost for elite pitchers
+    // Uses smooth gradient to prevent bunching:
+    // - FIP < 3.0:  1.08x (generational talent gets more innings)
+    // - FIP 3.0:    1.06x
+    // - FIP 3.5:    1.03x
+    // - FIP 4.0:    1.00x (no boost)
+    // - FIP 4.0+:   1.00x
+    //
+    // This addresses OOTP's tendency to maintain/increase workload for top pitchers
+    let finalIp = baseIp;
+    if (projectedFip !== undefined) {
+        let ipBoost = 1.00;
+        if (projectedFip < 3.0) {
+            ipBoost = 1.08;
+        } else if (projectedFip < 3.5) {
+            // Linear interpolation between 1.08 (FIP 3.0) and 1.03 (FIP 3.5)
+            const t = (projectedFip - 3.0) / (3.5 - 3.0);
+            ipBoost = 1.08 - t * (1.08 - 1.03);
+        } else if (projectedFip < 4.0) {
+            // Linear interpolation between 1.03 (FIP 3.5) and 1.00 (FIP 4.0)
+            const t = (projectedFip - 3.5) / (4.0 - 3.5);
+            ipBoost = 1.03 - t * (1.03 - 1.00);
+        }
+
+        if (ipBoost > 1.00) {
+            finalIp = baseIp * ipBoost;
+            if (console && typeof console.log === 'function') {
+                console.log(`[IP Projection] Elite boost applied (FIP ${projectedFip.toFixed(2)}): ${Math.round(baseIp)} → ${Math.round(finalIp)} (${ipBoost.toFixed(2)}x)`);
+            }
+        }
+    }
+
     // Final debug logging
     if (console && typeof console.log === 'function') {
         const cappedNote = uncappedIp > ipCap ? ` (capped from ${Math.round(uncappedIp)})` : '';
-        console.log(`[IP Projection] Final: ip=${Math.round(baseIp)}${cappedNote}, injuryMod=${injuryMod.toFixed(2)}, skillMod=${skillMod.toFixed(2)}, projectedFip=${projectedFip?.toFixed(2) ?? 'N/A'}, age=${age}`);
+        console.log(`[IP Projection] Final: ip=${Math.round(finalIp)}${cappedNote}, injuryMod=${injuryMod.toFixed(2)}, skillMod=${skillMod.toFixed(2)}, projectedFip=${projectedFip?.toFixed(2) ?? 'N/A'}, age=${age}`);
     }
 
-    return { ip: Math.round(baseIp), isSp };
+    return { ip: Math.round(finalIp), isSp };
   }
 
   private normalizeName(name: string): string {

@@ -201,7 +201,7 @@ export class RatingEstimatorView {
                 ${ratings.fip !== undefined ? `<div><label>Est. FIP</label><div class="value">${ratings.fip.toFixed(2)}</div></div>` : ''}
                 ${ratings.war !== undefined ? `<div><label>Est. WAR</label><div class="value">${ratings.war.toFixed(1)}</div></div>` : ''}
             </div>
-            <p class="league-info-text" style="margin-top: 0.5rem;">Using ${this.selectedYear} league context (Replacement FIP: ${(this.leagueConstants.replacementFip ?? 5.25).toFixed(2)}, FIP constant: ${(this.leagueConstants.fipConstant ?? 3.47).toFixed(2)})</p>
+            <p class="league-info-text" style="margin-top: 0.5rem;">Using ${this.selectedYear} league context (Replacement FIP: ${(this.leagueConstants.replacementFip ?? 5.20).toFixed(2)}, FIP constant: ${(this.leagueConstants.fipConstant ?? 3.47).toFixed(2)})</p>
         `;
     }
 
@@ -222,7 +222,7 @@ export class RatingEstimatorView {
             console.warn('Could not load league stats, using defaults', e);
             this.leagueConstants = {};  // Will use FipWarService defaults
             this.loadedLeagueYear = null;
-            this.updateLeagueInfo('Using default league context (Replacement FIP: 5.25, FIP constant: 3.47)');
+            this.updateLeagueInfo('Using default league context (Replacement FIP: 5.20, FIP constant: 3.47)');
             this.recomputeIfPossible();
         }
     }
@@ -237,7 +237,7 @@ export class RatingEstimatorView {
         }
 
         const displayYear = this.loadedLeagueYear ?? this.selectedYear;
-        const replacementFip = this.leagueConstants.replacementFip ?? 5.25;
+        const replacementFip = this.leagueConstants.replacementFip ?? 5.20;
         const fipConstant = this.leagueConstants.fipConstant ?? 3.47;
         infoEl.textContent = `Using ${displayYear} league data (Replacement FIP: ${replacementFip.toFixed(2)}, FIP constant: ${fipConstant.toFixed(2)})`;
     }

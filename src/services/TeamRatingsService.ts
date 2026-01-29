@@ -8,6 +8,8 @@ import { RatingEstimatorService } from './RatingEstimatorService';
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { projectionService } from './ProjectionService';
 import { dateService } from './DateService';
+import { playerService } from './PlayerService';
+import { trueFutureRatingService } from './TrueFutureRatingService';
 
 export interface RatedPlayer {
   playerId: number;
@@ -30,6 +32,65 @@ export interface RatedPlayer {
   };
 }
 
+export interface RatedProspect {
+    playerId: number;
+    name: string;
+    trueFutureRating: number;
+    age: number;
+    level: string;
+    teamId: number;
+    peakFip: number;
+    peakWar: number;
+    potentialRatings: {
+        stuff: number;
+        control: number;
+        hra: number;
+    };
+    scoutingRatings: {
+        stuff: number;
+        control: number;
+        hra: number;
+        stamina: number;
+        pitches: number;
+    };
+    stats: {
+        ip: number;
+        k9: number;
+        bb9: number;
+        hr9: number;
+    };
+}
+
+export interface FarmSystemRankings {
+    teamId: number;
+    teamName: string;
+    rotationScore: number;
+    bullpenScore: number;
+    rotation: RatedProspect[];
+    bullpen: RatedProspect[];
+}
+
+export interface FarmSystemOverview {
+    teamId: number;
+    teamName: string;
+    totalWar: number;
+    prospectCount: number;
+    topProspectName: string;
+    topProspectId: number;
+    tierCounts: {
+        elite: number; // 4.5+
+        aboveAvg: number; // 3.5 - 4.0
+        average: number; // 2.5 - 3.0
+        fringe: number; // < 2.5
+    };
+}
+
+export interface FarmData {
+    reports: FarmSystemRankings[];
+    systems: FarmSystemOverview[];
+    prospects: RatedProspect[];
+}
+
 export interface TeamRatingResult {
   teamId: number;
   teamName: string;
@@ -47,6 +108,204 @@ export interface TeamRatingResult {
 }
 
 class TeamRatingsService {
+  async getFarmData(year: number): Promise<FarmData> {
+      console.log(`[FarmRankings] Starting generation for year ${year}...`);
+      
+      // Fetch scouting data first to handle fallback logic
+      let scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
+      if (scoutingData.ratings.length === 0) {
+          console.warn(`[FarmRankings] No scouting data for ${year}. Falling back to latest...`);
+          scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
+      }
+
+      const [allPlayers, tfrResults, teams, leagueStats] = await Promise.all([
+          playerService.getAllPlayers(),
+          trueFutureRatingService.getProspectTrueFutureRatings(year), 
+          teamService.getAllTeams(),
+          leagueStatsService.getLeagueStats(year)
+      ]);
+
+      console.log(`[FarmRankings] Loaded data:
+        - Players: ${allPlayers.length}
+        - TFR Results: ${tfrResults.length}
+        - Scouting Ratings: ${scoutingData.ratings.length} (Using latest? ${scoutingData.ratings.length > 0})
+        - Teams: ${teams.length}`);
+
+      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+      const teamMap = new Map(teams.map(t => [t.id, t]));
+      const scoutingMap = new Map(scoutingData.ratings.map(s => [s.playerId, s]));
+      
+      // Calculate Replacement Level FIP (League Avg + 1.00)
+      const replacementFip = (leagueStats.avgFip || 4.20) + 1.00;
+      const runsPerWin = 8.5; // Standard WBL constant
+
+      const orgGroups = new Map<number, { rotation: RatedProspect[], bullpen: RatedProspect[] }>();
+      const allProspects: RatedProspect[] = [];
+
+      let processedCount = 0;
+
+      tfrResults.forEach(tfr => {
+          const player = playerMap.get(tfr.playerId);
+          if (!player) return;
+
+          // Determine Organization ID via Team Service lookup
+          const team = teamMap.get(player.teamId);
+          if (!team || team.parentTeamId === 0) return;
+
+          processedCount++;
+          const orgId = team.parentTeamId;
+          const scouting = scoutingMap.get(tfr.playerId);
+          
+          const pitches = scouting?.pitches ?? {};
+          const pitchCount = Object.values(pitches).filter(v => v >= 45).length; // Usable pitches
+          const stamina = scouting?.stamina ?? 0;
+
+          // Classification: SP if Stamina >= 30 AND 3+ Usable Pitches
+          const isSp = stamina >= 30 && pitchCount >= 3;
+          
+          // Calculate Peak WAR
+          // Assumption: SP = 180 IP, RP = 65 IP
+          const projectedIp = isSp ? 180 : 65;
+          const peakWar = fipWarService.calculateWar(tfr.projFip, projectedIp, replacementFip, runsPerWin);
+
+          const prospect: RatedProspect = {
+              playerId: tfr.playerId,
+              name: tfr.playerName,
+              trueFutureRating: tfr.trueFutureRating,
+              age: tfr.age,
+              level: this.getLevelLabel(player.level),
+              teamId: player.teamId,
+              peakFip: tfr.projFip,
+              peakWar: peakWar,
+              potentialRatings: {
+                  stuff: tfr.projK9,
+                  control: tfr.projBb9,
+                  hra: tfr.projHr9
+              },
+              scoutingRatings: {
+                  stuff: scouting?.stuff ?? 0,
+                  control: scouting?.control ?? 0,
+                  hra: scouting?.hra ?? 0,
+                  stamina,
+                  pitches: pitchCount
+              },
+              stats: {
+                  ip: tfr.totalMinorIp,
+                  k9: tfr.adjustedK9,
+                  bb9: tfr.adjustedBb9,
+                  hr9: tfr.adjustedHr9
+              }
+          };
+
+          allProspects.push(prospect);
+
+          if (!orgGroups.has(orgId)) {
+              orgGroups.set(orgId, { rotation: [], bullpen: [] });
+          }
+          const group = orgGroups.get(orgId)!;
+          if (isSp) {
+              group.rotation.push(prospect);
+          } else {
+              group.bullpen.push(prospect);
+          }
+      });
+
+      // Generate Reports (Rotation/Bullpen top 5s)
+      const reports: FarmSystemRankings[] = [];
+      const systems: FarmSystemOverview[] = [];
+
+      orgGroups.forEach((group, orgId) => {
+          const team = teamMap.get(orgId);
+          if (!team) return;
+
+          // 1. Reports Data
+          group.rotation.sort((a, b) => b.peakWar - a.peakWar);
+          const topRotation = group.rotation.slice(0, 5);
+          const rotationScore = topRotation.reduce((sum, p) => sum + p.peakWar, 0);
+
+          group.bullpen.sort((a, b) => b.peakWar - a.peakWar);
+          const topBullpen = group.bullpen.slice(0, 5);
+          const bullpenScore = topBullpen.reduce((sum, p) => sum + p.peakWar, 0);
+
+          reports.push({
+              teamId: orgId,
+              teamName: team.nickname,
+              rotationScore,
+              bullpenScore,
+              rotation: topRotation,
+              bullpen: topBullpen
+          });
+
+          // 2. System Overview Data
+          const allOrgProspects = [...group.rotation, ...group.bullpen];
+          
+          // Total WAR
+          const totalWar = allOrgProspects.reduce((sum, p) => sum + p.peakWar, 0);
+
+          // Top Prospect
+          const topProspect = allOrgProspects.reduce((prev, current) => (prev.trueFutureRating > current.trueFutureRating) ? prev : current);
+
+          // Tiers
+          const tierCounts = {
+              elite: 0,
+              aboveAvg: 0,
+              average: 0,
+              fringe: 0
+          };
+
+          allOrgProspects.forEach(p => {
+              if (p.trueFutureRating >= 4.5) tierCounts.elite++;
+              else if (p.trueFutureRating >= 3.5) tierCounts.aboveAvg++;
+              else if (p.trueFutureRating >= 2.5) tierCounts.average++;
+              else tierCounts.fringe++;
+          });
+
+          systems.push({
+              teamId: orgId,
+              teamName: team.nickname,
+              totalWar,
+              prospectCount: allOrgProspects.length,
+              topProspectName: topProspect.name,
+              topProspectId: topProspect.playerId,
+              tierCounts
+          });
+      });
+
+      // Sort Top 100 Prospects by TFR desc
+      const sortedProspects = allProspects.sort((a, b) => {
+          if (b.trueFutureRating !== a.trueFutureRating) {
+              return b.trueFutureRating - a.trueFutureRating;
+          }
+          return b.peakWar - a.peakWar;
+      });
+
+      return {
+          reports,
+          systems: systems.sort((a, b) => b.totalWar - a.totalWar),
+          prospects: sortedProspects
+      };
+  }
+
+  private getLevelLabel(level: number): string {
+      // Mapping based on typical OOTP level IDs or standard intuition
+      // 1: MLB, 2: AAA, 3: AA, 4: A+, 5: A, 6: A-, 7: R
+      // Let's assume standard mapping or just return the number if unsure.
+      // Need to verify Player.ts or similar for Level enum. 
+      // Checked Player.ts, it doesn't have Level enum.
+      // We'll return a string representation.
+      switch(level) {
+          case 1: return 'MLB';
+          case 2: return 'AAA';
+          case 3: return 'AA';
+          case 4: return 'A+';
+          case 5: return 'A';
+          case 6: return 'A-';
+          case 7: return 'R'; // Rookie
+          case 8: return 'DSL'; // International Complex
+          default: return `Lvl ${level}`;
+      }
+  }
+
   async getProjectedTeamRatings(baseYear: number): Promise<TeamRatingResult[]> {
       const projections = await projectionService.getProjections(baseYear, { forceRosterRefresh: true });
       const leagueStats = await leagueStatsService.getLeagueStats(baseYear);

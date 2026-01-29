@@ -3,7 +3,7 @@ import { Player } from './models';
 import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
-import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TradeAnalyzerView } from './views';
+import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TradeAnalyzerView, AboutView } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
 
 class App {
@@ -21,6 +21,7 @@ class App {
   private teamRatingsView?: TeamRatingsView;
   private devTrackerView?: DevTrackerView;
   private tradeAnalyzerView?: TradeAnalyzerView;
+  private aboutView!: AboutView;
   private projectionsContainer!: HTMLElement;
   private teamRatingsContainer!: HTMLElement;
   private devTrackerContainer!: HTMLElement;
@@ -194,6 +195,19 @@ class App {
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
     this.rateLimitView = new ErrorView(rateLimitContainer);
+    this.aboutView = new AboutView();
+    this.setupAboutPageTrigger();
+  }
+
+  private setupAboutPageTrigger(): void {
+    const gameDateElement = document.querySelector<HTMLElement>('#game-date');
+    if (gameDateElement) {
+      gameDateElement.addEventListener('dblclick', () => {
+        this.aboutView.show();
+      });
+      gameDateElement.style.cursor = 'pointer';
+      gameDateElement.title = 'Double-click to view About page';
+    }
   }
 
   private setupRateLimitHandling(): void {

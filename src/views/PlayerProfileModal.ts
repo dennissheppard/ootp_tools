@@ -28,7 +28,7 @@ export class PlayerProfileModal {
   private currentMlbStats: SeasonStatsRow[] = [];
   private mlbDebutYear: number | null = null;
   private leagueFipLikes: number[] = [];
-  private cachedLeagueAverages: any = null; // Store league averages from table for consistent recalculation
+  // private cachedLeagueAverages: any = null; // Store league averages from table for consistent recalculation
   private cachedMlbStats: YearlyPitchingStats[] | null = null; // Store MLB stats from table for consistent recalculation
 
   // League configuration
@@ -141,7 +141,7 @@ export class PlayerProfileModal {
         this.leagueFipLikes = context.leagueFipLikes;
     }
     if (context?.leagueAverages) {
-        this.cachedLeagueAverages = context.leagueAverages;
+        // this.cachedLeagueAverages = context.leagueAverages;
     }
     if (context?.mlbStats) {
         this.cachedMlbStats = context.mlbStats;
@@ -290,7 +290,19 @@ export class PlayerProfileModal {
         const totalIp = this.currentMlbStats.reduce((sum, s) => sum + s.ip, 0);
         const age = player?.age ?? 30;
         
-        if (age < 26 && totalIp < 50 && !data.isProspect && !data.trueFutureRating) {
+        // Calculate TFR for MLB players with limited track record + real scouting data
+        // TFR represents future potential, not current performance
+        //
+        // Requirements:
+        // 1. Young (<26yo) - older players are what they are
+        // 2. Limited IP (<50) - minimal MLB track record
+        // 3. Has REAL scouting data - don't use fallback/generated ratings
+        // 4. Not already a prospect - prospects get TFR elsewhere
+        //
+        // This handles rookies/call-ups who have potential but limited MLB data
+        const hasRealScouting = data.hasMyScout || data.hasOsaScout;
+
+        if (age < 26 && totalIp < 50 && !data.isProspect && !data.trueFutureRating && hasRealScouting) {
             try {
                 // We need to calculate TFR on the fly
                 // Get all minor league stats for context
@@ -308,7 +320,7 @@ export class PlayerProfileModal {
                     hr9: s.hr9
                 }));
 
-                const scouting = data.activeScoutSource === 'osa' 
+                const scouting = data.activeScoutSource === 'osa'
                     ? { stuff: data.osaStuff, control: data.osaControl, hra: data.osaHra, ovr: data.osaOvr, pot: data.osaPot }
                     : { stuff: data.scoutStuff, control: data.scoutControl, hra: data.scoutHra, ovr: data.scoutOvr, pot: data.scoutPot };
 
@@ -325,10 +337,11 @@ export class PlayerProfileModal {
                     };
 
                     const tfrResult = trueFutureRatingService.calculateTrueFutureRatings([tfrInput], mlbFips)[0];
-                    
+
                     if (tfrResult) {
                         data.trueFutureRating = tfrResult.trueFutureRating;
                         data.tfrPercentile = tfrResult.percentile;
+                        data.starGap = tfrResult.starGap;
                         // data.isProspect = true; // REMOVED: Keep as MLB player to show current year stats/projections
                         
                         // Re-render header to show TFR badge
@@ -826,7 +839,7 @@ export class PlayerProfileModal {
             // Use cached league averages from table to ensure consistency
             // If not available, fetch them (but this should rarely happen)
             const year = baseData.year ?? await dateService.getCurrentYear();
-            const leagueAverages = this.cachedLeagueAverages ?? await trueRatingsService.getLeagueAverages(year);
+            // const leagueAverages = this.cachedLeagueAverages ?? await trueRatingsService.getLeagueAverages(year);
 
             // We need year weights
             const currentYear = await dateService.getCurrentYear();
@@ -849,7 +862,7 @@ export class PlayerProfileModal {
                     scoutingRatings: { ...scoutRatings, playerId: baseData.playerId } as any
                 };
 
-                const trResult = trueRatingsCalculationService.calculateSinglePitcher(trInput, leagueAverages, yearWeights);
+                const trResult = trueRatingsCalculationService.calculateSinglePitcher(trInput, yearWeights);
                 
                 if (trResult) {
                     updatedData.trueRating = trResult.trueRating;

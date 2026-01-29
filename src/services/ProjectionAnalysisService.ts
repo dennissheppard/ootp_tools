@@ -25,12 +25,25 @@ export interface StatDiffs {
   fip: number;
 }
 
+export interface Top10Comparison {
+  projectedWar: number;
+  actualWar: number;
+  projectedFip: number;
+  actualFip: number;
+  projectedIp: number;
+  actualIp: number;
+  playerName: string;
+  error: number; // actual - projected
+}
+
 export interface YearAnalysisResult {
   year: number;
   metrics: StatMetrics; // Overall metrics for this year
   metricsByTeam: Map<string, StatMetrics>;
   metricsByAge: Map<string, StatMetrics>;
   metricsByRole: Map<string, StatMetrics>; // SP vs RP breakdown
+  metricsByQuartile: Map<string, StatMetrics>; // Quartile by actual FIP performance
+  top10Comparison: Top10Comparison[]; // Projected vs actual top 10 WAR leaders
   details: {
       playerId: number;
       name: string;
@@ -39,9 +52,9 @@ export interface YearAnalysisResult {
       trueRating: number;
       percentile: number;
 
-      projected: { k9: number; bb9: number; hr9: number; fip: number; };
+      projected: { k9: number; bb9: number; hr9: number; fip: number; war: number; ip: number; };
       projectedRatings: { stuff: number; control: number; hra: number; };
-      actual: { k9: number; bb9: number; hr9: number; fip: number; };
+      actual: { k9: number; bb9: number; hr9: number; fip: number; war: number; };
       diff: StatDiffs; // Actual - Projected
 
       ip: number;
@@ -55,6 +68,8 @@ export interface AggregateAnalysisReport {
   metricsByTeam: Map<string, StatMetrics>;
   metricsByAge: Map<string, StatMetrics>;
   metricsByRole: Map<string, StatMetrics>; // SP vs RP breakdown
+  metricsByQuartile: Map<string, StatMetrics>; // Quartile by actual FIP performance
+  top10Comparison: Top10Comparison[]; // Aggregate top 10 comparison across all years
 }
 
 class ProjectionAnalysisService {
@@ -132,9 +147,22 @@ class ProjectionAnalysisService {
             age: proj.age,
             trueRating: proj.currentTrueRating,
             percentile: proj.currentPercentile || 0,
-            projected: { k9: projK9, bb9: projBB9, hr9: projHR9, fip: projFip },
+            projected: {
+                k9: projK9,
+                bb9: projBB9,
+                hr9: projHR9,
+                fip: projFip,
+                war: proj.projectedStats.war,
+                ip: proj.projectedStats.ip
+            },
             projectedRatings: proj.projectedRatings,
-            actual: { k9: actualK9, bb9: actualBB9, hr9: actualHR9, fip: actualFip },
+            actual: {
+                k9: actualK9,
+                bb9: actualBB9,
+                hr9: actualHR9,
+                fip: actualFip,
+                war: act.war
+            },
             diff: {
                 k9: actualK9 - projK9,
                 bb9: actualBB9 - projBB9,
@@ -183,12 +211,51 @@ class ProjectionAnalysisService {
     const metricsByRole = new Map<string, StatMetrics>();
     roleGroups.forEach((diffs, key) => metricsByRole.set(key, this.calculateStatMetrics(diffs)));
 
+    // Group by Performance Quartile (based on actual FIP)
+    const sortedByActualFip = [...details].sort((a, b) => a.actual.fip - b.actual.fip);
+    const quartileSize = Math.floor(sortedByActualFip.length / 4);
+    const quartileRanges = [
+        { label: 'Q1 (Elite)', start: 0, end: quartileSize },
+        { label: 'Q2 (Good)', start: quartileSize, end: quartileSize * 2 },
+        { label: 'Q3 (Average)', start: quartileSize * 2, end: quartileSize * 3 },
+        { label: 'Q4 (Below Avg)', start: quartileSize * 3, end: sortedByActualFip.length }
+    ];
+
+    const quartileGroups = new Map<string, StatDiffs[]>();
+    quartileRanges.forEach(q => {
+        const detailsInRange = sortedByActualFip.slice(q.start, q.end);
+        const minFip = detailsInRange[0]?.actual.fip ?? 0;
+        const maxFip = detailsInRange[detailsInRange.length - 1]?.actual.fip ?? 0;
+        const label = `${q.label} (FIP: ${minFip.toFixed(2)}-${maxFip.toFixed(2)})`;
+        quartileGroups.set(label, detailsInRange.map(d => d.diff));
+    });
+    const metricsByQuartile = new Map<string, StatMetrics>();
+    quartileGroups.forEach((diffs, key) => metricsByQuartile.set(key, this.calculateStatMetrics(diffs)));
+
+    // Top 10 Comparison: Find actual top 10 WAR leaders and compare to their projections
+    const top10Actual = [...details]
+        .sort((a, b) => b.actual.war - a.actual.war)
+        .slice(0, 10);
+
+    const top10Comparison: Top10Comparison[] = top10Actual.map(d => ({
+        playerName: d.name,
+        projectedWar: d.projected.war,
+        actualWar: d.actual.war,
+        projectedFip: d.projected.fip,
+        actualFip: d.actual.fip,
+        projectedIp: d.projected.ip,
+        actualIp: d.ip,
+        error: d.actual.war - d.projected.war
+    }));
+
     return {
         year,
         metrics,
         metricsByTeam,
         metricsByAge,
         metricsByRole,
+        metricsByQuartile,
+        top10Comparison,
         details
     };
   }
@@ -229,12 +296,38 @@ class ProjectionAnalysisService {
       const metricsByRole = new Map<string, StatMetrics>();
       roleGroups.forEach((diffs, key) => metricsByRole.set(key, this.calculateStatMetrics(diffs)));
 
+      // Aggregate by Performance Quartile (based on actual FIP)
+      const sortedByActualFip = [...allDetails].sort((a, b) => a.actual.fip - b.actual.fip);
+      const quartileSize = Math.floor(sortedByActualFip.length / 4);
+      const quartileRanges = [
+          { label: 'Q1 (Elite)', start: 0, end: quartileSize },
+          { label: 'Q2 (Good)', start: quartileSize, end: quartileSize * 2 },
+          { label: 'Q3 (Average)', start: quartileSize * 2, end: quartileSize * 3 },
+          { label: 'Q4 (Below Avg)', start: quartileSize * 3, end: sortedByActualFip.length }
+      ];
+
+      const aggregateQuartileGroups = new Map<string, StatDiffs[]>();
+      quartileRanges.forEach(q => {
+          const detailsInRange = sortedByActualFip.slice(q.start, q.end);
+          const minFip = detailsInRange[0]?.actual.fip ?? 0;
+          const maxFip = detailsInRange[detailsInRange.length - 1]?.actual.fip ?? 0;
+          const label = `${q.label} (FIP: ${minFip.toFixed(2)}-${maxFip.toFixed(2)})`;
+          aggregateQuartileGroups.set(label, detailsInRange.map(d => d.diff));
+      });
+      const metricsByQuartile = new Map<string, StatMetrics>();
+      aggregateQuartileGroups.forEach((diffs, key) => metricsByQuartile.set(key, this.calculateStatMetrics(diffs)));
+
+      // Aggregate top 10 comparison: flatten all years' top 10 comparisons
+      const top10Comparison: Top10Comparison[] = years.flatMap(y => y.top10Comparison);
+
       return {
           years,
           overallMetrics,
           metricsByTeam,
           metricsByAge,
-          metricsByRole
+          metricsByRole,
+          metricsByQuartile,
+          top10Comparison
       };
   }
 

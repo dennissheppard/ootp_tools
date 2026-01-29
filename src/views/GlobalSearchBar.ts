@@ -99,6 +99,8 @@ export class GlobalSearchBar {
         e.preventDefault();
         if (this.selectedIndex >= 0 && this.players[this.selectedIndex]) {
           this.handlePlayerSelect(this.players[this.selectedIndex]);
+        } else if (this.players.length === 1) {
+          this.handlePlayerSelect(this.players[0]);
         }
       } else if (e.key === 'Escape') {
         this.closeDropdown();

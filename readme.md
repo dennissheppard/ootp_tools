@@ -52,11 +52,13 @@ Instantly evaluate the pitching strength of every organization.
 *   **Aggregate WAR**: Ranks teams based on the total value of their staff.
 *   **Projected Improvement**: See which teams are trending up or down for the next season.
 
-### 4. Prospect Analysis (True Future Rating)
-Don't just look at stars—see the stats.
-*   **TFR (True Future Rating)**: Projects peak MLB performance for minor leaguers.
-*   **Level Adjustments**: Translates stats from Rookie/A/AA/AAA to MLB equivalents.
-*   **Scouting Blend**: Weighs "raw" potential vs. "proven" minor league production based on player age and development level.
+### 4. Farm Rankings & Prospect Analysis
+Comprehensive tools for evaluating organizational depth and individual talent.
+*   **Top Systems**: Ranks organizations by total **Peak WAR** across all qualified prospects. Provides a depth breakdown showing the number of prospects in each quality tier (Elite, Good, Average, Fringe).
+*   **Top 100**: A league-wide leaderboard of the best prospects ranked by **TFR (True Future Rating)** and **Peak WAR**.
+*   **Organizational Reports**: Detailed breakdowns of "Future Rotation" and "Future Bullpen" strength, identifying each team's top 5 prospects in each role.
+*   **Peak Projection**: Projects long-term value by calculating **Peak FIP** and **Peak WAR** using standardized workloads (180 IP for Starters, 65 IP for Relievers).
+*   **Level Adjustments**: Translates minor league performance from Rookie/A/AA/AAA into MLB-equivalent rates for accurate comparisons.
 
 ### 5. Calculators
 *   **Potential Stats**: Convert 20-80 ratings into projected ERA, K/9, and WAR.

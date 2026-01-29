@@ -88,10 +88,41 @@ export class PlayerRatingsCard {
     isProspect: boolean;
     ratingValue: number;
   } | null {
-    // For prospects, use TFR; for MLB players, use TR
+    // Determine whether to show TFR or TR:
+    // - Prospects (isProspect=true) → always TFR
+    // - MLB players with significant upside (starGap ≥ 0.5) → TFR
+    // - MLB players with limited experience → TFR
+    // - Established MLB players (≥50 IP, fully developed) → TR
     const isProspect = data.isProspect === true;
-    const ratingValue = isProspect ? data.trueFutureRating : data.trueRating;
-    const percentileValue = isProspect ? data.tfrPercentile : data.percentile;
+    const hasTfr = typeof data.trueFutureRating === 'number';
+    const hasTr = typeof data.trueRating === 'number';
+
+    // Star gap indicates development stage (POT - OVR)
+    // If undefined (no scouting), default to showing TFR if it was calculated
+    // (TFR only calculated for <50 IP players, indicating limited MLB experience)
+    const starGap = data.starGap;
+    const isFullyDeveloped = starGap !== undefined && starGap < 0.5;
+
+    // DEBUG for young players
+    const isYoung = (data.age ?? 30) < 25;
+    if (isYoung && hasTfr && hasTr) {
+      console.log(`BADGE: ${data.playerName} - isProspect=${isProspect}, hasTfr=${hasTfr}, hasTr=${hasTr}, starGap=${starGap}, isFullyDeveloped=${isFullyDeveloped}`);
+      console.log(`BADGE:   TR=${data.trueRating?.toFixed(1)}, TFR=${data.trueFutureRating?.toFixed(1)}, age=${data.age}`);
+    }
+
+    // Use TFR if:
+    // (1) marked as prospect, OR
+    // (2) has TFR but no TR (pure prospect), OR
+    // (3) has both TFR and TR, but NOT fully developed
+    //     - If starGap ≥ 0.5 → still developing, show TFR
+    //     - If starGap undefined → no scouting data, but TFR exists (limited IP), show TFR
+    const useTfr = isProspect || (hasTfr && !hasTr) || (hasTfr && hasTr && !isFullyDeveloped);
+    const ratingValue = useTfr ? data.trueFutureRating : data.trueRating;
+    const percentileValue = useTfr ? data.tfrPercentile : data.percentile;
+
+    if (isYoung && hasTfr && hasTr) {
+      console.log(`BADGE:   Decision: useTfr=${useTfr}, showing ${useTfr ? 'TFR' : 'TR'} = ${ratingValue?.toFixed(1)}`);
+    }
 
     if (typeof ratingValue !== 'number') return null;
 
@@ -104,12 +135,12 @@ export class PlayerRatingsCard {
     let indicator = '';
     let badgeTitle = '';
 
-    if (isProspect) {
+    if (useTfr) {
       indicator = '<span class="badge-indicator-tfr" title="True Future Rating (Projected)">F</span>';
       badgeTitle = 'True Future Rating (Projected)\nDerived from a secret blend of scouting potential, minor league performance, and the ashes of Hank Aaron\'s bat.';
     } else {
       indicator = hasScout ? '' : '<span class="badge-indicator" title="Stats only - no scouting data">#</span>';
-      badgeTitle = hasScout 
+      badgeTitle = hasScout
         ? 'True Rating (with scouting)\nDerived from a proprietary blend of scouting reports, advanced metrics, and the tears of Nolan Ryan\'s victims.'
         : 'True Rating (stats only)\nBased purely on performance metrics (and a pinch of wizardry).';
     }
@@ -122,7 +153,7 @@ export class PlayerRatingsCard {
       badgeTitle,
       percentileText,
       hasScout,
-      isProspect,
+      isProspect: useTfr, // Return useTfr to indicate we're showing TFR (not just isProspect flag)
       ratingValue,
     };
   }

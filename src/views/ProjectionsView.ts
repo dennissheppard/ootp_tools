@@ -557,7 +557,7 @@ export class ProjectionsView {
       // Hide pagination controls in analysis mode
       this.updatePagination(0);
 
-      const { overallMetrics, years, metricsByTeam, metricsByAge, metricsByRole } = this.analysisReport;
+      const { overallMetrics, years, metricsByTeam, metricsByAge, metricsByRole, metricsByQuartile, top10Comparison } = this.analysisReport;
 
       const getBiasClass = (bias: number) => {
           if (Math.abs(bias) < 0.10) return 'text-success'; 
@@ -653,6 +653,25 @@ export class ProjectionsView {
           </tr>
       `).join('');
 
+      // Quartile Table (FIP only) - Grouped by actual FIP performance
+      const quartileOrder = ['Q1 (Elite)', 'Q2 (Good)', 'Q3 (Average)', 'Q4 (Below Avg)'];
+      const sortedQuartiles = Array.from(metricsByQuartile.entries()).sort((a, b) => {
+          const aPrefix = a[0].split(' ')[0]; // Extract "Q1", "Q2", etc.
+          const bPrefix = b[0].split(' ')[0];
+          const aIndex = quartileOrder.findIndex(q => q.startsWith(aPrefix));
+          const bIndex = quartileOrder.findIndex(q => q.startsWith(bPrefix));
+          return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+      });
+      const quartileRows = sortedQuartiles.map(([quartile, m]) => `
+          <tr>
+              <td>${quartile}</td>
+              <td class="${getMaeClass(m.fip.mae)}">${m.fip.mae.toFixed(3)}</td>
+              <td>${m.fip.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(m.fip.bias)}">${m.fip.bias > 0 ? '+' : ''}${m.fip.bias.toFixed(3)}</td>
+              <td>${m.fip.count}</td>
+          </tr>
+      `).join('');
+
       // Stat Breakdown Table
       const statRows = [
           renderStatRow('FIP', overallMetrics.fip),
@@ -660,6 +679,31 @@ export class ProjectionsView {
           renderStatRow('BB/9', overallMetrics.bb9),
           renderStatRow('HR/9', overallMetrics.hr9),
       ].join('');
+
+      // Top 10 WAR Comparison Table
+      const top10Rows = top10Comparison.map((t, idx) => {
+          const warErrorClass = Math.abs(t.error) > 1.0 ? 'text-danger' : (Math.abs(t.error) > 0.5 ? 'text-warning' : 'text-success');
+          return `
+              <tr>
+                  <td>${idx + 1}</td>
+                  <td>${t.playerName}</td>
+                  <td>${t.projectedWar.toFixed(1)}</td>
+                  <td>${t.actualWar.toFixed(1)}</td>
+                  <td class="${warErrorClass}">${t.error >= 0 ? '+' : ''}${t.error.toFixed(1)}</td>
+                  <td>${t.projectedFip.toFixed(2)}</td>
+                  <td>${t.actualFip.toFixed(2)}</td>
+                  <td>${t.projectedIp.toFixed(0)}</td>
+                  <td>${t.actualIp.toFixed(0)}</td>
+              </tr>
+          `;
+      }).join('');
+
+      // Calculate top 10 summary stats
+      const top10WarErrors = top10Comparison.map(t => t.error);
+      const top10MeanError = top10WarErrors.reduce((sum, e) => sum + e, 0) / top10WarErrors.length;
+      const top10MaeWar = top10WarErrors.reduce((sum, e) => sum + Math.abs(e), 0) / top10WarErrors.length;
+      const avgProjWar = top10Comparison.reduce((sum, t) => sum + t.projectedWar, 0) / top10Comparison.length;
+      const avgActualWar = top10Comparison.reduce((sum, t) => sum + t.actualWar, 0) / top10Comparison.length;
 
       // Top Outliers Table
       const allDetails = years.flatMap(y => y.details.map(d => ({ ...d, year: y.year })));
@@ -728,6 +772,53 @@ export class ProjectionsView {
                               </tr>
                           </thead>
                           <tbody>${roleRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-split" style="grid-template-columns: 1fr; margin-top: 20px;">
+                  <div class="analysis-section">
+                      <h4>Accuracy by Performance Quartile (FIP)</h4>
+                      <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">
+                          Pitchers grouped by their actual FIP performance. Helps identify if projections systematically under/over-estimate elite or poor performers.
+                      </p>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Quartile</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${quartileRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-section" style="margin-top: 20px;">
+                  <h4>Top 10 WAR Leaders: Projected vs Actual</h4>
+                  <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">
+                      Compares the actual top 10 WAR leaders to their projections. This helps identify if we're systematically under/over-projecting elite pitcher performance.
+                      <br><strong>Summary:</strong> Avg Projected WAR = ${avgProjWar.toFixed(2)}, Avg Actual WAR = ${avgActualWar.toFixed(2)}, Mean Error = ${top10MeanError >= 0 ? '+' : ''}${top10MeanError.toFixed(2)}, MAE = ${top10MaeWar.toFixed(2)}
+                  </p>
+                  <div class="table-wrapper" style="max-height: 500px; overflow-y: auto;">
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Rank</th>
+                                  <th>Player</th>
+                                  <th>Proj WAR</th>
+                                  <th>Act WAR</th>
+                                  <th>Error</th>
+                                  <th>Proj FIP</th>
+                                  <th>Act FIP</th>
+                                  <th>Proj IP</th>
+                                  <th>Act IP</th>
+                              </tr>
+                          </thead>
+                          <tbody>${top10Rows}</tbody>
                       </table>
                   </div>
               </div>

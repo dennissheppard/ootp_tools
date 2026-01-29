@@ -22,20 +22,20 @@ export interface LeagueConstants {
     runsPerWin: number;
 }
 
-// WBL league defaults - calibrated from OOTP WAR data analysis
-// OOTP uses different params for starters vs relievers (leverage adjustment)
+// WBL league defaults - calibrated from OOTP 2018-2020 WAR data analysis
+// Note: These are fallbacks only; prefer using league-specific context when available
 const WBL_DEFAULTS: LeagueConstants = {
     fipConstant: 3.47,
-    replacementFip: 5.25,  // Starter replacement level (from OOTP data regression)
-    runsPerWin: 9.00,      // Dynamic in OOTP; 9.0 best fits starter data
+    replacementFip: 5.20,  // Calibrated: avgFip (~4.20) + 1.00 (matches OOTP across all tiers)
+    runsPerWin: 8.50,      // Standard WAR conversion rate
 };
 
-// Role-based WAR parameters (derived from OOTP data regression)
-// OOTP adjusts for leverage - relievers need lower FIP to earn positive WAR
+// Role-based WAR parameters (calibrated from OOTP 2018-2020 WAR distribution)
+// OOTP uses consistent replacement level across roles
 const ROLE_PARAMS = {
-    starter: { replacementFip: 5.25, runsPerWin: 9.00 },    // IP >= 150
-    middle: { replacementFip: 4.90, runsPerWin: 8.50 },     // 80 <= IP < 150
-    reliever: { replacementFip: 4.60, runsPerWin: 9.00 },   // IP < 80
+    starter: { replacementFip: 5.20, runsPerWin: 8.50 },    // IP >= 150
+    middle: { replacementFip: 5.20, runsPerWin: 8.50 },     // 80 <= IP < 150
+    reliever: { replacementFip: 5.20, runsPerWin: 8.50 },   // IP < 80
 };
 
 class FipWarService {
