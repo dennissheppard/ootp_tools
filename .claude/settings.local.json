@@ -17,7 +17,10 @@
       "Bash(npx stylelint:*)",
       "Bash(grep:*)",
       "Bash(npx tsx:*)",
-      "Bash(powershell -Command \"Get-Content ''C:\\\\Users\\\\neags\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-neags-Downloads-dev-projects-wbl\\\\tasks\\\\b372623.output'' -Tail 40\")"
+      "Bash(powershell -Command \"Get-Content ''C:\\\\Users\\\\neags\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-neags-Downloads-dev-projects-wbl\\\\tasks\\\\b372623.output'' -Tail 40\")",
+      "WebFetch(domain:wiki.statsplus.net)",
+      "Bash(find:*)",
+      "Bash(node scripts/fetch-minors-data.js:*)"
     ]
   }
 }

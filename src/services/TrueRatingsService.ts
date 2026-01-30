@@ -11,7 +11,7 @@ import { apiFetch } from './ApiClient';
 export interface PlayerYearlyDetail {
   year: number;
   ip: number;
-  era: number;
+  fip: number;  // Changed from era to fip (fielding independent pitching)
   k9: number;
   bb9: number;
   hr9: number;
@@ -137,7 +137,7 @@ const API_BASE = '/api';
 const CACHE_KEY_PREFIX = 'wbl_true_ratings_cache_';
 const CACHE_TIMESTAMP_KEY_PREFIX = 'wbl_true_ratings_cache_timestamp_';
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
-const LEAGUE_START_YEAR = 2000;
+export const LEAGUE_START_YEAR = 2000;
 
 class TrueRatingsService {
   private inMemoryPitchingCache: Map<number, TruePlayerStats[]> = new Map();
@@ -212,9 +212,89 @@ class TrueRatingsService {
     return normalized;
   }
 
+  /**
+   * Load bundled MLB pitching data from CSV files
+   * @returns Object with count of files loaded and any errors
+   */
+  async loadDefaultMlbData(): Promise<{ loaded: number; errors: string[] }> {
+    const startYear = LEAGUE_START_YEAR;
+    const currentYear = await dateService.getCurrentYear();
+    const endYear = currentYear + 5; // Try up to current year + 5
+
+    let loaded = 0;
+    const errors: string[] = [];
+
+    console.log(`📦 Loading bundled MLB data (${startYear}-${currentYear}, checking up to ${endYear})...`);
+
+    for (let year = startYear; year <= endYear; year++) {
+      try {
+        const filename = `${year}.csv`;
+        const url = `/data/mlb/${filename}`;
+
+        // Check if data already exists in cache
+        const existing = this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
+        if (existing && existing.length > 0) {
+          console.log(`⏭️  Skipping ${filename} (already cached)`);
+          continue;
+        }
+
+        // Fetch the bundled CSV
+        const response = await fetch(url);
+        if (!response.ok) {
+          // Don't error on 404 - some years might not have data
+          if (response.status === 404) {
+            console.log(`⏭️  Skipping ${filename} (not in bundle)`);
+          } else {
+            errors.push(`${filename}: HTTP ${response.status}`);
+          }
+          continue;
+        }
+
+        const csvText = await response.text();
+        const rawStats = this.parseStatsCsv(csvText, 'pitching') as TruePitchingStats[];
+
+        if (rawStats.length === 0) {
+          console.warn(`⚠️  ${filename} parsed to 0 records, skipping`);
+          continue;
+        }
+
+        // Process stats to add player info (same as fetchAndProcessStats)
+        const players = await playerService.getAllPlayers();
+        const playerMap = new Map<number, Player>();
+        for (const player of players) {
+          playerMap.set(player.id, player);
+        }
+
+        const processedStats = rawStats
+          .map(stat => ({
+            ...stat,
+            playerName: playerMap.get(stat.player_id)
+              ? `${playerMap.get(stat.player_id)!.firstName} ${playerMap.get(stat.player_id)!.lastName}`
+              : 'Unknown Player',
+            position: playerMap.get(stat.player_id)?.position || 1
+          }))
+          .filter(s => s.split_id === 1) as TruePlayerStats[];
+
+        const normalized = this.combinePitchingStats(processedStats);
+
+        // Save to cache (permanent cache for historical data)
+        this.saveToCache(year, normalized, 'pitching', true);
+        loaded++;
+        console.log(`✅ Loaded ${filename} (${normalized.length} players)`);
+
+      } catch (error) {
+        errors.push(`${year}: ${error}`);
+        console.error(`❌ Failed to load ${year}:`, error);
+      }
+    }
+
+    console.log(`📦 Bundled MLB data load complete: ${loaded} datasets loaded, ${errors.length} errors`);
+    return { loaded, errors };
+  }
+
   private async fetchAndProcessStats(year: number, type: StatsType, apiEndpoint: string): Promise<(TruePlayerStats | TruePlayerBattingStats)[]> {
     if (year < LEAGUE_START_YEAR) return [];
-    
+
     const response = await apiFetch(`${API_BASE}/${apiEndpoint}/?year=${year}`);
     if (!response.ok) {
       throw new Error(`Failed to fetch true ${type} stats for ${year}`);
@@ -223,7 +303,7 @@ class TrueRatingsService {
     const csvText = await response.text();
     const stats = this.parseStatsCsv(csvText, type);
     const players = await playerService.getAllPlayers();
-    
+
     const playerMap = new Map<number, Player>();
     for (const player of players) {
       playerMap.set(player.id, player);
@@ -737,13 +817,18 @@ class TrueRatingsService {
       statsByYear.forEach((totals, year) => {
         const ip = totals.ipOuts / 3;
         if (ip > 0) {
+          const k9 = (totals.k / ip) * 9;
+          const bb9 = (totals.bb / ip) * 9;
+          const hr9 = (totals.hr / ip) * 9;
+          const fip = ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47; // FIP constant for WBL
+
           results.push({
             year,
             ip: Math.round(ip * 10) / 10,
-            era: Math.round((totals.er / ip) * 9 * 100) / 100,
-            k9: Math.round((totals.k / ip) * 9 * 100) / 100,
-            bb9: Math.round((totals.bb / ip) * 9 * 100) / 100,
-            hr9: Math.round((totals.hr / ip) * 9 * 100) / 100,
+            fip: Math.round(fip * 100) / 100,
+            k9: Math.round(k9 * 100) / 100,
+            bb9: Math.round(bb9 * 100) / 100,
+            hr9: Math.round(hr9 * 100) / 100,
             war: Math.round(totals.war * 10) / 10,
             gs: totals.gs
           });

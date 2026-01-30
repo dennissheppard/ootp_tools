@@ -472,6 +472,84 @@ class ScoutingDataService {
   private isNumber(value: number | null): value is number {
     return typeof value === 'number' && Number.isFinite(value);
   }
+
+  /**
+   * Check if the bundled default OSA CSV file exists and is valid
+   * @returns Object with exists flag, count, and any error message
+   */
+  async checkDefaultOsaFile(): Promise<{ exists: boolean; count: number; error?: string }> {
+    try {
+      console.log('🔍 Checking for bundled OSA file at /data/default_osa_scouting.csv...');
+      const response = await fetch('/data/default_osa_scouting.csv');
+
+      if (!response.ok) {
+        console.warn(`❌ Bundled OSA file not found: ${response.status} ${response.statusText}`);
+        return { exists: false, count: 0, error: `File not found (${response.status})` };
+      }
+
+      const csvText = await response.text();
+      const ratings = this.parseScoutingCsv(csvText, 'osa');
+
+      console.log(`✅ Bundled OSA file found with ${ratings.length} ratings`);
+      return { exists: true, count: ratings.length };
+    } catch (error) {
+      console.error('❌ Error checking bundled OSA file:', error);
+      return { exists: false, count: 0, error: String(error) };
+    }
+  }
+
+  /**
+   * Load default OSA scouting data from bundled CSV file.
+   * This should be called during onboarding if no OSA data exists.
+   * @param gameDate The current game date to associate with the default data
+   * @param force If true, load even if OSA data already exists
+   * @returns The number of ratings loaded, or 0 if failed
+   */
+  async loadDefaultOsaData(gameDate: string, force: boolean = false): Promise<number> {
+    try {
+      console.log('📋 loadDefaultOsaData called', { gameDate, force });
+
+      // Check if OSA data already exists
+      if (!force) {
+        const existingOsa = await this.getLatestScoutingRatings('osa');
+        if (existingOsa.length > 0) {
+          console.log(`ℹ️ OSA data already exists (${existingOsa.length} ratings), skipping load`);
+          return 0;
+        }
+      } else {
+        console.log('⚠️ Force flag set - will load default OSA data even if it exists');
+      }
+
+      // Fetch the bundled CSV from public folder
+      console.log('🌐 Fetching /data/default_osa_scouting.csv...');
+      const response = await fetch('/data/default_osa_scouting.csv');
+      if (!response.ok) {
+        console.error(`❌ Failed to fetch default OSA data: ${response.status} ${response.statusText}`);
+        throw new Error(`Failed to fetch default OSA data: ${response.statusText}`);
+      }
+
+      const csvText = await response.text();
+      console.log(`📄 CSV loaded, size: ${csvText.length} bytes`);
+
+      const ratings = this.parseScoutingCsv(csvText, 'osa');
+      console.log(`🔍 Parsed ${ratings.length} ratings from CSV`);
+
+      if (ratings.length === 0) {
+        console.warn('⚠️ No valid ratings found in default OSA CSV (might be empty or header-only)');
+        return 0;
+      }
+
+      // Save with the current game date
+      console.log(`💾 Saving ${ratings.length} OSA ratings with date ${gameDate}...`);
+      await this.saveScoutingRatings(gameDate, ratings, 'osa');
+      console.log(`✅ Successfully loaded ${ratings.length} default OSA scouting ratings`);
+
+      return ratings.length;
+    } catch (error) {
+      console.error('❌ Failed to load default OSA data:', error);
+      return 0;
+    }
+  }
 }
 
 export const scoutingDataService = new ScoutingDataService();

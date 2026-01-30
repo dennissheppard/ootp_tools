@@ -3,6 +3,7 @@ import { Player } from './models';
 import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
+import { indexedDBService } from './services/IndexedDBService';
 import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TradeAnalyzerView, AboutView } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
 
@@ -30,14 +31,25 @@ class App {
   private selectedYear?: number;
   private isGlobalSearchActive = false;
 
+  private readonly TAB_PREF_KEY = 'wbl-active-tab';
+
   constructor() {
     this.controller = new PlayerController();
+    this.restoreTabPreference();
     this.initializeDOM();
     this.initializeViews();
     this.setupRateLimitHandling();
     this.setupTabs();
     this.bindController();
     this.preloadPlayers();
+    this.checkFirstTimeSetup();
+  }
+
+  private restoreTabPreference(): void {
+    const savedTab = localStorage.getItem(this.TAB_PREF_KEY);
+    if (savedTab) {
+      this.activeTabId = savedTab;
+    }
   }
 
   private initializeDOM(): void {
@@ -63,77 +75,77 @@ class App {
       <div id="rate-limit-container"></div>
 
       <nav class="tabs">
-        <button class="tab-button active" data-tab-target="tab-true-ratings">
+        <button class="tab-button ${this.activeTabId === 'tab-true-ratings' ? 'active' : ''}" data-tab-target="tab-true-ratings">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
           <span>True Ratings</span>
         </button>
-        <button class="tab-button" data-tab-target="tab-projections">
+        <button class="tab-button ${this.activeTabId === 'tab-projections' ? 'active' : ''}" data-tab-target="tab-projections">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
           <span>Projections</span>
         </button>
-        <button class="tab-button" data-tab-target="tab-farm-rankings">
+        <button class="tab-button ${this.activeTabId === 'tab-farm-rankings' ? 'active' : ''}" data-tab-target="tab-farm-rankings">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
           <span>Farm Rankings</span>
         </button>
-        <button class="tab-button" data-tab-target="tab-team-ratings">
+        <button class="tab-button ${this.activeTabId === 'tab-team-ratings' ? 'active' : ''}" data-tab-target="tab-team-ratings">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           <span>Team Ratings</span>
         </button>
-        <button class="tab-button" data-tab-target="tab-dev-tracker">
+        <button class="tab-button ${this.activeTabId === 'tab-dev-tracker' ? 'active' : ''}" data-tab-target="tab-dev-tracker">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M12 2v10l4.5 4.5"/><circle cx="12" cy="12" r="10"/></svg>
           <span>Dev Tracker</span>
         </button>
-        <button class="tab-button" data-tab-target="tab-trade-analyzer">
+        <button class="tab-button ${this.activeTabId === 'tab-trade-analyzer' ? 'active' : ''}" data-tab-target="tab-trade-analyzer">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M16 3h5v5"></path><path d="M8 21H3v-5"></path><path d="M21 3l-7.5 7.5"></path><path d="M10.5 13.5L3 21"></path></svg>
           <span>Trade Analyzer</span>
         </button>
-        <button class="tab-button" data-tab-target="tab-calculators">
+        <button class="tab-button ${this.activeTabId === 'tab-calculators' ? 'active' : ''}" data-tab-target="tab-calculators">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           <span>Calculators</span>
         </button>
       </nav>
 
       <div class="tab-panels">
-        <section id="tab-search" class="tab-panel">
+        <section id="tab-search" class="tab-panel ${this.activeTabId === 'tab-search' ? 'active' : ''}">
           <div id="error-container"></div>
           <div id="search-container"></div>
           <div id="player-list-container"></div>
           <div id="stats-container"></div>
         </section>
 
-        <section id="tab-calculators" class="tab-panel">
+        <section id="tab-calculators" class="tab-panel ${this.activeTabId === 'tab-calculators' ? 'active' : ''}">
           <div id="calculators-container"></div>
         </section>
 
-        <section id="tab-draft" class="tab-panel">
+        <section id="tab-draft" class="tab-panel ${this.activeTabId === 'tab-draft' ? 'active' : ''}">
           <div id="draft-board-container"></div>
         </section>
 
-        <section id="tab-true-ratings" class="tab-panel active">
+        <section id="tab-true-ratings" class="tab-panel ${this.activeTabId === 'tab-true-ratings' ? 'active' : ''}">
           <div id="true-ratings-container"></div>
         </section>
         
-        <section id="tab-projections" class="tab-panel">
+        <section id="tab-projections" class="tab-panel ${this.activeTabId === 'tab-projections' ? 'active' : ''}">
           <div id="projections-container"></div>
         </section>
 
-        <section id="tab-farm-rankings" class="tab-panel">
+        <section id="tab-farm-rankings" class="tab-panel ${this.activeTabId === 'tab-farm-rankings' ? 'active' : ''}">
           <div id="farm-rankings-container">Farm Rankings Content Here</div>
         </section>
 
-        <section id="tab-team-ratings" class="tab-panel">
+        <section id="tab-team-ratings" class="tab-panel ${this.activeTabId === 'tab-team-ratings' ? 'active' : ''}">
           <div id="team-ratings-container">Team Ratings Content Here</div>
         </section>
 
-        <section id="tab-dev-tracker" class="tab-panel">
+        <section id="tab-dev-tracker" class="tab-panel ${this.activeTabId === 'tab-dev-tracker' ? 'active' : ''}">
           <div id="dev-tracker-container"></div>
         </section>
 
-        <section id="tab-trade-analyzer" class="tab-panel">
+        <section id="tab-trade-analyzer" class="tab-panel ${this.activeTabId === 'tab-trade-analyzer' ? 'active' : ''}">
           <div id="trade-analyzer-container"></div>
         </section>
 
-        <section id="tab-data-management" class="tab-panel">
+        <section id="tab-data-management" class="tab-panel ${this.activeTabId === 'tab-data-management' ? 'active' : ''}">
           <div id="data-management-container"></div>
         </section>
       </div>
@@ -197,6 +209,20 @@ class App {
     this.rateLimitView = new ErrorView(rateLimitContainer);
     this.aboutView = new AboutView();
     this.setupAboutPageTrigger();
+
+    // Initialize any views that are for the active tab (if they use lazy loading)
+    if (this.activeTabId === 'tab-projections') {
+      this.projectionsView = new ProjectionsView(this.projectionsContainer);
+    }
+    if (this.activeTabId === 'tab-team-ratings') {
+      this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);
+    }
+    if (this.activeTabId === 'tab-dev-tracker') {
+      this.devTrackerView = new DevTrackerView(this.devTrackerContainer);
+    }
+    if (this.activeTabId === 'tab-trade-analyzer') {
+      this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
+    }
   }
 
   private setupAboutPageTrigger(): void {
@@ -257,6 +283,7 @@ class App {
   private setActiveTab(tabId: string): void {
     if (this.activeTabId === tabId) return;
     this.activeTabId = tabId;
+    localStorage.setItem(this.TAB_PREF_KEY, tabId);
 
     const tabButtons = document.querySelectorAll<HTMLButtonElement>('[data-tab-target]');
     const tabPanels = document.querySelectorAll<HTMLElement>('.tab-panel');
@@ -359,6 +386,23 @@ class App {
         console.error('Failed to fetch game date', err);
         this.updateGameDateDisplay('', true);
       });
+  }
+
+  private async checkFirstTimeSetup(): Promise<void> {
+    try {
+      const hasData = await indexedDBService.hasMinorLeagueData();
+
+      if (!hasData) {
+        // No minor league data - navigate to Data Management for onboarding
+        console.log('🎯 First-time user detected - navigating to Data Management');
+        this.setActiveTab('tab-data-management');
+
+        // Dispatch event to trigger onboarding in DataManagementView
+        window.dispatchEvent(new CustomEvent('wbl:first-time-onboarding'));
+      }
+    } catch (error) {
+      console.error('Error checking for minor league data:', error);
+    }
   }
 
   private updateGameDateDisplay(dateStr: string, isError = false): void {

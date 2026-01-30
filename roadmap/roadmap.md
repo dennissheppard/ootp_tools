@@ -1,20 +1,7 @@
 # True Ratings Roadmap
 
-## Recent Decisions
 
-### xFIP Removal from True Ratings Page
-**Status**: ✅ Completed
-
-**Rationale**:
-- xFIP is a descriptive stat (backward-looking) that measures what a pitcher's FIP *should have been* after removing HR luck
-- This creates confusion when compared to projections (forward-looking), especially for aging players
-- Example: A 37-year-old shows xFIP 3.36 (past performance adjusted) vs projected FIP 3.68 (future with age decline)
-- The True Rating blend already captures talent level without needing xFIP
-- Removed from True Ratings toggle; will be added to future Analytics/Metrics section
-
----
-
-## Feature Backlog
+## Feature Backlog - [In Progress]
 
 ### Farm System Rankings
 **Priority**: High
@@ -26,7 +13,7 @@
   - All else equal, prefer the higher-rated BABIP prospect
   - Risk: May create confusion if rating and projection use different inputs
 
-### Trade Analyzer
+### Trade Analyzer - [In Progress]
 **Priority**: High
 
 Build a tool to evaluate trade proposals by comparing true ratings and projections of players involved.
@@ -41,7 +28,7 @@ Currently the app only handles pitching. Need to duplicate core functionality fo
 - [ ] Extend True Ratings system to batting metrics
 - [ ] Extend projections to batting metrics
 
-### WAR Formula Refinement
+### WAR Formula Refinement - [In Progress]
 **Priority**: Medium
 
 - [ ] Revisit/refine Pitching WAR formula to more closely match OOTP's calculations
@@ -102,7 +89,23 @@ Advanced analytics and luck indicators for deeper performance analysis.
 - [ ] **Year-over-year comparisons** for detecting trends
 - [ ] **Regression candidates** - players likely to regress or improve based on luck indicators
 
+### What is the value of a draft pick?
+**Priority**: Low
+Look how draft picks ultimately panned out. 
+
+- [ ] **Collect historical draft data**
+  - Where each player was drafted
+  - Compare to major league success
+- [ ] **Include financial data**
+  - What's the monetary value
+  
+
 ---
+
+### OOTP Financial Management
+**Priority**: Low
+
+- [ ] **Ticket price optimizing**
 
 ## Questions to Resolve
 

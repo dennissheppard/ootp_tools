@@ -66,8 +66,9 @@ export interface FarmSystemRankings {
     teamName: string;
     rotationScore: number;
     bullpenScore: number;
-    rotation: RatedProspect[];
-    bullpen: RatedProspect[];
+    rotation: RatedProspect[]; // Top 5
+    bullpen: RatedProspect[];  // Top 5
+    allProspects: RatedProspect[]; // Full List
 }
 
 export interface FarmSystemOverview {
@@ -221,11 +222,11 @@ class TeamRatingsService {
           // 1. Reports Data
           group.rotation.sort((a, b) => b.peakWar - a.peakWar);
           const topRotation = group.rotation.slice(0, 5);
-          const rotationScore = topRotation.reduce((sum, p) => sum + p.peakWar, 0);
+          const rotationScore = topRotation.reduce((sum, p) => sum + Math.max(0, p.peakWar), 0);
 
           group.bullpen.sort((a, b) => b.peakWar - a.peakWar);
           const topBullpen = group.bullpen.slice(0, 5);
-          const bullpenScore = topBullpen.reduce((sum, p) => sum + p.peakWar, 0);
+          const bullpenScore = topBullpen.reduce((sum, p) => sum + Math.max(0, p.peakWar), 0);
 
           reports.push({
               teamId: orgId,
@@ -233,17 +234,34 @@ class TeamRatingsService {
               rotationScore,
               bullpenScore,
               rotation: topRotation,
-              bullpen: topBullpen
+              bullpen: topBullpen,
+              allProspects: [...group.rotation, ...group.bullpen].sort((a, b) => b.peakWar - a.peakWar)
           });
 
           // 2. System Overview Data
           const allOrgProspects = [...group.rotation, ...group.bullpen];
           
-          // Total WAR
-          const totalWar = allOrgProspects.reduce((sum, p) => sum + p.peakWar, 0);
+          // Calculate True Farm Rating (Farm Score)
+          // Formula: Sum(top 10) + 0.5 * Sum(next 20) + 0.25 * Sum(next 30)
+          // Only counting positive WAR contributions
+          
+          // Sort all prospects by Peak WAR descending
+          allOrgProspects.sort((a, b) => b.peakWar - a.peakWar);
 
-          // Top Prospect
-          const topProspect = allOrgProspects.reduce((prev, current) => (prev.trueFutureRating > current.trueFutureRating) ? prev : current);
+          const getPosWar = (p: RatedProspect) => Math.max(0, p.peakWar);
+
+          const top10 = allOrgProspects.slice(0, 10).reduce((sum, p) => sum + getPosWar(p), 0);
+          const next20 = allOrgProspects.slice(10, 30).reduce((sum, p) => sum + getPosWar(p), 0);
+          const next30 = allOrgProspects.slice(30, 60).reduce((sum, p) => sum + getPosWar(p), 0);
+
+          const totalWar = top10 + (0.5 * next20) + (0.25 * next30);
+
+          // Top Prospect - Highest Peak WAR, with TFR as tie-breaker
+          const topProspect = allOrgProspects.reduce((prev, current) => {
+              if (current.peakWar > prev.peakWar) return current;
+              if (current.peakWar === prev.peakWar && current.trueFutureRating > prev.trueFutureRating) return current;
+              return prev;
+          });
 
           // Tiers
           const tierCounts = {

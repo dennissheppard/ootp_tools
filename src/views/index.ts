@@ -18,3 +18,4 @@ export * from './ProjectionsView';
 export * from './DevTrackerView';
 export * from './TradeAnalyzerView';
 export * from './AboutView';
+export * from './OnboardingView';

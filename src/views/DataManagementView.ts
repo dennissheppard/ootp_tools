@@ -1,6 +1,8 @@
 import { minorLeagueStatsService, MinorLeagueLevel } from '../services/MinorLeagueStatsService';
 import { scoutingDataService, ScoutingSource } from '../services/ScoutingDataService';
 import { dateService } from '../services/DateService';
+import { indexedDBService } from '../services/IndexedDBService';
+import { trueRatingsService, LEAGUE_START_YEAR } from '../services/TrueRatingsService';
 import { MessageModal } from './MessageModal';
 import { storageMigration } from '../services/StorageMigration';
 
@@ -22,6 +24,13 @@ export class DataManagementView {
     this.render();
     this.refreshExistingDataList();
     this.fetchGameDate();
+    this.setupOnboardingListener();
+  }
+
+  private setupOnboardingListener(): void {
+    window.addEventListener('wbl:first-time-onboarding', () => {
+      this.startOnboarding();
+    });
   }
 
   private async fetchGameDate(): Promise<void> {
@@ -45,6 +54,26 @@ export class DataManagementView {
               <p style="margin: 0.5rem 0 0 0; opacity: 0.9;">Your data is stored in localStorage which has limited space. Migrate to IndexedDB for unlimited storage.</p>
             </div>
             <button id="migrate-btn" class="btn btn-primary">Migrate Now</button>
+          </div>
+        </div>
+
+        <div id="default-osa-banner" style="display: none; background: rgba(0, 186, 124, 0.1); border-left: 3px solid var(--color-primary); padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+            <div style="flex: 1;">
+              <strong id="default-osa-title">Default OSA Scouting Data</strong>
+              <p id="default-osa-message" style="margin: 0.5rem 0 0 0; opacity: 0.9;">Loading...</p>
+            </div>
+            <button id="load-default-osa-btn" class="btn btn-primary" style="display: none;">Load Default Data</button>
+          </div>
+        </div>
+
+        <div id="default-minors-banner" style="display: none; background: rgba(0, 186, 124, 0.1); border-left: 3px solid var(--color-primary); padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
+            <div style="flex: 1;">
+              <strong id="default-minors-title">Bundled Minor League Data</strong>
+              <p id="default-minors-message" style="margin: 0.5rem 0 0 0; opacity: 0.9;">Loading...</p>
+            </div>
+            <button id="load-default-minors-btn" class="btn btn-primary" style="display: none;">Load Bundled Data</button>
           </div>
         </div>
 
@@ -135,6 +164,8 @@ export class DataManagementView {
     this.bindEvents();
     this.updateModeUI();
     this.checkMigrationNeeded();
+    this.checkDefaultOsaStatus();
+    this.checkDefaultMinorsStatus();
   }
 
   private bindEvents(): void {
@@ -212,6 +243,14 @@ export class DataManagementView {
     // Migration button
     const migrateBtn = this.container.querySelector<HTMLButtonElement>('#migrate-btn');
     migrateBtn?.addEventListener('click', () => this.handleMigration());
+
+    // Load default OSA button
+    const loadDefaultOsaBtn = this.container.querySelector<HTMLButtonElement>('#load-default-osa-btn');
+    loadDefaultOsaBtn?.addEventListener('click', () => this.handleLoadDefaultOsa());
+
+    // Load default minors button
+    const loadDefaultMinorsBtn = this.container.querySelector<HTMLButtonElement>('#load-default-minors-btn');
+    loadDefaultMinorsBtn?.addEventListener('click', () => this.handleLoadDefaultMinors());
   }
 
   private updateModeUI(): void {
@@ -341,7 +380,7 @@ export class DataManagementView {
                 const info = this.detectFileInfo(file.name);
                 const year = info.year || this.selectedYear;
                 const level = info.level || this.selectedLevel;
-                await minorLeagueStatsService.saveStats(year, level, stats);
+                await minorLeagueStatsService.saveStats(year, level, stats, 'csv');
                 successCount++;
             } else {
                 const ratings = scoutingDataService.parseScoutingCsv(content, this.selectedScoutingSource);
@@ -404,15 +443,38 @@ export class DataManagementView {
       const tbody = this.container.querySelector<HTMLElement>('#existing-data-list');
       if (!tbody) return;
 
-      const foundData: {type: 'Stats' | 'Scout', yearOrDate: string, details: string, count: number, id: string, isLatest?: boolean}[] = [];
+      const foundData: {type: 'Stats' | 'Scout', yearOrDate: string, details: string, count: number, id: string, isLatest?: boolean, source?: 'api' | 'csv'}[] = [];
       const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
-      
-      // Check Stats range 2000-2030
-      for (let y = 2000; y <= 2030; y++) {
-          for (const l of levels) {
-              if (await minorLeagueStatsService.hasStats(y, l)) {
-                  const stats = await minorLeagueStatsService.getStats(y, l);
-                  foundData.push({ type: 'Stats', yearOrDate: y.toString(), details: l.toUpperCase(), count: stats.length, id: `stats_${y}_${l}` });
+
+      // Try to get stats metadata from IndexedDB
+      const allMetadata = await indexedDBService.getAllStatsMetadata();
+
+      if (allMetadata.length > 0) {
+          // Use metadata if available (v2 database)
+          for (const meta of allMetadata) {
+              foundData.push({
+                  type: 'Stats',
+                  yearOrDate: meta.year.toString(),
+                  details: meta.level.toUpperCase(),
+                  count: meta.recordCount,
+                  id: `stats_${meta.year}_${meta.level}`,
+                  source: meta.source
+              });
+          }
+      } else {
+          // Fallback to old method if metadata not available (v1 database)
+          for (let y = 2000; y <= 2030; y++) {
+              for (const l of levels) {
+                  if (await minorLeagueStatsService.hasStats(y, l)) {
+                      const stats = await minorLeagueStatsService.getStats(y, l);
+                      foundData.push({
+                          type: 'Stats',
+                          yearOrDate: y.toString(),
+                          details: l.toUpperCase(),
+                          count: stats.length,
+                          id: `stats_${y}_${l}`
+                      });
+                  }
               }
           }
       }
@@ -448,16 +510,23 @@ export class DataManagementView {
       }
 
       tbody.innerHTML = foundData.map(d => {
+          let sourceBadge = '';
+          if (d.type === 'Stats' && d.source) {
+              sourceBadge = d.source === 'api'
+                  ? '<span class="badge" style="background: rgba(0, 186, 124, 0.2); color: #00ba7c; margin-left: 0.5rem; font-size: 0.7em;">API</span>'
+                  : '<span class="badge" style="background: rgba(255, 165, 0, 0.2); color: #ffa500; margin-left: 0.5rem; font-size: 0.7em;">CSV</span>';
+          }
+
           let latestBadge = '';
           if (d.type === 'Scout' && d.isLatest) {
               latestBadge = `<span class="badge" style="background: rgba(0, 186, 124, 0.2); color: #00ba7c; margin-left: 0.5rem; font-size: 0.7em;">LATEST</span>`;
           }
-          
+
           return `
             <tr>
                 <td><span class="badge ${d.type === 'Stats' ? 'badge-position' : 'badge-retired'}">${d.type}</span></td>
                 <td>${d.yearOrDate}</td>
-                <td>${d.details} ${latestBadge}</td>
+                <td>${d.details} ${sourceBadge}${latestBadge}</td>
                 <td>${d.count} records</td>
                 <td style="text-align: right;">
                     <button class="btn-link delete-btn" data-id="${d.id}" style="color: var(--color-error);">Delete</button>
@@ -480,14 +549,15 @@ export class DataManagementView {
                           const year = parseInt(parts[1], 10);
                           const level = parts[2] as MinorLeagueLevel;
                           await minorLeagueStatsService.clearStats(year, level);
+                          await indexedDBService.deleteStatsMetadata(year, level);
                       }
-                  } 
+                  }
                   // Handle Scouting: ID format "wbl_scouting_ratings_..." (LS) or "YYYY-MM-DD_source" (IDB)
                   else {
                       // Assume anything else is scouting data since we only list Stats and Scout types
                       await scoutingDataService.clearScoutingRatings(id);
                   }
-                  
+
                   await this.refreshExistingDataList();
               }
           });
@@ -542,6 +612,426 @@ export class DataManagementView {
     } finally {
       migrateBtn.disabled = false;
       migrateBtn.textContent = 'Migrate Now';
+    }
+  }
+
+  private async startOnboarding(): Promise<void> {
+    console.log('🎬 Starting first-time onboarding');
+
+    // Show onboarding UI
+    this.showOnboardingLoader();
+
+    // Auto-fetch MLB and minor league data from league start to current year
+    try {
+      const currentYear = await dateService.getCurrentYear();
+      const startYear = LEAGUE_START_YEAR;
+      const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
+
+      const yearCount = currentYear - startYear + 1;
+
+      console.log(`📊 Loading ${yearCount} years from bundles (${startYear}-${currentYear})`);
+
+      // Helper to add delay between API calls
+      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+      // Load bundled MLB data (fast - no API calls)
+      console.log('📦 Loading bundled MLB data...');
+      const mlbBundleResult = await trueRatingsService.loadDefaultMlbData();
+      console.log(`✅ Loaded ${mlbBundleResult.loaded} bundled MLB datasets`);
+      if (mlbBundleResult.errors.length > 0) {
+        console.warn(`⚠️ ${mlbBundleResult.errors.length} MLB files failed to load:`, mlbBundleResult.errors);
+      }
+
+      // Fetch current year from API if not in bundle (2022+)
+      if (currentYear > 2021) {
+        console.log(`📥 Fetching current MLB year (${currentYear}) from API...`);
+        await trueRatingsService.getTruePitchingStats(currentYear);
+      }
+
+      // Load bundled minor league stats (fast - no API calls)
+      console.log('📦 Loading bundled minor league data...');
+      const bundleResult = await minorLeagueStatsService.loadDefaultMinorLeagueData();
+      console.log(`✅ Loaded ${bundleResult.loaded} bundled datasets`);
+      if (bundleResult.errors.length > 0) {
+        console.warn(`⚠️ ${bundleResult.errors.length} files failed to load:`, bundleResult.errors);
+      }
+
+      // Fetch current year from API if not in bundle (2025+)
+      if (currentYear > 2024) {
+        console.log(`📥 Fetching current year (${currentYear}) from API...`);
+        for (const level of levels) {
+          await minorLeagueStatsService.getStats(currentYear, level);
+          await delay(250);
+        }
+      }
+
+      // Load default OSA scouting data
+      console.log('📋 Loading default OSA scouting data...');
+      const gameDate = await dateService.getCurrentDate();
+      const osaCount = await scoutingDataService.loadDefaultOsaData(gameDate);
+      if (osaCount > 0) {
+        console.log(`✅ Loaded ${osaCount} OSA scouting ratings`);
+      }
+
+      // All done - show onboarding explanation
+      this.showOnboardingComplete(osaCount, mlbBundleResult.loaded + bundleResult.loaded);
+    } catch (error) {
+      console.error('Onboarding fetch error:', error);
+      this.showOnboardingError();
+    }
+  }
+
+  private showOnboardingLoader(): void {
+    const onboardingHtml = `
+      <div id="onboarding-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; gap: 2rem;">
+        <div class="baseball-spinner">⚾</div>
+        <div id="onboarding-message" style="text-align: center; font-size: 1.1em; color: var(--color-text); max-width: 500px;"></div>
+        <div id="onboarding-progress" style="font-size: 0.9em; color: var(--color-text-muted);"></div>
+      </div>
+
+      <style>
+        .baseball-spinner {
+          font-size: 4em;
+          animation: spin 2s linear infinite;
+          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+        }
+
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+
+        @keyframes fadeInOut {
+          0%, 100% { opacity: 0; }
+          50% { opacity: 1; }
+        }
+
+        .message-fade {
+          animation: fadeInOut 4s ease-in-out;
+        }
+      </style>
+    `;
+
+    this.container.innerHTML = onboardingHtml;
+    this.rotateOnboardingMessages();
+  }
+
+  private rotateOnboardingMessages(): void {
+    const messages = [
+      "Loading MLB and minor league data from StatsPlus...",
+      "This might take a few minutes depending on league history",
+      "We'll save this data so we don't anger Dave",
+      "This only happens once, promise... for each browser you use 😅",
+      "Almost there, hang tight..."
+    ];
+
+    let index = 0;
+    const messageEl = this.container.querySelector('#onboarding-message');
+
+    if (!messageEl) return;
+
+    const showMessage = () => {
+      if (index >= messages.length) {
+        index = 0; // Loop back
+      }
+
+      messageEl.textContent = messages[index];
+      messageEl.classList.add('message-fade');
+
+      setTimeout(() => {
+        messageEl.classList.remove('message-fade');
+      }, 4000);
+
+      index++;
+    };
+
+    showMessage(); // Show first message immediately
+    this.onboardingMessageInterval = window.setInterval(showMessage, 4000);
+  }
+
+  private onboardingMessageInterval?: number;
+
+  private updateOnboardingProgress(current: number, total: number, currentType: 'MLB' | 'MiLB'): void {
+    const progressEl = this.container.querySelector('#onboarding-progress');
+    if (progressEl) {
+      const percent = Math.round((current / total) * 100);
+      progressEl.textContent = `${current} / ${total} datasets (${percent}%) - Loading ${currentType}...`;
+    }
+  }
+
+  private async showOnboardingComplete(osaCount: number = 0, totalLoaded: number = 0): Promise<void> {
+    if (this.onboardingMessageInterval) {
+      clearInterval(this.onboardingMessageInterval);
+    }
+
+    const currentYear = await dateService.getCurrentYear();
+    const yearCount = currentYear - LEAGUE_START_YEAR + 1;
+
+    const completeHtml = `
+      <div class="potential-stats-section">
+        <h2 class="section-title">Welcome to True Ratings!</h2>
+        <div style="max-width: 700px; margin: 0 auto; padding: 2rem;">
+          <div style="background: rgba(0, 186, 124, 0.1); border-left: 3px solid var(--color-primary); padding: 1.5rem; margin-bottom: 2rem; border-radius: 4px;">
+            <h3 style="margin-top: 0; color: var(--color-primary);">✅ Setup Complete!</h3>
+            <p>We've loaded ${yearCount} years (${LEAGUE_START_YEAR}-${currentYear}) of MLB and minor league stats from bundled files${totalLoaded > 0 ? ` (${totalLoaded} datasets)` : ''}. This data is now cached locally for instant access.</p>
+          </div>
+
+          <h3>About Scouting Data</h3>
+          <p>True Ratings works best with scouting reports. Here's what you need to know:</p>
+
+          <ul style="line-height: 1.8; margin: 1rem 0;">
+            <li><strong>OSA ratings are included by default</strong> - ${osaCount > 0 ? `We've loaded ${osaCount.toLocaleString()} OSA ratings!` : 'Ready to import when available'}</li>
+            <li><strong>Upload your personal scout ratings</strong> (optional) - If you have custom scouting reports, upload them below</li>
+            <li><strong>The app works without custom scouting data</strong> - We'll use OSA ratings as a fallback</li>
+            <li><strong>Toggle between "My Scout" and "OSA"</strong> to compare different rating sources</li>
+            <li><strong>Keep OSA data current</strong> - Upload updated CSV files as your league progresses</li>
+          </ul>
+
+          <p style="margin-top: 2rem; padding: 1rem; background: rgba(0,0,0,0.05); border-radius: 4px; font-size: 0.95em;">
+            💡 <strong>Pro tip:</strong> The toggle below defaults to "My Scout" - this will show your custom ratings when available, and fall back to OSA when not.
+          </p>
+
+          <button id="onboarding-done-btn" class="btn btn-primary" style="margin-top: 2rem;">
+            Got it, let's go!
+          </button>
+        </div>
+      </div>
+    `;
+
+    this.container.innerHTML = completeHtml;
+
+    const doneBtn = this.container.querySelector('#onboarding-done-btn');
+    if (doneBtn) {
+      doneBtn.addEventListener('click', () => {
+        // Set mode state BEFORE rendering so initial state is correct
+        this.currentMode = 'scouting';
+        this.selectedScoutingSource = 'my';
+
+        this.render();
+        this.refreshExistingDataList();
+        this.fetchGameDate();
+
+        // Update toggle buttons to match state
+        this.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.mode === this.currentMode);
+        });
+
+        // Update scout source toggles
+        this.container.querySelectorAll<HTMLButtonElement>('[data-scouting-source]').forEach(btn => {
+          btn.classList.toggle('active', btn.dataset.scoutingSource === this.selectedScoutingSource);
+        });
+
+        this.updateModeUI();
+      });
+    }
+  }
+
+  private showOnboardingError(): void {
+    if (this.onboardingMessageInterval) {
+      clearInterval(this.onboardingMessageInterval);
+    }
+
+    this.container.innerHTML = `
+      <div style="text-align: center; padding: 2rem;">
+        <h2 style="color: var(--color-error);">Oops! Something went wrong</h2>
+        <p>We couldn't load the minor league data. Please try refreshing the page.</p>
+        <button class="btn btn-primary" onclick="location.reload()">Refresh Page</button>
+      </div>
+    `;
+  }
+
+  private async checkDefaultOsaStatus(): Promise<void> {
+    const banner = this.container.querySelector<HTMLElement>('#default-osa-banner');
+    const title = this.container.querySelector<HTMLElement>('#default-osa-title');
+    const message = this.container.querySelector<HTMLElement>('#default-osa-message');
+    const button = this.container.querySelector<HTMLButtonElement>('#load-default-osa-btn');
+
+    if (!banner || !message || !button) return;
+
+    try {
+      // Check if bundled file exists
+      const fileStatus = await scoutingDataService.checkDefaultOsaFile();
+
+      // Check if OSA data is already loaded
+      const existingOsa = await scoutingDataService.getLatestScoutingRatings('osa');
+
+      if (!fileStatus.exists) {
+        // File doesn't exist - show info message
+        banner.style.display = 'block';
+        banner.style.background = 'rgba(255, 193, 7, 0.1)';
+        banner.style.borderLeftColor = '#ffc107';
+        if (title) title.textContent = 'Default OSA Data Not Found';
+        message.innerHTML = `No bundled OSA scouting file found. Add <code>public/data/default_osa_scouting.csv</code> to include default OSA ratings.`;
+        button.style.display = 'none';
+      } else if (fileStatus.count === 0) {
+        // File exists but is empty
+        banner.style.display = 'block';
+        banner.style.background = 'rgba(255, 193, 7, 0.1)';
+        banner.style.borderLeftColor = '#ffc107';
+        if (title) title.textContent = 'Default OSA Data Empty';
+        message.textContent = `Bundled OSA file exists but contains no ratings. Add data to public/data/default_osa_scouting.csv.`;
+        button.style.display = 'none';
+      } else if (existingOsa.length === 0) {
+        // File exists with data, but not loaded yet
+        banner.style.display = 'block';
+        banner.style.background = 'rgba(0, 186, 124, 0.1)';
+        banner.style.borderLeftColor = 'var(--color-primary)';
+        if (title) title.textContent = 'Default OSA Data Available';
+        message.textContent = `Found bundled OSA file with ${fileStatus.count.toLocaleString()} ratings. Click to load.`;
+        button.style.display = 'block';
+        button.disabled = false;
+      } else {
+        // File exists and data is already loaded
+        banner.style.display = 'block';
+        banner.style.background = 'rgba(0, 186, 124, 0.1)';
+        banner.style.borderLeftColor = 'var(--color-primary)';
+        if (title) title.textContent = 'OSA Data Loaded';
+        message.innerHTML = `✅ OSA scouting data loaded (${existingOsa.length.toLocaleString()} ratings). Bundled file has ${fileStatus.count.toLocaleString()} ratings.`;
+        if (existingOsa.length !== fileStatus.count) {
+          message.innerHTML += ` <button id="reload-default-osa-btn" class="btn-link" style="margin-left: 0.5rem;">Update from bundled file</button>`;
+          // Bind the inline reload button
+          setTimeout(() => {
+            const reloadBtn = this.container.querySelector('#reload-default-osa-btn');
+            reloadBtn?.addEventListener('click', () => this.handleLoadDefaultOsa(true));
+          }, 0);
+        }
+        button.style.display = 'none';
+      }
+    } catch (error) {
+      console.error('Error checking default OSA status:', error);
+      banner.style.display = 'none';
+    }
+  }
+
+  private async handleLoadDefaultOsa(force: boolean = false): Promise<void> {
+    const button = this.container.querySelector<HTMLButtonElement>('#load-default-osa-btn');
+    const message = this.container.querySelector<HTMLElement>('#default-osa-message');
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Loading...';
+    }
+
+    if (message) {
+      message.textContent = 'Loading default OSA data...';
+    }
+
+    try {
+      const gameDate = await dateService.getCurrentDate();
+      const count = await scoutingDataService.loadDefaultOsaData(gameDate, force);
+
+      if (count > 0) {
+        this.messageModal.show(
+          'Success',
+          `Loaded ${count.toLocaleString()} OSA scouting ratings from bundled file.`
+        );
+
+        // Refresh the data list and status
+        await this.refreshExistingDataList();
+        await this.checkDefaultOsaStatus();
+
+        // Emit event to notify other views
+        window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
+          detail: { source: 'osa' }
+        }));
+      } else {
+        this.messageModal.show(
+          'No Data Loaded',
+          'The bundled OSA file exists but contains no valid ratings, or OSA data is already loaded.'
+        );
+      }
+    } catch (error) {
+      console.error('Error loading default OSA:', error);
+      this.messageModal.show('Error', `Failed to load default OSA data: ${error}`);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Load Default Data';
+      }
+    }
+  }
+
+  private async checkDefaultMinorsStatus(): Promise<void> {
+    const banner = this.container.querySelector<HTMLElement>('#default-minors-banner');
+    const message = this.container.querySelector<HTMLElement>('#default-minors-message');
+    const button = this.container.querySelector<HTMLButtonElement>('#load-default-minors-btn');
+
+    if (!banner || !message || !button) return;
+
+    try {
+      // Check how many datasets are already loaded
+      const metadata = await indexedDBService.getAllStatsMetadata();
+      const loadedCount = metadata.length;
+
+      // Calculate expected datasets (LEAGUE_START_YEAR to current year × 4 levels)
+      const currentYear = await dateService.getCurrentYear();
+      const yearCount = currentYear - LEAGUE_START_YEAR + 1;
+      const expectedCount = yearCount * 4;
+
+      if (loadedCount === 0) {
+        // No data loaded yet
+        banner.style.display = 'block';
+        message.textContent = `Found bundled minor league data. Click to load ~88+ datasets.`;
+        button.style.display = 'block';
+        button.disabled = false;
+      } else if (loadedCount < expectedCount) {
+        // Partially loaded
+        banner.style.display = 'block';
+        message.innerHTML = `⚠️ Partial data loaded (${loadedCount}/${expectedCount} datasets). <button id="reload-minors-btn" class="btn-link">Load from bundle</button>`;
+        button.style.display = 'none';
+
+        // Bind the inline reload button
+        setTimeout(() => {
+          const reloadBtn = this.container.querySelector('#reload-minors-btn');
+          reloadBtn?.addEventListener('click', () => this.handleLoadDefaultMinors());
+        }, 0);
+      } else {
+        // Fully loaded
+        banner.style.display = 'block';
+        message.textContent = `✅ Minor league data loaded (${loadedCount} datasets)`;
+        button.style.display = 'none';
+      }
+    } catch (error) {
+      console.error('Error checking default minors status:', error);
+      banner.style.display = 'none';
+    }
+  }
+
+  private async handleLoadDefaultMinors(): Promise<void> {
+    const button = this.container.querySelector<HTMLButtonElement>('#load-default-minors-btn');
+    const message = this.container.querySelector<HTMLElement>('#default-minors-message');
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Loading...';
+    }
+
+    if (message) {
+      message.textContent = 'Loading bundled minor league data...';
+    }
+
+    try {
+      const result = await minorLeagueStatsService.loadDefaultMinorLeagueData();
+
+      let resultMessage = `Loaded ${result.loaded} datasets from bundled files.`;
+      if (result.errors.length > 0) {
+        resultMessage += `\n\n${result.errors.length} files failed to load.`;
+      }
+
+      this.messageModal.show('Success', resultMessage);
+
+      // Refresh the data list and status
+      await this.refreshExistingDataList();
+      await this.checkDefaultMinorsStatus();
+
+    } catch (error) {
+      console.error('Error loading default minors:', error);
+      this.messageModal.show('Error', `Failed to load bundled minor league data: ${error}`);
+    } finally {
+      if (button) {
+        button.disabled = false;
+        button.textContent = 'Load Bundled Data';
+      }
     }
   }
 }

@@ -105,7 +105,6 @@ class ProjectionService {
 
     // Check if we have meaningful starter workloads (anyone with 10+ GS indicates mid-season or later)
     const hasStarterWorkloads = currentYearStats.some(stat => stat.gs >= 10);
-    console.log(`[IP Distribution Setup] Year=${year}, totalCurrentIp=${totalCurrentIp}, hasStarterWorkloads=${hasStarterWorkloads}`);
 
     let statsYear = year;
     let usedFallbackStats = false;
@@ -120,11 +119,9 @@ class ProjectionService {
     // Build league IP distribution for percentile-based projections
     // Use previous year's stats if current season doesn't have meaningful starter workloads yet
     const distributionYear = !hasStarterWorkloads && year > LEAGUE_START_YEAR ? year - 1 : year;
-    console.log(`[IP Distribution Setup] distributionYear=${distributionYear}, willFetchNew=${distributionYear !== year}`);
     const distributionStats = distributionYear !== year
       ? await this.safeGetPitchingStats(distributionYear)
       : currentYearStats;
-    console.log(`[IP Distribution Setup] Fetched ${distributionStats.length} stats for distribution`);
     this.buildLeagueIpDistribution(distributionStats, scoutingRatings, distributionYear);
 
     const multiYearEndYear = usedFallbackStats ? statsYear : year;
@@ -517,7 +514,6 @@ class ProjectionService {
 
       this.buildLeagueIpDistribution(distributionStats, scoutingRatings, distributionYear);
     } catch (error) {
-      console.warn('[IP Distribution] Failed to load distributions:', error);
       // Distributions will remain empty, fallback to formula-based approach
     }
   }
@@ -529,21 +525,10 @@ class ProjectionService {
   private buildLeagueIpDistribution(
     stats: TruePlayerStats[],
     scoutingRatings: PitcherScoutingRatings[],
-    year?: number
+    _year?: number
   ): void {
     const spIps: number[] = [];
     const spStaminas: number[] = [];
-
-    const yearInfo = year ? ` from ${year}` : '';
-    console.log(`[IP Distribution] Building${yearInfo} with ${stats.length} stats, ${scoutingRatings.length} scouting ratings`);
-
-    // Debug: Check what years are in the stats
-    if (stats.length > 0) {
-      const years = new Set(stats.map(s => s.year));
-      console.log(`[IP Distribution] Stats years in data:`, Array.from(years).sort());
-      const totalIp = stats.reduce((sum, s) => sum + trueRatingsService.parseIp(s.ip), 0);
-      console.log(`[IP Distribution] Total IP in stats: ${totalIp.toFixed(1)}`);
-    }
 
     // Build scouting map for quick lookups
     const scoutingMap = new Map<number, PitcherScoutingRatings>();
@@ -563,26 +548,16 @@ class ProjectionService {
 
     // Collect SP IP distribution (players with 29+ GS - full season starters)
     // Use 29+ GS to capture peak workload, excluding spot starters and injury-shortened seasons
-    let gsCount = 0;
-    let gsFullSeasonCount = 0;
-    let ipCount = 0;
     const MIN_GS_FOR_PEAK = 29;
 
     stats.forEach(stat => {
-      if (typeof stat.gs === 'number') gsCount++;
       if (stat.gs >= MIN_GS_FOR_PEAK) {
-        gsFullSeasonCount++;
         const ip = trueRatingsService.parseIp(stat.ip);
         if (ip > 0) {
-          ipCount++;
           spIps.push(ip);
         }
       }
     });
-
-    console.log(`[IP Distribution] Stats analysis: ${stats.length} total, ${gsCount} with GS field, ${gsFullSeasonCount} with GS>=${MIN_GS_FOR_PEAK}, ${ipCount} with GS>=${MIN_GS_FOR_PEAK} and IP>0`);
-    console.log(`[IP Distribution] Sample stat:`, stats[0]);
-    console.log(`[IP Distribution] Found ${spIps.length} SP with ${MIN_GS_FOR_PEAK}+ GS (full season starters)`);
 
     // Collect SP stamina distribution from scouting
     scoutingRatings.forEach(s => {
@@ -596,8 +571,6 @@ class ProjectionService {
       }
     });
 
-    console.log(`[IP Distribution] Found ${spStaminas.length} SP prospects with 3+ pitches & stam >= 35`);
-
     // Sort for percentile calculations
     this.spIpDistribution = spIps.sort((a, b) => a - b);
     this.spStaminaDistribution = spStaminas.sort((a, b) => a - b);
@@ -605,11 +578,6 @@ class ProjectionService {
     // Capture max IP for capping projections at 105% of historical max
     if (this.spIpDistribution.length > 0) {
       this.spMaxIp = this.spIpDistribution[this.spIpDistribution.length - 1];
-      const ipCap = Math.round(this.spMaxIp * 1.05);
-      console.log(`[IP Distribution] IP range: ${this.spIpDistribution[0]} to ${this.spMaxIp} (cap: ${ipCap})`);
-    }
-    if (this.spStaminaDistribution.length > 0) {
-      console.log(`[IP Distribution] Stamina range: ${this.spStaminaDistribution[0]} to ${this.spStaminaDistribution[this.spStaminaDistribution.length - 1]}`);
     }
   }
 
@@ -715,11 +683,6 @@ class ProjectionService {
         // Map to IP at that percentile
         baseIp = this.getValueAtPercentile(staminaPercentile, this.spIpDistribution);
 
-        // Debug logging
-        if (console && typeof console.log === 'function') {
-            console.log(`[IP Projection] Percentile approach: stamina=${stamina}, staminaPct=${staminaPercentile.toFixed(1)}%, baseIP=${baseIp}, isSp=${isSp}`);
-        }
-
         // Floor for prospects with good stamina (prevents unreasonably low projections)
         if (baseIp < 100) baseIp = 100;
     } else {
@@ -731,10 +694,6 @@ class ProjectionService {
         // Clamp
         if (isSp) baseIp = Math.max(100, Math.min(240, baseIp));
         else baseIp = Math.max(30, Math.min(100, baseIp));
-
-        if (console && typeof console.log === 'function') {
-            console.log(`[IP Projection] Fallback approach: stamina=${stamina}, baseIP=${baseIp}, isSp=${isSp}, distSizes=[stam:${this.spStaminaDistribution.length}, ip:${this.spIpDistribution.length}]`);
-        }
     }
 
     // 3. Injury Modifier
@@ -781,11 +740,6 @@ class ProjectionService {
         // For established starters, exclude seasons with very low IP (likely incomplete/injured)
         const minIpThreshold = isSp ? 50 : 10;
         const completedSeasons = historicalStats.filter(s => s.ip >= minIpThreshold);
-
-        if (console && typeof console.log === 'function' && completedSeasons.length < historicalStats.length) {
-            const filtered = historicalStats.filter(s => s.ip < minIpThreshold);
-            console.log(`[IP Projection] Filtered ${filtered.length} incomplete season(s): ${filtered.map(s => `${s.year}(${s.ip}IP)`).join(', ')}`);
-        }
 
         let totalWeightedIp = 0;
         let totalWeight = 0;
@@ -850,7 +804,6 @@ class ProjectionService {
 
     // Apply cap at 105% of historical max (prevent unrealistic projections)
     const ipCap = Math.round(this.spMaxIp * 1.05);
-    const uncappedIp = baseIp;
     if (isSp && baseIp > ipCap) {
         baseIp = ipCap;
     }
@@ -881,16 +834,7 @@ class ProjectionService {
 
         if (ipBoost > 1.00) {
             finalIp = baseIp * ipBoost;
-            if (console && typeof console.log === 'function') {
-                console.log(`[IP Projection] Elite boost applied (FIP ${projectedFip.toFixed(2)}): ${Math.round(baseIp)} → ${Math.round(finalIp)} (${ipBoost.toFixed(2)}x)`);
-            }
         }
-    }
-
-    // Final debug logging
-    if (console && typeof console.log === 'function') {
-        const cappedNote = uncappedIp > ipCap ? ` (capped from ${Math.round(uncappedIp)})` : '';
-        console.log(`[IP Projection] Final: ip=${Math.round(finalIp)}${cappedNote}, injuryMod=${injuryMod.toFixed(2)}, skillMod=${skillMod.toFixed(2)}, projectedFip=${projectedFip?.toFixed(2) ?? 'N/A'}, age=${age}`);
     }
 
     return { ip: Math.round(finalIp), isSp };

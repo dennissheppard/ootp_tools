@@ -250,35 +250,48 @@ export class PlayerProfileModal {
         this.mlbDebutYear = Math.min(...statsWithIp.map(s => s.year));
       }
 
-      // Fetch minor league stats (within 2 years of current game date)
+      // Fetch ALL minor league stats (last 10 years) from IndexedDB cache
       let combinedStats: SeasonStatsRow[] = this.currentMlbStats;
+      const mlbSeasonCount = this.currentMlbStats.length;
+      const shouldShowMinorLeague = mlbSeasonCount < 4; // Auto-show if < 4 MLB seasons
 
       try {
         const currentYear = await dateService.getCurrentYear();
-        const startYear = currentYear - 2;
+        const startYear = this.LEAGUE_START_YEAR; // Full career history
         const endYear = currentYear;
         const minorStats = await minorLeagueStatsService.getPlayerStats(data.playerId, startYear, endYear);
 
         // Convert minor league stats to SeasonStatsRow format
-        const minorStatsConverted: SeasonStatsRow[] = minorStats.map(s => ({
-          year: s.year,
-          level: s.level,
-          ip: s.ip,
-          era: 0,
-          k9: s.k9,
-          bb9: s.bb9,
-          hr9: s.hr9,
-          war: 0,
-          gs: 0
-        }));
+        const minorStatsConverted: SeasonStatsRow[] = minorStats.map(s => {
+          // Calculate FIP: ((13*HR9) + (3*BB9) - (2*K9)) / 9 + constant
+          const fip = ((13 * s.hr9) + (3 * s.bb9) - (2 * s.k9)) / 9 + 3.47;
 
-        // Merge and sort
-        const levelOrder = { 'MLB': 0, 'aaa': 1, 'aa': 2, 'a': 3, 'r': 4 };
-        combinedStats = [...combinedStats, ...minorStatsConverted]
-          .sort((a, b) => {
-            if (a.year !== b.year) return b.year - a.year;
-            return (levelOrder[a.level || 'MLB'] || 0) - (levelOrder[b.level || 'MLB'] || 0);
-          });
+          return {
+            year: s.year,
+            level: s.level,
+            ip: s.ip,
+            fip: Math.round(fip * 100) / 100,
+            k9: s.k9,
+            bb9: s.bb9,
+            hr9: s.hr9,
+            war: 0,
+            gs: 0
+          };
+        });
+
+        // Conditionally merge minor league stats based on MLB career length
+        if (shouldShowMinorLeague && minorStatsConverted.length > 0) {
+          const levelOrder = { 'MLB': 0, 'aaa': 1, 'aa': 2, 'a': 3, 'r': 4 };
+          combinedStats = [...combinedStats, ...minorStatsConverted]
+            .sort((a, b) => {
+              if (a.year !== b.year) return b.year - a.year;
+              return (levelOrder[a.level || 'MLB'] || 0) - (levelOrder[b.level || 'MLB'] || 0);
+            });
+          console.log(`📊 Showing ${minorStatsConverted.length} minor league seasons (player has ${mlbSeasonCount} MLB seasons)`);
+        } else if (minorStatsConverted.length > 0) {
+          console.log(`📊 Hiding ${minorStatsConverted.length} minor league seasons (player has ${mlbSeasonCount} MLB seasons, use toggle to show)`);
+          // TODO: Add toggle button for players with >= 4 MLB seasons
+        }
       } catch (error) {
         console.warn('Could not fetch minor league stats:', error);
         // Continue with MLB stats only
@@ -446,14 +459,19 @@ export class PlayerProfileModal {
                         const playerStat = targetStats.find(s => s.player_id === data.playerId);
                         if (playerStat) {
                             const ip = trueRatingsService.parseIp(playerStat.ip);
+                            const k9 = ip > 0 ? (playerStat.k / ip) * 9 : 0;
+                            const bb9 = ip > 0 ? (playerStat.bb / ip) * 9 : 0;
+                            const hr9 = ip > 0 ? (playerStat.hra / ip) * 9 : 0;
+                            const fip = ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47;
+
                             // Convert to SeasonStatsRow format
                             actualStat = {
                                 year: targetYear,
                                 ip,
-                                era: ip > 0 ? (playerStat.er / ip) * 9 : 0,
-                                k9: ip > 0 ? (playerStat.k / ip) * 9 : 0,
-                                bb9: ip > 0 ? (playerStat.bb / ip) * 9 : 0,
-                                hr9: ip > 0 ? (playerStat.hra / ip) * 9 : 0,
+                                fip: Math.round(fip * 100) / 100,
+                                k9: Math.round(k9 * 100) / 100,
+                                bb9: Math.round(bb9 * 100) / 100,
+                                hr9: Math.round(hr9 * 100) / 100,
                                 war: playerStat.war,
                                 gs: playerStat.gs
                             };
@@ -1124,13 +1142,18 @@ export class PlayerProfileModal {
           const playerStat = targetStats.find(s => s.player_id === this.currentPlayerData!.playerId);
           if (playerStat) {
             const ip = trueRatingsService.parseIp(playerStat.ip);
+            const k9 = ip > 0 ? (playerStat.k / ip) * 9 : 0;
+            const bb9 = ip > 0 ? (playerStat.bb / ip) * 9 : 0;
+            const hr9 = ip > 0 ? (playerStat.hra / ip) * 9 : 0;
+            const fip = ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47;
+
             actualStat = {
               year: targetYear,
               ip,
-              era: ip > 0 ? (playerStat.er / ip) * 9 : 0,
-              k9: ip > 0 ? (playerStat.k / ip) * 9 : 0,
-              bb9: ip > 0 ? (playerStat.bb / ip) * 9 : 0,
-              hr9: ip > 0 ? (playerStat.hra / ip) * 9 : 0,
+              fip: Math.round(fip * 100) / 100,
+              k9: Math.round(k9 * 100) / 100,
+              bb9: Math.round(bb9 * 100) / 100,
+              hr9: Math.round(hr9 * 100) / 100,
               war: playerStat.war,
               gs: playerStat.gs
             };

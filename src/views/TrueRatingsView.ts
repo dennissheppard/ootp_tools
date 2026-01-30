@@ -320,10 +320,15 @@ export class TrueRatingsView {
 
     try {
       const dateStr = await dateService.getCurrentDateWithFallback();
-      const [yearPart, monthPart] = dateStr.split('-');
+      const [yearPart, monthPart, dayPart] = dateStr.split('-');
       const gameYear = parseInt(yearPart, 10) || new Date().getFullYear();
       const gameMonth = parseInt(monthPart, 10) || 1;
-      const defaultYear = gameMonth <= 3 ? gameYear - 1 : gameYear;
+      const gameDay = parseInt(dayPart, 10) || 1;
+      
+      // Default to current year only if we are past April 5th (Season Start)
+      const isPastSeasonStart = gameMonth > 4 || (gameMonth === 4 && gameDay > 5);
+      const defaultYear = isPastSeasonStart ? gameYear : gameYear - 1;
+      
       this.currentGameYear = gameYear;
 
       const startYear = 2000;
@@ -671,98 +676,70 @@ export class TrueRatingsView {
 
   private async enrichWithTeamData(rows: (PitcherRow | BatterRow)[]): Promise<void> {
     try {
-      const allTeams = await teamService.getAllTeams();
+      const [allTeams, allPlayers] = await Promise.all([
+        teamService.getAllTeams(),
+        playerService.getAllPlayers()
+      ]);
       const teamMap = new Map(allTeams.map(t => [t.id, t]));
+      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+      
       const currentYear = this.currentGameYear ?? new Date().getFullYear();
       const useHistoricalTeams = this.selectedYear < currentYear;
-
-      if (useHistoricalTeams) {
-        rows.forEach(row => {
-          const teamId = (row as any).team_id;
-          const team = teamMap.get(teamId);
-          
-          // Also set age if player info is available (even for historical, we show current age as fallback)
-          // Ideally we'd calculate age in year, but let's keep it consistent with other views for now.
-          
-          if (!team) return;
-
-          if (team.parentTeamId !== 0) {
-            const parent = teamMap.get(team.parentTeamId);
-            if (parent) {
-              const levelId = (row as any).level_id;
-              const levelLabel = this.getLevelLabelFromId(levelId);
-              row.teamDisplay = levelLabel ? `${parent.nickname} <span class="league-level">${levelLabel}</span>` : parent.nickname;
-              row.teamFilter = parent.nickname;
-              row.teamIsMajor = false;
-              return;
-            }
-          }
-
-          row.teamDisplay = team.nickname;
-          row.teamFilter = team.nickname;
-          row.teamIsMajor = true;
-        });
-        return;
-      }
-
-      const allPlayers = await playerService.getAllPlayers();
-      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
-
-      if (useHistoricalTeams) {
-        rows.forEach(row => {
-          const playerId = (row as any).player_id;
-          const player = playerMap.get(playerId);
-          if (player) {
-            row.age = player.age;
-          }
-
-          const teamId = (row as any).team_id;
-          const team = teamMap.get(teamId);
-          if (!team) return;
-
-          if (team.parentTeamId !== 0) {
-            const parent = teamMap.get(team.parentTeamId);
-            if (parent) {
-              const levelId = (row as any).level_id;
-              const levelLabel = this.getLevelLabelFromId(levelId);
-              row.teamDisplay = levelLabel ? `${parent.nickname} <span class="league-level">${levelLabel}</span>` : parent.nickname;
-              row.teamFilter = parent.nickname;
-              row.teamIsMajor = false;
-              return;
-            }
-          }
-
-          row.teamDisplay = team.nickname;
-          row.teamFilter = team.nickname;
-          row.teamIsMajor = true;
-        });
-        return;
-      }
+      const ageDiff = currentYear - this.selectedYear;
 
       rows.forEach(row => {
         const playerId = (row as any).player_id;
         const player = playerMap.get(playerId);
-        if (!player) return;
-
-        row.age = player.age;
-
-        const team = teamMap.get(player.teamId);
-        if (!team) return;
-
-        if (player.parentTeamId !== 0) {
-          const parent = teamMap.get(player.parentTeamId);
-          if (parent) {
-            const levelLabel = this.getLevelLabelFromId(player.level);
-            row.teamDisplay = levelLabel ? `${parent.nickname} <span class="league-level">${levelLabel}</span>` : parent.nickname;
-            row.teamFilter = parent.nickname;
-            row.teamIsMajor = false;
-            return;
-          }
+        
+        if (player) {
+          // Calculate age for the selected year
+          row.age = Math.max(16, player.age - ageDiff);
         }
 
-        row.teamDisplay = team.nickname;
-        row.teamFilter = team.nickname;
-        row.teamIsMajor = true;
+        // Team Logic
+        if (useHistoricalTeams) {
+          const teamId = (row as any).team_id;
+          const team = teamMap.get(teamId);
+          
+          if (!team) return;
+
+          if (team.parentTeamId !== 0) {
+            const parent = teamMap.get(team.parentTeamId);
+            if (parent) {
+              const levelId = (row as any).level_id;
+              const levelLabel = this.getLevelLabelFromId(levelId);
+              row.teamDisplay = levelLabel ? `${parent.nickname} <span class="league-level">${levelLabel}</span>` : parent.nickname;
+              row.teamFilter = parent.nickname;
+              row.teamIsMajor = false;
+              return;
+            }
+          }
+
+          row.teamDisplay = team.nickname;
+          row.teamFilter = team.nickname;
+          row.teamIsMajor = true;
+        } else {
+          // Current Year Logic (Team from Player Object)
+          if (!player) return;
+
+          const team = teamMap.get(player.teamId);
+          if (!team) return;
+
+          if (player.parentTeamId !== 0) {
+            const parent = teamMap.get(player.parentTeamId);
+            if (parent) {
+              const levelLabel = this.getLevelLabelFromId(player.level);
+              row.teamDisplay = levelLabel ? `${parent.nickname} <span class="league-level">${levelLabel}</span>` : parent.nickname;
+              row.teamFilter = parent.nickname;
+              row.teamIsMajor = false;
+              return;
+            }
+          }
+
+          row.teamDisplay = team.nickname;
+          row.teamFilter = team.nickname;
+          row.teamIsMajor = true;
+        }
       });
     } catch (err) {
       console.error('Error enriching team data:', err);
@@ -948,7 +925,14 @@ export class TrueRatingsView {
     }
 
     const [posColumn, nameColumn, ageColumn, ...rest] = RAW_PITCHER_COLUMNS;
-    const columns: PitcherColumn[] = [posColumn, nameColumn, ageColumn];
+    
+    // Use tier badge styling for position column
+    const styledPosColumn = {
+      ...posColumn,
+      accessor: (row: PitcherRow) => this.renderTierBadge(row)
+    };
+
+    const columns: PitcherColumn[] = [styledPosColumn, nameColumn, ageColumn];
     
     // Add Team column
     columns.push({ key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' });
@@ -2007,7 +1991,7 @@ export class TrueRatingsView {
 
   private renderPositionLabel(row: TableRow): string {
     if (this.mode === 'pitchers') {
-      return this.determinePitcherRoleLabel(row as PitcherRow);
+      return this.renderTierBadge(row as PitcherRow);
     }
     return getPositionLabel((row as BatterRow).position);
   }
@@ -2058,12 +2042,6 @@ export class TrueRatingsView {
           }
           return this.renderTrueRatingBadge(row.trueRating);
         },
-      },
-      {
-        key: 'tier',
-        label: 'Tier',
-        sortKey: 'ipOuts',
-        accessor: (row) => this.renderTierBadge(row),
       },
       {
         key: 'percentile',

@@ -85,22 +85,28 @@ export class PlayerController {
       // Fetch stats only from the relevant endpoint to avoid 204 errors on the wrong feed
       // Wrap in try/catch to handle cases where player has no stats (e.g. draftees)
       // We still want to show the profile page even if stats are missing
-      try {
-        if (isPitcher(player)) {
-          pitchingStats = await this.statsService.getPitchingStats(playerId, year);
-        } else {
-          battingStats = await this.statsService.getBattingStats(playerId, year);
+      // Skip MLB API for minor leaguers (level !== 1) to avoid 500 errors
+      const isMLBPlayer = player.level === 1;
+
+      if (isMLBPlayer) {
+        try {
+          if (isPitcher(player)) {
+            pitchingStats = await this.statsService.getPitchingStats(playerId, year);
+          } else {
+            battingStats = await this.statsService.getBattingStats(playerId, year);
+          }
+        } catch (error) {
+          console.warn(`Could not fetch MLB stats for player ${playerId}:`, error);
+          // Continue with empty stats
         }
-      } catch (error) {
-        console.warn(`Could not fetch stats for player ${playerId}:`, error);
-        // Continue with empty stats
       }
 
-      // Fetch minor league stats for pitchers (within 2 years of current game date)
+      // Fetch ALL minor league stats for pitchers (not just recent years)
+      // This pulls from IndexedDB cache after we've bulk-fetched league data
       if (isPitcher(player)) {
         try {
           const currentYear = await dateService.getCurrentYear();
-          const startYear = currentYear - 2;
+          const startYear = currentYear - 10; // Last 10 years (full career)
           const endYear = currentYear;
           minorLeagueStats = await minorLeagueStatsService.getPlayerStats(playerId, startYear, endYear);
         } catch (error) {

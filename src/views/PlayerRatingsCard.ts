@@ -287,7 +287,6 @@ export class PlayerRatingsCard {
       const levelLabel = s.level ? (s.level === 'MLB' ? 'MLB' : getLevelLabel(s.level)) : 'MLB';
       const levelCell = showLevel ? `<td><span class="level-badge level-${s.level?.toLowerCase() || 'mlb'}">${levelLabel}</span></td>` : '';
       const isMinorLeague = s.level && s.level !== 'MLB';
-      const eraCell = isMinorLeague ? '<td class="stat-na">—</td>' : `<td>${s.era.toFixed(2)}</td>`;
       const warCell = isMinorLeague ? '<td class="stat-na">—</td>' : `<td>${s.war.toFixed(1)}</td>`;
 
       return `
@@ -295,7 +294,7 @@ export class PlayerRatingsCard {
         <td>${s.year}</td>
         ${levelCell}
         <td>${s.ip.toFixed(1)}</td>
-        ${eraCell}
+        <td>${s.fip.toFixed(2)}</td>
         <td>${this.renderFlipCell(s.k9.toFixed(2), stuff.toString(), 'Estimated Stuff Rating*')}</td>
         <td>${this.renderFlipCell(s.bb9.toFixed(2), control.toString(), 'Estimated Control Rating*')}</td>
         <td>${this.renderFlipCell(s.hr9.toFixed(2), hra.toString(), 'Estimated HRA Rating*')}</td>
@@ -316,7 +315,7 @@ export class PlayerRatingsCard {
                 <th>Year</th>
                 ${levelHeader}
                 <th>IP</th>
-                <th>ERA</th>
+                <th>FIP</th>
                 <th>K/9</th>
                 <th>BB/9</th>
                 <th>HR/9</th>

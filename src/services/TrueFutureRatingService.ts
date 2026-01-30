@@ -382,16 +382,21 @@ class TrueFutureRatingService {
     // Build prospect inputs
     const prospectInputs: TrueFutureRatingInput[] = [];
 
+    // ⚡ PERFORMANCE FIX: Fetch ALL minor league stats upfront in bulk
+    // instead of querying per-player (4 levels × 3 years = 12 API calls total)
+    console.log(`[TFR] Fetching all minor league stats for ${year - 2}-${year} (bulk)...`);
+    const allMinorLeagueStats = await minorLeagueStatsService.getAllPlayerStatsBatch(
+      year - 2,
+      year
+    );
+    console.log(`[TFR] Bulk fetch complete. Building prospect inputs...`);
+
     for (const scouting of scoutingRatings) {
       // Skip if no valid ID or ratings
       if (scouting.playerId <= 0) continue;
 
-      // Get minor league stats for this player (last 3 years)
-      const minorStats = await minorLeagueStatsService.getPlayerStats(
-        scouting.playerId,
-        year - 2,
-        year
-      );
+      // Look up this player's stats from the bulk-fetched data
+      const minorStats = allMinorLeagueStats.get(scouting.playerId) ?? [];
 
       // Get age (from scouting data or estimate)
       const age = scouting.age ?? 22; // Default to 22 if not available

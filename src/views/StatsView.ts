@@ -94,17 +94,22 @@ export class StatsView {
     const mlbStatsWithLevel: SeasonStatsRow[] = mlbYearlyStats.map(s => ({ ...s, level: 'MLB' as const }));
 
     // Convert minor league stats to SeasonStatsRow format
-    const minorStatsConverted: SeasonStatsRow[] = minorLeagueStats.map(s => ({
-      year: s.year,
-      level: s.level,
-      ip: s.ip,
-      era: 0, // Not available for minor league stats
-      k9: s.k9,
-      bb9: s.bb9,
-      hr9: s.hr9,
-      war: 0, // Not available for minor league stats
-      gs: 0
-    }));
+    const minorStatsConverted: SeasonStatsRow[] = minorLeagueStats.map(s => {
+      // Calculate FIP: ((13*HR9) + (3*BB9) - (2*K9)) / 9 + constant
+      const fip = ((13 * s.hr9) + (3 * s.bb9) - (2 * s.k9)) / 9 + 3.47;
+
+      return {
+        year: s.year,
+        level: s.level,
+        ip: s.ip,
+        fip: Math.round(fip * 100) / 100,
+        k9: s.k9,
+        bb9: s.bb9,
+        hr9: s.hr9,
+        war: 0, // Not available for minor league stats
+        gs: 0
+      };
+    });
 
     // Merge and sort by year descending, then by level (MLB first within same year)
     const levelOrder = { 'MLB': 0, 'aaa': 1, 'aa': 2, 'a': 3, 'r': 4 };
