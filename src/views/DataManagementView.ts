@@ -751,13 +751,7 @@ export class DataManagementView {
 
   private onboardingMessageInterval?: number;
 
-  private updateOnboardingProgress(current: number, total: number, currentType: 'MLB' | 'MiLB'): void {
-    const progressEl = this.container.querySelector('#onboarding-progress');
-    if (progressEl) {
-      const percent = Math.round((current / total) * 100);
-      progressEl.textContent = `${current} / ${total} datasets (${percent}%) - Loading ${currentType}...`;
-    }
-  }
+
 
   private async showOnboardingComplete(osaCount: number = 0, totalLoaded: number = 0): Promise<void> {
     if (this.onboardingMessageInterval) {
