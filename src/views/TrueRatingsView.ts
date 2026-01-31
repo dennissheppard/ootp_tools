@@ -145,6 +145,7 @@ export class TrueRatingsView {
   private yearDefaultsInitialized = false;
   private currentGameYear: number | null = null;
   private cachedLeagueAverages: any = null; // Store for passing to modal
+  private hasLoadedData = false; // Track if data has been loaded (for lazy loading)
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -153,7 +154,43 @@ export class TrueRatingsView {
     this.playerProfileModal = new PlayerProfileModal();
     this.updatePitcherColumns();
     this.renderLayout();
+    // Defer data loading until tab is activated (lazy loading)
+    // This prevents loading data for inactive tabs during app initialization
     this.initializeYearDefaults();
+
+    // Listen for tab activation to load data on first view
+    this.setupLazyLoading();
+  }
+
+  private setupLazyLoading(): void {
+    // Check if tab is already active when view is created
+    const tabPanel = this.container.closest<HTMLElement>('.tab-panel');
+    const isCurrentlyActive = tabPanel?.classList.contains('active');
+
+    if (!isCurrentlyActive) {
+      // Set up observer to detect when tab becomes active
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+            const target = mutation.target as HTMLElement;
+            if (target.classList.contains('active')) {
+              // Tab just became active - load data if not already loaded
+              if (!this.hasLoadedData) {
+                this.fetchAndRenderStats();
+                this.hasLoadedData = true;
+              }
+              // Stop observing once data is loaded
+              observer.disconnect();
+              break;
+            }
+          }
+        }
+      });
+
+      if (tabPanel) {
+        observer.observe(tabPanel, { attributes: true });
+      }
+    }
   }
 
   private restorePreferences(): void {
@@ -358,7 +395,14 @@ export class TrueRatingsView {
     } finally {
       await this.updateProspectsAvailability();
       await this.loadScoutingRatingsForYear();
-      this.fetchAndRenderStats();
+      // Only fetch data if this tab is currently active
+      // Otherwise, data will be loaded when tab is first activated
+      const tabPanel = this.container.closest<HTMLElement>('.tab-panel');
+      const isActive = tabPanel?.classList.contains('active') ?? false;
+      if (tabPanel && isActive && !this.hasLoadedData) {
+        this.fetchAndRenderStats();
+        this.hasLoadedData = true;
+      }
     }
   }
 

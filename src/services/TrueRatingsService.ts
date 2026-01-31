@@ -4,6 +4,7 @@ import { statsService } from './StatsService';
 import { dateService } from './DateService';
 import { LeagueAverages, YearlyPitchingStats } from './TrueRatingsCalculationService';
 import { apiFetch } from './ApiClient';
+import { indexedDBService } from './IndexedDBService';
 
 /**
  * Yearly stats detail for player profile modal
@@ -134,8 +135,6 @@ type StatsType = 'pitching' | 'batting';
 
 // True Ratings endpoints live under the "world" league slug.
 const API_BASE = '/api';
-const CACHE_KEY_PREFIX = 'wbl_true_ratings_cache_';
-const CACHE_TIMESTAMP_KEY_PREFIX = 'wbl_true_ratings_cache_timestamp_';
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const LEAGUE_START_YEAR = 2000;
 
@@ -144,31 +143,55 @@ class TrueRatingsService {
   private inMemoryBattingCache: Map<number, TruePlayerBattingStats[]> = new Map();
   private inMemoryPitchingByTeamCache: Map<number, TruePlayerStats[]> = new Map();
 
+  // Cache for in-flight API requests to prevent duplicate calls
+  private inFlightPitchingRequests: Map<number, Promise<TruePlayerStats[]>> = new Map();
+  private inFlightBattingRequests: Map<number, Promise<TruePlayerBattingStats[]>> = new Map();
+
   public async getTruePitchingStats(year: number): Promise<TruePlayerStats[]> {
     if (year < LEAGUE_START_YEAR) return [];
 
+    // Check in-memory cache first
     if (this.inMemoryPitchingCache.has(year)) {
       return this.inMemoryPitchingCache.get(year)!;
     }
 
-    const cached = this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
+    // Check IndexedDB cache
+    const cached = await this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
     if (cached) {
       const normalized = this.combinePitchingStats(cached);
       this.inMemoryPitchingCache.set(year, normalized);
       if (normalized.length !== cached.length) {
-        this.saveToCache(year, normalized, 'pitching');
+        await this.saveToCache(year, normalized, 'pitching');
       }
       return normalized;
     }
 
+    // Check if request is already in-flight
+    const existing = this.inFlightPitchingRequests.get(year);
+    if (existing) {
+      return existing;
+    }
+
+    // Start the fetch and cache the promise
+    const fetchPromise = this.fetchPitchingStatsInternal(year)
+      .finally(() => {
+        // Clean up the in-flight cache when done
+        this.inFlightPitchingRequests.delete(year);
+      });
+
+    this.inFlightPitchingRequests.set(year, fetchPromise);
+    return fetchPromise;
+  }
+
+  private async fetchPitchingStatsInternal(year: number): Promise<TruePlayerStats[]> {
     const playerStats = await this.fetchAndProcessStats(year, 'pitching', 'playerpitchstatsv2') as TruePlayerStats[];
     const normalized = this.combinePitchingStats(playerStats);
     this.inMemoryPitchingCache.set(year, normalized);
-    
+
     // Cache permanently if the year is completed (historical)
     const currentYear = await dateService.getCurrentYear();
-    this.saveToCache(year, normalized, 'pitching', year < currentYear);
-    
+    await this.saveToCache(year, normalized, 'pitching', year < currentYear);
+
     return normalized;
   }
 
@@ -187,28 +210,48 @@ class TrueRatingsService {
   }
 
   public async getTrueBattingStats(year: number): Promise<TruePlayerBattingStats[]> {
+    // Check in-memory cache first
     if (this.inMemoryBattingCache.has(year)) {
       return this.inMemoryBattingCache.get(year)!;
     }
 
-    const cached = this.loadFromCache<TruePlayerBattingStats[]>(year, 'batting');
+    // Check IndexedDB cache
+    const cached = await this.loadFromCache<TruePlayerBattingStats[]>(year, 'batting');
     if (cached) {
       const normalized = this.combineBattingStats(cached);
       this.inMemoryBattingCache.set(year, normalized);
       if (normalized.length !== cached.length) {
-        this.saveToCache(year, normalized, 'batting');
+        await this.saveToCache(year, normalized, 'batting');
       }
       return normalized;
     }
-    
+
+    // Check if request is already in-flight
+    const existing = this.inFlightBattingRequests.get(year);
+    if (existing) {
+      return existing;
+    }
+
+    // Start the fetch and cache the promise
+    const fetchPromise = this.fetchBattingStatsInternal(year)
+      .finally(() => {
+        // Clean up the in-flight cache when done
+        this.inFlightBattingRequests.delete(year);
+      });
+
+    this.inFlightBattingRequests.set(year, fetchPromise);
+    return fetchPromise;
+  }
+
+  private async fetchBattingStatsInternal(year: number): Promise<TruePlayerBattingStats[]> {
     const playerStats = await this.fetchAndProcessStats(year, 'batting', 'playerbatstatsv2') as TruePlayerBattingStats[];
     const normalized = this.combineBattingStats(playerStats);
     this.inMemoryBattingCache.set(year, normalized);
-    
+
     // Cache permanently if the year is completed (historical)
     const currentYear = await dateService.getCurrentYear();
-    this.saveToCache(year, normalized, 'batting', year < currentYear);
-    
+    await this.saveToCache(year, normalized, 'batting', year < currentYear);
+
     return normalized;
   }
 
@@ -219,12 +262,12 @@ class TrueRatingsService {
   async loadDefaultMlbData(): Promise<{ loaded: number; errors: string[] }> {
     const startYear = LEAGUE_START_YEAR;
     const currentYear = await dateService.getCurrentYear();
-    const endYear = currentYear + 5; // Try up to current year + 5
+    const endYear = currentYear; // Only load up to current year
 
     let loaded = 0;
     const errors: string[] = [];
 
-    console.log(`📦 Loading bundled MLB data (${startYear}-${currentYear}, checking up to ${endYear})...`);
+    console.log(`📦 Loading bundled MLB data (${startYear}-${endYear})...`);
 
     for (let year = startYear; year <= endYear; year++) {
       try {
@@ -232,7 +275,7 @@ class TrueRatingsService {
         const url = `/data/mlb/${filename}`;
 
         // Check if data already exists in cache
-        const existing = this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
+        const existing = await this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
         if (existing && existing.length > 0) {
           console.log(`⏭️  Skipping ${filename} (already cached)`);
           continue;
@@ -278,7 +321,7 @@ class TrueRatingsService {
         const normalized = this.combinePitchingStats(processedStats);
 
         // Save to cache (permanent cache for historical data)
-        this.saveToCache(year, normalized, 'pitching', true);
+        await this.saveToCache(year, normalized, 'pitching', true);
         loaded++;
         console.log(`✅ Loaded ${filename} (${normalized.length} players)`);
 
@@ -535,55 +578,48 @@ class TrueRatingsService {
     return `${fullInnings}.${partialOuts}`;
   }
 
-  private loadFromCache<T>(year: number, type: StatsType): T | null {
+  private async loadFromCache<T>(year: number, type: StatsType): Promise<T | null> {
     try {
-      const timestampKey = `${CACHE_TIMESTAMP_KEY_PREFIX}${type}_${year}`;
-      const cacheKey = `${CACHE_KEY_PREFIX}${type}_${year}`;
-      
-      const timestamp = localStorage.getItem(timestampKey);
-      if (!timestamp) return null;
+      const cached = await indexedDBService.getMlbLeagueStats(year, type);
+      if (!cached) return null;
 
-      const parsedTimestamp = parseInt(timestamp, 10);
+      const { data, fetchedAt } = cached;
 
       // If timestamp is 0, it's a permanent cache, so skip age check
-      if (parsedTimestamp === 0) {
-        const cached = localStorage.getItem(cacheKey);
-        return cached ? JSON.parse(cached) as T : null;
+      if (fetchedAt === 0) {
+        return data as T;
       }
 
-      const cacheAge = Date.now() - parsedTimestamp;
+      // Check if cache is stale
+      const cacheAge = Date.now() - fetchedAt;
       if (cacheAge > CACHE_DURATION_MS) {
-        this.clearCache(year, type); // Clear expired cache
+        await this.clearCache(year, type); // Clear expired cache
         return null;
       }
 
-      const cached = localStorage.getItem(cacheKey);
-      if (!cached) return null;
-
-      return JSON.parse(cached) as T;
-    } catch {
-      this.clearCache(year, type);
+      return data as T;
+    } catch (error) {
+      console.error(`Error loading ${type} cache for ${year}:`, error);
+      await this.clearCache(year, type);
       return null;
     }
   }
 
-  private saveToCache(year: number, stats: any[], type: StatsType, isPermanent: boolean = false): void {
+  private async saveToCache(year: number, stats: any[], type: StatsType, isPermanent: boolean = false): Promise<void> {
     try {
-      const timestampKey = `${CACHE_TIMESTAMP_KEY_PREFIX}${type}_${year}`;
-      const cacheKey = `${CACHE_KEY_PREFIX}${type}_${year}`;
-      localStorage.setItem(cacheKey, JSON.stringify(stats));
-      // If permanent, set timestamp to 0. Otherwise, set current timestamp for 24-hour expiration.
-      localStorage.setItem(timestampKey, (isPermanent ? 0 : Date.now()).toString());
-    } catch {
-      // Cache write failed (e.g., quota exceeded), ignore
+      await indexedDBService.saveMlbLeagueStats(year, type, stats, isPermanent);
+    } catch (error) {
+      // Cache write failed
+      console.error(`❌ Failed to save ${type} data for ${year} to IndexedDB:`, error);
     }
   }
 
-  private clearCache(year: number, type: StatsType): void {
-    const timestampKey = `${CACHE_TIMESTAMP_KEY_PREFIX}${type}_${year}`;
-    const cacheKey = `${CACHE_KEY_PREFIX}${type}_${year}`;
-    localStorage.removeItem(cacheKey);
-    localStorage.removeItem(timestampKey);
+  private async clearCache(year: number, type: StatsType): Promise<void> {
+    try {
+      await indexedDBService.deleteMlbLeagueStats(year, type);
+    } catch (error) {
+      console.error(`Error clearing ${type} cache for ${year}:`, error);
+    }
   }
 
   /**

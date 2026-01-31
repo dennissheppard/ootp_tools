@@ -215,16 +215,26 @@ export class DraftBoardView {
     this.loadDraftBoard();
     this.render();
     this.bindModeToggle();
-    this.loadLeagueStats();
+    // Defer league stats loading until first user interaction
+    // this.loadLeagueStats();
     this.bindPitcherUpload();
     this.bindHitterUpload();
     this.bindPitcherInstructionToggles();
     this.bindHitterInstructionToggles();
   }
 
+  private hasLoadedLeagueStats = false; // Track if stats have been loaded
+
+  private async ensureLeagueStatsLoaded(): Promise<void> {
+    if (!this.hasLoadedLeagueStats) {
+      await this.loadLeagueStats();
+    }
+  }
+
   private async loadLeagueStats(): Promise<void> {
     try {
       const stats = await leagueStatsService.getLeagueStats(2020);
+      this.hasLoadedLeagueStats = true;
       this.leagueContext = {
         fipConstant: stats.fipConstant,
         avgFip: stats.avgFip,
@@ -449,7 +459,10 @@ export class DraftBoardView {
   }
   private handlePitcherFile(file: File): void {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      // Ensure league stats are loaded before processing
+      await this.ensureLeagueStatsLoaded();
+
       const content = e.target?.result as string;
       this.parsePitcherCsv(content);
       this.saveDraftBoard();
@@ -460,7 +473,10 @@ export class DraftBoardView {
 
   private handleHitterFile(file: File): void {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      // Ensure league stats are loaded before processing
+      await this.ensureLeagueStatsLoaded();
+
       const content = e.target?.result as string;
       this.parseHitterCsv(content);
       this.saveDraftBoard();

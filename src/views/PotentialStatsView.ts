@@ -17,16 +17,25 @@ export class PotentialStatsView {
   private leagueContext: LeagueContext | undefined;
   private selectedYear: number = 2020;
   private leagueEra: number | undefined;
+  private hasLoadedLeagueStats = false; // Track if stats have been loaded
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.render();
-    this.loadLeagueStats();
+    // Defer league stats loading until first user interaction
+    // This prevents loading data during app initialization
+  }
+
+  private async ensureLeagueStatsLoaded(): Promise<void> {
+    if (!this.hasLoadedLeagueStats) {
+      await this.loadLeagueStats();
+    }
   }
 
   private async loadLeagueStats(): Promise<void> {
     try {
       const stats = await leagueStatsService.getLeagueStats(this.selectedYear);
+      this.hasLoadedLeagueStats = true;
       this.leagueContext = {
         fipConstant: stats.fipConstant,
         avgFip: stats.avgFip,
@@ -190,7 +199,10 @@ export class PotentialStatsView {
     });
   }
 
-  private handleManualEntry(): void {
+  private async handleManualEntry(): Promise<void> {
+    // Ensure league stats are loaded before calculating
+    await this.ensureLeagueStatsLoaded();
+
     const getValue = (id: string): number => {
       const input = this.container.querySelector<HTMLInputElement>(`#${id}`);
       return Number(input?.value) || 50;
@@ -231,7 +243,10 @@ export class PotentialStatsView {
 
   private handleCSVFile(file: File): void {
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
+      // Ensure league stats are loaded before calculating
+      await this.ensureLeagueStatsLoaded();
+
       const content = e.target?.result as string;
       try {
         const pitchers = PotentialStatsService.parseCSV(content);

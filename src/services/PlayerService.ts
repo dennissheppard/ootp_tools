@@ -1,9 +1,8 @@
 import { Player, Position } from '../models/Player';
 import { apiFetch } from './ApiClient';
+import { indexedDBService } from './IndexedDBService';
 
 const API_BASE = '/api';
-const CACHE_KEY = 'wbl_players_cache';
-const CACHE_TIMESTAMP_KEY = 'wbl_players_cache_timestamp';
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 export class PlayerService {
@@ -16,9 +15,9 @@ export class PlayerService {
       return this.players;
     }
 
-    // Check localStorage cache
+    // Check IndexedDB cache
     if (!forceRefresh) {
-      const cached = this.loadFromCache();
+      const cached = await this.loadFromCache();
       if (cached) {
         this.players = cached;
         return this.players;
@@ -33,7 +32,7 @@ export class PlayerService {
     this.loading = this.fetchPlayers();
     try {
       this.players = await this.loading;
-      this.saveToCache(this.players);
+      await this.saveToCache(this.players);
       return this.players;
     } finally {
       this.loading = null;
@@ -119,39 +118,30 @@ export class PlayerService {
     return values;
   }
 
-  private loadFromCache(): Player[] | null {
+  private async loadFromCache(): Promise<Player[] | null> {
     try {
-      const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
-      if (!timestamp) return null;
+      const cached = await indexedDBService.getPlayers();
+      if (!cached) return null;
 
-      const cacheAge = Date.now() - parseInt(timestamp, 10);
+      const cacheAge = Date.now() - cached.fetchedAt;
       if (cacheAge > CACHE_DURATION_MS) {
-        this.clearCache();
+        console.log(`⏰ Players cache stale (${Math.round(cacheAge / 1000 / 60 / 60)}h old), re-fetching...`);
         return null;
       }
 
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (!cached) return null;
-
-      return JSON.parse(cached);
-    } catch {
-      this.clearCache();
+      return cached.data as Player[];
+    } catch (error) {
+      console.error('Error loading players from cache:', error);
       return null;
     }
   }
 
-  private saveToCache(players: Player[]): void {
+  private async saveToCache(players: Player[]): Promise<void> {
     try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(players));
-      localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
-    } catch {
-      // Cache write failed (e.g., quota exceeded), ignore
+      await indexedDBService.savePlayers(players);
+    } catch (error) {
+      console.error('Failed to cache players:', error);
     }
-  }
-
-  private clearCache(): void {
-    localStorage.removeItem(CACHE_KEY);
-    localStorage.removeItem(CACHE_TIMESTAMP_KEY);
   }
 }
 

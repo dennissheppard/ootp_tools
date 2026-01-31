@@ -1,0 +1,6911 @@
+[
+  {
+    "player_id": 6482,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.5290322580645155,
+      "bb9": 3.0193548387096776,
+      "hr9": 0.29032258064516125,
+      "fip": 3.6193548387096777,
+      "ip": 155
+    },
+    "breakoutYearStats": {
+      "k9": 7.05,
+      "bb9": 2.4,
+      "hr9": 0.45,
+      "fip": 3.0833333333333335,
+      "ip": 60
+    },
+    "improvements": {
+      "k9Gain": 2.5209677419354843,
+      "bb9Drop": 0.6193548387096777,
+      "hr9Drop": -0.15967741935483876,
+      "fipDrop": 0.5360215053763442
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -2,
+      "mlbSeasons": 2,
+      "totalMLBIP": 84,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9029,
+    "breakoutYear": 2018,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5.059459459459459,
+      "bb9": 2.5783783783783787,
+      "hr9": 0.7783783783783784,
+      "fip": 4.059459459459459,
+      "ip": 185
+    },
+    "breakoutYearStats": {
+      "k9": 6.365853658536585,
+      "bb9": 1.4268292682926829,
+      "hr9": 0.3292682926829268,
+      "fip": 2.7365853658536587,
+      "ip": 82
+    },
+    "improvements": {
+      "k9Gain": 1.3063941990771255,
+      "bb9Drop": 1.1515491100856958,
+      "hr9Drop": 0.44911008569545163,
+      "fipDrop": 1.3228740936058005
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -4,
+      "mlbSeasons": 2,
+      "avgMLBFip": 4.907692307692308,
+      "totalMLBIP": 130,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9679,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5.1328125,
+      "bb9": 2.3203125,
+      "hr9": 0.7734375,
+      "fip": 3.95,
+      "ip": 128
+    },
+    "breakoutYearStats": {
+      "k9": 6.242774566473988,
+      "bb9": 1.4566473988439306,
+      "hr9": 0.6763005780346821,
+      "fip": 3.2751445086705204,
+      "ip": 173
+    },
+    "improvements": {
+      "k9Gain": 1.1099620664739884,
+      "bb9Drop": 0.8636651011560694,
+      "hr9Drop": 0.09713692196531787,
+      "fipDrop": 0.6748554913294798
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -5,
+      "mlbSeasons": 5,
+      "avgMLBFip": 4.522981366459628,
+      "totalMLBIP": 322,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10113,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.351648351648351,
+      "bb9": 3.956043956043956,
+      "hr9": 0.4945054945054945,
+      "fip": 4.265934065934066,
+      "ip": 91
+    },
+    "breakoutYearStats": {
+      "k9": 6.365853658536585,
+      "bb9": 2.6341463414634143,
+      "hr9": 0.43902439024390244,
+      "fip": 3.2975609756097564,
+      "ip": 41
+    },
+    "improvements": {
+      "k9Gain": 2.0142053068882335,
+      "bb9Drop": 1.321897614580542,
+      "hr9Drop": 0.055481104261592085,
+      "fipDrop": 0.9683730903243095
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -2,
+      "mlbSeasons": 5,
+      "avgMLBFip": 4.674468085106383,
+      "totalMLBIP": 470,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10405,
+    "breakoutYear": 2018,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4,
+      "bb9": 4.363636363636363,
+      "hr9": 2,
+      "fip": 6.654545454545454,
+      "ip": 99
+    },
+    "breakoutYearStats": {
+      "k9": 5.338983050847458,
+      "bb9": 3.813559322033898,
+      "hr9": 0.6101694915254238,
+      "fip": 4.1661016949152545,
+      "ip": 59
+    },
+    "improvements": {
+      "k9Gain": 1.3389830508474576,
+      "bb9Drop": 0.5500770416024654,
+      "hr9Drop": 1.3898305084745761,
+      "fipDrop": 2.4884437596302
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -4,
+      "mlbSeasons": 3,
+      "avgMLBFip": 5.7913461538461535,
+      "totalMLBIP": 208,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 5514,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5.527173913043478,
+      "bb9": 1.7608695652173914,
+      "hr9": 0.8804347826086957,
+      "fip": 3.830434782608696,
+      "ip": 184
+    },
+    "breakoutYearStats": {
+      "k9": 6.582089552238806,
+      "bb9": 1.0746268656716418,
+      "hr9": 0.6716417910447761,
+      "fip": 3.065671641791045,
+      "ip": 67
+    },
+    "improvements": {
+      "k9Gain": 1.054915639195328,
+      "bb9Drop": 0.6862426995457496,
+      "hr9Drop": 0.20879299156391962,
+      "fipDrop": 0.7647631408176512
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 6498,
+    "breakoutYear": 2018,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5.294117647058823,
+      "bb9": 4.447058823529412,
+      "hr9": 0.8470588235294118,
+      "fip": 4.729411764705882,
+      "ip": 85
+    },
+    "breakoutYearStats": {
+      "k9": 6.75,
+      "bb9": 3.0375,
+      "hr9": 0.7875,
+      "fip": 3.85,
+      "ip": 80
+    },
+    "improvements": {
+      "k9Gain": 1.4558823529411766,
+      "bb9Drop": 1.4095588235294119,
+      "hr9Drop": 0.059558823529411775,
+      "fipDrop": 0.8794117647058823
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 6813,
+    "breakoutYear": 2018,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5.789808917197452,
+      "bb9": 2.751592356687898,
+      "hr9": 1.0318471337579618,
+      "fip": 4.321019108280255,
+      "ip": 157
+    },
+    "breakoutYearStats": {
+      "k9": 9,
+      "bb9": 2.357142857142857,
+      "hr9": 0.42857142857142855,
+      "fip": 2.604761904761905,
+      "ip": 42
+    },
+    "improvements": {
+      "k9Gain": 3.210191082802548,
+      "bb9Drop": 0.3944494995450407,
+      "hr9Drop": 0.6032757051865332,
+      "fipDrop": 1.7162572035183499
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 7010,
+    "breakoutYear": 2017,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.271186440677966,
+      "bb9": 4.271186440677966,
+      "hr9": 0.9152542372881356,
+      "fip": 4.996610169491525,
+      "ip": 59
+    },
+    "breakoutYearStats": {
+      "k9": 5.7857142857142865,
+      "bb9": 3,
+      "hr9": 1.0714285714285714,
+      "fip": 4.461904761904762,
+      "ip": 126
+    },
+    "improvements": {
+      "k9Gain": 1.5145278450363202,
+      "bb9Drop": 1.2711864406779663,
+      "hr9Drop": -0.1561743341404358,
+      "fipDrop": 0.5347054075867632
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 7796,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 6.9411764705882355,
+      "bb9": 3.2941176470588234,
+      "hr9": 1.1176470588235294,
+      "fip": 4.369934640522876,
+      "ip": 153
+    },
+    "breakoutYearStats": {
+      "k9": 8.85,
+      "bb9": 2.8499999999999996,
+      "hr9": 0.3,
+      "fip": 2.6166666666666667,
+      "ip": 60
+    },
+    "improvements": {
+      "k9Gain": 1.9088235294117641,
+      "bb9Drop": 0.44411764705882373,
+      "hr9Drop": 0.8176470588235294,
+      "fipDrop": 1.7532679738562096
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 2,
+      "mlbSeasons": 1,
+      "totalMLBIP": 75,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 8492,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.707692307692308,
+      "bb9": 3.1153846153846154,
+      "hr9": 0.6923076923076923,
+      "fip": 4.1923076923076925,
+      "ip": 130
+    },
+    "breakoutYearStats": {
+      "k9": 6.069767441860465,
+      "bb9": 2.7209302325581395,
+      "hr9": 0.627906976744186,
+      "fip": 3.6651162790697676,
+      "ip": 129
+    },
+    "improvements": {
+      "k9Gain": 1.3620751341681574,
+      "bb9Drop": 0.39445438282647594,
+      "hr9Drop": 0.06440071556350624,
+      "fipDrop": 0.527191413237925
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9991,
+    "breakoutYear": 2015,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 3.7384615384615385,
+      "bb9": 3.253846153846154,
+      "hr9": 1.9384615384615387,
+      "fip": 6.253846153846154,
+      "ip": 130
+    },
+    "breakoutYearStats": {
+      "k9": 4.777777777777778,
+      "bb9": 2.611111111111111,
+      "hr9": 0.9444444444444444,
+      "fip": 4.37283950617284,
+      "ip": 162
+    },
+    "improvements": {
+      "k9Gain": 1.0393162393162392,
+      "bb9Drop": 0.6427350427350427,
+      "hr9Drop": 0.9940170940170943,
+      "fipDrop": 1.8810066476733143
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10021,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 2.985148514851485,
+      "bb9": 2.6287128712871284,
+      "hr9": 0.7128712871287128,
+      "fip": 4.4425742574257425,
+      "ip": 202
+    },
+    "breakoutYearStats": {
+      "k9": 4.0588235294117645,
+      "bb9": 1.2352941176470589,
+      "hr9": 0.1764705882352941,
+      "fip": 2.9647058823529413,
+      "ip": 51
+    },
+    "improvements": {
+      "k9Gain": 1.0736750145602794,
+      "bb9Drop": 1.3934187536400695,
+      "hr9Drop": 0.5364006988934187,
+      "fipDrop": 1.4778683750728012
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -3,
+      "mlbSeasons": 3,
+      "avgMLBFip": 4.577289377289377,
+      "totalMLBIP": 273,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10358,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5.884615384615385,
+      "bb9": 7.038461538461538,
+      "hr9": 0.5769230769230769,
+      "fip": 5.0717948717948715,
+      "ip": 156
+    },
+    "breakoutYearStats": {
+      "k9": 7.6499999999999995,
+      "bb9": 4.5,
+      "hr9": 1.05,
+      "fip": 4.516666666666667,
+      "ip": 60
+    },
+    "improvements": {
+      "k9Gain": 1.7653846153846144,
+      "bb9Drop": 2.5384615384615383,
+      "hr9Drop": -0.4730769230769232,
+      "fipDrop": 0.5551282051282049
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11031,
+    "breakoutYear": 2015,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.561643835616438,
+      "bb9": 3.328767123287671,
+      "hr9": 1.8493150684931505,
+      "fip": 5.9671232876712335,
+      "ip": 73
+    },
+    "breakoutYearStats": {
+      "k9": 5.888888888888889,
+      "bb9": 2.6666666666666665,
+      "hr9": 1.1111111111111112,
+      "fip": 4.385185185185185,
+      "ip": 162
+    },
+    "improvements": {
+      "k9Gain": 1.327245053272451,
+      "bb9Drop": 0.6621004566210047,
+      "hr9Drop": 0.7382039573820394,
+      "fipDrop": 1.5819381024860482
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11031,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.888888888888889,
+      "bb9": 2.6666666666666665,
+      "hr9": 1.1111111111111112,
+      "fip": 4.385185185185185,
+      "ip": 162
+    },
+    "breakoutYearStats": {
+      "k9": 7.171875,
+      "bb9": 1.640625,
+      "hr9": 0.703125,
+      "fip": 3.16875,
+      "ip": 192
+    },
+    "improvements": {
+      "k9Gain": 1.2829861111111107,
+      "bb9Drop": 1.0260416666666665,
+      "hr9Drop": 0.40798611111111116,
+      "fipDrop": 1.2164351851851851
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11395,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 3.48,
+      "bb9": 4.5600000000000005,
+      "hr9": 0.9600000000000001,
+      "fip": 5.333333333333334,
+      "ip": 75
+    },
+    "breakoutYearStats": {
+      "k9": 4.548387096774194,
+      "bb9": 3.2903225806451615,
+      "hr9": 0.5806451612903225,
+      "fip": 4.124731182795699,
+      "ip": 93
+    },
+    "improvements": {
+      "k9Gain": 1.068387096774194,
+      "bb9Drop": 1.269677419354839,
+      "hr9Drop": 0.37935483870967757,
+      "fipDrop": 1.2086021505376348
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11538,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.335329341317365,
+      "bb9": 3.6107784431137726,
+      "hr9": 0.5389221556886228,
+      "fip": 3.9964071856287426,
+      "ip": 167
+    },
+    "breakoutYearStats": {
+      "k9": 8.39423076923077,
+      "bb9": 3.201923076923077,
+      "hr9": 0.34615384615384615,
+      "fip": 2.9019230769230773,
+      "ip": 104
+    },
+    "improvements": {
+      "k9Gain": 3.058901427913405,
+      "bb9Drop": 0.4088553661906955,
+      "hr9Drop": 0.19276830953477664,
+      "fipDrop": 1.0944841087056654
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 7989,
+    "breakoutYear": 2015,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 6.101694915254237,
+      "bb9": 5.338983050847458,
+      "hr9": 0.6101694915254238,
+      "fip": 4.505084745762712,
+      "ip": 59
+    },
+    "breakoutYearStats": {
+      "k9": 7.403225806451613,
+      "bb9": 3.338709677419355,
+      "hr9": 0.43548387096774194,
+      "fip": 3.296774193548387,
+      "ip": 62
+    },
+    "improvements": {
+      "k9Gain": 1.301530891197376,
+      "bb9Drop": 2.0002733734281026,
+      "hr9Drop": 0.17468562055768183,
+      "fipDrop": 1.208310552214325
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9225,
+    "breakoutYear": 2016,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.709302325581396,
+      "bb9": 4.395348837209302,
+      "hr9": 0.7325581395348838,
+      "fip": 4.676744186046512,
+      "ip": 86
+    },
+    "breakoutYearStats": {
+      "k9": 6.166666666666667,
+      "bb9": 2.333333333333333,
+      "hr9": 0.6666666666666666,
+      "fip": 3.5703703703703704,
+      "ip": 54
+    },
+    "improvements": {
+      "k9Gain": 1.4573643410852712,
+      "bb9Drop": 2.062015503875969,
+      "hr9Drop": 0.06589147286821717,
+      "fipDrop": 1.1063738156761413
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9236,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.721311475409836,
+      "bb9": 2.8032786885245904,
+      "hr9": 0.8852459016393442,
+      "fip": 4.363934426229508,
+      "ip": 61
+    },
+    "breakoutYearStats": {
+      "k9": 7.043478260869565,
+      "bb9": 2.3478260869565215,
+      "hr9": 0.19565217391304346,
+      "fip": 2.7,
+      "ip": 46
+    },
+    "improvements": {
+      "k9Gain": 2.3221667854597294,
+      "bb9Drop": 0.4554526015680689,
+      "hr9Drop": 0.6895937277263008,
+      "fipDrop": 1.663934426229508
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 1,
+      "mlbSeasons": 3,
+      "avgMLBFip": 4.005084745762712,
+      "totalMLBIP": 118,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9548,
+    "breakoutYear": 2015,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.040000000000001,
+      "bb9": 5.22,
+      "hr9": 1.08,
+      "fip": 5.380000000000001,
+      "ip": 50
+    },
+    "breakoutYearStats": {
+      "k9": 7.434782608695652,
+      "bb9": 3.326086956521739,
+      "hr9": 0.3913043478260869,
+      "fip": 3.221739130434783,
+      "ip": 46
+    },
+    "improvements": {
+      "k9Gain": 2.3947826086956514,
+      "bb9Drop": 1.893913043478261,
+      "hr9Drop": 0.6886956521739132,
+      "fipDrop": 2.158260869565218
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9624,
+    "breakoutYear": 2018,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.102941176470588,
+      "bb9": 7.411764705882352,
+      "hr9": 1.3235294117647058,
+      "fip": 6.670588235294118,
+      "ip": 68
+    },
+    "breakoutYearStats": {
+      "k9": 5.6117647058823525,
+      "bb9": 5.929411764705883,
+      "hr9": 1.1647058823529413,
+      "fip": 5.6117647058823525,
+      "ip": 85
+    },
+    "improvements": {
+      "k9Gain": 1.5088235294117647,
+      "bb9Drop": 1.4823529411764698,
+      "hr9Drop": 0.15882352941176459,
+      "fipDrop": 1.0588235294117654
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9820,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5,
+      "bb9": 5,
+      "hr9": 0.4,
+      "fip": 4.333333333333334,
+      "ip": 45
+    },
+    "breakoutYearStats": {
+      "k9": 6.2,
+      "bb9": 3.8,
+      "hr9": 0.4,
+      "fip": 3.666666666666667,
+      "ip": 45
+    },
+    "improvements": {
+      "k9Gain": 1.2000000000000002,
+      "bb9Drop": 1.2000000000000002,
+      "hr9Drop": 0,
+      "fipDrop": 0.666666666666667
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10191,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.556962025316456,
+      "bb9": 3.417721518987342,
+      "hr9": 0.9113924050632911,
+      "fip": 4.643037974683544,
+      "ip": 79
+    },
+    "breakoutYearStats": {
+      "k9": 5.590909090909091,
+      "bb9": 2.5909090909090913,
+      "hr9": 0.2727272727272727,
+      "fip": 3.2151515151515153,
+      "ip": 66
+    },
+    "improvements": {
+      "k9Gain": 1.0339470655926348,
+      "bb9Drop": 0.826812428078251,
+      "hr9Drop": 0.6386651323360184,
+      "fipDrop": 1.4278864595320289
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 0,
+      "mlbSeasons": 1,
+      "totalMLBIP": 70,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 8797,
+    "breakoutYear": 2016,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.266666666666667,
+      "bb9": 3.2,
+      "hr9": 0.8666666666666667,
+      "fip": 4.57037037037037,
+      "ip": 135
+    },
+    "breakoutYearStats": {
+      "k9": 5.294117647058823,
+      "bb9": 2.1176470588235294,
+      "hr9": 0.7941176470588236,
+      "fip": 3.8764705882352946,
+      "ip": 136
+    },
+    "improvements": {
+      "k9Gain": 1.0274509803921568,
+      "bb9Drop": 1.0823529411764707,
+      "hr9Drop": 0.0725490196078431,
+      "fipDrop": 0.6938997821350759
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9178,
+    "breakoutYear": 2016,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 6.101694915254237,
+      "bb9": 4.576271186440678,
+      "hr9": 0.3050847457627119,
+      "fip": 3.810169491525424,
+      "ip": 59
+    },
+    "breakoutYearStats": {
+      "k9": 7.724409448818898,
+      "bb9": 2.267716535433071,
+      "hr9": 0.4251968503937008,
+      "fip": 2.8535433070866145,
+      "ip": 127
+    },
+    "improvements": {
+      "k9Gain": 1.622714533564661,
+      "bb9Drop": 2.3085546510076074,
+      "hr9Drop": -0.12011210463098893,
+      "fipDrop": 0.9566261844388095
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9258,
+    "breakoutYear": 2015,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.691489361702128,
+      "bb9": 6.223404255319149,
+      "hr9": 0.09574468085106383,
+      "fip": 4.370212765957447,
+      "ip": 94
+    },
+    "breakoutYearStats": {
+      "k9": 7.096153846153846,
+      "bb9": 2.9423076923076925,
+      "hr9": 0.34615384615384615,
+      "fip": 3.103846153846154,
+      "ip": 52
+    },
+    "improvements": {
+      "k9Gain": 2.404664484451718,
+      "bb9Drop": 3.281096563011457,
+      "hr9Drop": -0.25040916530278234,
+      "fipDrop": 1.2663666121112933
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 9594,
+    "breakoutYear": 2015,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.675159235668789,
+      "bb9": 2.9808917197452227,
+      "hr9": 0.8025477707006369,
+      "fip": 4.09171974522293,
+      "ip": 157
+    },
+    "breakoutYearStats": {
+      "k9": 6.942857142857143,
+      "bb9": 2.6228571428571428,
+      "hr9": 0.46285714285714286,
+      "fip": 3.2,
+      "ip": 175
+    },
+    "improvements": {
+      "k9Gain": 1.2676979071883538,
+      "bb9Drop": 0.35803457688807994,
+      "hr9Drop": 0.339690627843494,
+      "fipDrop": 0.8917197452229297
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10018,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 3.75,
+      "bb9": 3.75,
+      "hr9": 1.3499999999999999,
+      "fip": 5.566666666666666,
+      "ip": 60
+    },
+    "breakoutYearStats": {
+      "k9": 6.319148936170213,
+      "bb9": 3.4468085106382977,
+      "hr9": 0.3829787234042553,
+      "fip": 3.4978723404255323,
+      "ip": 47
+    },
+    "improvements": {
+      "k9Gain": 2.5691489361702127,
+      "bb9Drop": 0.30319148936170226,
+      "hr9Drop": 0.9670212765957445,
+      "fipDrop": 2.068794326241134
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10018,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.670886075949367,
+      "bb9": 4.89873417721519,
+      "hr9": 1.481012658227848,
+      "fip": 5.934177215189873,
+      "ip": 79
+    },
+    "breakoutYearStats": {
+      "k9": 6.15,
+      "bb9": 3.15,
+      "hr9": 0.9,
+      "fip": 4.183333333333334,
+      "ip": 60
+    },
+    "improvements": {
+      "k9Gain": 1.4791139240506332,
+      "bb9Drop": 1.7487341772151903,
+      "hr9Drop": 0.581012658227848,
+      "fipDrop": 1.7508438818565395
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10037,
+    "breakoutYear": 2015,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.207142857142857,
+      "bb9": 4.564285714285714,
+      "hr9": 1.157142857142857,
+      "fip": 5.235714285714286,
+      "ip": 140
+    },
+    "breakoutYearStats": {
+      "k9": 8.228571428571428,
+      "bb9": 4.242857142857143,
+      "hr9": 0.5142857142857142,
+      "fip": 3.528571428571429,
+      "ip": 70
+    },
+    "improvements": {
+      "k9Gain": 3.0214285714285705,
+      "bb9Drop": 0.3214285714285712,
+      "hr9Drop": 0.6428571428571428,
+      "fipDrop": 1.7071428571428569
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10110,
+    "breakoutYear": 2015,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.990909090909091,
+      "bb9": 3.6,
+      "hr9": 0.24545454545454545,
+      "fip": 3.6454545454545455,
+      "ip": 110
+    },
+    "breakoutYearStats": {
+      "k9": 6.872727272727273,
+      "bb9": 2.2909090909090906,
+      "hr9": 0.4909090909090909,
+      "fip": 3.1454545454545455,
+      "ip": 55
+    },
+    "improvements": {
+      "k9Gain": 1.8818181818181818,
+      "bb9Drop": 1.3090909090909095,
+      "hr9Drop": -0.24545454545454545,
+      "fipDrop": 0.5
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 1,
+      "mlbSeasons": 4,
+      "avgMLBFip": 3.9500000000000006,
+      "totalMLBIP": 264,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 10328,
+    "breakoutYear": 2016,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 6.452830188679245,
+      "bb9": 4.584905660377358,
+      "hr9": 1.6981132075471699,
+      "fip": 5.747169811320755,
+      "ip": 53
+    },
+    "breakoutYearStats": {
+      "k9": 7.7142857142857135,
+      "bb9": 3.122448979591837,
+      "hr9": 1.4693877551020407,
+      "fip": 4.648979591836735,
+      "ip": 49
+    },
+    "improvements": {
+      "k9Gain": 1.2614555256064683,
+      "bb9Drop": 1.4624566807855213,
+      "hr9Drop": 0.2287254524451292,
+      "fipDrop": 1.09819021948402
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10333,
+    "breakoutYear": 2016,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 2.8867924528301887,
+      "bb9": 2.0377358490566038,
+      "hr9": 1.5283018867924527,
+      "fip": 5.445283018867925,
+      "ip": 53
+    },
+    "breakoutYearStats": {
+      "k9": 4.589403973509934,
+      "bb9": 1.7284768211920531,
+      "hr9": 1.0132450331125828,
+      "fip": 4.219867549668875,
+      "ip": 151
+    },
+    "improvements": {
+      "k9Gain": 1.7026115206797452,
+      "bb9Drop": 0.3092590278645506,
+      "hr9Drop": 0.5150568536798699,
+      "fipDrop": 1.2254154691990502
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 1,
+      "totalMLBIP": 53,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10422,
+    "breakoutYear": 2015,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.232558139534884,
+      "bb9": 3.7151162790697674,
+      "hr9": 0.7325581395348838,
+      "fip": 4.333720930232558,
+      "ip": 172
+    },
+    "breakoutYearStats": {
+      "k9": 6.527472527472527,
+      "bb9": 2.076923076923077,
+      "hr9": 0.5934065934065934,
+      "fip": 3.298901098901099,
+      "ip": 182
+    },
+    "improvements": {
+      "k9Gain": 1.2949143879376432,
+      "bb9Drop": 1.6381932021466903,
+      "hr9Drop": 0.1391515461282904,
+      "fipDrop": 1.034819831331459
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10474,
+    "breakoutYear": 2015,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.491525423728814,
+      "bb9": 3.3559322033898304,
+      "hr9": 1.5254237288135593,
+      "fip": 5.301694915254238,
+      "ip": 59
+    },
+    "breakoutYearStats": {
+      "k9": 7.534883720930233,
+      "bb9": 1.6744186046511627,
+      "hr9": 1.0465116279069768,
+      "fip": 3.5953488372093023,
+      "ip": 43
+    },
+    "improvements": {
+      "k9Gain": 2.0433582972014186,
+      "bb9Drop": 1.6815135987386678,
+      "hr9Drop": 0.4789121009065824,
+      "fipDrop": 1.7063460780449358
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10633,
+    "breakoutYear": 2015,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 6.493670886075949,
+      "bb9": 3.6455696202531644,
+      "hr9": 1.2531645569620253,
+      "fip": 4.782278481012659,
+      "ip": 79
+    },
+    "breakoutYearStats": {
+      "k9": 8.008474576271187,
+      "bb9": 2.593220338983051,
+      "hr9": 0.7627118644067796,
+      "fip": 3.386440677966102,
+      "ip": 118
+    },
+    "improvements": {
+      "k9Gain": 1.5148036901952375,
+      "bb9Drop": 1.0523492812701134,
+      "hr9Drop": 0.4904526925552457,
+      "fipDrop": 1.395837803046557
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 1,
+      "mlbSeasons": 5,
+      "avgMLBFip": 3.3401515151515158,
+      "totalMLBIP": 792,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 10721,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.95,
+      "bb9": 5.1,
+      "hr9": 0.6,
+      "fip": 4.666666666666667,
+      "ip": 60
+    },
+    "breakoutYearStats": {
+      "k9": 6.267857142857142,
+      "bb9": 3.5357142857142856,
+      "hr9": 0.1607142857142857,
+      "fip": 3.217857142857143,
+      "ip": 56
+    },
+    "improvements": {
+      "k9Gain": 1.3178571428571422,
+      "bb9Drop": 1.564285714285714,
+      "hr9Drop": 0.4392857142857143,
+      "fipDrop": 1.448809523809524
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10920,
+    "breakoutYear": 2015,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.3999999999999995,
+      "bb9": 5,
+      "hr9": 1,
+      "fip": 5.333333333333334,
+      "ip": 45
+    },
+    "breakoutYearStats": {
+      "k9": 5.550898203592814,
+      "bb9": 4.473053892215568,
+      "hr9": 0.48502994011976047,
+      "fip": 4.158083832335329,
+      "ip": 167
+    },
+    "improvements": {
+      "k9Gain": 1.1508982035928144,
+      "bb9Drop": 0.5269461077844317,
+      "hr9Drop": 0.5149700598802396,
+      "fipDrop": 1.1752495009980048
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11079,
+    "breakoutYear": 2015,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.278688524590164,
+      "bb9": 5.9016393442622945,
+      "hr9": 0.4426229508196721,
+      "fip": 4.855737704918033,
+      "ip": 61
+    },
+    "breakoutYearStats": {
+      "k9": 5.871951219512195,
+      "bb9": 3.7317073170731705,
+      "hr9": 0.7682926829268293,
+      "fip": 4.248780487804878,
+      "ip": 164
+    },
+    "improvements": {
+      "k9Gain": 1.5932626949220312,
+      "bb9Drop": 2.169932027189124,
+      "hr9Drop": -0.32566973210715716,
+      "fipDrop": 0.6069572171131545
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11092,
+    "breakoutYear": 2016,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.571428571428571,
+      "bb9": 2.7857142857142856,
+      "hr9": 1.5,
+      "fip": 5.057142857142857,
+      "ip": 42
+    },
+    "breakoutYearStats": {
+      "k9": 7.826086956521739,
+      "bb9": 2.1521739130434785,
+      "hr9": 0.5869565217391304,
+      "fip": 3.0260869565217394,
+      "ip": 46
+    },
+    "improvements": {
+      "k9Gain": 2.254658385093168,
+      "bb9Drop": 0.6335403726708071,
+      "hr9Drop": 0.9130434782608696,
+      "fipDrop": 2.0310559006211175
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11418,
+    "breakoutYear": 2015,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.210526315789474,
+      "bb9": 2.526315789473684,
+      "hr9": 0.631578947368421,
+      "fip": 3.7964912280701757,
+      "ip": 171
+    },
+    "breakoutYearStats": {
+      "k9": 7.363636363636364,
+      "bb9": 1.0227272727272727,
+      "hr9": 0.4090909090909091,
+      "fip": 2.4954545454545456,
+      "ip": 44
+    },
+    "improvements": {
+      "k9Gain": 2.15311004784689,
+      "bb9Drop": 1.5035885167464114,
+      "hr9Drop": 0.2224880382775119,
+      "fipDrop": 1.30103668261563
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 0,
+      "mlbSeasons": 6,
+      "avgMLBFip": 3.884324324324324,
+      "totalMLBIP": 925,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 11433,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.95,
+      "bb9": 3.6,
+      "hr9": 0.75,
+      "fip": 4.383333333333334,
+      "ip": 60
+    },
+    "breakoutYearStats": {
+      "k9": 7.363636363636364,
+      "bb9": 2.659090909090909,
+      "hr9": 0.4090909090909091,
+      "fip": 3.040909090909091,
+      "ip": 44
+    },
+    "improvements": {
+      "k9Gain": 2.413636363636364,
+      "bb9Drop": 0.9409090909090909,
+      "hr9Drop": 0.3409090909090909,
+      "fipDrop": 1.3424242424242427
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -3,
+      "mlbSeasons": 5,
+      "avgMLBFip": 3.914964370546319,
+      "totalMLBIP": 421,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 11542,
+    "breakoutYear": 2015,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.897058823529411,
+      "bb9": 3.375,
+      "hr9": 0.9926470588235294,
+      "fip": 4.670588235294118,
+      "ip": 136
+    },
+    "breakoutYearStats": {
+      "k9": 6,
+      "bb9": 2.8333333333333335,
+      "hr9": 0.8333333333333333,
+      "fip": 4.014814814814815,
+      "ip": 54
+    },
+    "improvements": {
+      "k9Gain": 1.1029411764705888,
+      "bb9Drop": 0.5416666666666665,
+      "hr9Drop": 0.15931372549019618,
+      "fipDrop": 0.6557734204793029
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11683,
+    "breakoutYear": 2017,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.326923076923077,
+      "bb9": 3.4615384615384617,
+      "hr9": 0.923076923076923,
+      "fip": 4.725641025641026,
+      "ip": 156
+    },
+    "breakoutYearStats": {
+      "k9": 6.063157894736842,
+      "bb9": 2.8421052631578947,
+      "hr9": 0.47368421052631576,
+      "fip": 3.4842105263157896,
+      "ip": 95
+    },
+    "improvements": {
+      "k9Gain": 1.7362348178137657,
+      "bb9Drop": 0.619433198380567,
+      "hr9Drop": 0.44939271255060725,
+      "fipDrop": 1.241430499325236
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11698,
+    "breakoutYear": 2018,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.059171597633136,
+      "bb9": 3.887573964497041,
+      "hr9": 0.9053254437869822,
+      "fip": 4.6792899408284025,
+      "ip": 169
+    },
+    "breakoutYearStats": {
+      "k9": 7.178571428571429,
+      "bb9": 2.357142857142857,
+      "hr9": 0.42857142857142855,
+      "fip": 3.0095238095238095,
+      "ip": 84
+    },
+    "improvements": {
+      "k9Gain": 2.119399830938293,
+      "bb9Drop": 1.5304311073541839,
+      "hr9Drop": 0.47675401521555366,
+      "fipDrop": 1.669766131304593
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11700,
+    "breakoutYear": 2016,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 7.0588235294117645,
+      "bb9": 4.9411764705882355,
+      "hr9": 0.7058823529411764,
+      "fip": 4.298039215686275,
+      "ip": 51
+    },
+    "breakoutYearStats": {
+      "k9": 8.459999999999999,
+      "bb9": 4.140000000000001,
+      "hr9": 0.72,
+      "fip": 3.74,
+      "ip": 50
+    },
+    "improvements": {
+      "k9Gain": 1.4011764705882346,
+      "bb9Drop": 0.8011764705882349,
+      "hr9Drop": -0.014117647058823568,
+      "fipDrop": 0.558039215686275
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10360,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.78,
+      "bb9": 8.82,
+      "hr9": 0.36,
+      "fip": 5.82,
+      "ip": 50
+    },
+    "breakoutYearStats": {
+      "k9": 4.829268292682928,
+      "bb9": 7.2439024390243905,
+      "hr9": 0.43902439024390244,
+      "fip": 5.175609756097561,
+      "ip": 41
+    },
+    "improvements": {
+      "k9Gain": 1.0492682926829278,
+      "bb9Drop": 1.5760975609756098,
+      "hr9Drop": -0.07902439024390245,
+      "fipDrop": 0.6443902439024392
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10360,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.829268292682928,
+      "bb9": 7.2439024390243905,
+      "hr9": 0.43902439024390244,
+      "fip": 5.175609756097561,
+      "ip": 41
+    },
+    "breakoutYearStats": {
+      "k9": 6.260869565217391,
+      "bb9": 4.5,
+      "hr9": 0.3913043478260869,
+      "fip": 3.873913043478261,
+      "ip": 46
+    },
+    "improvements": {
+      "k9Gain": 1.4316012725344631,
+      "bb9Drop": 2.7439024390243905,
+      "hr9Drop": 0.04772004241781552,
+      "fipDrop": 1.3016967126193002
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10366,
+    "breakoutYear": 2018,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.921875,
+      "bb9": 2.53125,
+      "hr9": 0.984375,
+      "fip": 4.371875,
+      "ip": 64
+    },
+    "breakoutYearStats": {
+      "k9": 7.348623853211009,
+      "bb9": 2.064220183486239,
+      "hr9": 0.9082568807339451,
+      "fip": 3.5669724770642204,
+      "ip": 109
+    },
+    "improvements": {
+      "k9Gain": 2.4267488532110093,
+      "bb9Drop": 0.4670298165137612,
+      "hr9Drop": 0.07611811926605494,
+      "fipDrop": 0.8049025229357798
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10397,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 7.659574468085107,
+      "bb9": 4.9787234042553195,
+      "hr9": 0.9574468085106383,
+      "fip": 4.540425531914893,
+      "ip": 47
+    },
+    "breakoutYearStats": {
+      "k9": 8.881578947368421,
+      "bb9": 3.5526315789473686,
+      "hr9": 0.7105263157894737,
+      "fip": 3.436842105263158,
+      "ip": 76
+    },
+    "improvements": {
+      "k9Gain": 1.2220044792833145,
+      "bb9Drop": 1.4260918253079509,
+      "hr9Drop": 0.24692049272116467,
+      "fipDrop": 1.1035834266517353
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10399,
+    "breakoutYear": 2018,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4,
+      "bb9": 3.7222222222222223,
+      "hr9": 1.1111111111111112,
+      "fip": 5.1567901234567906,
+      "ip": 162
+    },
+    "breakoutYearStats": {
+      "k9": 5.070422535211268,
+      "bb9": 2.725352112676056,
+      "hr9": 0.5704225352112676,
+      "fip": 3.8056338028169017,
+      "ip": 142
+    },
+    "improvements": {
+      "k9Gain": 1.070422535211268,
+      "bb9Drop": 0.9968701095461663,
+      "hr9Drop": 0.5406885758998435,
+      "fipDrop": 1.3511563206398889
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10590,
+    "breakoutYear": 2017,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.3999999999999995,
+      "bb9": 4.65,
+      "hr9": 0.45,
+      "fip": 4.2,
+      "ip": 60
+    },
+    "breakoutYearStats": {
+      "k9": 8.142857142857142,
+      "bb9": 2.357142857142857,
+      "hr9": 0.42857142857142855,
+      "fip": 2.7952380952380955,
+      "ip": 42
+    },
+    "improvements": {
+      "k9Gain": 2.742857142857143,
+      "bb9Drop": 2.292857142857143,
+      "hr9Drop": 0.021428571428571463,
+      "fipDrop": 1.4047619047619047
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10600,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 6.394736842105263,
+      "bb9": 5.2894736842105265,
+      "hr9": 1.4210526315789473,
+      "fip": 5.594736842105263,
+      "ip": 114
+    },
+    "breakoutYearStats": {
+      "k9": 7.974683544303797,
+      "bb9": 1.8227848101265822,
+      "hr9": 0.45569620253164556,
+      "fip": 2.6936708860759495,
+      "ip": 79
+    },
+    "improvements": {
+      "k9Gain": 1.5799467021985345,
+      "bb9Drop": 3.4666888740839443,
+      "hr9Drop": 0.9653564290473018,
+      "fipDrop": 2.9010659560293135
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10694,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.41,
+      "bb9": 4.32,
+      "hr9": 1.3499999999999999,
+      "fip": 5.61,
+      "ip": 100
+    },
+    "breakoutYearStats": {
+      "k9": 5.424657534246575,
+      "bb9": 3.9452054794520546,
+      "hr9": 0.9863013698630136,
+      "fip": 4.734246575342466,
+      "ip": 73
+    },
+    "improvements": {
+      "k9Gain": 1.0146575342465747,
+      "bb9Drop": 0.3747945205479457,
+      "hr9Drop": 0.3636986301369862,
+      "fipDrop": 0.8757534246575345
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10967,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.86,
+      "bb9": 4.140000000000001,
+      "hr9": 1.08,
+      "fip": 5.0600000000000005,
+      "ip": 50
+    },
+    "breakoutYearStats": {
+      "k9": 7.125,
+      "bb9": 3,
+      "hr9": 0.75,
+      "fip": 3.7,
+      "ip": 72
+    },
+    "improvements": {
+      "k9Gain": 2.2649999999999997,
+      "bb9Drop": 1.1400000000000006,
+      "hr9Drop": 0.33000000000000007,
+      "fipDrop": 1.3600000000000003
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10969,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.807453416149069,
+      "bb9": 3.968944099378882,
+      "hr9": 1.3975155279503104,
+      "fip": 5.473291925465839,
+      "ip": 161
+    },
+    "breakoutYearStats": {
+      "k9": 7.7926829268292686,
+      "bb9": 2.74390243902439,
+      "hr9": 0.5487804878048781,
+      "fip": 3.175609756097561,
+      "ip": 82
+    },
+    "improvements": {
+      "k9Gain": 2.9852295106802,
+      "bb9Drop": 1.225041660354492,
+      "hr9Drop": 0.8487350401454323,
+      "fipDrop": 2.2976821693682776
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10970,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.625,
+      "bb9": 3.09375,
+      "hr9": 0.796875,
+      "fip": 4.132291666666667,
+      "ip": 192
+    },
+    "breakoutYearStats": {
+      "k9": 6.634020618556701,
+      "bb9": 2.5051546391752577,
+      "hr9": 0.6030927835051546,
+      "fip": 3.431958762886598,
+      "ip": 194
+    },
+    "improvements": {
+      "k9Gain": 1.0090206185567014,
+      "bb9Drop": 0.5885953608247423,
+      "hr9Drop": 0.1937822164948454,
+      "fipDrop": 0.700332903780069
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11001,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.983471074380166,
+      "bb9": 2.8264462809917354,
+      "hr9": 1.5619834710743803,
+      "fip": 5.290909090909091,
+      "ip": 121
+    },
+    "breakoutYearStats": {
+      "k9": 6.871621621621621,
+      "bb9": 2.25,
+      "hr9": 1.0945945945945947,
+      "fip": 4.004054054054055,
+      "ip": 148
+    },
+    "improvements": {
+      "k9Gain": 1.8881505472414553,
+      "bb9Drop": 0.5764462809917354,
+      "hr9Drop": 0.46738887647978555,
+      "fipDrop": 1.2868550368550364
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 2,
+      "avgMLBFip": 3.97536231884058,
+      "totalMLBIP": 138,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 11004,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.369747899159663,
+      "bb9": 2.3445378151260505,
+      "hr9": 0.5294117647058824,
+      "fip": 3.5529411764705885,
+      "ip": 119
+    },
+    "breakoutYearStats": {
+      "k9": 6.652173913043478,
+      "bb9": 1.1739130434782608,
+      "hr9": 0.3913043478260869,
+      "fip": 2.6782608695652175,
+      "ip": 46
+    },
+    "improvements": {
+      "k9Gain": 1.2824260138838142,
+      "bb9Drop": 1.1706247716477898,
+      "hr9Drop": 0.13810741687979544,
+      "fipDrop": 0.874680306905371
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11013,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.524590163934426,
+      "bb9": 3.4918032786885247,
+      "hr9": 1.4262295081967213,
+      "fip": 5.418579234972677,
+      "ip": 183
+    },
+    "breakoutYearStats": {
+      "k9": 5.921052631578948,
+      "bb9": 2.6526315789473682,
+      "hr9": 1.231578947368421,
+      "fip": 4.5473684210526315,
+      "ip": 190
+    },
+    "improvements": {
+      "k9Gain": 1.3964624676445219,
+      "bb9Drop": 0.8391716997411565,
+      "hr9Drop": 0.19465056082830023,
+      "fipDrop": 0.8712108139200456
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 2,
+      "avgMLBFip": 5.108,
+      "totalMLBIP": 250,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11025,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.965116279069767,
+      "bb9": 3.1395348837209305,
+      "hr9": 1.255813953488372,
+      "fip": 4.734883720930233,
+      "ip": 86
+    },
+    "breakoutYearStats": {
+      "k9": 7.227272727272727,
+      "bb9": 1.9090909090909092,
+      "hr9": 0.9545454545454546,
+      "fip": 3.6090909090909093,
+      "ip": 66
+    },
+    "improvements": {
+      "k9Gain": 1.2621564482029592,
+      "bb9Drop": 1.2304439746300213,
+      "hr9Drop": 0.3012684989429175,
+      "fipDrop": 1.1257928118393234
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11044,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 7.476923076923077,
+      "bb9": 4.707692307692308,
+      "hr9": 0.6923076923076923,
+      "fip": 4.107692307692308,
+      "ip": 65
+    },
+    "breakoutYearStats": {
+      "k9": 8.808510638297872,
+      "bb9": 3.8297872340425534,
+      "hr9": 0.3829787234042553,
+      "fip": 3.072340425531915,
+      "ip": 47
+    },
+    "improvements": {
+      "k9Gain": 1.3315875613747945,
+      "bb9Drop": 0.8779050736497545,
+      "hr9Drop": 0.309328968903437,
+      "fipDrop": 1.035351882160393
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11083,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.651162790697675,
+      "bb9": 3.6627906976744184,
+      "hr9": 0.9418604651162791,
+      "fip": 4.525581395348837,
+      "ip": 86
+    },
+    "breakoutYearStats": {
+      "k9": 7.733333333333333,
+      "bb9": 2.5333333333333337,
+      "hr9": 0.7333333333333334,
+      "fip": 3.3851851851851853,
+      "ip": 135
+    },
+    "improvements": {
+      "k9Gain": 2.0821705426356587,
+      "bb9Drop": 1.1294573643410848,
+      "hr9Drop": 0.20852713178294568,
+      "fipDrop": 1.1403962101636518
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11223,
+    "breakoutYear": 2020,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 6.313432835820896,
+      "bb9": 2.216417910447761,
+      "hr9": 0.8731343283582089,
+      "fip": 3.7970149253731345,
+      "ip": 134
+    },
+    "breakoutYearStats": {
+      "k9": 7.59375,
+      "bb9": 1.265625,
+      "hr9": 0.28125,
+      "fip": 2.340625,
+      "ip": 64
+    },
+    "improvements": {
+      "k9Gain": 1.2803171641791042,
+      "bb9Drop": 0.950792910447761,
+      "hr9Drop": 0.5918843283582089,
+      "fipDrop": 1.4563899253731343
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 0,
+      "mlbSeasons": 1,
+      "totalMLBIP": 33,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11330,
+    "breakoutYear": 2017,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.838709677419354,
+      "bb9": 3.3870967741935485,
+      "hr9": 1.161290322580645,
+      "fip": 4.931182795698925,
+      "ip": 93
+    },
+    "breakoutYearStats": {
+      "k9": 6,
+      "bb9": 3,
+      "hr9": 0.8048780487804879,
+      "fip": 4.029268292682927,
+      "ip": 123
+    },
+    "improvements": {
+      "k9Gain": 1.161290322580646,
+      "bb9Drop": 0.3870967741935485,
+      "hr9Drop": 0.35641227380015716,
+      "fipDrop": 0.9019145030159983
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11449,
+    "breakoutYear": 2015,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 6.3,
+      "bb9": 4.2749999999999995,
+      "hr9": 0.6749999999999999,
+      "fip": 4.2,
+      "ip": 40
+    },
+    "breakoutYearStats": {
+      "k9": 7.682926829268292,
+      "bb9": 3.292682926829268,
+      "hr9": 0.6585365853658536,
+      "fip": 3.5414634146341464,
+      "ip": 41
+    },
+    "improvements": {
+      "k9Gain": 1.3829268292682926,
+      "bb9Drop": 0.9823170731707314,
+      "hr9Drop": 0.016463414634146356,
+      "fipDrop": 0.6585365853658538
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11489,
+    "breakoutYear": 2016,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 6.88235294117647,
+      "bb9": 5.470588235294117,
+      "hr9": 1.4117647058823528,
+      "fip": 5.533333333333333,
+      "ip": 51
+    },
+    "breakoutYearStats": {
+      "k9": 7.983870967741935,
+      "bb9": 1.8870967741935485,
+      "hr9": 1.0161290322580645,
+      "fip": 3.5225806451612907,
+      "ip": 62
+    },
+    "improvements": {
+      "k9Gain": 1.101518026565465,
+      "bb9Drop": 3.5834914611005684,
+      "hr9Drop": 0.3956356736242883,
+      "fipDrop": 2.0107526881720426
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 2,
+      "avgMLBFip": 2.575,
+      "totalMLBIP": 112,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 11701,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 6.5625,
+      "bb9": 3.5625,
+      "hr9": 2.0625,
+      "fip": 5.908333333333333,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 8.808510638297872,
+      "bb9": 2.6808510638297873,
+      "hr9": 1.5319148936170213,
+      "fip": 4.348936170212767,
+      "ip": 47
+    },
+    "improvements": {
+      "k9Gain": 2.2460106382978715,
+      "bb9Drop": 0.8816489361702127,
+      "hr9Drop": 0.5305851063829787,
+      "fipDrop": 1.5593971631205665
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11723,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.9452054794520546,
+      "bb9": 2.7123287671232874,
+      "hr9": 1.1095890410958904,
+      "fip": 4.83013698630137,
+      "ip": 73
+    },
+    "breakoutYearStats": {
+      "k9": 5.767955801104972,
+      "bb9": 1.7900552486187844,
+      "hr9": 0.8453038674033149,
+      "fip": 3.735911602209945,
+      "ip": 181
+    },
+    "improvements": {
+      "k9Gain": 1.8227503216529177,
+      "bb9Drop": 0.922273518504503,
+      "hr9Drop": 0.26428517369257554,
+      "fipDrop": 1.0942253840914251
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11828,
+    "breakoutYear": 2020,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.254545454545455,
+      "bb9": 2.9454545454545453,
+      "hr9": 0.9818181818181818,
+      "fip": 4.654545454545454,
+      "ip": 55
+    },
+    "breakoutYearStats": {
+      "k9": 5.516129032258065,
+      "bb9": 2.467741935483871,
+      "hr9": 0.7258064516129032,
+      "fip": 3.8451612903225807,
+      "ip": 62
+    },
+    "improvements": {
+      "k9Gain": 1.26158357771261,
+      "bb9Drop": 0.47771260997067433,
+      "hr9Drop": 0.25601173020527856,
+      "fipDrop": 0.8093841642228736
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11871,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.9245283018867925,
+      "bb9": 6.283018867924528,
+      "hr9": 1.5283018867924527,
+      "fip": 6.4075471698113216,
+      "ip": 53
+    },
+    "breakoutYearStats": {
+      "k9": 6.267857142857142,
+      "bb9": 4.6607142857142865,
+      "hr9": 1.2857142857142856,
+      "fip": 5.217857142857143,
+      "ip": 56
+    },
+    "improvements": {
+      "k9Gain": 1.3433288409703499,
+      "bb9Drop": 1.6223045822102415,
+      "hr9Drop": 0.24258760107816713,
+      "fipDrop": 1.1896900269541781
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11885,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.7625899280575545,
+      "bb9": 2.7841726618705036,
+      "hr9": 1.1007194244604317,
+      "fip": 4.4374100719424465,
+      "ip": 139
+    },
+    "breakoutYearStats": {
+      "k9": 7.35,
+      "bb9": 1.8499999999999999,
+      "hr9": 0.75,
+      "fip": 3.266666666666667,
+      "ip": 180
+    },
+    "improvements": {
+      "k9Gain": 1.587410071942445,
+      "bb9Drop": 0.9341726618705037,
+      "hr9Drop": 0.3507194244604317,
+      "fipDrop": 1.1707434052757795
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11935,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.201834862385321,
+      "bb9": 3.798165137614679,
+      "hr9": 0.5779816513761469,
+      "fip": 4.144954128440367,
+      "ip": 109
+    },
+    "breakoutYearStats": {
+      "k9": 6.339130434782609,
+      "bb9": 2.5043478260869567,
+      "hr9": 0.3913043478260869,
+      "fip": 3.191304347826087,
+      "ip": 115
+    },
+    "improvements": {
+      "k9Gain": 1.1372955723972877,
+      "bb9Drop": 1.2938173115277225,
+      "hr9Drop": 0.18667730355005996,
+      "fipDrop": 0.9536497806142799
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11943,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.695652173913043,
+      "bb9": 3.032608695652174,
+      "hr9": 0.2934782608695652,
+      "fip": 3.591304347826087,
+      "ip": 92
+    },
+    "breakoutYearStats": {
+      "k9": 6.5,
+      "bb9": 2.5,
+      "hr9": 0.3333333333333333,
+      "fip": 3.0703703703703704,
+      "ip": 54
+    },
+    "improvements": {
+      "k9Gain": 1.804347826086957,
+      "bb9Drop": 0.5326086956521738,
+      "hr9Drop": -0.039855072463768126,
+      "fipDrop": 0.5209339774557167
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -1,
+      "mlbSeasons": 3,
+      "avgMLBFip": 3.6436619718309866,
+      "totalMLBIP": 142,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 11973,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.552325581395349,
+      "bb9": 2.8255813953488373,
+      "hr9": 1.0465116279069768,
+      "fip": 4.641860465116279,
+      "ip": 172
+    },
+    "breakoutYearStats": {
+      "k9": 6.206896551724139,
+      "bb9": 1.9950738916256159,
+      "hr9": 0.3103448275862069,
+      "fip": 2.9339901477832515,
+      "ip": 203
+    },
+    "improvements": {
+      "k9Gain": 1.6545709703287894,
+      "bb9Drop": 0.8305075037232215,
+      "hr9Drop": 0.73616680032077,
+      "fipDrop": 1.7078703173330276
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 2,
+      "mlbSeasons": 3,
+      "avgMLBFip": 4.406405693950178,
+      "totalMLBIP": 281,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12009,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.149732620320855,
+      "bb9": 4.090909090909091,
+      "hr9": 0.3368983957219251,
+      "fip": 3.905882352941177,
+      "ip": 187
+    },
+    "breakoutYearStats": {
+      "k9": 7.507772020725389,
+      "bb9": 3.5906735751295336,
+      "hr9": 0.27979274611398963,
+      "fip": 3.1326424870466325,
+      "ip": 193
+    },
+    "improvements": {
+      "k9Gain": 2.3580394004045333,
+      "bb9Drop": 0.5002355157795573,
+      "hr9Drop": 0.05710564960793546,
+      "fipDrop": 0.7732398658945443
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12078,
+    "breakoutYear": 2017,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.271186440677966,
+      "bb9": 3.0508474576271185,
+      "hr9": 0.7627118644067796,
+      "fip": 4.369491525423729,
+      "ip": 59
+    },
+    "breakoutYearStats": {
+      "k9": 5.318181818181818,
+      "bb9": 2.505681818181818,
+      "hr9": 0.5625,
+      "fip": 3.665909090909091,
+      "ip": 176
+    },
+    "improvements": {
+      "k9Gain": 1.046995377503852,
+      "bb9Drop": 0.5451656394453006,
+      "hr9Drop": 0.20021186440677963,
+      "fipDrop": 0.7035824345146384
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 2,
+      "mlbSeasons": 2,
+      "avgMLBFip": 4.738011695906433,
+      "totalMLBIP": 171,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12148,
+    "breakoutYear": 2015,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.144578313253012,
+      "bb9": 3.4698795180722892,
+      "hr9": 0.5421686746987951,
+      "fip": 4.440963855421687,
+      "ip": 83
+    },
+    "breakoutYearStats": {
+      "k9": 5.754098360655738,
+      "bb9": 2.360655737704918,
+      "hr9": 0.5901639344262295,
+      "fip": 3.560655737704918,
+      "ip": 61
+    },
+    "improvements": {
+      "k9Gain": 2.609520047402726,
+      "bb9Drop": 1.1092237803673712,
+      "hr9Drop": -0.04799525972743435,
+      "fipDrop": 0.8803081177167691
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12208,
+    "breakoutYear": 2015,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.183098591549296,
+      "bb9": 4.056338028169014,
+      "hr9": 0.8873239436619718,
+      "fip": 4.904225352112676,
+      "ip": 71
+    },
+    "breakoutYearStats": {
+      "k9": 5.346534653465346,
+      "bb9": 3.4752475247524752,
+      "hr9": 0.3564356435643564,
+      "fip": 3.6851485148514853,
+      "ip": 101
+    },
+    "improvements": {
+      "k9Gain": 1.16343606191605,
+      "bb9Drop": 0.5810905034165388,
+      "hr9Drop": 0.5308883000976153,
+      "fipDrop": 1.2190768372611909
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12211,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.252747252747253,
+      "bb9": 5.241758241758242,
+      "hr9": 1.0879120879120878,
+      "fip": 5.573626373626373,
+      "ip": 91
+    },
+    "breakoutYearStats": {
+      "k9": 6.082758620689655,
+      "bb9": 3.537931034482759,
+      "hr9": 0.8068965517241379,
+      "fip": 4.1931034482758625,
+      "ip": 145
+    },
+    "improvements": {
+      "k9Gain": 1.8300113679424026,
+      "bb9Drop": 1.703827207275483,
+      "hr9Drop": 0.28101553618794994,
+      "fipDrop": 1.380522925350511
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12222,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.113636363636364,
+      "bb9": 3.784090909090909,
+      "hr9": 1.227272727272727,
+      "fip": 5.097727272727273,
+      "ip": 176
+    },
+    "breakoutYearStats": {
+      "k9": 6.276315789473684,
+      "bb9": 1.717105263157895,
+      "hr9": 0.47368421052631576,
+      "fip": 3.061842105263158,
+      "ip": 152
+    },
+    "improvements": {
+      "k9Gain": 1.1626794258373199,
+      "bb9Drop": 2.0669856459330145,
+      "hr9Drop": 0.7535885167464114,
+      "fipDrop": 2.0358851674641145
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 1,
+      "totalMLBIP": 51,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12293,
+    "breakoutYear": 2015,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.891304347826087,
+      "bb9": 3.326086956521739,
+      "hr9": 0.9782608695652174,
+      "fip": 4.6347826086956525,
+      "ip": 46
+    },
+    "breakoutYearStats": {
+      "k9": 7.071428571428571,
+      "bb9": 2.7857142857142856,
+      "hr9": 1.0714285714285714,
+      "fip": 4.104761904761905,
+      "ip": 42
+    },
+    "improvements": {
+      "k9Gain": 2.1801242236024843,
+      "bb9Drop": 0.5403726708074532,
+      "hr9Drop": -0.09316770186335399,
+      "fipDrop": 0.5300207039337472
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 1,
+      "totalMLBIP": 27,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12297,
+    "breakoutYear": 2015,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.309859154929577,
+      "bb9": 3.6126760563380285,
+      "hr9": 0.6971830985915493,
+      "fip": 4.453521126760563,
+      "ip": 142
+    },
+    "breakoutYearStats": {
+      "k9": 5.947368421052632,
+      "bb9": 2.052631578947368,
+      "hr9": 0.42105263157894735,
+      "fip": 3.170760233918129,
+      "ip": 171
+    },
+    "improvements": {
+      "k9Gain": 1.6375092661230548,
+      "bb9Drop": 1.5600444773906603,
+      "hr9Drop": 0.2761304670126019,
+      "fipDrop": 1.2827608928424343
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 4,
+      "mlbSeasons": 2,
+      "avgMLBFip": 4.278947368421053,
+      "totalMLBIP": 114,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12467,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.016393442622951,
+      "bb9": 4.868852459016394,
+      "hr9": 2.0655737704918034,
+      "fip": 6.691803278688525,
+      "ip": 61
+    },
+    "breakoutYearStats": {
+      "k9": 6.230769230769231,
+      "bb9": 2.769230769230769,
+      "hr9": 0.5192307692307693,
+      "fip": 3.4884615384615385,
+      "ip": 52
+    },
+    "improvements": {
+      "k9Gain": 1.2143757881462802,
+      "bb9Drop": 2.099621689785625,
+      "hr9Drop": 1.5463430012610342,
+      "fipDrop": 3.2033417402269864
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12467,
+    "breakoutYear": 2019,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.877551020408163,
+      "bb9": 3.673469387755102,
+      "hr9": 0.9183673469387755,
+      "fip": 4.444897959183674,
+      "ip": 49
+    },
+    "breakoutYearStats": {
+      "k9": 7.7142857142857135,
+      "bb9": 1.7678571428571428,
+      "hr9": 1.125,
+      "fip": 3.7,
+      "ip": 56
+    },
+    "improvements": {
+      "k9Gain": 1.8367346938775508,
+      "bb9Drop": 1.9056122448979593,
+      "hr9Drop": -0.20663265306122447,
+      "fipDrop": 0.7448979591836737
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12506,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.609756097560975,
+      "bb9": 4.609756097560975,
+      "hr9": 1.7560975609756098,
+      "fip": 6.248780487804878,
+      "ip": 41
+    },
+    "breakoutYearStats": {
+      "k9": 6.218181818181819,
+      "bb9": 4.254545454545455,
+      "hr9": 0.6545454545454545,
+      "fip": 4.181818181818182,
+      "ip": 55
+    },
+    "improvements": {
+      "k9Gain": 1.6084257206208434,
+      "bb9Drop": 0.3552106430155204,
+      "hr9Drop": 1.1015521064301552,
+      "fipDrop": 2.0669623059866966
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12508,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.573770491803279,
+      "bb9": 6.344262295081967,
+      "hr9": 1.7704918032786885,
+      "fip": 6.855737704918033,
+      "ip": 61
+    },
+    "breakoutYearStats": {
+      "k9": 6.553398058252427,
+      "bb9": 5.592233009708737,
+      "hr9": 1.3106796116504853,
+      "fip": 5.500970873786407,
+      "ip": 103
+    },
+    "improvements": {
+      "k9Gain": 1.9796275664491487,
+      "bb9Drop": 0.7520292853732302,
+      "hr9Drop": 0.4598121916282032,
+      "fipDrop": 1.3547668311316254
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12711,
+    "breakoutYear": 2015,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.4375,
+      "bb9": 4.125,
+      "hr9": 0.9375,
+      "fip": 4.720833333333333,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 6.802325581395349,
+      "bb9": 1.5697674418604652,
+      "hr9": 0.41860465116279066,
+      "fip": 2.8162790697674422,
+      "ip": 172
+    },
+    "improvements": {
+      "k9Gain": 1.3648255813953494,
+      "bb9Drop": 2.5552325581395348,
+      "hr9Drop": 0.5188953488372093,
+      "fipDrop": 1.904554263565891
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10372,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.526946107784431,
+      "bb9": 3.8263473053892216,
+      "hr9": 0.9700598802395209,
+      "fip": 4.870658682634731,
+      "ip": 167
+    },
+    "breakoutYearStats": {
+      "k9": 7.428571428571428,
+      "bb9": 3.2857142857142856,
+      "hr9": 1.1428571428571428,
+      "fip": 4.295238095238096,
+      "ip": 63
+    },
+    "improvements": {
+      "k9Gain": 2.901625320786997,
+      "bb9Drop": 0.540633019674936,
+      "hr9Drop": -0.17279726261762185,
+      "fipDrop": 0.5754205873966347
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11005,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.178571428571429,
+      "bb9": 4.178571428571429,
+      "hr9": 0.8035714285714286,
+      "fip": 4.825,
+      "ip": 56
+    },
+    "breakoutYearStats": {
+      "k9": 5.94,
+      "bb9": 3.78,
+      "hr9": 0.72,
+      "fip": 4.18,
+      "ip": 50
+    },
+    "improvements": {
+      "k9Gain": 1.7614285714285716,
+      "bb9Drop": 0.398571428571429,
+      "hr9Drop": 0.08357142857142863,
+      "fipDrop": 0.6450000000000005
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11492,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.061224489795918,
+      "bb9": 3.061224489795918,
+      "hr9": 1.2857142857142856,
+      "fip": 5.3972789115646265,
+      "ip": 147
+    },
+    "breakoutYearStats": {
+      "k9": 4.870588235294117,
+      "bb9": 2.3294117647058825,
+      "hr9": 0.7411764705882353,
+      "fip": 3.9647058823529413,
+      "ip": 85
+    },
+    "improvements": {
+      "k9Gain": 1.809363745498199,
+      "bb9Drop": 0.7318127250900357,
+      "hr9Drop": 0.5445378151260503,
+      "fipDrop": 1.4325730292116852
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12149,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.810126582278481,
+      "bb9": 4.10126582278481,
+      "hr9": 0.9113924050632911,
+      "fip": 4.59240506329114,
+      "ip": 79
+    },
+    "breakoutYearStats": {
+      "k9": 6.850746268656716,
+      "bb9": 2.955223880597015,
+      "hr9": 0.40298507462686567,
+      "fip": 3.244776119402985,
+      "ip": 67
+    },
+    "improvements": {
+      "k9Gain": 1.0406196863782355,
+      "bb9Drop": 1.1460419421877948,
+      "hr9Drop": 0.5084073304364254,
+      "fipDrop": 1.3476289438881546
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12913,
+    "breakoutYear": 2016,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.140000000000001,
+      "bb9": 4.86,
+      "hr9": 0.54,
+      "fip": 4.68,
+      "ip": 50
+    },
+    "breakoutYearStats": {
+      "k9": 6.3,
+      "bb9": 3.2399999999999998,
+      "hr9": 0,
+      "fip": 2.8800000000000003,
+      "ip": 50
+    },
+    "improvements": {
+      "k9Gain": 2.1599999999999993,
+      "bb9Drop": 1.6200000000000006,
+      "hr9Drop": 0.54,
+      "fipDrop": 1.7999999999999994
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11556,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.5,
+      "bb9": 3.7265625,
+      "hr9": 1.40625,
+      "fip": 5.4734375,
+      "ip": 128
+    },
+    "breakoutYearStats": {
+      "k9": 5.557046979865772,
+      "bb9": 2.476510067114094,
+      "hr9": 0.785234899328859,
+      "fip": 3.9248322147651007,
+      "ip": 149
+    },
+    "improvements": {
+      "k9Gain": 1.0570469798657722,
+      "bb9Drop": 1.250052432885906,
+      "hr9Drop": 0.621015100671141,
+      "fipDrop": 1.5486052852348995
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 2,
+      "mlbSeasons": 2,
+      "avgMLBFip": 3.974038461538462,
+      "totalMLBIP": 208,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 11560,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.384615384615384,
+      "bb9": 2.9423076923076925,
+      "hr9": 1.096153846153846,
+      "fip": 4.78974358974359,
+      "ip": 156
+    },
+    "breakoutYearStats": {
+      "k9": 6.19672131147541,
+      "bb9": 2.581967213114754,
+      "hr9": 0.6639344262295082,
+      "fip": 3.642622950819672,
+      "ip": 122
+    },
+    "improvements": {
+      "k9Gain": 1.812105926860026,
+      "bb9Drop": 0.36034047919293855,
+      "hr9Drop": 0.4322194199243379,
+      "fipDrop": 1.1471206389239175
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11567,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.666666666666667,
+      "bb9": 3.6666666666666665,
+      "hr9": 1.4444444444444444,
+      "fip": 5.249382716049383,
+      "ip": 81
+    },
+    "breakoutYearStats": {
+      "k9": 7.851063829787234,
+      "bb9": 3.2553191489361706,
+      "hr9": 0.7659574468085106,
+      "fip": 3.646808510638298,
+      "ip": 47
+    },
+    "improvements": {
+      "k9Gain": 2.1843971631205674,
+      "bb9Drop": 0.41134751773049594,
+      "hr9Drop": 0.6784869976359338,
+      "fipDrop": 1.6025742054110852
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11571,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.045112781954887,
+      "bb9": 4.12781954887218,
+      "hr9": 0.6766917293233082,
+      "fip": 4.8766917293233085,
+      "ip": 133
+    },
+    "breakoutYearStats": {
+      "k9": 6.057692307692308,
+      "bb9": 1.3269230769230769,
+      "hr9": 0.4615384615384615,
+      "fip": 2.962820512820513,
+      "ip": 156
+    },
+    "improvements": {
+      "k9Gain": 3.0125795257374213,
+      "bb9Drop": 2.8008964719491036,
+      "hr9Drop": 0.21515326778484672,
+      "fipDrop": 1.9138712165027956
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11571,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.389221556886227,
+      "bb9": 1.5089820359281436,
+      "hr9": 0.2155688622754491,
+      "fip": 2.8167664670658685,
+      "ip": 167
+    },
+    "breakoutYearStats": {
+      "k9": 6.816568047337278,
+      "bb9": 1.0118343195266273,
+      "hr9": 0.15976331360946747,
+      "fip": 2.2532544378698227,
+      "ip": 169
+    },
+    "improvements": {
+      "k9Gain": 1.4273464904510513,
+      "bb9Drop": 0.49714771640151634,
+      "hr9Drop": 0.05580554866598164,
+      "fipDrop": 0.5635120291960458
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11576,
+    "breakoutYear": 2017,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.5,
+      "bb9": 2.9250000000000003,
+      "hr9": 1.125,
+      "fip": 4.800000000000001,
+      "ip": 40
+    },
+    "breakoutYearStats": {
+      "k9": 5.5227272727272725,
+      "bb9": 2.0454545454545454,
+      "hr9": 0.4090909090909091,
+      "fip": 3.2454545454545456,
+      "ip": 44
+    },
+    "improvements": {
+      "k9Gain": 1.0227272727272725,
+      "bb9Drop": 0.8795454545454549,
+      "hr9Drop": 0.7159090909090908,
+      "fipDrop": 1.5545454545454551
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11604,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.755681818181818,
+      "bb9": 2.454545454545454,
+      "hr9": 0.8181818181818182,
+      "fip": 4.1431818181818185,
+      "ip": 176
+    },
+    "breakoutYearStats": {
+      "k9": 6.398843930635838,
+      "bb9": 1.976878612716763,
+      "hr9": 0.4682080924855492,
+      "fip": 3.1132947976878613,
+      "ip": 173
+    },
+    "improvements": {
+      "k9Gain": 1.6431621124540197,
+      "bb9Drop": 0.4776668418286911,
+      "hr9Drop": 0.34997372569626906,
+      "fipDrop": 1.0298870204939572
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11608,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.777777777777778,
+      "bb9": 4.333333333333333,
+      "hr9": 1.2777777777777777,
+      "fip": 5.428395061728395,
+      "ip": 162
+    },
+    "breakoutYearStats": {
+      "k9": 6.658163265306122,
+      "bb9": 1.653061224489796,
+      "hr9": 0.7806122448979592,
+      "fip": 3.398979591836735,
+      "ip": 196
+    },
+    "improvements": {
+      "k9Gain": 1.8803854875283443,
+      "bb9Drop": 2.6802721088435373,
+      "hr9Drop": 0.49716553287981846,
+      "fipDrop": 2.02941546989166
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 1,
+      "avgMLBFip": 4.15,
+      "totalMLBIP": 120,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11635,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.76923076923077,
+      "bb9": 4.384615384615384,
+      "hr9": 1.2692307692307692,
+      "fip": 5.212820512820513,
+      "ip": 78
+    },
+    "breakoutYearStats": {
+      "k9": 6.971830985915493,
+      "bb9": 3.73943661971831,
+      "hr9": 0.6971830985915493,
+      "fip": 3.904225352112676,
+      "ip": 142
+    },
+    "improvements": {
+      "k9Gain": 1.202600216684723,
+      "bb9Drop": 0.6451787648970742,
+      "hr9Drop": 0.5720476706392199,
+      "fipDrop": 1.3085951607078368
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11635,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.481818181818182,
+      "bb9": 2.209090909090909,
+      "hr9": 0.4090909090909091,
+      "fip": 3.309090909090909,
+      "ip": 110
+    },
+    "breakoutYearStats": {
+      "k9": 7.283236994219654,
+      "bb9": 1.300578034682081,
+      "hr9": 0.1560693641618497,
+      "fip": 2.240462427745665,
+      "ip": 173
+    },
+    "improvements": {
+      "k9Gain": 1.8014188124014714,
+      "bb9Drop": 0.908512874408828,
+      "hr9Drop": 0.2530215449290594,
+      "fipDrop": 1.068628481345244
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11649,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.554216867469879,
+      "bb9": 3.4156626506024095,
+      "hr9": 1.1927710843373496,
+      "fip": 5.049397590361446,
+      "ip": 166
+    },
+    "breakoutYearStats": {
+      "k9": 6.49090909090909,
+      "bb9": 2.618181818181818,
+      "hr9": 0.7636363636363637,
+      "fip": 3.7333333333333334,
+      "ip": 165
+    },
+    "improvements": {
+      "k9Gain": 1.936692223439211,
+      "bb9Drop": 0.7974808324205913,
+      "hr9Drop": 0.4291347207009859,
+      "fipDrop": 1.3160642570281125
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 2,
+      "mlbSeasons": 3,
+      "avgMLBFip": 4.868367346938776,
+      "totalMLBIP": 196,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11673,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.5843373493975905,
+      "bb9": 2.6566265060240966,
+      "hr9": 0.7048192771084337,
+      "fip": 3.862650602409639,
+      "ip": 166
+    },
+    "breakoutYearStats": {
+      "k9": 7.8053097345132745,
+      "bb9": 1.3539823008849559,
+      "hr9": 0.6371681415929203,
+      "fip": 2.8371681415929206,
+      "ip": 113
+    },
+    "improvements": {
+      "k9Gain": 2.220972385115684,
+      "bb9Drop": 1.3026442051391407,
+      "hr9Drop": 0.06765113551551338,
+      "fipDrop": 1.0254824608167183
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11754,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.408163265306122,
+      "bb9": 2.3877551020408165,
+      "hr9": 0.5510204081632653,
+      "fip": 3.812244897959184,
+      "ip": 49
+    },
+    "breakoutYearStats": {
+      "k9": 6.611111111111112,
+      "bb9": 1.611111111111111,
+      "hr9": 0.3333333333333333,
+      "fip": 2.749382716049383,
+      "ip": 162
+    },
+    "improvements": {
+      "k9Gain": 2.2029478458049896,
+      "bb9Drop": 0.7766439909297056,
+      "hr9Drop": 0.21768707482993194,
+      "fipDrop": 1.062862181909801
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11757,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.64516129032258,
+      "bb9": 4.209677419354838,
+      "hr9": 1.161290322580645,
+      "fip": 5.248387096774193,
+      "ip": 62
+    },
+    "breakoutYearStats": {
+      "k9": 6.157894736842105,
+      "bb9": 2.1789473684210527,
+      "hr9": 0.09473684210526316,
+      "fip": 2.6947368421052635,
+      "ip": 95
+    },
+    "improvements": {
+      "k9Gain": 1.5127334465195252,
+      "bb9Drop": 2.0307300509337853,
+      "hr9Drop": 1.0665534804753818,
+      "fipDrop": 2.5536502546689297
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 4,
+      "mlbSeasons": 1,
+      "totalMLBIP": 52,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11760,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.8963414634146343,
+      "bb9": 3.676829268292683,
+      "hr9": 1.2621951219512195,
+      "fip": 5.382926829268293,
+      "ip": 164
+    },
+    "breakoutYearStats": {
+      "k9": 6.803571428571429,
+      "bb9": 2.0357142857142856,
+      "hr9": 0.42857142857142855,
+      "fip": 2.9857142857142858,
+      "ip": 168
+    },
+    "improvements": {
+      "k9Gain": 2.9072299651567945,
+      "bb9Drop": 1.6411149825783973,
+      "hr9Drop": 0.8336236933797909,
+      "fipDrop": 2.397212543554007
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11770,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.460176991150442,
+      "bb9": 4.1415929203539825,
+      "hr9": 0.7964601769911505,
+      "fip": 4.739823008849558,
+      "ip": 113
+    },
+    "breakoutYearStats": {
+      "k9": 6.5390625,
+      "bb9": 2.7421875,
+      "hr9": 0.7734375,
+      "fip": 3.778125,
+      "ip": 128
+    },
+    "improvements": {
+      "k9Gain": 2.0788855088495577,
+      "bb9Drop": 1.3994054203539825,
+      "hr9Drop": 0.02302267699115046,
+      "fipDrop": 0.9616980088495577
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11772,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.826086956521739,
+      "bb9": 4.304347826086957,
+      "hr9": 1.1739130434782608,
+      "fip": 5.257971014492753,
+      "ip": 69
+    },
+    "breakoutYearStats": {
+      "k9": 6.3496932515337425,
+      "bb9": 2.539877300613497,
+      "hr9": 0.6625766871165645,
+      "fip": 3.592638036809816,
+      "ip": 163
+    },
+    "improvements": {
+      "k9Gain": 1.5236062950120033,
+      "bb9Drop": 1.76447052547346,
+      "hr9Drop": 0.5113363563616963,
+      "fipDrop": 1.665332977682937
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 2,
+      "totalMLBIP": 79,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11783,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.173913043478261,
+      "bb9": 3.6521739130434785,
+      "hr9": 1.3043478260869565,
+      "fip": 5.373913043478261,
+      "ip": 69
+    },
+    "breakoutYearStats": {
+      "k9": 5.366459627329193,
+      "bb9": 2.459627329192547,
+      "hr9": 0.7267080745341615,
+      "fip": 3.8770186335403727,
+      "ip": 161
+    },
+    "improvements": {
+      "k9Gain": 1.1925465838509322,
+      "bb9Drop": 1.1925465838509317,
+      "hr9Drop": 0.577639751552795,
+      "fipDrop": 1.4968944099378882
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11795,
+    "breakoutYear": 2017,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 6.1875,
+      "bb9": 5.484375,
+      "hr9": 0.84375,
+      "fip": 4.871875,
+      "ip": 64
+    },
+    "breakoutYearStats": {
+      "k9": 7.59375,
+      "bb9": 3.375,
+      "hr9": 0.703125,
+      "fip": 3.653125,
+      "ip": 64
+    },
+    "improvements": {
+      "k9Gain": 1.40625,
+      "bb9Drop": 2.109375,
+      "hr9Drop": 0.140625,
+      "fipDrop": 1.21875
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11805,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.178082191780821,
+      "bb9": 4.684931506849315,
+      "hr9": 1.1095890410958904,
+      "fip": 5.213698630136987,
+      "ip": 73
+    },
+    "breakoutYearStats": {
+      "k9": 7.5508474576271185,
+      "bb9": 2.745762711864407,
+      "hr9": 0.5338983050847458,
+      "fip": 3.2084745762711866,
+      "ip": 118
+    },
+    "improvements": {
+      "k9Gain": 2.372765265846297,
+      "bb9Drop": 1.9391687949849081,
+      "hr9Drop": 0.5756907360111446,
+      "fipDrop": 2.0052240538658004
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 3,
+      "mlbSeasons": 2,
+      "totalMLBIP": 67,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11805,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5,
+      "bb9": 3.75,
+      "hr9": 0.75,
+      "fip": 4.4222222222222225,
+      "ip": 144
+    },
+    "breakoutYearStats": {
+      "k9": 6.216494845360825,
+      "bb9": 2.4123711340206184,
+      "hr9": 0.46391752577319584,
+      "fip": 3.2927835051546395,
+      "ip": 97
+    },
+    "improvements": {
+      "k9Gain": 1.2164948453608249,
+      "bb9Drop": 1.3376288659793816,
+      "hr9Drop": 0.28608247422680416,
+      "fipDrop": 1.129438717067583
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 0,
+      "mlbSeasons": 2,
+      "totalMLBIP": 67,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11808,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.946428571428571,
+      "bb9": 4.178571428571429,
+      "hr9": 0.1607142857142857,
+      "fip": 3.5035714285714286,
+      "ip": 56
+    },
+    "breakoutYearStats": {
+      "k9": 7.3125,
+      "bb9": 2.953125,
+      "hr9": 0.28125,
+      "fip": 2.965625,
+      "ip": 64
+    },
+    "improvements": {
+      "k9Gain": 1.3660714285714288,
+      "bb9Drop": 1.2254464285714288,
+      "hr9Drop": -0.1205357142857143,
+      "fipDrop": 0.5379464285714284
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11822,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.928571428571429,
+      "bb9": 3.4285714285714284,
+      "hr9": 0.6428571428571428,
+      "fip": 4.1761904761904765,
+      "ip": 42
+    },
+    "breakoutYearStats": {
+      "k9": 5.9624999999999995,
+      "bb9": 2.1374999999999997,
+      "hr9": 0.45,
+      "fip": 3.2375000000000003,
+      "ip": 80
+    },
+    "improvements": {
+      "k9Gain": 1.0339285714285706,
+      "bb9Drop": 1.2910714285714286,
+      "hr9Drop": 0.19285714285714278,
+      "fipDrop": 0.9386904761904762
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11827,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.1764705882352944,
+      "bb9": 4.235294117647059,
+      "hr9": 0.7058823529411764,
+      "fip": 4.925490196078432,
+      "ip": 51
+    },
+    "breakoutYearStats": {
+      "k9": 6.75,
+      "bb9": 2.9250000000000003,
+      "hr9": 0.225,
+      "fip": 3,
+      "ip": 40
+    },
+    "improvements": {
+      "k9Gain": 3.5735294117647056,
+      "bb9Drop": 1.3102941176470586,
+      "hr9Drop": 0.4808823529411764,
+      "fipDrop": 1.9254901960784316
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11956,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.6824324324324325,
+      "bb9": 4.195945945945946,
+      "hr9": 0.3648648648648649,
+      "fip": 4.085135135135135,
+      "ip": 148
+    },
+    "breakoutYearStats": {
+      "k9": 6.336734693877551,
+      "bb9": 1.836734693877551,
+      "hr9": 0.45918367346938777,
+      "fip": 3.0673469387755103,
+      "ip": 98
+    },
+    "improvements": {
+      "k9Gain": 1.6543022614451184,
+      "bb9Drop": 2.3592112520683948,
+      "hr9Drop": -0.09431880860452285,
+      "fipDrop": 1.017788196359625
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 2,
+      "mlbSeasons": 3,
+      "avgMLBFip": 3.70137741046832,
+      "totalMLBIP": 363,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 11956,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 5.508196721311475,
+      "bb9": 1.6229508196721312,
+      "hr9": 0.7868852459016393,
+      "fip": 3.653551912568306,
+      "ip": 183
+    },
+    "breakoutYearStats": {
+      "k9": 6.5892857142857135,
+      "bb9": 1.2857142857142856,
+      "hr9": 0.1607142857142857,
+      "fip": 2.3964285714285714,
+      "ip": 56
+    },
+    "improvements": {
+      "k9Gain": 1.0810889929742382,
+      "bb9Drop": 0.3372365339578456,
+      "hr9Drop": 0.6261709601873536,
+      "fipDrop": 1.2571233411397347
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -1,
+      "mlbSeasons": 3,
+      "avgMLBFip": 3.70137741046832,
+      "totalMLBIP": 363,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 11980,
+    "breakoutYear": 2017,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.338983050847458,
+      "bb9": 3.3559322033898304,
+      "hr9": 1.3728813559322035,
+      "fip": 5.115254237288136,
+      "ip": 59
+    },
+    "breakoutYearStats": {
+      "k9": 6.6,
+      "bb9": 3,
+      "hr9": 1.2,
+      "fip": 4.466666666666667,
+      "ip": 45
+    },
+    "improvements": {
+      "k9Gain": 1.261016949152542,
+      "bb9Drop": 0.35593220338983045,
+      "hr9Drop": 0.17288135593220355,
+      "fipDrop": 0.6485875706214692
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12194,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.232558139534884,
+      "bb9": 4.186046511627907,
+      "hr9": 1.255813953488372,
+      "fip": 5.246511627906977,
+      "ip": 43
+    },
+    "breakoutYearStats": {
+      "k9": 7.604651162790697,
+      "bb9": 3.627906976744186,
+      "hr9": 1.1162790697674418,
+      "fip": 4.3317829457364345,
+      "ip": 129
+    },
+    "improvements": {
+      "k9Gain": 2.372093023255813,
+      "bb9Drop": 0.5581395348837215,
+      "hr9Drop": 0.13953488372093026,
+      "fipDrop": 0.9147286821705425
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12217,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.040000000000001,
+      "bb9": 3.7199999999999998,
+      "hr9": 1.44,
+      "fip": 5.4,
+      "ip": 75
+    },
+    "breakoutYearStats": {
+      "k9": 6.935294117647059,
+      "bb9": 2.1176470588235294,
+      "hr9": 0.6882352941176471,
+      "fip": 3.3588235294117648,
+      "ip": 170
+    },
+    "improvements": {
+      "k9Gain": 1.8952941176470581,
+      "bb9Drop": 1.6023529411764703,
+      "hr9Drop": 0.7517647058823529,
+      "fipDrop": 2.0411764705882356
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12240,
+    "breakoutYear": 2020,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.837837837837839,
+      "bb9": 3.77027027027027,
+      "hr9": 1.0945945945945947,
+      "fip": 4.7405405405405405,
+      "ip": 74
+    },
+    "breakoutYearStats": {
+      "k9": 7.2,
+      "bb9": 3.2,
+      "hr9": 0.8,
+      "fip": 3.8222222222222224,
+      "ip": 45
+    },
+    "improvements": {
+      "k9Gain": 1.3621621621621616,
+      "bb9Drop": 0.57027027027027,
+      "hr9Drop": 0.2945945945945947,
+      "fipDrop": 0.9183183183183181
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12333,
+    "breakoutYear": 2017,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.877551020408163,
+      "bb9": 3.306122448979592,
+      "hr9": 0.5510204081632653,
+      "fip": 3.7918367346938777,
+      "ip": 49
+    },
+    "breakoutYearStats": {
+      "k9": 7.142857142857142,
+      "bb9": 1.857142857142857,
+      "hr9": 0.7142857142857142,
+      "fip": 3.2634920634920634,
+      "ip": 63
+    },
+    "improvements": {
+      "k9Gain": 1.2653061224489797,
+      "bb9Drop": 1.448979591836735,
+      "hr9Drop": -0.16326530612244894,
+      "fipDrop": 0.5283446712018143
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 1,
+      "mlbSeasons": 1,
+      "totalMLBIP": 56,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12339,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.6824324324324325,
+      "bb9": 3.4054054054054057,
+      "hr9": 0.7297297297297298,
+      "fip": 4.348648648648648,
+      "ip": 148
+    },
+    "breakoutYearStats": {
+      "k9": 6.130434782608696,
+      "bb9": 2.3478260869565215,
+      "hr9": 0.6521739130434783,
+      "fip": 3.56231884057971,
+      "ip": 69
+    },
+    "improvements": {
+      "k9Gain": 1.4480023501762638,
+      "bb9Drop": 1.0575793184488842,
+      "hr9Drop": 0.07755581668625156,
+      "fipDrop": 0.7863298080689383
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12359,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.8125,
+      "bb9": 3.75,
+      "hr9": 0.8125,
+      "fip": 4.554166666666667,
+      "ip": 144
+    },
+    "breakoutYearStats": {
+      "k9": 7.016129032258064,
+      "bb9": 1.838709677419355,
+      "hr9": 0.8709677419354839,
+      "fip": 3.5118279569892477,
+      "ip": 186
+    },
+    "improvements": {
+      "k9Gain": 2.203629032258064,
+      "bb9Drop": 1.911290322580645,
+      "hr9Drop": -0.058467741935483875,
+      "fipDrop": 1.0423387096774195
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12659,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5,
+      "bb9": 5.3999999999999995,
+      "hr9": 1.2,
+      "fip": 5.622222222222222,
+      "ip": 45
+    },
+    "breakoutYearStats": {
+      "k9": 6.136363636363636,
+      "bb9": 1.840909090909091,
+      "hr9": 0.8181818181818182,
+      "fip": 3.631818181818182,
+      "ip": 44
+    },
+    "improvements": {
+      "k9Gain": 1.1363636363636358,
+      "bb9Drop": 3.5590909090909086,
+      "hr9Drop": 0.3818181818181817,
+      "fipDrop": 1.99040404040404
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12921,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.179245283018868,
+      "bb9": 4.330188679245283,
+      "hr9": 0.42452830188679247,
+      "fip": 4.1056603773584905,
+      "ip": 106
+    },
+    "breakoutYearStats": {
+      "k9": 7.071428571428571,
+      "bb9": 3.642857142857143,
+      "hr9": 0.42857142857142855,
+      "fip": 3.461904761904762,
+      "ip": 42
+    },
+    "improvements": {
+      "k9Gain": 1.8921832884097034,
+      "bb9Drop": 0.68733153638814,
+      "hr9Drop": -0.004043126684636078,
+      "fipDrop": 0.6437556154537285
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13131,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.829268292682928,
+      "bb9": 2.8536585365853657,
+      "hr9": 1.0975609756097562,
+      "fip": 4.663414634146342,
+      "ip": 41
+    },
+    "breakoutYearStats": {
+      "k9": 7.474576271186441,
+      "bb9": 1.0677966101694916,
+      "hr9": 0.15254237288135594,
+      "fip": 2.115254237288136,
+      "ip": 59
+    },
+    "improvements": {
+      "k9Gain": 2.6453079785035136,
+      "bb9Drop": 1.7858619264158742,
+      "hr9Drop": 0.9450186027284002,
+      "fipDrop": 2.548160396858206
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13456,
+    "breakoutYear": 2016,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.08695652173913,
+      "bb9": 5.673913043478261,
+      "hr9": 2.3478260869565215,
+      "fip": 7.352173913043479,
+      "ip": 46
+    },
+    "breakoutYearStats": {
+      "k9": 7.56,
+      "bb9": 4.140000000000001,
+      "hr9": 0.9,
+      "fip": 4.2,
+      "ip": 50
+    },
+    "improvements": {
+      "k9Gain": 2.4730434782608697,
+      "bb9Drop": 1.5339130434782602,
+      "hr9Drop": 1.4478260869565216,
+      "fipDrop": 3.1521739130434785
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11413,
+    "breakoutYear": 2018,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.816901408450704,
+      "bb9": 3.4225352112676055,
+      "hr9": 0.8873239436619718,
+      "fip": 4.552112676056338,
+      "ip": 71
+    },
+    "breakoutYearStats": {
+      "k9": 5.954887218045112,
+      "bb9": 2.977443609022556,
+      "hr9": 0.5413533834586466,
+      "fip": 3.651127819548872,
+      "ip": 133
+    },
+    "improvements": {
+      "k9Gain": 1.137985809594408,
+      "bb9Drop": 0.4450916022450495,
+      "hr9Drop": 0.3459705602033252,
+      "fipDrop": 0.9009848565074661
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13797,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 4.564285714285714,
+      "bb9": 4.307142857142857,
+      "hr9": 1.0285714285714285,
+      "fip": 5.107142857142858,
+      "ip": 140
+    },
+    "breakoutYearStats": {
+      "k9": 7.153846153846153,
+      "bb9": 3.4615384615384617,
+      "hr9": 0.4615384615384615,
+      "fip": 3.430769230769231,
+      "ip": 78
+    },
+    "improvements": {
+      "k9Gain": 2.5895604395604392,
+      "bb9Drop": 0.8456043956043953,
+      "hr9Drop": 0.567032967032967,
+      "fipDrop": 1.6763736263736266
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11301,
+    "breakoutYear": 2017,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.304347826086957,
+      "bb9": 4.108695652173913,
+      "hr9": 1.5652173913043477,
+      "fip": 5.873913043478261,
+      "ip": 46
+    },
+    "breakoutYearStats": {
+      "k9": 6.044776119402986,
+      "bb9": 3.761194029850746,
+      "hr9": 0.6716417910447761,
+      "fip": 4.080597014925373,
+      "ip": 67
+    },
+    "improvements": {
+      "k9Gain": 1.7404282933160289,
+      "bb9Drop": 0.34750162232316706,
+      "hr9Drop": 0.8935756002595716,
+      "fipDrop": 1.793316028552888
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 11991,
+    "breakoutYear": 2019,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.9879518072289155,
+      "bb9": 2.927710843373494,
+      "hr9": 0.43373493975903615,
+      "fip": 3.693975903614458,
+      "ip": 83
+    },
+    "breakoutYearStats": {
+      "k9": 6.780821917808219,
+      "bb9": 2.5890410958904106,
+      "hr9": 0.1232876712328767,
+      "fip": 2.734246575342466,
+      "ip": 73
+    },
+    "improvements": {
+      "k9Gain": 1.7928701105793037,
+      "bb9Drop": 0.3386697474830833,
+      "hr9Drop": 0.31044726852615945,
+      "fipDrop": 0.9597293282719921
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12019,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.121495327102804,
+      "bb9": 4.121495327102804,
+      "hr9": 0.5046728971962616,
+      "fip": 4.386915887850467,
+      "ip": 107
+    },
+    "breakoutYearStats": {
+      "k9": 5.2727272727272725,
+      "bb9": 2.6363636363636362,
+      "hr9": 0.2727272727272727,
+      "fip": 3.3010101010101014,
+      "ip": 99
+    },
+    "improvements": {
+      "k9Gain": 1.1512319456244686,
+      "bb9Drop": 1.4851316907391676,
+      "hr9Drop": 0.23194562446898892,
+      "fipDrop": 1.0859057868403656
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12053,
+    "breakoutYear": 2019,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 5.7857142857142865,
+      "bb9": 6.642857142857143,
+      "hr9": 2.142857142857143,
+      "fip": 7.223809523809524,
+      "ip": 42
+    },
+    "breakoutYearStats": {
+      "k9": 8.49056603773585,
+      "bb9": 4.0754716981132075,
+      "hr9": 1.6981132075471699,
+      "fip": 5.124528301886793,
+      "ip": 53
+    },
+    "improvements": {
+      "k9Gain": 2.704851752021563,
+      "bb9Drop": 2.5673854447439357,
+      "hr9Drop": 0.4447439353099729,
+      "fipDrop": 2.0992812219227313
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12090,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4,
+      "bb9": 2.571428571428571,
+      "hr9": 1,
+      "fip": 4.612698412698413,
+      "ip": 63
+    },
+    "breakoutYearStats": {
+      "k9": 6.035294117647059,
+      "bb9": 2.1176470588235294,
+      "hr9": 0.6352941176470588,
+      "fip": 3.4823529411764707,
+      "ip": 85
+    },
+    "improvements": {
+      "k9Gain": 2.0352941176470587,
+      "bb9Drop": 0.45378151260504174,
+      "hr9Drop": 0.3647058823529412,
+      "fipDrop": 1.1303454715219425
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12249,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.75,
+      "bb9": 2.25,
+      "hr9": 0.75,
+      "fip": 3.7555555555555555,
+      "ip": 72
+    },
+    "breakoutYearStats": {
+      "k9": 7.036363636363637,
+      "bb9": 1.8,
+      "hr9": 0.4909090909090909,
+      "fip": 2.9454545454545458,
+      "ip": 55
+    },
+    "improvements": {
+      "k9Gain": 1.286363636363637,
+      "bb9Drop": 0.44999999999999996,
+      "hr9Drop": 0.2590909090909091,
+      "fipDrop": 0.8101010101010098
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12251,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.4642857142857135,
+      "bb9": 3.5357142857142856,
+      "hr9": 0.3214285714285714,
+      "fip": 3.6285714285714286,
+      "ip": 56
+    },
+    "breakoutYearStats": {
+      "k9": 6.4799999999999995,
+      "bb9": 1.6800000000000002,
+      "hr9": 0.48000000000000004,
+      "fip": 3.0133333333333336,
+      "ip": 75
+    },
+    "improvements": {
+      "k9Gain": 1.015714285714286,
+      "bb9Drop": 1.8557142857142854,
+      "hr9Drop": -0.15857142857142864,
+      "fipDrop": 0.6152380952380949
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12364,
+    "breakoutYear": 2019,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.621621621621621,
+      "bb9": 3.6486486486486487,
+      "hr9": 0.6081081081081081,
+      "fip": 4.267567567567568,
+      "ip": 74
+    },
+    "breakoutYearStats": {
+      "k9": 6.455172413793103,
+      "bb9": 3.1655172413793102,
+      "hr9": 0.5586206896551724,
+      "fip": 3.627586206896552,
+      "ip": 145
+    },
+    "improvements": {
+      "k9Gain": 1.833550792171482,
+      "bb9Drop": 0.48313140726933845,
+      "hr9Drop": 0.049487418452935694,
+      "fipDrop": 0.6399813606710159
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12395,
+    "breakoutYear": 2017,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.69811320754717,
+      "bb9": 4.018867924528302,
+      "hr9": 0.9056603773584906,
+      "fip": 4.80377358490566,
+      "ip": 159
+    },
+    "breakoutYearStats": {
+      "k9": 7.339285714285714,
+      "bb9": 2.4107142857142856,
+      "hr9": 1.125,
+      "fip": 3.9976190476190476,
+      "ip": 168
+    },
+    "improvements": {
+      "k9Gain": 2.6411725067385445,
+      "bb9Drop": 1.6081536388140165,
+      "hr9Drop": -0.2193396226415094,
+      "fipDrop": 0.8061545372866128
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12413,
+    "breakoutYear": 2019,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.236363636363636,
+      "bb9": 3.4363636363636365,
+      "hr9": 0.6545454545454545,
+      "fip": 4.127272727272727,
+      "ip": 55
+    },
+    "breakoutYearStats": {
+      "k9": 7.085106382978724,
+      "bb9": 1.7234042553191489,
+      "hr9": 0.5744680851063829,
+      "fip": 3.0297872340425536,
+      "ip": 47
+    },
+    "improvements": {
+      "k9Gain": 1.8487427466150876,
+      "bb9Drop": 1.7129593810444876,
+      "hr9Drop": 0.08007736943907162,
+      "fipDrop": 1.0974854932301734
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12448,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.676470588235294,
+      "bb9": 4.9411764705882355,
+      "hr9": 0.7058823529411764,
+      "fip": 4.8274509803921575,
+      "ip": 102
+    },
+    "breakoutYearStats": {
+      "k9": 6.7924528301886795,
+      "bb9": 3.905660377358491,
+      "hr9": 0.6792452830188679,
+      "fip": 3.9735849056603776,
+      "ip": 53
+    },
+    "improvements": {
+      "k9Gain": 2.115982241953385,
+      "bb9Drop": 1.0355160932297447,
+      "hr9Drop": 0.02663706992230852,
+      "fipDrop": 0.8538660747317799
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12450,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.096385542168675,
+      "bb9": 3.36144578313253,
+      "hr9": 1.3012048192771084,
+      "fip": 5.067469879518073,
+      "ip": 83
+    },
+    "breakoutYearStats": {
+      "k9": 6.46875,
+      "bb9": 2.953125,
+      "hr9": 0.703125,
+      "fip": 3.7625,
+      "ip": 64
+    },
+    "improvements": {
+      "k9Gain": 1.372364457831325,
+      "bb9Drop": 0.4083207831325302,
+      "hr9Drop": 0.5980798192771084,
+      "fipDrop": 1.3049698795180724
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12458,
+    "breakoutYear": 2017,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.875,
+      "bb9": 6.1875,
+      "hr9": 0.9375,
+      "fip": 5.533333333333333,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 6.096774193548387,
+      "bb9": 3.4838709677419355,
+      "hr9": 0.29032258064516125,
+      "fip": 3.425806451612903,
+      "ip": 155
+    },
+    "improvements": {
+      "k9Gain": 1.221774193548387,
+      "bb9Drop": 2.7036290322580645,
+      "hr9Drop": 0.6471774193548387,
+      "fipDrop": 2.10752688172043
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12674,
+    "breakoutYear": 2020,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 3.2399999999999998,
+      "bb9": 3.188571428571428,
+      "hr9": 1.3885714285714286,
+      "fip": 5.548571428571429,
+      "ip": 175
+    },
+    "breakoutYearStats": {
+      "k9": 5.804347826086956,
+      "bb9": 2.869565217391304,
+      "hr9": 0.3913043478260869,
+      "fip": 3.431884057971015,
+      "ip": 138
+    },
+    "improvements": {
+      "k9Gain": 2.5643478260869563,
+      "bb9Drop": 0.31900621118012396,
+      "hr9Drop": 0.9972670807453416,
+      "fipDrop": 2.116687370600414
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12693,
+    "breakoutYear": 2020,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 6.157894736842105,
+      "bb9": 2.605263157894737,
+      "hr9": 0.5921052631578947,
+      "fip": 3.555263157894737,
+      "ip": 76
+    },
+    "breakoutYearStats": {
+      "k9": 7.438775510204082,
+      "bb9": 2.020408163265306,
+      "hr9": 0.36734693877551017,
+      "fip": 2.7510204081632654,
+      "ip": 98
+    },
+    "improvements": {
+      "k9Gain": 1.280880773361977,
+      "bb9Drop": 0.5848549946294312,
+      "hr9Drop": 0.22475832438238452,
+      "fipDrop": 0.8042427497314715
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": -1,
+      "mlbSeasons": 1,
+      "totalMLBIP": 27,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12716,
+    "breakoutYear": 2017,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.673469387755102,
+      "bb9": 5.510204081632653,
+      "hr9": 1.2857142857142856,
+      "fip": 6.077551020408164,
+      "ip": 49
+    },
+    "breakoutYearStats": {
+      "k9": 5.926829268292683,
+      "bb9": 3.439024390243903,
+      "hr9": 0.29268292682926833,
+      "fip": 3.4520325203252034,
+      "ip": 123
+    },
+    "improvements": {
+      "k9Gain": 2.2533598805375807,
+      "bb9Drop": 2.0711796913887506,
+      "hr9Drop": 0.9930313588850173,
+      "fipDrop": 2.6255185000829604
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12939,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.365384615384615,
+      "bb9": 4.846153846153846,
+      "hr9": 1.9038461538461537,
+      "fip": 6.373076923076923,
+      "ip": 52
+    },
+    "breakoutYearStats": {
+      "k9": 6.66,
+      "bb9": 2.6999999999999997,
+      "hr9": 0,
+      "fip": 2.62,
+      "ip": 50
+    },
+    "improvements": {
+      "k9Gain": 1.2946153846153852,
+      "bb9Drop": 2.146153846153846,
+      "hr9Drop": 1.9038461538461537,
+      "fipDrop": 3.7530769230769225
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 1,
+      "mlbSeasons": 1,
+      "totalMLBIP": 31,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12943,
+    "breakoutYear": 2019,
+    "breakoutLevel": 2,
+    "breakoutLevelName": "AAA",
+    "yearBeforeStats": {
+      "k9": 3.696428571428571,
+      "bb9": 3.375,
+      "hr9": 0.6428571428571428,
+      "fip": 4.432142857142857,
+      "ip": 56
+    },
+    "breakoutYearStats": {
+      "k9": 6.176470588235294,
+      "bb9": 2.8235294117647056,
+      "hr9": 0.7647058823529412,
+      "fip": 3.8732026143790854,
+      "ip": 153
+    },
+    "improvements": {
+      "k9Gain": 2.480042016806723,
+      "bb9Drop": 0.5514705882352944,
+      "hr9Drop": -0.12184873949579844,
+      "fipDrop": 0.5589402427637715
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12949,
+    "breakoutYear": 2017,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.3999999999999995,
+      "bb9": 5.6,
+      "hr9": 0.8,
+      "fip": 5.2444444444444445,
+      "ip": 45
+    },
+    "breakoutYearStats": {
+      "k9": 5.818965517241379,
+      "bb9": 3.336206896551724,
+      "hr9": 0.3879310344827587,
+      "fip": 3.5793103448275865,
+      "ip": 116
+    },
+    "improvements": {
+      "k9Gain": 1.4189655172413795,
+      "bb9Drop": 2.2637931034482754,
+      "hr9Drop": 0.41206896551724137,
+      "fipDrop": 1.665134099616858
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12999,
+    "breakoutYear": 2017,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.76470588235294,
+      "bb9": 3.1176470588235294,
+      "hr9": 0.7647058823529412,
+      "fip": 4.0627450980392155,
+      "ip": 153
+    },
+    "breakoutYearStats": {
+      "k9": 7.03125,
+      "bb9": 2.53125,
+      "hr9": 0.28125,
+      "fip": 2.8875,
+      "ip": 64
+    },
+    "improvements": {
+      "k9Gain": 1.2665441176470598,
+      "bb9Drop": 0.5863970588235294,
+      "hr9Drop": 0.48345588235294124,
+      "fipDrop": 1.1752450980392153
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 2,
+      "mlbSeasons": 2,
+      "avgMLBFip": 3.608854166666667,
+      "totalMLBIP": 384,
+      "successful": true
+    }
+  },
+  {
+    "player_id": 13223,
+    "breakoutYear": 2018,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.7250000000000005,
+      "bb9": 2.9250000000000003,
+      "hr9": 0.7875,
+      "fip": 4.2625,
+      "ip": 80
+    },
+    "breakoutYearStats": {
+      "k9": 7.346938775510204,
+      "bb9": 2.571428571428571,
+      "hr9": 0.5510204081632653,
+      "fip": 3.220408163265306,
+      "ip": 49
+    },
+    "improvements": {
+      "k9Gain": 2.6219387755102037,
+      "bb9Drop": 0.3535714285714291,
+      "hr9Drop": 0.23647959183673473,
+      "fipDrop": 1.042091836734694
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13924,
+    "breakoutYear": 2018,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.760330578512397,
+      "bb9": 5.652892561983471,
+      "hr9": 1.487603305785124,
+      "fip": 6.175206611570248,
+      "ip": 121
+    },
+    "breakoutYearStats": {
+      "k9": 5.810126582278481,
+      "bb9": 4.556962025316456,
+      "hr9": 1.139240506329114,
+      "fip": 5.073417721518988,
+      "ip": 79
+    },
+    "improvements": {
+      "k9Gain": 1.049796003766084,
+      "bb9Drop": 1.095930536667015,
+      "hr9Drop": 0.3483627994560099,
+      "fipDrop": 1.1017888900512602
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 10989,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.980769230769231,
+      "bb9": 5.278846153846154,
+      "hr9": 1.3846153846153846,
+      "fip": 6.075,
+      "ip": 104
+    },
+    "breakoutYearStats": {
+      "k9": 7.077669902912621,
+      "bb9": 4.194174757281553,
+      "hr9": 1.2233009708737863,
+      "fip": 4.792233009708738,
+      "ip": 103
+    },
+    "improvements": {
+      "k9Gain": 3.0969006721433905,
+      "bb9Drop": 1.0846713965646009,
+      "hr9Drop": 0.16131441374159827,
+      "fipDrop": 1.282766990291262
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13042,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.2884615384615383,
+      "bb9": 4.846153846153846,
+      "hr9": 1.3846153846153846,
+      "fip": 6.084615384615384,
+      "ip": 52
+    },
+    "breakoutYearStats": {
+      "k9": 5.185430463576158,
+      "bb9": 3.933774834437086,
+      "hr9": 0.5364238410596026,
+      "fip": 4.133774834437086,
+      "ip": 151
+    },
+    "improvements": {
+      "k9Gain": 1.8969689251146198,
+      "bb9Drop": 0.9123790117167596,
+      "hr9Drop": 0.848191543555782,
+      "fipDrop": 1.950840550178298
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13105,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.421052631578947,
+      "bb9": 4.578947368421053,
+      "hr9": 1.1052631578947367,
+      "fip": 5.340350877192982,
+      "ip": 57
+    },
+    "breakoutYearStats": {
+      "k9": 5.833333333333333,
+      "bb9": 2.1666666666666665,
+      "hr9": 1,
+      "fip": 4.07037037037037,
+      "ip": 54
+    },
+    "improvements": {
+      "k9Gain": 1.4122807017543861,
+      "bb9Drop": 2.4122807017543866,
+      "hr9Drop": 0.10526315789473673,
+      "fipDrop": 1.2699805068226118
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12235,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.539325842696629,
+      "bb9": 4.651685393258427,
+      "hr9": 0.5056179775280899,
+      "fip": 4.694382022471911,
+      "ip": 89
+    },
+    "breakoutYearStats": {
+      "k9": 5.08695652173913,
+      "bb9": 2.608695652173913,
+      "hr9": 0.2608695652173913,
+      "fip": 3.3159420289855075,
+      "ip": 69
+    },
+    "improvements": {
+      "k9Gain": 1.5476306790425007,
+      "bb9Drop": 2.042989741084514,
+      "hr9Drop": 0.2447484123106986,
+      "fipDrop": 1.3784399934864031
+    },
+    "mlbOutcome": {
+      "reachedMLB": true,
+      "yearsToMLB": 2,
+      "mlbSeasons": 1,
+      "totalMLBIP": 76,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12568,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.553191489361702,
+      "bb9": 3.9574468085106385,
+      "hr9": 1.0212765957446808,
+      "fip": 4.760283687943263,
+      "ip": 141
+    },
+    "breakoutYearStats": {
+      "k9": 6.977528089887641,
+      "bb9": 3.387640449438202,
+      "hr9": 0.5056179775280899,
+      "fip": 3.508988764044944,
+      "ip": 178
+    },
+    "improvements": {
+      "k9Gain": 1.4243366005259386,
+      "bb9Drop": 0.5698063590724365,
+      "hr9Drop": 0.5156586182165909,
+      "fipDrop": 1.2512949238983184
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12636,
+    "breakoutYear": 2019,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.048780487804878,
+      "bb9": 3.7317073170731705,
+      "hr9": 1.5365853658536586,
+      "fip": 5.541463414634146,
+      "ip": 41
+    },
+    "breakoutYearStats": {
+      "k9": 6.652173913043478,
+      "bb9": 2.0869565217391304,
+      "hr9": 0.7826086956521738,
+      "fip": 3.5478260869565217,
+      "ip": 69
+    },
+    "improvements": {
+      "k9Gain": 1.6033934252385995,
+      "bb9Drop": 1.6447507953340401,
+      "hr9Drop": 0.7539766702014847,
+      "fipDrop": 1.9936373276776242
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12643,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 7.0874999999999995,
+      "bb9": 4.05,
+      "hr9": 0.6749999999999999,
+      "fip": 3.95,
+      "ip": 160
+    },
+    "breakoutYearStats": {
+      "k9": 8.70967741935484,
+      "bb9": 3.4838709677419355,
+      "hr9": 0.43548387096774194,
+      "fip": 3.0548387096774197,
+      "ip": 62
+    },
+    "improvements": {
+      "k9Gain": 1.6221774193548404,
+      "bb9Drop": 0.5661290322580643,
+      "hr9Drop": 0.239516129032258,
+      "fipDrop": 0.8951612903225805
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12741,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.119760479041917,
+      "bb9": 5.335329341317365,
+      "hr9": 1.0778443113772456,
+      "fip": 5.397604790419162,
+      "ip": 167
+    },
+    "breakoutYearStats": {
+      "k9": 6.144827586206897,
+      "bb9": 5.027586206896552,
+      "hr9": 0.6206896551724138,
+      "fip": 4.406896551724138,
+      "ip": 145
+    },
+    "improvements": {
+      "k9Gain": 1.02506710716498,
+      "bb9Drop": 0.30774313442081347,
+      "hr9Drop": 0.45715465620483176,
+      "fipDrop": 0.9907082386950243
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12792,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.0625,
+      "bb9": 4.078125,
+      "hr9": 0.703125,
+      "fip": 4.45,
+      "ip": 64
+    },
+    "breakoutYearStats": {
+      "k9": 6.230769230769231,
+      "bb9": 1.846153846153846,
+      "hr9": 0.6923076923076923,
+      "fip": 3.430769230769231,
+      "ip": 78
+    },
+    "improvements": {
+      "k9Gain": 1.1682692307692308,
+      "bb9Drop": 2.231971153846154,
+      "hr9Drop": 0.01081730769230771,
+      "fipDrop": 1.0192307692307692
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12849,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.4897959183673466,
+      "bb9": 3.673469387755102,
+      "hr9": 1.4693877551020407,
+      "fip": 5.771428571428572,
+      "ip": 49
+    },
+    "breakoutYearStats": {
+      "k9": 5.538461538461538,
+      "bb9": 3.1153846153846154,
+      "hr9": 0.6923076923076923,
+      "fip": 4.007692307692308,
+      "ip": 52
+    },
+    "improvements": {
+      "k9Gain": 2.0486656200941917,
+      "bb9Drop": 0.5580847723704867,
+      "hr9Drop": 0.7770800627943484,
+      "fipDrop": 1.7637362637362646
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12853,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.335766423357664,
+      "bb9": 4.007299270072993,
+      "hr9": 0.7883211678832117,
+      "fip": 4.71094890510949,
+      "ip": 137
+    },
+    "breakoutYearStats": {
+      "k9": 6.545454545454546,
+      "bb9": 1.4318181818181819,
+      "hr9": 0.20454545454545456,
+      "fip": 2.5181818181818185,
+      "ip": 44
+    },
+    "improvements": {
+      "k9Gain": 2.209688122096882,
+      "bb9Drop": 2.5754810882548114,
+      "hr9Drop": 0.5837757133377571,
+      "fipDrop": 2.192767086927671
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13044,
+    "breakoutYear": 2019,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.595744680851063,
+      "bb9": 3.6382978723404253,
+      "hr9": 1.9148936170212767,
+      "fip": 6.157446808510638,
+      "ip": 47
+    },
+    "breakoutYearStats": {
+      "k9": 6.031914893617022,
+      "bb9": 2.3936170212765955,
+      "hr9": 1.2446808510638299,
+      "fip": 4.45531914893617,
+      "ip": 94
+    },
+    "improvements": {
+      "k9Gain": 1.4361702127659584,
+      "bb9Drop": 1.2446808510638299,
+      "hr9Drop": 0.6702127659574468,
+      "fipDrop": 1.7021276595744679
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13050,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.63235294117647,
+      "bb9": 4.169117647058823,
+      "hr9": 0.8602941176470588,
+      "fip": 4.802941176470588,
+      "ip": 136
+    },
+    "breakoutYearStats": {
+      "k9": 6.86013986013986,
+      "bb9": 3.335664335664336,
+      "hr9": 0.7552447552447553,
+      "fip": 3.8783216783216785,
+      "ip": 143
+    },
+    "improvements": {
+      "k9Gain": 2.22778691896339,
+      "bb9Drop": 0.8334533113944875,
+      "hr9Drop": 0.10504936240230345,
+      "fipDrop": 0.9246194981489095
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13068,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.8571428571428568,
+      "bb9": 4.214285714285714,
+      "hr9": 1.2857142857142856,
+      "fip": 5.604761904761904,
+      "ip": 126
+    },
+    "breakoutYearStats": {
+      "k9": 6.36,
+      "bb9": 2.76,
+      "hr9": 0.6,
+      "fip": 3.5733333333333337,
+      "ip": 75
+    },
+    "improvements": {
+      "k9Gain": 2.5028571428571436,
+      "bb9Drop": 1.4542857142857146,
+      "hr9Drop": 0.6857142857142856,
+      "fipDrop": 2.0314285714285707
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13074,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 6.75,
+      "bb9": 5.625,
+      "hr9": 0.5625,
+      "fip": 4.3875,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 8.597014925373134,
+      "bb9": 2.417910447761194,
+      "hr9": 0.40298507462686567,
+      "fip": 2.6776119402985077,
+      "ip": 67
+    },
+    "improvements": {
+      "k9Gain": 1.8470149253731343,
+      "bb9Drop": 3.207089552238806,
+      "hr9Drop": 0.15951492537313433,
+      "fipDrop": 1.7098880597014925
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13078,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.078125,
+      "bb9": 4.078125,
+      "hr9": 0.84375,
+      "fip": 4.871875,
+      "ip": 64
+    },
+    "breakoutYearStats": {
+      "k9": 6.71830985915493,
+      "bb9": 3.4225352112676055,
+      "hr9": 0.38028169014084506,
+      "fip": 3.3971830985915497,
+      "ip": 71
+    },
+    "improvements": {
+      "k9Gain": 2.64018485915493,
+      "bb9Drop": 0.6555897887323945,
+      "hr9Drop": 0.46346830985915494,
+      "fipDrop": 1.4746919014084505
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13083,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.285714285714286,
+      "bb9": 7.928571428571429,
+      "hr9": 1.5,
+      "fip": 7.057142857142857,
+      "ip": 42
+    },
+    "breakoutYearStats": {
+      "k9": 5.837837837837839,
+      "bb9": 5.108108108108108,
+      "hr9": 1.2162162162162162,
+      "fip": 5.3621621621621625,
+      "ip": 74
+    },
+    "improvements": {
+      "k9Gain": 1.552123552123553,
+      "bb9Drop": 2.820463320463321,
+      "hr9Drop": 0.28378378378378377,
+      "fipDrop": 1.6949806949806945
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13103,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.212765957446809,
+      "bb9": 5.553191489361702,
+      "hr9": 1.1489361702127658,
+      "fip": 5.774468085106383,
+      "ip": 47
+    },
+    "breakoutYearStats": {
+      "k9": 6.488372093023255,
+      "bb9": 4.186046511627907,
+      "hr9": 0.20930232558139533,
+      "fip": 3.4558139534883723,
+      "ip": 43
+    },
+    "improvements": {
+      "k9Gain": 2.275606135576446,
+      "bb9Drop": 1.367144977733795,
+      "hr9Drop": 0.9396338446313706,
+      "fipDrop": 2.3186541316180107
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13154,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 6,
+      "bb9": 5.0625,
+      "hr9": 1.125,
+      "fip": 5.179166666666667,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 7.767123287671233,
+      "bb9": 3.0821917808219177,
+      "hr9": 0.8630136986301369,
+      "fip": 3.747945205479452,
+      "ip": 73
+    },
+    "improvements": {
+      "k9Gain": 1.7671232876712333,
+      "bb9Drop": 1.9803082191780823,
+      "hr9Drop": 0.2619863013698631,
+      "fipDrop": 1.431221461187215
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13285,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.800000000000001,
+      "bb9": 6,
+      "hr9": 2,
+      "fip": 6.800000000000001,
+      "ip": 45
+    },
+    "breakoutYearStats": {
+      "k9": 8.425531914893618,
+      "bb9": 4.404255319148936,
+      "hr9": 0.5744680851063829,
+      "fip": 3.6255319148936174,
+      "ip": 47
+    },
+    "improvements": {
+      "k9Gain": 2.6255319148936174,
+      "bb9Drop": 1.5957446808510642,
+      "hr9Drop": 1.4255319148936172,
+      "fipDrop": 3.1744680851063833
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13285,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 6.244897959183674,
+      "bb9": 4.591836734693878,
+      "hr9": 1.2857142857142856,
+      "fip": 5.2,
+      "ip": 49
+    },
+    "breakoutYearStats": {
+      "k9": 7.3125,
+      "bb9": 3.9375,
+      "hr9": 0.375,
+      "fip": 3.4291666666666667,
+      "ip": 48
+    },
+    "improvements": {
+      "k9Gain": 1.0676020408163263,
+      "bb9Drop": 0.654336734693878,
+      "hr9Drop": 0.9107142857142856,
+      "fipDrop": 1.7708333333333335
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13516,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 6.136363636363636,
+      "bb9": 4.7727272727272725,
+      "hr9": 1.3636363636363638,
+      "fip": 5.3969696969696965,
+      "ip": 66
+    },
+    "breakoutYearStats": {
+      "k9": 7.214876033057851,
+      "bb9": 4.239669421487603,
+      "hr9": 0.371900826446281,
+      "fip": 3.5471074380165293,
+      "ip": 121
+    },
+    "improvements": {
+      "k9Gain": 1.0785123966942152,
+      "bb9Drop": 0.5330578512396693,
+      "hr9Drop": 0.9917355371900828,
+      "fipDrop": 1.8498622589531672
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13520,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.017857142857143,
+      "bb9": 3.2142857142857144,
+      "hr9": 0.9642857142857142,
+      "fip": 4.771428571428571,
+      "ip": 56
+    },
+    "breakoutYearStats": {
+      "k9": 5.625,
+      "bb9": 1.9124999999999999,
+      "hr9": 0.6749999999999999,
+      "fip": 3.5625,
+      "ip": 80
+    },
+    "improvements": {
+      "k9Gain": 1.6071428571428568,
+      "bb9Drop": 1.3017857142857145,
+      "hr9Drop": 0.28928571428571426,
+      "fipDrop": 1.2089285714285714
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13604,
+    "breakoutYear": 2020,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.11864406779661,
+      "bb9": 2.745762711864407,
+      "hr9": 0.6101694915254238,
+      "fip": 4.08135593220339,
+      "ip": 59
+    },
+    "breakoutYearStats": {
+      "k9": 6.702127659574468,
+      "bb9": 1.7234042553191489,
+      "hr9": 0,
+      "fip": 2.2851063829787237,
+      "ip": 47
+    },
+    "improvements": {
+      "k9Gain": 2.583483591777858,
+      "bb9Drop": 1.0223584565452581,
+      "hr9Drop": 0.6101694915254238,
+      "fipDrop": 1.7962495492246666
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13815,
+    "breakoutYear": 2019,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.75,
+      "bb9": 5.0625,
+      "hr9": 0.5625,
+      "fip": 4.866666666666667,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 5.029411764705882,
+      "bb9": 3.441176470588235,
+      "hr9": 0.6617647058823529,
+      "fip": 4.185294117647059,
+      "ip": 68
+    },
+    "improvements": {
+      "k9Gain": 1.2794117647058822,
+      "bb9Drop": 1.621323529411765,
+      "hr9Drop": -0.09926470588235292,
+      "fipDrop": 0.6813725490196081
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14072,
+    "breakoutYear": 2018,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.647058823529411,
+      "bb9": 3.3529411764705883,
+      "hr9": 0.8823529411764706,
+      "fip": 4.337254901960785,
+      "ip": 51
+    },
+    "breakoutYearStats": {
+      "k9": 6.84,
+      "bb9": 2.64,
+      "hr9": 0.78,
+      "fip": 3.686666666666667,
+      "ip": 150
+    },
+    "improvements": {
+      "k9Gain": 1.1929411764705886,
+      "bb9Drop": 0.7129411764705882,
+      "hr9Drop": 0.10235294117647054,
+      "fipDrop": 0.6505882352941179
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14832,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.721311475409836,
+      "bb9": 3.983606557377049,
+      "hr9": 0.5901639344262295,
+      "fip": 4.331147540983607,
+      "ip": 61
+    },
+    "breakoutYearStats": {
+      "k9": 6.333333333333334,
+      "bb9": 3,
+      "hr9": 0.3333333333333333,
+      "fip": 3.274074074074074,
+      "ip": 54
+    },
+    "improvements": {
+      "k9Gain": 1.612021857923498,
+      "bb9Drop": 0.9836065573770489,
+      "hr9Drop": 0.2568306010928962,
+      "fipDrop": 1.0570734669095327
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13574,
+    "breakoutYear": 2019,
+    "breakoutLevel": 3,
+    "breakoutLevelName": "AA",
+    "yearBeforeStats": {
+      "k9": 4.669172932330827,
+      "bb9": 4.12781954887218,
+      "hr9": 1.4210526315789473,
+      "fip": 5.590977443609023,
+      "ip": 133
+    },
+    "breakoutYearStats": {
+      "k9": 6.779999999999999,
+      "bb9": 3.3,
+      "hr9": 0.9,
+      "fip": 4.093333333333334,
+      "ip": 150
+    },
+    "improvements": {
+      "k9Gain": 2.110827067669172,
+      "bb9Drop": 0.8278195488721805,
+      "hr9Drop": 0.5210526315789473,
+      "fipDrop": 1.4976441102756892
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 12877,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.116438356164384,
+      "bb9": 3.821917808219178,
+      "hr9": 1.1095890410958904,
+      "fip": 4.939726027397261,
+      "ip": 146
+    },
+    "breakoutYearStats": {
+      "k9": 6.356643356643357,
+      "bb9": 2.958041958041958,
+      "hr9": 0.6293706293706294,
+      "fip": 3.6825174825174827,
+      "ip": 143
+    },
+    "improvements": {
+      "k9Gain": 1.2402050004789729,
+      "bb9Drop": 0.8638758501772199,
+      "hr9Drop": 0.48021841172526103,
+      "fipDrop": 1.257208544879778
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13027,
+    "breakoutYear": 2019,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 6.4,
+      "bb9": 3.8,
+      "hr9": 0.6,
+      "fip": 3.9111111111111114,
+      "ip": 45
+    },
+    "breakoutYearStats": {
+      "k9": 9.50943396226415,
+      "bb9": 2.207547169811321,
+      "hr9": 0.16981132075471697,
+      "fip": 2.067924528301887,
+      "ip": 53
+    },
+    "improvements": {
+      "k9Gain": 3.1094339622641503,
+      "bb9Drop": 1.592452830188679,
+      "hr9Drop": 0.43018867924528303,
+      "fipDrop": 1.8431865828092242
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13341,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.764705882352941,
+      "bb9": 4.235294117647059,
+      "hr9": 0.3529411764705882,
+      "fip": 4.0627450980392155,
+      "ip": 51
+    },
+    "breakoutYearStats": {
+      "k9": 7.534883720930233,
+      "bb9": 2.930232558139535,
+      "hr9": 0.41860465116279066,
+      "fip": 3.1069767441860465,
+      "ip": 43
+    },
+    "improvements": {
+      "k9Gain": 2.7701778385772915,
+      "bb9Drop": 1.3050615595075237,
+      "hr9Drop": -0.06566347469220246,
+      "fipDrop": 0.9557683538531689
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13345,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 6.947368421052631,
+      "bb9": 4.578947368421053,
+      "hr9": 1.5789473684210527,
+      "fip": 5.463157894736842,
+      "ip": 57
+    },
+    "breakoutYearStats": {
+      "k9": 8.1,
+      "bb9": 2.025,
+      "hr9": 0.225,
+      "fip": 2.4000000000000004,
+      "ip": 40
+    },
+    "improvements": {
+      "k9Gain": 1.1526315789473687,
+      "bb9Drop": 2.553947368421053,
+      "hr9Drop": 1.3539473684210526,
+      "fipDrop": 3.0631578947368414
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13490,
+    "breakoutYear": 2019,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.125,
+      "bb9": 4.3125,
+      "hr9": 1.3125,
+      "fip": 5.616666666666667,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 5.433962264150943,
+      "bb9": 3.2264150943396226,
+      "hr9": 0.6792452830188679,
+      "fip": 4.049056603773585,
+      "ip": 53
+    },
+    "improvements": {
+      "k9Gain": 1.308962264150943,
+      "bb9Drop": 1.0860849056603774,
+      "hr9Drop": 0.6332547169811321,
+      "fipDrop": 1.567610062893082
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13593,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.7636363636363632,
+      "bb9": 2.8636363636363638,
+      "hr9": 0.9,
+      "fip": 4.618181818181818,
+      "ip": 110
+    },
+    "breakoutYearStats": {
+      "k9": 6.4375,
+      "bb9": 2.25,
+      "hr9": 0.9375,
+      "fip": 3.8736111111111113,
+      "ip": 144
+    },
+    "improvements": {
+      "k9Gain": 2.6738636363636368,
+      "bb9Drop": 0.6136363636363638,
+      "hr9Drop": -0.03749999999999998,
+      "fipDrop": 0.7445707070707068
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13711,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.006451612903226,
+      "bb9": 3.774193548387097,
+      "hr9": 0.4064516129032258,
+      "fip": 4.15483870967742,
+      "ip": 155
+    },
+    "breakoutYearStats": {
+      "k9": 5.892857142857143,
+      "bb9": 1.3928571428571428,
+      "hr9": 0.5357142857142857,
+      "fip": 3.1285714285714286,
+      "ip": 84
+    },
+    "improvements": {
+      "k9Gain": 1.886405529953917,
+      "bb9Drop": 2.381336405529954,
+      "hr9Drop": -0.1292626728110599,
+      "fipDrop": 1.0262672811059912
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13879,
+    "breakoutYear": 2019,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.3999999999999995,
+      "bb9": 3.2,
+      "hr9": 1.6,
+      "fip": 5.6,
+      "ip": 45
+    },
+    "breakoutYearStats": {
+      "k9": 5.793103448275862,
+      "bb9": 2.896551724137931,
+      "hr9": 0.8275862068965517,
+      "fip": 4.073563218390805,
+      "ip": 87
+    },
+    "improvements": {
+      "k9Gain": 1.3931034482758626,
+      "bb9Drop": 0.30344827586206913,
+      "hr9Drop": 0.7724137931034484,
+      "fipDrop": 1.5264367816091946
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13891,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.5227272727272725,
+      "bb9": 4.090909090909091,
+      "hr9": 0.8181818181818182,
+      "fip": 4.5181818181818185,
+      "ip": 44
+    },
+    "breakoutYearStats": {
+      "k9": 6.734693877551021,
+      "bb9": 2.7551020408163267,
+      "hr9": 0.9183673469387755,
+      "fip": 3.9482993197278913,
+      "ip": 147
+    },
+    "improvements": {
+      "k9Gain": 1.2119666048237487,
+      "bb9Drop": 1.3358070500927641,
+      "hr9Drop": -0.1001855287569573,
+      "fipDrop": 0.5698824984539272
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13897,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.05,
+      "bb9": 4.05,
+      "hr9": 1.8,
+      "fip": 6.25,
+      "ip": 40
+    },
+    "breakoutYearStats": {
+      "k9": 7.5,
+      "bb9": 2.8636363636363638,
+      "hr9": 0.5454545454545454,
+      "fip": 3.275757575757576,
+      "ip": 66
+    },
+    "improvements": {
+      "k9Gain": 3.45,
+      "bb9Drop": 1.186363636363636,
+      "hr9Drop": 1.2545454545454546,
+      "fipDrop": 2.974242424242424
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13945,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 5.383928571428571,
+      "bb9": 4.017857142857143,
+      "hr9": 1.2857142857142856,
+      "fip": 5.2,
+      "ip": 112
+    },
+    "breakoutYearStats": {
+      "k9": 8.320754716981131,
+      "bb9": 3.566037735849057,
+      "hr9": 0.8490566037735849,
+      "fip": 3.7660377358490567,
+      "ip": 53
+    },
+    "improvements": {
+      "k9Gain": 2.93682614555256,
+      "bb9Drop": 0.4518194070080863,
+      "hr9Drop": 0.43665768194070065,
+      "fipDrop": 1.4339622641509435
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13952,
+    "breakoutYear": 2019,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.6875,
+      "bb9": 3.375,
+      "hr9": 1.5,
+      "fip": 5.45,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 6.290322580645162,
+      "bb9": 1.7419354838709677,
+      "hr9": 0.29032258064516125,
+      "fip": 2.8021505376344087,
+      "ip": 93
+    },
+    "improvements": {
+      "k9Gain": 1.602822580645162,
+      "bb9Drop": 1.6330645161290323,
+      "hr9Drop": 1.2096774193548387,
+      "fipDrop": 2.6478494623655915
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13974,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.326923076923077,
+      "bb9": 3.4615384615384617,
+      "hr9": 0.5192307692307693,
+      "fip": 4.142307692307693,
+      "ip": 52
+    },
+    "breakoutYearStats": {
+      "k9": 7.517647058823529,
+      "bb9": 2.541176470588235,
+      "hr9": 0.7411764705882353,
+      "fip": 3.447058823529412,
+      "ip": 85
+    },
+    "improvements": {
+      "k9Gain": 3.1907239819004527,
+      "bb9Drop": 0.9203619909502265,
+      "hr9Drop": -0.22194570135746605,
+      "fipDrop": 0.6952488687782807
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13985,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 3.122448979591837,
+      "bb9": 3.673469387755102,
+      "hr9": 0.9183673469387755,
+      "fip": 5.057142857142857,
+      "ip": 49
+    },
+    "breakoutYearStats": {
+      "k9": 4.909090909090908,
+      "bb9": 2.8051948051948052,
+      "hr9": 0.5844155844155844,
+      "fip": 3.8883116883116884,
+      "ip": 77
+    },
+    "improvements": {
+      "k9Gain": 1.7866419294990714,
+      "bb9Drop": 0.8682745825602969,
+      "hr9Drop": 0.33395176252319114,
+      "fipDrop": 1.1688311688311686
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 13991,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.681818181818182,
+      "bb9": 3.8863636363636362,
+      "hr9": 0.4090909090909091,
+      "fip": 4.2681818181818185,
+      "ip": 44
+    },
+    "breakoutYearStats": {
+      "k9": 6.344262295081967,
+      "bb9": 2.5081967213114753,
+      "hr9": 0.29508196721311475,
+      "fip": 3.052459016393443,
+      "ip": 61
+    },
+    "improvements": {
+      "k9Gain": 2.6624441132637853,
+      "bb9Drop": 1.378166915052161,
+      "hr9Drop": 0.11400894187779437,
+      "fipDrop": 1.2157228017883757
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14022,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.64516129032258,
+      "bb9": 3.890322580645161,
+      "hr9": 0.8129032258064516,
+      "fip": 4.638709677419355,
+      "ip": 155
+    },
+    "breakoutYearStats": {
+      "k9": 7.297297297297297,
+      "bb9": 3.4054054054054057,
+      "hr9": 0.3648648648648649,
+      "fip": 3.2405405405405405,
+      "ip": 74
+    },
+    "improvements": {
+      "k9Gain": 2.6521360069747173,
+      "bb9Drop": 0.4849171752397554,
+      "hr9Drop": 0.44803836094158667,
+      "fipDrop": 1.3981691368788143
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14079,
+    "breakoutYear": 2019,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.882352941176471,
+      "bb9": 3.1764705882352944,
+      "hr9": 0.5294117647058824,
+      "fip": 4.1607843137254905,
+      "ip": 102
+    },
+    "breakoutYearStats": {
+      "k9": 5.0134228187919465,
+      "bb9": 2.4161073825503356,
+      "hr9": 0.4832214765100671,
+      "fip": 3.5892617449664432,
+      "ip": 149
+    },
+    "improvements": {
+      "k9Gain": 1.1310698776154755,
+      "bb9Drop": 0.7603632056849587,
+      "hr9Drop": 0.04619028819581528,
+      "fipDrop": 0.5715225687590473
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14148,
+    "breakoutYear": 2019,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.365384615384615,
+      "bb9": 3.1153846153846154,
+      "hr9": 0.8653846153846154,
+      "fip": 4.296153846153846,
+      "ip": 104
+    },
+    "breakoutYearStats": {
+      "k9": 7.285714285714286,
+      "bb9": 2.142857142857143,
+      "hr9": 0.8571428571428571,
+      "fip": 3.5333333333333337,
+      "ip": 42
+    },
+    "improvements": {
+      "k9Gain": 1.9203296703296706,
+      "bb9Drop": 0.9725274725274726,
+      "hr9Drop": 0.008241758241758323,
+      "fipDrop": 0.7628205128205123
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14188,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.704545454545454,
+      "bb9": 5.113636363636364,
+      "hr9": 1.6363636363636365,
+      "fip": 6.222727272727273,
+      "ip": 44
+    },
+    "breakoutYearStats": {
+      "k9": 6.8,
+      "bb9": 2.5999999999999996,
+      "hr9": 0.6,
+      "fip": 3.4222222222222225,
+      "ip": 45
+    },
+    "improvements": {
+      "k9Gain": 2.0954545454545457,
+      "bb9Drop": 2.5136363636363646,
+      "hr9Drop": 1.0363636363636366,
+      "fipDrop": 2.80050505050505
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14216,
+    "breakoutYear": 2019,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.09433962264151,
+      "bb9": 6.962264150943397,
+      "hr9": 1.0188679245283019,
+      "fip": 5.860377358490567,
+      "ip": 53
+    },
+    "breakoutYearStats": {
+      "k9": 6.194805194805195,
+      "bb9": 3.974025974025974,
+      "hr9": 0.8181818181818182,
+      "fip": 4.32987012987013,
+      "ip": 77
+    },
+    "improvements": {
+      "k9Gain": 1.1004655721636851,
+      "bb9Drop": 2.988238176917423,
+      "hr9Drop": 0.20068610634648365,
+      "fipDrop": 1.5305072286204364
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14345,
+    "breakoutYear": 2019,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.571428571428571,
+      "bb9": 3.2142857142857144,
+      "hr9": 0.6428571428571428,
+      "fip": 3.961904761904762,
+      "ip": 42
+    },
+    "breakoutYearStats": {
+      "k9": 7.588235294117647,
+      "bb9": 2.6470588235294117,
+      "hr9": 0.7058823529411764,
+      "fip": 3.415686274509804,
+      "ip": 51
+    },
+    "improvements": {
+      "k9Gain": 2.0168067226890756,
+      "bb9Drop": 0.5672268907563027,
+      "hr9Drop": -0.06302521008403361,
+      "fipDrop": 0.5462184873949578
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14709,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.263157894736842,
+      "bb9": 4.263157894736842,
+      "hr9": 0.9473684210526315,
+      "fip": 5.042105263157895,
+      "ip": 57
+    },
+    "breakoutYearStats": {
+      "k9": 7.434782608695652,
+      "bb9": 2.9347826086956523,
+      "hr9": 1.3695652173913044,
+      "fip": 4.504347826086956,
+      "ip": 46
+    },
+    "improvements": {
+      "k9Gain": 3.1716247139588107,
+      "bb9Drop": 1.3283752860411893,
+      "hr9Drop": -0.4221967963386729,
+      "fipDrop": 0.5377574370709386
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14825,
+    "breakoutYear": 2018,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.745454545454545,
+      "bb9": 3.7636363636363632,
+      "hr9": 1.1454545454545453,
+      "fip": 5.054545454545455,
+      "ip": 55
+    },
+    "breakoutYearStats": {
+      "k9": 7.036363636363637,
+      "bb9": 2.7818181818181817,
+      "hr9": 0.6545454545454545,
+      "fip": 3.5090909090909093,
+      "ip": 55
+    },
+    "improvements": {
+      "k9Gain": 2.290909090909092,
+      "bb9Drop": 0.9818181818181815,
+      "hr9Drop": 0.49090909090909074,
+      "fipDrop": 1.5454545454545454
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 15240,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4,
+      "bb9": 6.142857142857143,
+      "hr9": 0.7142857142857142,
+      "fip": 5.390476190476191,
+      "ip": 63
+    },
+    "breakoutYearStats": {
+      "k9": 6.857142857142857,
+      "bb9": 2.571428571428571,
+      "hr9": 0.42857142857142855,
+      "fip": 3.1523809523809527,
+      "ip": 63
+    },
+    "improvements": {
+      "k9Gain": 2.8571428571428568,
+      "bb9Drop": 3.571428571428572,
+      "hr9Drop": 0.28571428571428564,
+      "fipDrop": 2.238095238095238
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14136,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 3.9375,
+      "bb9": 4.5,
+      "hr9": 1.6875,
+      "fip": 6.2625,
+      "ip": 48
+    },
+    "breakoutYearStats": {
+      "k9": 5.048780487804878,
+      "bb9": 1.7560975609756098,
+      "hr9": 0.6585365853658536,
+      "fip": 3.6146341463414635,
+      "ip": 41
+    },
+    "improvements": {
+      "k9Gain": 1.111280487804878,
+      "bb9Drop": 2.7439024390243905,
+      "hr9Drop": 1.0289634146341464,
+      "fipDrop": 2.6478658536585367
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14464,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 5.274193548387097,
+      "bb9": 3.338709677419355,
+      "hr9": 0.8709677419354839,
+      "fip": 4.398924731182796,
+      "ip": 186
+    },
+    "breakoutYearStats": {
+      "k9": 6.75,
+      "bb9": 2.8928571428571432,
+      "hr9": 0.4821428571428571,
+      "fip": 3.3607142857142858,
+      "ip": 56
+    },
+    "improvements": {
+      "k9Gain": 1.475806451612903,
+      "bb9Drop": 0.44585253456221174,
+      "hr9Drop": 0.3888248847926268,
+      "fipDrop": 1.0382104454685104
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14491,
+    "breakoutYear": 2020,
+    "breakoutLevel": 4,
+    "breakoutLevelName": "A",
+    "yearBeforeStats": {
+      "k9": 4.32,
+      "bb9": 3.6,
+      "hr9": 0.72,
+      "fip": 4.48,
+      "ip": 50
+    },
+    "breakoutYearStats": {
+      "k9": 6.1875,
+      "bb9": 3.15,
+      "hr9": 0.45,
+      "fip": 3.5250000000000004,
+      "ip": 80
+    },
+    "improvements": {
+      "k9Gain": 1.8674999999999997,
+      "bb9Drop": 0.4500000000000002,
+      "hr9Drop": 0.26999999999999996,
+      "fipDrop": 0.9550000000000001
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14556,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.260355029585798,
+      "bb9": 4.047337278106509,
+      "hr9": 1.0118343195266273,
+      "fip": 5.063905325443788,
+      "ip": 169
+    },
+    "breakoutYearStats": {
+      "k9": 5.688,
+      "bb9": 3.456,
+      "hr9": 0.7919999999999999,
+      "fip": 4.232,
+      "ip": 125
+    },
+    "improvements": {
+      "k9Gain": 1.4276449704142014,
+      "bb9Drop": 0.5913372781065092,
+      "hr9Drop": 0.21983431952662735,
+      "fipDrop": 0.8319053254437874
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14581,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 4.447058823529412,
+      "bb9": 4.764705882352941,
+      "hr9": 0.6352941176470588,
+      "fip": 4.7176470588235295,
+      "ip": 85
+    },
+    "breakoutYearStats": {
+      "k9": 6.887755102040816,
+      "bb9": 3.397959183673469,
+      "hr9": 0.6428571428571428,
+      "fip": 3.7306122448979595,
+      "ip": 98
+    },
+    "improvements": {
+      "k9Gain": 2.440696278511404,
+      "bb9Drop": 1.366746698679472,
+      "hr9Drop": -0.007563025210084007,
+      "fipDrop": 0.98703481392557
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  },
+  {
+    "player_id": 14583,
+    "breakoutYear": 2020,
+    "breakoutLevel": 6,
+    "breakoutLevelName": "Rookie",
+    "yearBeforeStats": {
+      "k9": 6.171428571428572,
+      "bb9": 3.2399999999999998,
+      "hr9": 0.9771428571428571,
+      "fip": 4.32,
+      "ip": 175
+    },
+    "breakoutYearStats": {
+      "k9": 7.2,
+      "bb9": 2.9250000000000003,
+      "hr9": 0.6749999999999999,
+      "fip": 3.5500000000000003,
+      "ip": 40
+    },
+    "improvements": {
+      "k9Gain": 1.0285714285714285,
+      "bb9Drop": 0.3149999999999995,
+      "hr9Drop": 0.30214285714285716,
+      "fipDrop": 0.77
+    },
+    "mlbOutcome": {
+      "reachedMLB": false,
+      "mlbSeasons": 0,
+      "totalMLBIP": 0,
+      "successful": false
+    }
+  }
+]

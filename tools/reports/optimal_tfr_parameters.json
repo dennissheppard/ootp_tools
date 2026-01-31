@@ -1,0 +1,30 @@
+{
+  "date": "2026-01-30T20:43:30.552Z",
+  "iterations": 10000,
+  "bestScore": 54.270833333333336,
+  "parameters": {
+    "age20": 0.8490784649184002,
+    "age22": 0.9372260768220725,
+    "age24": 0.9470026342365138,
+    "age26": 0.9637394826049454,
+    "ip50": 0.7553401220204039,
+    "ip100": 0.8379290680080789,
+    "ip200": 0.8852496071594771,
+    "gap2": 0.8618849686327521,
+    "gap15": 0.8961005663526322,
+    "gap1": 0.9156279304399855,
+    "regressionTarget": 4.99466000623649,
+    "confidenceFloor": 0.5799701779451644
+  },
+  "scores": {
+    "eliteDistribution": 100,
+    "aboveAvgDistribution": 100,
+    "averageDistribution": 0,
+    "compressionTest": 0,
+    "aaaLevel": 100,
+    "aaLevel": 100,
+    "aLevel": 100,
+    "rookieLevel": 2.5,
+    "totalScore": 54.270833333333336
+  }
+}

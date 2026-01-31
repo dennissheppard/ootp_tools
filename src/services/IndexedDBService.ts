@@ -4,11 +4,15 @@
  */
 
 const DB_NAME = 'wbl_database';
-const DB_VERSION = 3;
+const DB_VERSION = 6;
 const SCOUTING_STORE = 'scouting_ratings';
 const STATS_STORE = 'minor_league_stats';
 const METADATA_STORE = 'minor_league_metadata';
 const PLAYER_STATS_STORE = 'player_minor_league_stats'; // New: indexed by playerId for fast lookups
+const MLB_PLAYER_STATS_STORE = 'mlb_player_pitching_stats'; // MLB player-specific stats cache
+const MLB_LEAGUE_STATS_STORE = 'mlb_league_stats'; // Full MLB league data by year (replaces localStorage)
+const PLAYERS_STORE = 'players'; // Player roster cache
+const TEAMS_STORE = 'teams'; // Team list cache
 
 export interface ScoutingRecord {
   key: string; // Format: "YYYY-MM-DD_source"
@@ -41,6 +45,34 @@ export interface PlayerStatsRecord {
   data: any; // Single player's stats
 }
 
+export interface MlbPlayerPitchingStatsRecord {
+  key: string; // Format: "playerId" or "playerId_year"
+  playerId: number;
+  year?: number; // Optional: if present, this is year-specific data
+  data: any[]; // Array of PitchingStats
+  fetchedAt: number; // timestamp for cache invalidation
+}
+
+export interface MlbLeagueStatsRecord {
+  key: string; // Format: "pitching_YEAR" or "batting_YEAR"
+  type: 'pitching' | 'batting';
+  year: number;
+  data: any[]; // Full league array of TruePlayerStats
+  fetchedAt: number; // timestamp (0 = permanent cache for historical years)
+}
+
+export interface PlayersRecord {
+  key: string; // Always "current" (single record)
+  data: any[]; // Array of Player objects
+  fetchedAt: number; // timestamp for cache invalidation
+}
+
+export interface TeamsRecord {
+  key: string; // Always "current" (single record)
+  data: any[]; // Array of Team objects
+  fetchedAt: number; // timestamp for cache invalidation
+}
+
 class IndexedDBService {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
@@ -55,7 +87,6 @@ class IndexedDBService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         this.db = request.result;
-        console.log(`✅ IndexedDB initialized (v${this.db.version})`);
 
         // Warn if not on latest version (user needs to close ALL tabs and reopen)
         if (this.db.version < DB_VERSION) {
@@ -102,6 +133,37 @@ class IndexedDBService {
           playerStatsStore.createIndex('year', 'year', { unique: false });
           playerStatsStore.createIndex('level', 'level', { unique: false });
           console.log(`✅ Created player-indexed stats store for fast single-player lookups`);
+        }
+
+        // Create MLB player pitching stats cache (v4)
+        if (!db.objectStoreNames.contains(MLB_PLAYER_STATS_STORE)) {
+          const mlbPlayerStatsStore = db.createObjectStore(MLB_PLAYER_STATS_STORE, { keyPath: 'key' });
+          mlbPlayerStatsStore.createIndex('playerId', 'playerId', { unique: false });
+          mlbPlayerStatsStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
+          console.log(`✅ Created MLB player pitching stats cache for StatsService`);
+        }
+
+        // Create MLB league stats store (v5) - replaces localStorage for TrueRatingsService
+        if (!db.objectStoreNames.contains(MLB_LEAGUE_STATS_STORE)) {
+          const mlbLeagueStatsStore = db.createObjectStore(MLB_LEAGUE_STATS_STORE, { keyPath: 'key' });
+          mlbLeagueStatsStore.createIndex('type', 'type', { unique: false });
+          mlbLeagueStatsStore.createIndex('year', 'year', { unique: false });
+          mlbLeagueStatsStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
+          console.log(`✅ Created MLB league stats store (replaces localStorage)`);
+        }
+
+        // Create players cache store (v6) - replaces localStorage for PlayerService
+        if (!db.objectStoreNames.contains(PLAYERS_STORE)) {
+          const playersStore = db.createObjectStore(PLAYERS_STORE, { keyPath: 'key' });
+          playersStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
+          console.log(`✅ Created players cache store (replaces localStorage)`);
+        }
+
+        // Create teams cache store (v6) - replaces localStorage for TeamService
+        if (!db.objectStoreNames.contains(TEAMS_STORE)) {
+          const teamsStore = db.createObjectStore(TEAMS_STORE, { keyPath: 'key' });
+          teamsStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
+          console.log(`✅ Created teams cache store (replaces localStorage)`);
         }
 
         console.log(`✅ IndexedDB upgrade complete (now v${newVersion})`);
@@ -503,6 +565,216 @@ class IndexedDBService {
       const request = store.getAll();
 
       request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // MLB Player Pitching Stats methods
+  async saveMlbPlayerPitchingStats(playerId: number, data: any[], year?: number): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const key = year ? `${playerId}_${year}` : `${playerId}`;
+    const record: MlbPlayerPitchingStatsRecord = {
+      key,
+      playerId,
+      year,
+      data,
+      fetchedAt: Date.now()
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_PLAYER_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(MLB_PLAYER_STATS_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getMlbPlayerPitchingStats(playerId: number, year?: number): Promise<{ data: any[]; fetchedAt: number } | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    const key = year ? `${playerId}_${year}` : `${playerId}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_PLAYER_STATS_STORE], 'readonly');
+      const store = transaction.objectStore(MLB_PLAYER_STATS_STORE);
+      const request = store.get(key);
+
+      request.onsuccess = () => {
+        const record = request.result as MlbPlayerPitchingStatsRecord | undefined;
+        if (record) {
+          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteMlbPlayerPitchingStats(playerId: number, year?: number): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    const key = year ? `${playerId}_${year}` : `${playerId}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_PLAYER_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(MLB_PLAYER_STATS_STORE);
+      const request = store.delete(key);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // MLB League Stats methods (replaces localStorage for TrueRatingsService)
+  async saveMlbLeagueStats(year: number, type: 'pitching' | 'batting', data: any[], isPermanent: boolean = false): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const key = `${type}_${year}`;
+    const record: MlbLeagueStatsRecord = {
+      key,
+      type,
+      year,
+      data,
+      fetchedAt: isPermanent ? 0 : Date.now()
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_LEAGUE_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(MLB_LEAGUE_STATS_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getMlbLeagueStats(year: number, type: 'pitching' | 'batting'): Promise<{ data: any[]; fetchedAt: number } | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    const key = `${type}_${year}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_LEAGUE_STATS_STORE], 'readonly');
+      const store = transaction.objectStore(MLB_LEAGUE_STATS_STORE);
+      const request = store.get(key);
+
+      request.onsuccess = () => {
+        const record = request.result as MlbLeagueStatsRecord | undefined;
+        if (record) {
+          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteMlbLeagueStats(year: number, type: 'pitching' | 'batting'): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    const key = `${type}_${year}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_LEAGUE_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(MLB_LEAGUE_STATS_STORE);
+      const request = store.delete(key);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Players cache methods (replaces localStorage for PlayerService)
+  async savePlayers(data: any[]): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const record: PlayersRecord = {
+      key: 'current',
+      data,
+      fetchedAt: Date.now()
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([PLAYERS_STORE], 'readwrite');
+      const store = transaction.objectStore(PLAYERS_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getPlayers(): Promise<{ data: any[]; fetchedAt: number } | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([PLAYERS_STORE], 'readonly');
+      const store = transaction.objectStore(PLAYERS_STORE);
+      const request = store.get('current');
+
+      request.onsuccess = () => {
+        const record = request.result as PlayersRecord | undefined;
+        if (record) {
+          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Teams cache methods (replaces localStorage for TeamService)
+  async saveTeams(data: any[]): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const record: TeamsRecord = {
+      key: 'current',
+      data,
+      fetchedAt: Date.now()
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([TEAMS_STORE], 'readwrite');
+      const store = transaction.objectStore(TEAMS_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getTeams(): Promise<{ data: any[]; fetchedAt: number } | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([TEAMS_STORE], 'readonly');
+      const store = transaction.objectStore(TEAMS_STORE);
+      const request = store.get('current');
+
+      request.onsuccess = () => {
+        const record = request.result as TeamsRecord | undefined;
+        if (record) {
+          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+        } else {
+          resolve(null);
+        }
+      };
       request.onerror = () => reject(request.error);
     });
   }

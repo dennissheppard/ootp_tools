@@ -20,7 +20,14 @@
       "Bash(powershell -Command \"Get-Content ''C:\\\\Users\\\\neags\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\C--Users-neags-Downloads-dev-projects-wbl\\\\tasks\\\\b372623.output'' -Tail 40\")",
       "WebFetch(domain:wiki.statsplus.net)",
       "Bash(find:*)",
-      "Bash(node scripts/fetch-minors-data.js:*)"
+      "Bash(node scripts/fetch-minors-data.js:*)",
+      "Bash(ls:*)",
+      "Bash(wc:*)",
+      "Bash(for id in 987 5277 6674 7535 9026 12357)",
+      "Bash(do grep \"^$id,\" \"public\\\\data\\\\players.csv\")",
+      "Bash(echo:*)",
+      "Bash(done)",
+      "Bash(npx ts-node:*)"
     ]
   }
 }

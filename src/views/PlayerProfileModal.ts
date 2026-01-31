@@ -26,6 +26,7 @@ export class PlayerProfileModal {
   private originalPlayerData: PlayerRatingsData | null = null; // Immutable original data for toggle calculations
   private currentPlayer: any | null = null;
   private currentMlbStats: SeasonStatsRow[] = [];
+  private extendedMlbStats: PlayerYearlyDetail[] = []; // Full career stats (up to 30 years) for efficient lookups
   private mlbDebutYear: number | null = null;
   private leagueFipLikes: number[] = [];
   // private cachedLeagueAverages: any = null; // Store league averages from table for consistent recalculation
@@ -239,13 +240,13 @@ export class PlayerProfileModal {
       // Determine MLB debut year from stats (earliest year with IP > 0)
       // Fetch more years to get accurate debut for veterans
       const currentYear = await dateService.getCurrentYear();
-      let extendedStats: PlayerYearlyDetail[] = [];
       try {
-        extendedStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, currentYear, 30);
+        this.extendedMlbStats = await trueRatingsService.getPlayerYearlyStats(data.playerId, currentYear, 30);
       } catch (error) {
         console.warn('No extended MLB stats found for player:', error);
+        this.extendedMlbStats = [];
       }
-      const statsWithIp = extendedStats.filter(s => s.ip > 0);
+      const statsWithIp = this.extendedMlbStats.filter(s => s.ip > 0);
       if (statsWithIp.length > 0) {
         this.mlbDebutYear = Math.min(...statsWithIp.map(s => s.year));
       }
@@ -450,34 +451,16 @@ export class PlayerProfileModal {
                 // Backcasting: Find actual stats for the projection target year
                 const targetYear = projectionTargetYear;
                 let actualStat: SeasonStatsRow | undefined;
-                
-                // mlbStats only contains [selectedYear, ..., selectedYear-4]
-                // We need to fetch targetYear separately if it exists
-                if (targetYear < currentYear) {
-                    try {
-                        const targetStats = await trueRatingsService.getTruePitchingStats(targetYear);
-                        const playerStat = targetStats.find(s => s.player_id === data.playerId);
-                        if (playerStat) {
-                            const ip = trueRatingsService.parseIp(playerStat.ip);
-                            const k9 = ip > 0 ? (playerStat.k / ip) * 9 : 0;
-                            const bb9 = ip > 0 ? (playerStat.bb / ip) * 9 : 0;
-                            const hr9 = ip > 0 ? (playerStat.hra / ip) * 9 : 0;
-                            const fip = ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47;
 
-                            // Convert to SeasonStatsRow format
-                            actualStat = {
-                                year: targetYear,
-                                ip,
-                                fip: Math.round(fip * 100) / 100,
-                                k9: Math.round(k9 * 100) / 100,
-                                bb9: Math.round(bb9 * 100) / 100,
-                                hr9: Math.round(hr9 * 100) / 100,
-                                war: playerStat.war,
-                                gs: playerStat.gs
-                            };
-                        }
-                    } catch {
-                        // ignore if target year stats don't exist
+                // First check extendedMlbStats (already loaded, up to 30 years)
+                if (targetYear < currentYear) {
+                    const cachedStat = this.extendedMlbStats.find(s => s.year === targetYear);
+                    if (cachedStat) {
+                        // Use cached data (no API call needed)
+                        actualStat = {
+                            ...cachedStat,
+                            level: 'MLB' as const
+                        };
                     }
                 }
 
@@ -1137,29 +1120,14 @@ export class PlayerProfileModal {
       // Fetch actual stats for comparison if available
       let actualStat: SeasonStatsRow | undefined;
       if (targetYear < currentYear) {
-        try {
-          const targetStats = await trueRatingsService.getTruePitchingStats(targetYear);
-          const playerStat = targetStats.find(s => s.player_id === this.currentPlayerData!.playerId);
-          if (playerStat) {
-            const ip = trueRatingsService.parseIp(playerStat.ip);
-            const k9 = ip > 0 ? (playerStat.k / ip) * 9 : 0;
-            const bb9 = ip > 0 ? (playerStat.bb / ip) * 9 : 0;
-            const hr9 = ip > 0 ? (playerStat.hra / ip) * 9 : 0;
-            const fip = ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47;
-
-            actualStat = {
-              year: targetYear,
-              ip,
-              fip: Math.round(fip * 100) / 100,
-              k9: Math.round(k9 * 100) / 100,
-              bb9: Math.round(bb9 * 100) / 100,
-              hr9: Math.round(hr9 * 100) / 100,
-              war: playerStat.war,
-              gs: playerStat.gs
-            };
-          }
-        } catch {
-          // ignore if target year stats don't exist
+        // First check extendedMlbStats (already loaded, up to 30 years)
+        const cachedStat = this.extendedMlbStats.find(s => s.year === targetYear);
+        if (cachedStat) {
+          // Use cached data (no API call needed)
+          actualStat = {
+            ...cachedStat,
+            level: 'MLB' as const
+          };
         }
       }
 

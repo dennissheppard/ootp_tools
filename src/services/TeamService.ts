@@ -1,10 +1,9 @@
 import { Team } from '../models/Team';
 import { apiFetch } from './ApiClient';
+import { indexedDBService } from './IndexedDBService';
 
 const API_BASE = '/api';
-const CACHE_KEY = 'wbl_teams_cache';
-const CACHE_TIMESTAMP_KEY = 'wbl_teams_cache_timestamp';
-const CACHE_DURATION_MS = 24 * 60 * 60 * 1000 * 30; // 30 days (permanent-ish)
+const CACHE_DURATION_MS = 24 * 60 * 60 * 1000 * 30; // 30 days (basically permanent)
 
 export class TeamService {
   private teams: Team[] = [];
@@ -16,9 +15,9 @@ export class TeamService {
       return this.teams;
     }
 
-    // Check localStorage cache
+    // Check IndexedDB cache
     if (!forceRefresh) {
-      const cached = this.loadFromCache();
+      const cached = await this.loadFromCache();
       if (cached) {
         this.teams = cached;
         return this.teams;
@@ -33,7 +32,7 @@ export class TeamService {
     this.loading = this.fetchTeams();
     try {
       this.teams = await this.loading;
-      this.saveToCache(this.teams);
+      await this.saveToCache(this.teams);
       return this.teams;
     } finally {
       this.loading = null;
@@ -93,39 +92,30 @@ export class TeamService {
     return values;
   }
 
-  private loadFromCache(): Team[] | null {
+  private async loadFromCache(): Promise<Team[] | null> {
     try {
-      const timestamp = localStorage.getItem(CACHE_TIMESTAMP_KEY);
-      if (!timestamp) return null;
+      const cached = await indexedDBService.getTeams();
+      if (!cached) return null;
 
-      const cacheAge = Date.now() - parseInt(timestamp, 10);
+      const cacheAge = Date.now() - cached.fetchedAt;
       if (cacheAge > CACHE_DURATION_MS) {
-        this.clearCache();
+        console.log(`⏰ Teams cache stale (${Math.round(cacheAge / 1000 / 60 / 60 / 24)}d old), re-fetching...`);
         return null;
       }
 
-      const cached = localStorage.getItem(CACHE_KEY);
-      if (!cached) return null;
-
-      return JSON.parse(cached);
-    } catch {
-      this.clearCache();
+      return cached.data as Team[];
+    } catch (error) {
+      console.error('Error loading teams from cache:', error);
       return null;
     }
   }
 
-  private saveToCache(teams: Team[]): void {
+  private async saveToCache(teams: Team[]): Promise<void> {
     try {
-      localStorage.setItem(CACHE_KEY, JSON.stringify(teams));
-      localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
-    } catch {
-      // Cache write failed (e.g., quota exceeded), ignore
+      await indexedDBService.saveTeams(teams);
+    } catch (error) {
+      console.error('Failed to cache teams:', error);
     }
-  }
-
-  private clearCache(): void {
-    localStorage.removeItem(CACHE_KEY);
-    localStorage.removeItem(CACHE_TIMESTAMP_KEY);
   }
 }
 

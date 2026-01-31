@@ -479,7 +479,6 @@ class ScoutingDataService {
    */
   async checkDefaultOsaFile(): Promise<{ exists: boolean; count: number; error?: string }> {
     try {
-      console.log('🔍 Checking for bundled OSA file at /data/default_osa_scouting.csv...');
       const response = await fetch('/data/default_osa_scouting.csv');
 
       if (!response.ok) {
@@ -490,7 +489,6 @@ class ScoutingDataService {
       const csvText = await response.text();
       const ratings = this.parseScoutingCsv(csvText, 'osa');
 
-      console.log(`✅ Bundled OSA file found with ${ratings.length} ratings`);
       return { exists: true, count: ratings.length };
     } catch (error) {
       console.error('❌ Error checking bundled OSA file:', error);

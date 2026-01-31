@@ -21,7 +21,8 @@ export class RatingEstimatorView {
     constructor(container: HTMLElement) {
         this.container = container;
         this.render();
-        this.loadLeagueStats(this.selectedYear);
+        // Defer league stats loading until first user interaction
+        // This prevents loading data during app initialization
     }
 
     private render(): void {
@@ -121,6 +122,11 @@ export class RatingEstimatorView {
     }
 
     private async handleEstimate(): Promise<void> {
+        // Ensure league stats are loaded before calculating
+        if (this.loadedLeagueYear !== this.selectedYear) {
+            await this.loadLeagueStats(this.selectedYear);
+        }
+
         const getStatValue = (id: string): number => {
             const input = this.container.querySelector<HTMLInputElement>(`#${id}`);
             return Number(input?.value) || 0;

@@ -301,11 +301,6 @@ class MinorLeagueStatsService {
       }
 
       // Return cached data
-      if (stats.length === 0) {
-        console.log(`💾 Loaded 0 records from cache (CSV upload - no data exists): ${level.toUpperCase()} ${year}`);
-      } else {
-        console.log(`💾 Loaded ${stats.length} records from cache: ${level.toUpperCase()} ${year}`);
-      }
       return stats;
     }
 
@@ -499,13 +494,12 @@ class MinorLeagueStatsService {
     const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
     const startYear = LEAGUE_START_YEAR;
     const currentYear = await dateService.getCurrentYear();
-    // Try up to current year + 5 to catch any bundle files beyond current year
-    const endYear = currentYear + 5;
+    const endYear = currentYear; // Only load up to current year
 
     let loaded = 0;
     const errors: string[] = [];
 
-    console.log(`📦 Loading bundled minor league data (${startYear}-${currentYear}, checking up to ${endYear})...`);
+    console.log(`📦 Loading bundled minor league data (${startYear}-${endYear})...`);
 
     for (let year = startYear; year <= endYear; year++) {
       for (const level of levels) {

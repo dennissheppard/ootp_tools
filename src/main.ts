@@ -33,16 +33,69 @@ class App {
 
   private readonly TAB_PREF_KEY = 'wbl-active-tab';
 
-  constructor() {
+  constructor(isFirstTime: boolean = false) {
     this.controller = new PlayerController();
-    this.restoreTabPreference();
+
+    // If first-time user, navigate to Data Management, otherwise restore tab preference
+    if (isFirstTime) {
+      console.log('🎬 Navigating to Data Management for onboarding');
+      this.activeTabId = 'tab-data-management';
+    } else {
+      this.restoreTabPreference();
+    }
+
     this.initializeDOM();
     this.initializeViews();
     this.setupRateLimitHandling();
     this.setupTabs();
     this.bindController();
     this.preloadPlayers();
-    this.checkFirstTimeSetup();
+
+    // Trigger onboarding if first-time user
+    // This must happen AFTER views are initialized so listeners are ready
+    if (isFirstTime) {
+      // Use setTimeout to ensure DOM is fully ready
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('wbl:first-time-onboarding'));
+      }, 100);
+    }
+  }
+
+  /**
+   * Initialize the app asynchronously
+   */
+  static async init(): Promise<App> {
+    // Initialize IndexedDB FIRST before any data operations
+    try {
+      await indexedDBService.init();
+    } catch (error) {
+      console.error('❌ IndexedDB initialization failed:', error);
+      // Continue anyway - will fall back to API calls
+    }
+
+    // Check if this is first-time setup BEFORE creating app instance
+    // This ensures we render with the correct initial tab
+    const isFirstTime = await App.checkIsFirstTimeUser();
+
+    // Create the app instance with first-time flag
+    return new App(isFirstTime);
+  }
+
+  /**
+   * Check if this is a first-time user (no data in IndexedDB)
+   */
+  private static async checkIsFirstTimeUser(): Promise<boolean> {
+    try {
+      const hasData = await indexedDBService.hasMinorLeagueData();
+      if (!hasData) {
+        console.log('🎯 First-time user detected');
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('Error checking for first-time user:', error);
+      return false;
+    }
   }
 
   private restoreTabPreference(): void {
@@ -388,22 +441,6 @@ class App {
       });
   }
 
-  private async checkFirstTimeSetup(): Promise<void> {
-    try {
-      const hasData = await indexedDBService.hasMinorLeagueData();
-
-      if (!hasData) {
-        // No minor league data - navigate to Data Management for onboarding
-        console.log('🎯 First-time user detected - navigating to Data Management');
-        this.setActiveTab('tab-data-management');
-
-        // Dispatch event to trigger onboarding in DataManagementView
-        window.dispatchEvent(new CustomEvent('wbl:first-time-onboarding'));
-      }
-    } catch (error) {
-      console.error('Error checking for minor league data:', error);
-    }
-  }
 
   private updateGameDateDisplay(dateStr: string, isError = false): void {
     const dateEl = document.getElementById('game-date');
@@ -432,6 +469,27 @@ class App {
 }
 
 // Initialize app when DOM is ready
-document.addEventListener('DOMContentLoaded', () => {
-  new App();
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    await App.init();
+  } catch (err) {
+    console.error('❌ Failed to initialize app:', err);
+    // Still create app instance even if pre-load fails
+    try {
+      new App();
+    } catch (fallbackErr) {
+      console.error('💥 CRITICAL: Failed to create app instance:', fallbackErr);
+      // Show a basic error message in the DOM
+      const app = document.querySelector('#app');
+      if (app) {
+        app.innerHTML = `
+          <div style="padding: 40px; text-align: center; font-family: sans-serif;">
+            <h1 style="color: #dc2626;">Failed to Load Application</h1>
+            <p style="color: #666; margin: 20px 0;">Please refresh the page or contact support.</p>
+            <pre style="text-align: left; background: #f3f4f6; padding: 20px; border-radius: 8px; overflow-x: auto;">${fallbackErr}</pre>
+          </div>
+        `;
+      }
+    }
+  }
 });

@@ -377,16 +377,6 @@ class TrueRatingsCalculationService {
     const weighted = this.calculateWeightedRates(input.yearlyStats, yearWeights);
 
     // DEBUG: Log input for specific player
-    const isDebugPlayer = input.playerName.toLowerCase().includes('bach');
-    if (isDebugPlayer) {
-      console.log(`BACH,TOM: [TRUE RATING] Starting calculation`);
-      console.log(`BACH,TOM:   Total IP: ${weighted.totalIp.toFixed(1)}`);
-      console.log(`BACH,TOM:   Weighted rates: K/9=${weighted.k9.toFixed(2)}, BB/9=${weighted.bb9.toFixed(2)}, HR/9=${weighted.hr9.toFixed(2)}`);
-      if (input.scoutingRatings) {
-        console.log(`BACH,TOM:   Scout ratings: Stuff=${input.scoutingRatings.stuff}, Control=${input.scoutingRatings.control}, HRA=${input.scoutingRatings.hra}`);
-      }
-    }
-
     // Use tier-based league averages (role-based if provided, else IP-based)
     const tierBasedAverages = getLeagueAveragesByRole(input.role, weighted.totalIp);
 
@@ -401,10 +391,6 @@ class TrueRatingsCalculationService {
       weighted.hr9, weighted.totalIp, tierBasedAverages.avgHr9, STABILIZATION.hr9, 'hr9', weighted, input.role
     );
 
-    if (isDebugPlayer) {
-      console.log(`BACH,TOM:   After regression: K/9=${regressedK9.toFixed(2)}, BB/9=${regressedBb9.toFixed(2)}, HR/9=${regressedHr9.toFixed(2)}`);
-    }
-
     // Step 3: Optional scouting blend
     let blendedK9 = regressedK9;
     let blendedBb9 = regressedBb9;
@@ -412,25 +398,15 @@ class TrueRatingsCalculationService {
 
     if (input.scoutingRatings) {
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings);
-      if (isDebugPlayer) {
-        console.log(`BACH,TOM:   Scout expected rates: K/9=${scoutExpected.k9.toFixed(2)}, BB/9=${scoutExpected.bb9.toFixed(2)}, HR/9=${scoutExpected.hr9.toFixed(2)}`);
-      }
-      blendedK9 = this.blendWithScouting(regressedK9, scoutExpected.k9, weighted.totalIp, isDebugPlayer);
-      blendedBb9 = this.blendWithScouting(regressedBb9, scoutExpected.bb9, weighted.totalIp, isDebugPlayer);
-      blendedHr9 = this.blendWithScouting(regressedHr9, scoutExpected.hr9, weighted.totalIp, isDebugPlayer);
-      if (isDebugPlayer) {
-        console.log(`BACH,TOM:   After scouting blend: K/9=${blendedK9.toFixed(2)}, BB/9=${blendedBb9.toFixed(2)}, HR/9=${blendedHr9.toFixed(2)}`);
-      }
+      blendedK9 = this.blendWithScouting(regressedK9, scoutExpected.k9, weighted.totalIp);
+      blendedBb9 = this.blendWithScouting(regressedBb9, scoutExpected.bb9, weighted.totalIp);
+      blendedHr9 = this.blendWithScouting(regressedHr9, scoutExpected.hr9, weighted.totalIp);
     }
 
     // Estimate ratings from blended rates (using inverse formulas)
     const estimatedStuff = this.estimateStuffFromK9(blendedK9);
     const estimatedControl = this.estimateControlFromBb9(blendedBb9);
     const estimatedHra = this.estimateHraFromHr9(blendedHr9);
-
-    if (isDebugPlayer) {
-      console.log(`BACH,TOM:   Final TRUE RATINGS: Stuff=${estimatedStuff.toFixed(1)}, Control=${estimatedControl.toFixed(1)}, HRA=${estimatedHra.toFixed(1)}`);
-    }
 
     // Step 4: Calculate FIP-like metric
     const fipLike = this.calculateFipLike(blendedK9, blendedBb9, blendedHr9);
@@ -632,18 +608,11 @@ class TrueRatingsCalculationService {
     regressedRate: number,
     scoutingExpectedRate: number,
     totalIp: number,
-    isDebugPlayer: boolean = false,
     confidenceIp: number = SCOUTING_BLEND_CONFIDENCE_IP
   ): number {
     const statsWeight = totalIp / (totalIp + confidenceIp);
     const scoutWeight = 1 - statsWeight;
     const blended = statsWeight * regressedRate + scoutWeight * scoutingExpectedRate;
-
-    // DEBUG logging only for debug player
-    if (isDebugPlayer) {
-      console.log(`BACH,TOM:     Blend: IP=${totalIp.toFixed(1)}, statsWeight=${(statsWeight*100).toFixed(1)}%, scoutWeight=${(scoutWeight*100).toFixed(1)}%`);
-      console.log(`BACH,TOM:     Blend: ${(statsWeight*100).toFixed(1)}% × ${regressedRate.toFixed(2)} + ${(scoutWeight*100).toFixed(1)}% × ${scoutingExpectedRate.toFixed(2)} = ${blended.toFixed(2)}`);
-    }
 
     return blended;
   }

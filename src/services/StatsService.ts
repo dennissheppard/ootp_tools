@@ -1,10 +1,36 @@
 import { PitchingStats, BattingStats } from '../models/Stats';
 import { apiFetch } from './ApiClient';
+import { indexedDBService } from './IndexedDBService';
+import { dateService } from './DateService';
 
 const API_BASE = '/api';
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours for current year data
 
 export class StatsService {
   async getPitchingStats(playerId: number, year?: number): Promise<PitchingStats[]> {
+    // Check cache first
+    try {
+      const cached = await indexedDBService.getMlbPlayerPitchingStats(playerId, year);
+      if (cached) {
+        const currentYear = await dateService.getCurrentYear();
+        const isCurrentYear = year === currentYear || (!year && cached.data.some((s: PitchingStats) => s.year === currentYear));
+        const cacheAge = Date.now() - cached.fetchedAt;
+
+        // Use cache if:
+        // - It's historical data (not current year), OR
+        // - It's current year data and not stale (< 24 hours)
+        if (!isCurrentYear || cacheAge < CACHE_TTL_MS) {
+          console.log(`💾 Loaded player ${playerId}${year ? ` (${year})` : ''} pitching stats from cache`);
+          return cached.data as PitchingStats[];
+        } else {
+          console.log(`⏰ Cache stale for player ${playerId}, re-fetching...`);
+        }
+      }
+    } catch (err) {
+      console.warn('Error checking cache for player pitching stats:', err);
+    }
+
+    // Fetch from API
     let url = `${API_BASE}/playerpitchstatsv2/?pid=${playerId}`;
     if (year) {
       url += `&year=${year}`;
@@ -23,7 +49,19 @@ export class StatsService {
       return [];
     }
 
-    return this.parsePitchingStatsCsv(csvText);
+    const stats = this.parsePitchingStatsCsv(csvText);
+
+    // Save to cache (only if non-empty to avoid caching errors)
+    if (stats.length > 0) {
+      try {
+        await indexedDBService.saveMlbPlayerPitchingStats(playerId, stats, year);
+        console.log(`💾 Cached player ${playerId}${year ? ` (${year})` : ''} pitching stats (${stats.length} records)`);
+      } catch (err) {
+        console.error('Failed to cache player pitching stats:', err);
+      }
+    }
+
+    return stats;
   }
 
   async getBattingStats(playerId: number, year?: number): Promise<BattingStats[]> {

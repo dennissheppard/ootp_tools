@@ -41,6 +41,7 @@ export interface RatedProspect {
     teamId: number;
     peakFip: number;
     peakWar: number;
+    peakIp: number; // Projected peak season IP
     potentialRatings: {
         stuff: number;
         control: number;
@@ -110,8 +111,6 @@ export interface TeamRatingResult {
 
 class TeamRatingsService {
   async getFarmData(year: number): Promise<FarmData> {
-      console.log(`[FarmRankings] Starting generation for year ${year}...`);
-      
       // Fetch scouting data first to handle fallback logic
       let scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
       if (scoutingData.ratings.length === 0) {
@@ -121,16 +120,10 @@ class TeamRatingsService {
 
       const [allPlayers, tfrResults, teams, leagueStats] = await Promise.all([
           playerService.getAllPlayers(),
-          trueFutureRatingService.getProspectTrueFutureRatings(year), 
+          trueFutureRatingService.getProspectTrueFutureRatings(year),
           teamService.getAllTeams(),
           leagueStatsService.getLeagueStats(year)
       ]);
-
-      console.log(`[FarmRankings] Loaded data:
-        - Players: ${allPlayers.length}
-        - TFR Results: ${tfrResults.length}
-        - Scouting Ratings: ${scoutingData.ratings.length} (Using latest? ${scoutingData.ratings.length > 0})
-        - Teams: ${teams.length}`);
 
       const playerMap = new Map(allPlayers.map(p => [p.id, p]));
       const teamMap = new Map(teams.map(t => [t.id, t]));
@@ -160,13 +153,41 @@ class TeamRatingsService {
           const pitches = scouting?.pitches ?? {};
           const pitchCount = Object.values(pitches).filter(v => v >= 45).length; // Usable pitches
           const stamina = scouting?.stamina ?? 0;
+          const injury = scouting?.injuryProneness;
 
           // Classification: SP if Stamina >= 30 AND 3+ Usable Pitches
           const isSp = stamina >= 30 && pitchCount >= 3;
-          
-          // Calculate Peak WAR
-          // Assumption: SP = 180 IP, RP = 65 IP
-          const projectedIp = isSp ? 180 : 65;
+
+          // Calculate realistic IP projection based on stamina and injury proneness
+          let projectedIp: number;
+          if (isSp) {
+              // SP: Base IP from stamina (40-70 stamina → 120-200 IP typical range)
+              // Use percentile-based approach: stamina 50 → ~150 IP, 70 → ~180 IP
+              const baseIp = 80 + (stamina * 1.8); // stamina 50 → 170, 70 → 206
+
+              // Injury adjustment
+              let injuryFactor = 1.0;
+              if (injury === 'Normal') injuryFactor = 1.0;
+              else if (injury === 'Fragile') injuryFactor = 0.85;
+              else if (injury === 'Durable') injuryFactor = 1.10;
+              else if (injury === 'Wrecked') injuryFactor = 0.60;
+              else if (injury === 'Ironman') injuryFactor = 1.15;
+
+              projectedIp = Math.round(Math.max(100, Math.min(220, baseIp * injuryFactor)));
+          } else {
+              // RP: 50-75 IP typical range
+              const baseIp = 50 + (stamina * 0.5); // stamina 30 → 65, 50 → 75
+
+              let injuryFactor = 1.0;
+              if (injury === 'Normal') injuryFactor = 1.0;
+              else if (injury === 'Fragile') injuryFactor = 0.90;
+              else if (injury === 'Durable') injuryFactor = 1.10;
+              else if (injury === 'Wrecked') injuryFactor = 0.75;
+              else if (injury === 'Ironman') injuryFactor = 1.15;
+
+              projectedIp = Math.round(Math.max(40, Math.min(80, baseIp * injuryFactor)));
+          }
+
           const peakWar = fipWarService.calculateWar(tfr.projFip, projectedIp, replacementFip, runsPerWin);
 
           const prospect: RatedProspect = {
@@ -178,6 +199,7 @@ class TeamRatingsService {
               teamId: player.teamId,
               peakFip: tfr.projFip,
               peakWar: peakWar,
+              peakIp: projectedIp,
               potentialRatings: {
                   stuff: tfr.projK9,
                   control: tfr.projBb9,
@@ -305,20 +327,18 @@ class TeamRatingsService {
   }
 
   private getLevelLabel(level: number): string {
-      // Mapping based on typical OOTP level IDs or standard intuition
-      // 1: MLB, 2: AAA, 3: AA, 4: A+, 5: A, 6: A-, 7: R
-      // Let's assume standard mapping or just return the number if unsure.
-      // Need to verify Player.ts or similar for Level enum. 
-      // Checked Player.ts, it doesn't have Level enum.
-      // We'll return a string representation.
+      // WBL-specific level mapping (verified with actual 2020 data)
+      // 1: MLB, 2: AAA (league_id 201), 3: AA (league_id 202),
+      // 4: A (league_id 203), 6: R (league_id 204)
+      // WBL does NOT have Short-A, A+, or A- levels
       switch(level) {
           case 1: return 'MLB';
           case 2: return 'AAA';
           case 3: return 'AA';
-          case 4: return 'A+';
-          case 5: return 'A';
-          case 6: return 'A-';
-          case 7: return 'R'; // Rookie
+          case 4: return 'A';
+          case 5: return 'Short-A'; // Not used in WBL
+          case 6: return 'R'; // Rookie
+          case 7: return 'R'; // Also Rookie (fallback)
           case 8: return 'DSL'; // International Complex
           default: return `Lvl ${level}`;
       }

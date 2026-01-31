@@ -52,11 +52,50 @@ export class FarmRankingsView {
 
   private isDraggingColumn = false;
 
+  private hasLoadedData = false; // Track if data has been loaded (for lazy loading)
+
   constructor(container: HTMLElement) {
     this.container = container;
     this.playerProfileModal = new PlayerProfileModal();
     this.renderLayout();
-    this.loadData();
+
+    // Defer data loading until tab is activated (lazy loading)
+    this.setupLazyLoading();
+  }
+
+  private setupLazyLoading(): void {
+    // Check if tab is already active when view is created
+    const tabPanel = this.container.closest<HTMLElement>('.tab-panel');
+    const isCurrentlyActive = tabPanel?.classList.contains('active');
+
+    if (isCurrentlyActive) {
+      // Tab is already active, load immediately
+      this.loadData();
+      this.hasLoadedData = true;
+    } else {
+      // Set up observer to detect when tab becomes active
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+            const target = mutation.target as HTMLElement;
+            if (target.classList.contains('active')) {
+              // Tab just became active - load data if not already loaded
+              if (!this.hasLoadedData) {
+                this.loadData();
+                this.hasLoadedData = true;
+              }
+              // Stop observing once data is loaded
+              observer.disconnect();
+              break;
+            }
+          }
+        }
+      });
+
+      if (tabPanel) {
+        observer.observe(tabPanel, { attributes: true });
+      }
+    }
   }
 
   private renderLayout(): void {
@@ -81,6 +120,7 @@ export class FarmRankingsView {
               <button class="toggle-btn active" data-view-mode="top-systems" aria-pressed="true">Top Systems</button>
               <button class="toggle-btn" data-view-mode="top-100" aria-pressed="false">Top 100</button>
               <button class="toggle-btn" data-view-mode="reports" aria-pressed="false">Reports</button>
+              <button class="toggle-btn" id="export-tfr-btn" title="Export TFR data for automated testing">Export for Testing</button>
             </div>
           </div>
         </div>
@@ -141,16 +181,21 @@ export class FarmRankingsView {
         btn.addEventListener('click', (e) => {
             const mode = (e.target as HTMLElement).dataset.viewMode as 'top-systems' | 'top-100' | 'reports';
             if (mode === this.viewMode) return;
-            
+
             this.viewMode = mode;
             this.container.querySelectorAll('[data-view-mode]').forEach(b => {
                 const isActive = b === e.target;
                 b.classList.toggle('active', isActive);
                 b.setAttribute('aria-pressed', String(isActive));
             });
-            
+
             this.renderView();
         });
+    });
+
+    // Export for testing button
+    this.container.querySelector('#export-tfr-btn')?.addEventListener('click', () => {
+        this.exportTFRForTesting();
     });
   }
 
@@ -887,25 +932,48 @@ export class FarmRankingsView {
       // 4. Get TFR Data from our View Model
       // Use the `prospect` object from `this.data` for TFR specific values
       let prospect = this.data?.prospects.find(p => p.playerId === playerId);
-      
+
       // If looking at a non-prospect (e.g. from expanded list but maybe they graduated?), fallback
       // But Farm Rankings only shows prospects.
+
+      // Pass TFR peak projections to modal (so they match the table)
+      let projectionOverride = undefined;
+      if (prospect) {
+          projectionOverride = {
+              projectedStats: {
+                  k9: prospect.potentialRatings.stuff,
+                  bb9: prospect.potentialRatings.control,
+                  hr9: prospect.potentialRatings.hra,
+                  fip: prospect.peakFip,
+                  war: prospect.peakWar,
+                  ip: prospect.peakIp // Now uses realistic IP based on stamina/injury
+              },
+              projectedRatings: {
+                  stuff: prospect.scoutingRatings.stuff,
+                  control: prospect.scoutingRatings.control,
+                  hra: prospect.scoutingRatings.hra
+              }
+          };
+      }
 
       this.playerProfileModal.show({
           playerId: player.id,
           playerName: getFullName(player),
-          team: teamLabel, 
+          team: teamLabel,
           parentTeam: parentLabel,
           age: player.age,
           positionLabel: getPositionLabel(player.position),
-          
+
           // True Ratings (Current) - prospects usually don't have valid ones, handled by modal
-          trueRating: undefined, 
-          
+          trueRating: undefined,
+
           // Estimated Ratings (from TFR if available) - Convert stats to ratings
           estimatedStuff: prospect ? Math.round((prospect.potentialRatings.stuff - 2.07) / 0.074) : undefined,
           estimatedControl: prospect ? Math.round((5.22 - prospect.potentialRatings.control) / 0.052) : undefined,
           estimatedHra: prospect ? Math.round((2.08 - prospect.potentialRatings.hra) / 0.024) : undefined,
+
+          // Pass TFR peak projection to modal (prevents recalculation)
+          projectionOverride: projectionOverride,
           
           // My Scout
           scoutStuff: myScouting?.stuff,
@@ -1011,5 +1079,52 @@ export class FarmRankingsView {
           // We should probably add `orgName` to RatedProspect for display convenience.
       }
       return 'Org';
+  }
+
+  /**
+   * Export TFR data in format needed for automated validation tests.
+   * Downloads as JSON file that can be used with tfr_automated_validation.ts
+   */
+  private exportTFRForTesting(): void {
+      if (!this.data || !this.data.prospects || this.data.prospects.length === 0) {
+          alert('No prospect data to export. Load farm rankings first.');
+          return;
+      }
+
+      // Map prospects to test format
+      const prospects = this.data.prospects.map(p => ({
+          playerId: p.playerId,
+          name: p.name,
+          age: p.age,
+          level: p.level,
+          tfr: p.trueFutureRating,
+          projFip: p.peakFip,
+          projWar: p.peakWar,
+          totalMinorIp: p.stats.ip
+      }));
+
+      const output = {
+          year: this.selectedYear,
+          generated: new Date().toISOString(),
+          totalProspects: prospects.length,
+          prospects: prospects
+      };
+
+      // Create downloadable JSON file
+      const dataStr = JSON.stringify(output, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `tfr_prospects_${this.selectedYear}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      console.log(`✅ Exported ${prospects.length} prospects for ${this.selectedYear}`);
+      console.log('Save this file to: tools/reports/tfr_prospects_' + this.selectedYear + '.json');
+      console.log('Then run: npx ts-node tools/research/tfr_automated_validation.ts');
   }
 }
