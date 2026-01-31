@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Load 2017 Scouting Data</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #1a1a1a;
+      color: #e0e0e0;
+    }
+    h1 { color: #4a9eff; }
+    button {
+      background: #4a9eff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover { background: #3a8eef; }
+    button:disabled {
+      background: #666;
+      cursor: not-allowed;
+    }
+    .log {
+      background: #2a2a2a;
+      padding: 15px;
+      border-radius: 6px;
+      margin-top: 20px;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .log-entry { margin: 5px 0; }
+    .log-success { color: #4ade80; }
+    .log-error { color: #f87171; }
+    .log-info { color: #60a5fa; }
+    .log-warn { color: #fbbf24; }
+  </style>
+</head>
+<body>
+  <h1>Load 2017 Scouting Data</h1>
+  <p>This page will load the 2017 scouting data from CSV files into your browser's IndexedDB.</p>
+
+  <div>
+    <button id="loadMyScout">Load My Scout (2017)</button>
+    <button id="loadOSA">Load OSA (2017)</button>
+    <button id="loadBoth">Load Both</button>
+    <button id="verify">Verify Data</button>
+  </div>
+
+  <div id="log" class="log"></div>
+
+  <script type="module">
+    // Import the scoutingDataService from the built app
+    // Note: This assumes you've built the app with `npm run build`
+    // If using dev server, adjust the import path accordingly
+
+    const log = document.getElementById('log');
+
+    function addLog(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry log-${type}`;
+      entry.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+      log.appendChild(entry);
+      log.scrollTop = log.scrollHeight;
+    }
+
+    async function loadScoutingData(source) {
+      const filename = source === 'my' ? '2017_scouting_ratings.csv' : '2017_OSA_ratings.csv';
+      const date = '2017-01-01';
+
+      try {
+        addLog(`Fetching ${filename}...`, 'info');
+        const response = await fetch(`/data/${filename}`);
+
+        if (!response.ok) {
+          throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+        }
+
+        const csvText = await response.text();
+        addLog(`Parsing ${csvText.length} bytes...`, 'info');
+
+        // Parse CSV using the same logic as ScoutingDataService
+        const ratings = parseScoutingCsv(csvText, source);
+        addLog(`Parsed ${ratings.length} ratings`, 'success');
+
+        // Save to IndexedDB
+        addLog(`Saving to IndexedDB with date ${date}...`, 'info');
+        await saveToIndexedDB(date, source, ratings);
+
+        addLog(`✅ Successfully loaded ${ratings.length} ${source.toUpperCase()} ratings!`, 'success');
+        return ratings.length;
+      } catch (error) {
+        addLog(`❌ Error: ${error.message}`, 'error');
+        console.error(error);
+        throw error;
+      }
+    }
+
+    function parseScoutingCsv(csvText, source) {
+      const lines = csvText.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+      if (lines.length === 0) return [];
+
+      const headerCells = parseCsvLine(lines[0]);
+      const { indexMap, pitchIndexMap } = buildHeaderMap(headerCells);
+      const dataLines = lines.slice(1);
+
+      const results = [];
+
+      for (const line of dataLines) {
+        const cells = parseCsvLine(line);
+        if (cells.length === 0) continue;
+
+        const stuff = getNumberFromIndex(cells, indexMap.stuff);
+        const control = getNumberFromIndex(cells, indexMap.control);
+        const hra = getNumberFromIndex(cells, indexMap.hra);
+
+        if (!isNumber(stuff) || !isNumber(control) || !isNumber(hra)) continue;
+
+        const rawId = getNumberFromIndex(cells, indexMap.playerId);
+        const playerId = isNumber(rawId) ? Math.round(rawId) : -1;
+        const playerName = getStringFromIndex(cells, indexMap.playerName);
+        const age = getNumberFromIndex(cells, indexMap.age);
+        const stamina = getNumberFromIndex(cells, indexMap.stamina);
+        const injuryProneness = getStringFromIndex(cells, indexMap.injuryProneness);
+        const ovr = parseStarRating(cells, indexMap.ovr);
+        const pot = parseStarRating(cells, indexMap.pot);
+
+        const pitches = {};
+        for (const [pitchName, idx] of Object.entries(pitchIndexMap)) {
+          const val = getNumberFromIndex(cells, idx);
+          if (isNumber(val) && val > 0) {
+            pitches[pitchName] = val;
+          }
+        }
+
+        results.push({
+          playerId,
+          playerName: playerName || undefined,
+          stuff,
+          control,
+          hra,
+          stamina: isNumber(stamina) ? stamina : undefined,
+          injuryProneness: injuryProneness || undefined,
+          age: isNumber(age) ? Math.round(age) : undefined,
+          ovr: isNumber(ovr) ? ovr : undefined,
+          pot: isNumber(pot) ? pot : undefined,
+          pitches: Object.keys(pitches).length > 0 ? pitches : undefined,
+          source,
+        });
+      }
+
+      return results;
+    }
+
+    function parseCsvLine(line) {
+      const values = [];
+      let current = '';
+      let inQuotes = false;
+
+      for (let i = 0; i < line.length; i++) {
+        const char = line[i];
+        if (char === '"') {
+          inQuotes = !inQuotes;
+        } else if (char === ',' && !inQuotes) {
+          values.push(current.trim());
+          current = '';
+        } else {
+          current += char;
+        }
+      }
+      values.push(current.trim());
+      return values;
+    }
+
+    function buildHeaderMap(headerCells) {
+      const normalized = headerCells.map(cell => cell.toLowerCase().replace(/[^a-z0-9]/g, ''));
+      const indexMap = {};
+      const pitchIndexMap = {};
+
+      const headerAliases = {
+        playerId: ['playerid', 'player_id', 'id', 'pid'],
+        playerName: ['playername', 'player_name', 'name', 'player'],
+        stuff: ['stuff', 'stu', 'stf', 'stup', 'stfp', 'stuffp'],
+        control: ['control', 'con', 'ctl', 'conp', 'controlp'],
+        hra: ['hra', 'hr', 'hrr', 'hravoid', 'hravoidance', 'hrrp', 'hrp'],
+        age: ['age'],
+        ovr: ['ovr', 'overall', 'cur', 'current'],
+        pot: ['pot', 'potential', 'ceil', 'ceiling'],
+        stamina: ['stm', 'stamina', 'stam'],
+        injuryProneness: ['prone', 'injury', 'injuryproneness', 'inj', 'sctacc']
+      };
+
+      for (const [key, aliases] of Object.entries(headerAliases)) {
+        const idx = normalized.findIndex(h => aliases.includes(h));
+        if (idx !== -1) {
+          indexMap[key] = idx;
+        }
+      }
+
+      const usedIndices = new Set(Object.values(indexMap));
+      const ignoreHeaders = new Set([
+        'team', 'pos', 'position', 'height', 'weight', 'bats', 'throws', 'dob',
+        'velocity', 'arm', 'hold', 'gb', 'mov', 'movement', 'babip'
+      ]);
+
+      headerCells.forEach((rawHeader, idx) => {
+        if (usedIndices.has(idx)) return;
+        const norm = normalized[idx];
+        if (!norm || ignoreHeaders.has(norm)) return;
+        pitchIndexMap[rawHeader.trim()] = idx;
+      });
+
+      return { indexMap, pitchIndexMap };
+    }
+
+    function getNumberFromIndex(cells, index) {
+      if (typeof index !== 'number') return null;
+      const value = cells[index] || '';
+      if (value === '-' || value === '') return null;
+      const num = parseFloat(value);
+      return isNaN(num) ? null : num;
+    }
+
+    function getStringFromIndex(cells, index) {
+      if (typeof index !== 'number') return '';
+      return cells[index] || '';
+    }
+
+    function parseStarRating(cells, index) {
+      if (typeof index !== 'number') return null;
+      const raw = cells[index] || '';
+      const stripped = raw.toLowerCase().replace(/\s*stars?\s*/gi, '').trim();
+      const num = parseFloat(stripped);
+      if (isNaN(num) || num < 0.5 || num > 5.0) return null;
+      return num;
+    }
+
+    function isNumber(value) {
+      return typeof value === 'number' && isFinite(value);
+    }
+
+    async function saveToIndexedDB(date, source, ratings) {
+      return new Promise((resolve, reject) => {
+        const request = indexedDB.open('wbl_data', 3);
+
+        request.onerror = () => reject(request.error);
+
+        request.onsuccess = () => {
+          const db = request.result;
+          const storeName = source === 'my' ? 'scouting_my' : 'scouting_osa';
+          const key = `${date}_${source}`;
+
+          const transaction = db.transaction([storeName], 'readwrite');
+          const store = transaction.objectStore(storeName);
+
+          const putRequest = store.put(ratings, key);
+
+          putRequest.onsuccess = () => resolve();
+          putRequest.onerror = () => reject(putRequest.error);
+        };
+
+        request.onupgradeneeded = (event) => {
+          const db = event.target.result;
+
+          if (!db.objectStoreNames.contains('scouting_my')) {
+            db.createObjectStore('scouting_my');
+          }
+          if (!db.objectStoreNames.contains('scouting_osa')) {
+            db.createObjectStore('scouting_osa');
+          }
+        };
+      });
+    }
+
+    async function verifyData() {
+      try {
+        addLog('Verifying IndexedDB data...', 'info');
+
+        const db = await new Promise((resolve, reject) => {
+          const request = indexedDB.open('wbl_data', 3);
+          request.onsuccess = () => resolve(request.result);
+          request.onerror = () => reject(request.error);
+        });
+
+        for (const source of ['my', 'osa']) {
+          const storeName = source === 'my' ? 'scouting_my' : 'scouting_osa';
+          const key = `2017-01-01_${source}`;
+
+          const transaction = db.transaction([storeName], 'readonly');
+          const store = transaction.objectStore(storeName);
+          const getRequest = store.get(key);
+
+          const data = await new Promise((resolve, reject) => {
+            getRequest.onsuccess = () => resolve(getRequest.result);
+            getRequest.onerror = () => reject(getRequest.error);
+          });
+
+          if (data) {
+            addLog(`✅ Found ${data.length} ${source.toUpperCase()} ratings for 2017-01-01`, 'success');
+          } else {
+            addLog(`❌ No ${source.toUpperCase()} data found for 2017-01-01`, 'warn');
+          }
+        }
+
+        addLog('Verification complete!', 'success');
+      } catch (error) {
+        addLog(`❌ Verification error: ${error.message}`, 'error');
+        console.error(error);
+      }
+    }
+
+    // Button handlers
+    document.getElementById('loadMyScout').addEventListener('click', () => {
+      loadScoutingData('my');
+    });
+
+    document.getElementById('loadOSA').addEventListener('click', () => {
+      loadScoutingData('osa');
+    });
+
+    document.getElementById('loadBoth').addEventListener('click', async () => {
+      try {
+        await loadScoutingData('my');
+        await loadScoutingData('osa');
+        addLog('🎉 All data loaded successfully!', 'success');
+      } catch (error) {
+        // Error already logged
+      }
+    });
+
+    document.getElementById('verify').addEventListener('click', verifyData);
+
+    addLog('Ready to load data. Click a button above to begin.', 'info');
+  </script>
+</body>
+</html>

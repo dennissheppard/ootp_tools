@@ -71,41 +71,38 @@ export interface TrueFutureRatingResult {
 /**
  * Level adjustments to translate minor league stats to MLB-equivalent
  *
- * UPDATED: January 30, 2026 (OOTP 25+26 Analysis)
- * Based on research analysis of 344 AAA→MLB transitions from OOTP 25+26 (2012-2020)
- * Combined era analysis for larger sample size and current engine relevance
+ * UPDATED: January 31, 2026 (2017 Validation Results)
+ * Previous values (from OOTP 25+26 research) were 2-3x too aggressive
+ * 2017→2021 validation showed actual changes much smaller than expected
  *
- * Key findings:
- * - Competition gets harder at each level: K/9 drops, BB/9 rises, HR/9 rises
- * - AAA→MLB: K/9 +0.27 (harder to strike out MLB hitters)
- * - AAA→MLB: BB/9 -0.06 (control barely changes, almost flat)
- * - AAA→MLB: HR/9 +0.39 (better hitters hit more home runs - 62% more than previously estimated)
+ * Validation results (54 AAA→MLB transitions):
+ * - K/9: Expected +0.27, Actual +0.01 → Reduced to +0.10
+ * - BB/9: Expected -0.06, Actual +0.02 → Reduced to 0.00 (no change)
+ * - HR/9: Expected +0.39, Actual +0.26 → Reduced to +0.20
  *
- * Individual transitions (OOTP 25+26):
- * - AAA→MLB: k9: +0.27, bb9: -0.06, hr9: +0.39
- * - AA→AAA: k9: -0.16, bb9: +0.35, hr9: +0.03
- * - A→AA: k9: -0.19, bb9: +0.08, hr9: +0.09
- * - R→A: k9: -0.08, bb9: +0.27, hr9: +0.06
+ * Individual transitions (proportionally adjusted ~50-65%):
+ * - AAA→MLB: k9: +0.10, bb9: 0.00, hr9: +0.20
+ * - AA→AAA: k9: -0.08, bb9: +0.18, hr9: +0.02
+ * - A→AA: k9: -0.10, bb9: +0.04, hr9: +0.05
+ * - R→A: k9: -0.04, bb9: +0.14, hr9: +0.03
  *
  * Lower levels are cumulative: AA = (AA→AAA) + (AAA→MLB), etc.
- *
- * See: tools/reports/RESEARCH_SUMMARY.md and SESSION_SUMMARY.md for full details
  */
 const LEVEL_ADJUSTMENTS: Record<MinorLeagueLevel, { k9: number; bb9: number; hr9: number }> = {
-  // AAA → MLB (based on 344 samples, OOTP 25+26)
-  aaa: { k9: 0.27, bb9: -0.06, hr9: 0.39 },
+  // AAA → MLB (reduced ~50-65% from original)
+  aaa: { k9: 0.10, bb9: 0.00, hr9: 0.20 },
 
   // AA → MLB (cumulative: AA→AAA + AAA→MLB)
-  // k9: -0.16 + 0.27 = 0.11, bb9: +0.35 + (-0.06) = +0.29, hr9: +0.03 + 0.39 = +0.42
-  aa: { k9: 0.11, bb9: 0.29, hr9: 0.42 },
+  // k9: -0.08 + 0.10 = 0.02, bb9: +0.18 + 0.00 = +0.18, hr9: +0.02 + 0.20 = +0.22
+  aa: { k9: 0.02, bb9: 0.18, hr9: 0.22 },
 
   // A → MLB (cumulative: A→AA + AA→AAA + AAA→MLB)
-  // k9: -0.19 + (-0.16) + 0.27 = -0.08, bb9: +0.08 + 0.35 + (-0.06) = +0.37, hr9: +0.09 + 0.03 + 0.39 = +0.51
-  a: { k9: -0.08, bb9: 0.37, hr9: 0.51 },
+  // k9: -0.10 + (-0.08) + 0.10 = -0.08, bb9: +0.04 + 0.18 + 0.00 = +0.22, hr9: +0.05 + 0.02 + 0.20 = +0.27
+  a: { k9: -0.08, bb9: 0.22, hr9: 0.27 },
 
   // Rookie → MLB (cumulative: R→A + A→AA + AA→AAA + AAA→MLB)
-  // k9: -0.08 + (-0.19) + (-0.16) + 0.27 = -0.16, bb9: +0.27 + 0.08 + 0.35 + (-0.06) = +0.64, hr9: +0.06 + 0.09 + 0.03 + 0.39 = +0.57
-  r: { k9: -0.16, bb9: 0.64, hr9: 0.57 },
+  // k9: -0.04 + (-0.10) + (-0.08) + 0.10 = -0.12, bb9: +0.14 + 0.04 + 0.18 + 0.00 = +0.36, hr9: +0.03 + 0.05 + 0.02 + 0.20 = +0.30
+  r: { k9: -0.12, bb9: 0.36, hr9: 0.30 },
 };
 
 /** Year weights for minor league stats (current year, previous year) */
@@ -117,19 +114,19 @@ const FIP_CONSTANT = 3.47;
 /**
  * Percentile thresholds for TFR (True Future Rating) conversion
  *
- * v8 (2026-01-30) - Match OOTP's selective prospect ratings:
- * OOTP reality: Only 17 pitchers (1.6%) at 4★+, only 5 at 5★
- * Our approach: Slightly more generous than OOTP, but still elite-focused
- * - 5.0: Top 1% (~11 prospects) - true generational talents
- * - 4.5: Top 3% (~32 total at 4.5+) - elite future stars
- * - 4.0: Top 6% (~64 total at 4.0+) - solid MLB upside
- * - 3.5: Top 25% (~268 at 3.5+) - legitimate prospects with potential
+ * v9 (2026-01-30) - Final calibration for realistic prospect distribution:
+ * Target: Elite (4.5+) = 2-4%, Above Avg (4.0-4.5) = 4-5%
+ * More generous than OOTP (1.6% at 4★+) but still selective
+ * - 5.0: Top 2% (~21 prospects) - true elite talents
+ * - 4.5: Top 4% (~43 total at 4.5+) - future stars
+ * - 4.0: Top 8% (~86 total at 4.0+) - solid MLB upside
+ * - 3.5: Top 25% (~268 at 3.5+) - legitimate prospects
  * - 3.0+: Top 45% - everyone with a shot
  */
 const PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
-  { threshold: 99.0, rating: 5.0 },  // Elite: Top 1% (~11 prospects)
-  { threshold: 97.0, rating: 4.5 },  // Star: Top 3% (~32 total at 4.5+)
-  { threshold: 94.0, rating: 4.0 },  // Above Avg: Top 6% (~64 total at 4.0+)
+  { threshold: 98.0, rating: 5.0 },  // Elite: Top 2% (~21 prospects)
+  { threshold: 96.0, rating: 4.5 },  // Star: Top 4% (~43 total at 4.5+)
+  { threshold: 92.0, rating: 4.0 },  // Above Avg: Top 8% (~86 total at 4.0+)
   { threshold: 75.0, rating: 3.5 },  // Average: Top 25% (~268 total at 3.5+)
   { threshold: 55.0, rating: 3.0 },  // Fringe: Top 45%
   { threshold: 35.0, rating: 2.5 },  // Below Avg
@@ -150,24 +147,33 @@ class TrueFutureRatingService {
    * Higher weight = trust scouting more (stats are noise)
    * Lower weight = trust stats more (player is developed)
    *
-   * MiLB stats in OOTP are unreliable - correlation to potential is weak.
-   * When we HAVE scouting data, we should trust it heavily.
+   * UPDATED: January 31, 2026 - Reduced weight for older prospects
+   * Older players are closer to their ceiling - trust track record over scout projection
+   * Peak development age is 21-24, after that rely more on stats
    */
   calculateScoutingWeight(age: number, starGap: number, totalMinorIp: number): number {
-    // Older players: stats become more reliable as they mature
-    if (age >= 30) return 0.40;
-    if (age >= 27) return 0.50;
+    // Age-based base weight (trust stats more as players age)
+    let baseWeight: number;
 
-    // For younger players, trust scouting heavily since MiLB stats are noisy
-    const baseWeight = 0.65;
+    if (age >= 30) baseWeight = 0.20; // 30+: Almost entirely trust stats
+    else if (age >= 27) baseWeight = 0.30; // 27-29: Mostly trust stats
+    else if (age >= 25) baseWeight = 0.40; // 25-26: Trust stats more than scouts
+    else if (age >= 23) baseWeight = 0.60; // 23-24: Balance (peak dev age)
+    else baseWeight = 0.70; // <23: Trust scouts more (less developed)
 
-    // More raw (larger gap) = trust scouting more
-    const gapBonus = (starGap / 4.0) * 0.15; // 0% to 15%
+    // For young prospects only, add bonuses for rawness
+    if (age < 25) {
+      // More raw (larger gap) = trust scouting more
+      const gapBonus = (starGap / 4.0) * 0.12; // 0% to 12%
 
-    // Less IP = trust scouting more (stats are noisy)
-    const ipFactor = (50 / (50 + totalMinorIp)) * 0.15; // 0% to 15%
+      // Less IP = trust scouting more (stats are noisy)
+      const ipFactor = (50 / (50 + totalMinorIp)) * 0.12; // 0% to 12%
 
-    return Math.min(0.95, baseWeight + gapBonus + ipFactor);
+      return Math.min(0.90, baseWeight + gapBonus + ipFactor);
+    }
+
+    // For older prospects (25+), no bonuses - just use base weight
+    return baseWeight;
   }
 
   /**
@@ -337,9 +343,13 @@ class TrueFutureRatingService {
    * Calculate confidence factor based on certainty of projection reaching peak.
    * Lower confidence = more regression toward replacement level.
    *
+   * UPDATED: January 31, 2026 - Added age penalty for older prospects
+   * 2017 validation showed 30-year-old prospects getting elite TFR ratings
+   * Older players are less likely to develop further - already near ceiling
+   *
    * Returns value between 0 and 1:
-   * - 1.0 = very confident (near MLB, lots of data, stats agree with scouts)
-   * - 0.3 = very uncertain (far from MLB, little data, stats disagree with scouts)
+   * - 1.0 = very confident (peak development age, near MLB, good data)
+   * - 0.3 = very uncertain (too young/old, far from MLB, limited data)
    */
   calculateConfidenceFactor(
     age: number,
@@ -350,13 +360,16 @@ class TrueFutureRatingService {
   ): number {
     let confidence = 1.0;
 
-    // Age factor: Younger = more uncertain development
-    // Tuned via complete optimization (20K iterations, score 49.5/100)
-    if (age <= 20) confidence *= 0.84; // Very young (optimized: 0.843)
-    else if (age <= 22) confidence *= 0.95; // Young (optimized: 0.946)
-    else if (age <= 24) confidence *= 0.92; // Normal (optimized: 0.917)
-    else if (age <= 26) confidence *= 0.97; // More proven (optimized: 0.968)
-    // 27+ stays at 1.0 (most likely to reach peak)
+    // Age factor: Peak development window is 21-24
+    // Too young = uncertain development, too old = limited upside
+    if (age <= 19) confidence *= 0.75; // Very young, highly uncertain
+    else if (age <= 20) confidence *= 0.84; // Still developing
+    else if (age <= 22) confidence *= 0.95; // Good development window
+    else if (age <= 24) confidence *= 1.00; // Peak development age - BEST prospects
+    else if (age <= 26) confidence *= 0.85; // Past peak, limited upside
+    else if (age <= 28) confidence *= 0.65; // Old for prospect, ceiling likely reached
+    else if (age <= 30) confidence *= 0.45; // Very old, minimal upside
+    else confidence *= 0.25; // 31+ = organizational filler, not a prospect
 
     // Level factor: Rookie-only penalty
     // Optimizer found 0.929 but that still gives 24% rookies in top 100 (target: 3-10%)

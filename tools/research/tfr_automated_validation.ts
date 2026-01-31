@@ -366,15 +366,24 @@ function testCompression(prospects: TFRProspect[]): TestResult {
 
   const below40 = top100.filter(p => p.tfr < 4.0).length;
 
-  // At least 30% of top 100 should be below 4.0 (relaxed from 50%)
-  const passed = below40 >= 30;
+  // 30-60% of top 100 should be below 4.0 (balanced distribution)
+  const passed = below40 >= 30 && below40 <= 60;
+
+  let message: string | undefined;
+  if (!passed) {
+    if (below40 < 30) {
+      message = 'TFR distribution too compressed (everyone rated too high)';
+    } else {
+      message = 'TFR distribution too selective (too few high ratings)';
+    }
+  }
 
   return {
     name: 'Distribution Compression',
     passed,
-    expected: 'At least 30% of top 100 below 4.0 TFR',
+    expected: '30-60% of top 100 below 4.0 TFR',
     actual: `${below40}% below 4.0`,
-    message: passed ? undefined : 'TFR distribution too compressed (everyone rated too high)'
+    message
   };
 }
 

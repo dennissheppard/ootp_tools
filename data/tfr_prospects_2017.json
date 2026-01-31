@@ -1,0 +1,5117 @@
+{
+  "year": 2017,
+  "generated": "2026-01-31T21:50:20.791Z",
+  "totalProspects": 511,
+  "prospects": [
+    {
+      "playerId": 9462,
+      "name": "Jon Valenzuela",
+      "age": 30,
+      "level": "AAA",
+      "tfr": 4.5,
+      "projFip": 3.42,
+      "projWar": 1.3,
+      "totalMinorIp": 4
+    },
+    {
+      "playerId": 13920,
+      "name": "Koichi Nakano",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 4,
+      "projFip": 3.9,
+      "projWar": 2.1,
+      "totalMinorIp": 181
+    },
+    {
+      "playerId": 11808,
+      "name": "Milojica Pasic",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 4,
+      "projFip": 4,
+      "projWar": 0.8,
+      "totalMinorIp": 167
+    },
+    {
+      "playerId": 12892,
+      "name": "Hana bin Maudad",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.08,
+      "projWar": 2.4,
+      "totalMinorIp": 94
+    },
+    {
+      "playerId": 13638,
+      "name": "Vladislav Stojsic",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 3.92,
+      "projWar": 2.1,
+      "totalMinorIp": 115
+    },
+    {
+      "playerId": 10593,
+      "name": "Justin Kondapaneni",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.27,
+      "projWar": 1.8,
+      "totalMinorIp": 343
+    },
+    {
+      "playerId": 13784,
+      "name": "MIKE VERHAPPEN",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.01,
+      "projWar": 1.8,
+      "totalMinorIp": 361
+    },
+    {
+      "playerId": 12424,
+      "name": "RAFAEL VARA",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.26,
+      "projWar": 1.7,
+      "totalMinorIp": 227
+    },
+    {
+      "playerId": 12364,
+      "name": "SAMUEL KING",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.14,
+      "projWar": 1.7,
+      "totalMinorIp": 160
+    },
+    {
+      "playerId": 12581,
+      "name": "Brassal Rampling",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.21,
+      "projWar": 1.7,
+      "totalMinorIp": 121
+    },
+    {
+      "playerId": 10146,
+      "name": "Ken Felber",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.24,
+      "projWar": 1.6,
+      "totalMinorIp": 359
+    },
+    {
+      "playerId": 10361,
+      "name": "WILL GRAYSON",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.29,
+      "projWar": 1.5,
+      "totalMinorIp": 381
+    },
+    {
+      "playerId": 14166,
+      "name": "Hyeon-sang Kim",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.31,
+      "projWar": 1.4,
+      "totalMinorIp": 57
+    },
+    {
+      "playerId": 11770,
+      "name": "Ceasario Menocchio",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.2,
+      "projWar": 1.4,
+      "totalMinorIp": 402
+    },
+    {
+      "playerId": 13295,
+      "name": "Owen Begum",
+      "age": 22,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.23,
+      "projWar": 1.3,
+      "totalMinorIp": 95
+    },
+    {
+      "playerId": 11579,
+      "name": "Kedar Fawzi",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.32,
+      "projWar": 1.3,
+      "totalMinorIp": 462
+    },
+    {
+      "playerId": 11299,
+      "name": "Victor Cantu",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.24,
+      "projWar": 1.3,
+      "totalMinorIp": 189
+    },
+    {
+      "playerId": 13067,
+      "name": "Chris Johnson",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 3.59,
+      "projWar": 1.2,
+      "totalMinorIp": 88
+    },
+    {
+      "playerId": 10855,
+      "name": "TIM HORN",
+      "age": 30,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.42,
+      "projWar": 1.2,
+      "totalMinorIp": 374
+    },
+    {
+      "playerId": 11902,
+      "name": "Carsten Janssen",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.34,
+      "projWar": 1.2,
+      "totalMinorIp": 261
+    },
+    {
+      "playerId": 13181,
+      "name": "BOB RUIZ",
+      "age": 24,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.36,
+      "projWar": 1.2,
+      "totalMinorIp": 53
+    },
+    {
+      "playerId": 11475,
+      "name": "JESUS COTTO",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.34,
+      "projWar": 1.2,
+      "totalMinorIp": 113
+    },
+    {
+      "playerId": 11335,
+      "name": "Li Fitchett",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.15,
+      "projWar": 1.2,
+      "totalMinorIp": 46
+    },
+    {
+      "playerId": 10608,
+      "name": "Cody Hillock",
+      "age": 26,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.41,
+      "projWar": 1.2,
+      "totalMinorIp": 481
+    },
+    {
+      "playerId": 9790,
+      "name": "CARLOS MOLINA",
+      "age": 29,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.45,
+      "projWar": 1.2,
+      "totalMinorIp": 127
+    },
+    {
+      "playerId": 12023,
+      "name": "Mannuell Uso",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.36,
+      "projWar": 1.2,
+      "totalMinorIp": 319
+    },
+    {
+      "playerId": 11331,
+      "name": "Marcel Verkleij",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.32,
+      "projWar": 1.2,
+      "totalMinorIp": 271
+    },
+    {
+      "playerId": 14387,
+      "name": "Darren Hawkins",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.36,
+      "projWar": 1.1,
+      "totalMinorIp": 97
+    },
+    {
+      "playerId": 10648,
+      "name": "Archie Edmonds",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.47,
+      "projWar": 1.1,
+      "totalMinorIp": 394
+    },
+    {
+      "playerId": 11604,
+      "name": "IVAN ANDRIC",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.39,
+      "projWar": 1.1,
+      "totalMinorIp": 523
+    },
+    {
+      "playerId": 11319,
+      "name": "Myung-hwan Kong",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.36,
+      "projWar": 1,
+      "totalMinorIp": 373
+    },
+    {
+      "playerId": 8036,
+      "name": "Nick Thomas",
+      "age": 33,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.24,
+      "projWar": 1,
+      "totalMinorIp": 90
+    },
+    {
+      "playerId": 10506,
+      "name": "Marcus Hewitt",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.43,
+      "projWar": 1,
+      "totalMinorIp": 145
+    },
+    {
+      "playerId": 11329,
+      "name": "Quido van Kampen",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.36,
+      "projWar": 1,
+      "totalMinorIp": 274
+    },
+    {
+      "playerId": 10610,
+      "name": "SAL VALDEZ",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.42,
+      "projWar": 0.9,
+      "totalMinorIp": 216
+    },
+    {
+      "playerId": 10617,
+      "name": "ANDREW HAZEL",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.35,
+      "projWar": 0.9,
+      "totalMinorIp": 49
+    },
+    {
+      "playerId": 13027,
+      "name": "Sadaqat Mahdi",
+      "age": 22,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.01,
+      "projWar": 0.8,
+      "totalMinorIp": 13
+    },
+    {
+      "playerId": 13202,
+      "name": "Danny Melendez",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.2,
+      "projWar": 0.8,
+      "totalMinorIp": 304
+    },
+    {
+      "playerId": 9229,
+      "name": "DAN METCALF",
+      "age": 29,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.29,
+      "projWar": 0.8,
+      "totalMinorIp": 420
+    },
+    {
+      "playerId": 9651,
+      "name": "Nate Hildebrand",
+      "age": 34,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.42,
+      "projWar": 0.8,
+      "totalMinorIp": 54
+    },
+    {
+      "playerId": 13446,
+      "name": "Fernando Martinez",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.03,
+      "projWar": 0.7,
+      "totalMinorIp": 27
+    },
+    {
+      "playerId": 13239,
+      "name": "Curt Burden",
+      "age": 26,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.11,
+      "projWar": 0.7,
+      "totalMinorIp": 75
+    },
+    {
+      "playerId": 11421,
+      "name": "MARK HOUSE",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.16,
+      "projWar": 0.6,
+      "totalMinorIp": 99
+    },
+    {
+      "playerId": 10850,
+      "name": "Danny Churchill",
+      "age": 30,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.28,
+      "projWar": 0.6,
+      "totalMinorIp": 508
+    },
+    {
+      "playerId": 8416,
+      "name": "John Johnson",
+      "age": 33,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.36,
+      "projWar": 0.6,
+      "totalMinorIp": 51
+    },
+    {
+      "playerId": 11479,
+      "name": "TRAVIS MOREHOUSE",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.17,
+      "projWar": 0.6,
+      "totalMinorIp": 94
+    },
+    {
+      "playerId": 11711,
+      "name": "CHRIS LING",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.37,
+      "projWar": 0.5,
+      "totalMinorIp": 119
+    },
+    {
+      "playerId": 11760,
+      "name": "Mike Aron",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3.5,
+      "projFip": 4.38,
+      "projWar": 0.4,
+      "totalMinorIp": 495
+    },
+    {
+      "playerId": 10994,
+      "name": "CHRIS REID",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3.5,
+      "projFip": 4.33,
+      "projWar": 0.4,
+      "totalMinorIp": 263
+    },
+    {
+      "playerId": 12590,
+      "name": "Cody Rowe",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.27,
+      "projWar": 1.6,
+      "totalMinorIp": 95
+    },
+    {
+      "playerId": 13082,
+      "name": "Sam Marx",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.49,
+      "projWar": 1.2,
+      "totalMinorIp": 117
+    },
+    {
+      "playerId": 12359,
+      "name": "Motochika Ogino",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.44,
+      "projWar": 1.2,
+      "totalMinorIp": 492
+    },
+    {
+      "playerId": 12429,
+      "name": "BRANDON SASLOVE",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.48,
+      "projWar": 1.2,
+      "totalMinorIp": 290
+    },
+    {
+      "playerId": 12223,
+      "name": "Adriano Sells",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.42,
+      "projWar": 1.2,
+      "totalMinorIp": 122
+    },
+    {
+      "playerId": 13587,
+      "name": "Willie Gonzalez",
+      "age": 22,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.43,
+      "projWar": 1.1,
+      "totalMinorIp": 116
+    },
+    {
+      "playerId": 13071,
+      "name": "Danny Martinez",
+      "age": 22,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.49,
+      "projWar": 1,
+      "totalMinorIp": 11
+    },
+    {
+      "playerId": 13931,
+      "name": "Samuel Price",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.5,
+      "projWar": 1,
+      "totalMinorIp": 54
+    },
+    {
+      "playerId": 13418,
+      "name": "Israel Solis",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.53,
+      "projWar": 1,
+      "totalMinorIp": 416
+    },
+    {
+      "playerId": 10622,
+      "name": "James Stinson",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.52,
+      "projWar": 1,
+      "totalMinorIp": 355
+    },
+    {
+      "playerId": 12306,
+      "name": "PHILLIP BANSFIELD",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.52,
+      "projWar": 1,
+      "totalMinorIp": 248
+    },
+    {
+      "playerId": 11961,
+      "name": "Yazeed bin Suhail",
+      "age": 24,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.46,
+      "projWar": 1,
+      "totalMinorIp": 73
+    },
+    {
+      "playerId": 9545,
+      "name": "CODY MURPHY",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.48,
+      "projWar": 1,
+      "totalMinorIp": 64
+    },
+    {
+      "playerId": 12820,
+      "name": "Dave Ovando",
+      "age": 24,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.41,
+      "projWar": 1,
+      "totalMinorIp": 157
+    },
+    {
+      "playerId": 13064,
+      "name": "Aydan Cote",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.45,
+      "projWar": 0.9,
+      "totalMinorIp": 111
+    },
+    {
+      "playerId": 10597,
+      "name": "JIM ATCHISON",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.54,
+      "projWar": 0.9,
+      "totalMinorIp": 331
+    },
+    {
+      "playerId": 12354,
+      "name": "XAVIER FISHBURN",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.53,
+      "projWar": 0.9,
+      "totalMinorIp": 153
+    },
+    {
+      "playerId": 11560,
+      "name": "EDWARD MCDONNELL",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.53,
+      "projWar": 0.9,
+      "totalMinorIp": 356
+    },
+    {
+      "playerId": 12240,
+      "name": "Stan Scholten",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.51,
+      "projWar": 0.9,
+      "totalMinorIp": 304
+    },
+    {
+      "playerId": 12251,
+      "name": "DIEDERICK ARENS",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.52,
+      "projWar": 0.9,
+      "totalMinorIp": 190
+    },
+    {
+      "playerId": 13214,
+      "name": "SHIGEM FUJITA",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.59,
+      "projWar": 0.9,
+      "totalMinorIp": 86
+    },
+    {
+      "playerId": 10626,
+      "name": "RUBEN MEASTAS",
+      "age": 26,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.55,
+      "projWar": 0.9,
+      "totalMinorIp": 236
+    },
+    {
+      "playerId": 10427,
+      "name": "D.J. Smith",
+      "age": 27,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.9,
+      "totalMinorIp": 419
+    },
+    {
+      "playerId": 12843,
+      "name": "Habib bin Zaim",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.8,
+      "totalMinorIp": 165
+    },
+    {
+      "playerId": 10474,
+      "name": "Daizo Ogasawara",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.8,
+      "totalMinorIp": 331
+    },
+    {
+      "playerId": 11538,
+      "name": "ADRIAN DAVIES",
+      "age": 26,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.8,
+      "totalMinorIp": 387
+    },
+    {
+      "playerId": 9763,
+      "name": "Shane Dillenburg",
+      "age": 29,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.54,
+      "projWar": 0.8,
+      "totalMinorIp": 118
+    },
+    {
+      "playerId": 12593,
+      "name": "Mannus Ruijter",
+      "age": 23,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.58,
+      "projWar": 0.8,
+      "totalMinorIp": 45
+    },
+    {
+      "playerId": 12222,
+      "name": "Carlos Lizarraga",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.58,
+      "projWar": 0.7,
+      "totalMinorIp": 545
+    },
+    {
+      "playerId": 14253,
+      "name": "Vinny Lopez",
+      "age": 21,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.46,
+      "projWar": 0.7,
+      "totalMinorIp": 16
+    },
+    {
+      "playerId": 13209,
+      "name": "MIKE TOTE",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.59,
+      "projWar": 0.7,
+      "totalMinorIp": 133
+    },
+    {
+      "playerId": 13797,
+      "name": "ARMANDO CARRILLO",
+      "age": 26,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.62,
+      "projWar": 0.7,
+      "totalMinorIp": 351
+    },
+    {
+      "playerId": 12589,
+      "name": "Emmanuel Cavalleri",
+      "age": 24,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.61,
+      "projWar": 0.7,
+      "totalMinorIp": 12
+    },
+    {
+      "playerId": 12677,
+      "name": "Rogelio Degadillo",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.43,
+      "projWar": 0.7,
+      "totalMinorIp": 79
+    },
+    {
+      "playerId": 11679,
+      "name": "ADRIAN GILMORE",
+      "age": 26,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.55,
+      "projWar": 0.7,
+      "totalMinorIp": 497
+    },
+    {
+      "playerId": 9324,
+      "name": "Jung-hoon Kang",
+      "age": 31,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.54,
+      "projWar": 0.7,
+      "totalMinorIp": 273
+    },
+    {
+      "playerId": 10201,
+      "name": "Adam Miller",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.7,
+      "totalMinorIp": 349
+    },
+    {
+      "playerId": 10961,
+      "name": "Chris Palladino",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.55,
+      "projWar": 0.7,
+      "totalMinorIp": 447
+    },
+    {
+      "playerId": 11321,
+      "name": "Motosugu Sugita",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.64,
+      "projWar": 0.7,
+      "totalMinorIp": 205
+    },
+    {
+      "playerId": 13904,
+      "name": "Mick Adams",
+      "age": 22,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.58,
+      "projWar": 0.6,
+      "totalMinorIp": 161
+    },
+    {
+      "playerId": 10995,
+      "name": "Tony Aguilar",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.6,
+      "projWar": 0.6,
+      "totalMinorIp": 520
+    },
+    {
+      "playerId": 10591,
+      "name": "JEFF FOOTE",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.58,
+      "projWar": 0.6,
+      "totalMinorIp": 385
+    },
+    {
+      "playerId": 12079,
+      "name": "Takeo Nakano",
+      "age": 24,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.6,
+      "projWar": 0.6,
+      "totalMinorIp": 131
+    },
+    {
+      "playerId": 10428,
+      "name": "Nick Price",
+      "age": 27,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.6,
+      "projWar": 0.6,
+      "totalMinorIp": 440
+    },
+    {
+      "playerId": 12342,
+      "name": "BRIAN REEVES",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.58,
+      "projWar": 0.6,
+      "totalMinorIp": 349
+    },
+    {
+      "playerId": 11031,
+      "name": "ALEX ZARAGOZA",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.63,
+      "projWar": 0.6,
+      "totalMinorIp": 526
+    },
+    {
+      "playerId": 12716,
+      "name": "Rafi bin Hatim",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.6,
+      "totalMinorIp": 172
+    },
+    {
+      "playerId": 13780,
+      "name": "KEVIN CANNON",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.56,
+      "projWar": 0.6,
+      "totalMinorIp": 156
+    },
+    {
+      "playerId": 10562,
+      "name": "SEAN HENDERSON",
+      "age": 26,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.59,
+      "projWar": 0.6,
+      "totalMinorIp": 318
+    },
+    {
+      "playerId": 13121,
+      "name": "Luciano Maccioni",
+      "age": 23,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.61,
+      "projWar": 0.6,
+      "totalMinorIp": 47
+    },
+    {
+      "playerId": 10098,
+      "name": "Sean McBride",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.61,
+      "projWar": 0.6,
+      "totalMinorIp": 476
+    },
+    {
+      "playerId": 11921,
+      "name": "Andy Piercey",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.6,
+      "totalMinorIp": 224
+    },
+    {
+      "playerId": 11019,
+      "name": "CASEY PIPER",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.66,
+      "projWar": 0.6,
+      "totalMinorIp": 458
+    },
+    {
+      "playerId": 12717,
+      "name": "Duilio Saia",
+      "age": 23,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.67,
+      "projWar": 0.6,
+      "totalMinorIp": 54
+    },
+    {
+      "playerId": 10715,
+      "name": "Lauren Teekens",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.62,
+      "projWar": 0.6,
+      "totalMinorIp": 69
+    },
+    {
+      "playerId": 10831,
+      "name": "Juan Vasquez",
+      "age": 30,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.62,
+      "projWar": 0.6,
+      "totalMinorIp": 127
+    },
+    {
+      "playerId": 13203,
+      "name": "CHARLIE HURST",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.37,
+      "projWar": 0.5,
+      "totalMinorIp": 45
+    },
+    {
+      "playerId": 8544,
+      "name": "Julio Martinez",
+      "age": 33,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.55,
+      "projWar": 0.5,
+      "totalMinorIp": 362
+    },
+    {
+      "playerId": 13227,
+      "name": "Leon Norris",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.32,
+      "projWar": 0.5,
+      "totalMinorIp": 47
+    },
+    {
+      "playerId": 10602,
+      "name": "STEVE ACCURSO",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.64,
+      "projWar": 0.5,
+      "totalMinorIp": 235
+    },
+    {
+      "playerId": 12296,
+      "name": "Largo Andretto",
+      "age": 29,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.65,
+      "projWar": 0.5,
+      "totalMinorIp": 297
+    },
+    {
+      "playerId": 14396,
+      "name": "Dario Barron",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.58,
+      "projWar": 0.5,
+      "totalMinorIp": 60
+    },
+    {
+      "playerId": 13122,
+      "name": "Urs Bloom",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.46,
+      "projWar": 0.5,
+      "totalMinorIp": 43
+    },
+    {
+      "playerId": 11879,
+      "name": "Michael del Carmen",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.69,
+      "projWar": 0.5,
+      "totalMinorIp": 263
+    },
+    {
+      "playerId": 11826,
+      "name": "Radovan Nacuk",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.69,
+      "projWar": 0.5,
+      "totalMinorIp": 425
+    },
+    {
+      "playerId": 11217,
+      "name": "Randy Overwater",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.64,
+      "projWar": 0.5,
+      "totalMinorIp": 455
+    },
+    {
+      "playerId": 10422,
+      "name": "Nicholas Printz",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.69,
+      "projWar": 0.5,
+      "totalMinorIp": 528
+    },
+    {
+      "playerId": 11716,
+      "name": "ADRIÃO TANAKA",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.65,
+      "projWar": 0.5,
+      "totalMinorIp": 200
+    },
+    {
+      "playerId": 10590,
+      "name": "JOE WEIGEL",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.69,
+      "projWar": 0.5,
+      "totalMinorIp": 170
+    },
+    {
+      "playerId": 11782,
+      "name": "NICK MCGUIGAN",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.35,
+      "projWar": 0.4,
+      "totalMinorIp": 125
+    },
+    {
+      "playerId": 13604,
+      "name": "Takeharu Oya",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.51,
+      "projWar": 0.4,
+      "totalMinorIp": 56
+    },
+    {
+      "playerId": 11599,
+      "name": "ENRIQUE SORIA",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.52,
+      "projWar": 0.4,
+      "totalMinorIp": 95
+    },
+    {
+      "playerId": 12633,
+      "name": "Yushiro Nakamura",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.71,
+      "projWar": 0.4,
+      "totalMinorIp": 347
+    },
+    {
+      "playerId": 12888,
+      "name": "Spaulding Smalls",
+      "age": 22,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.58,
+      "projWar": 0.4,
+      "totalMinorIp": 135
+    },
+    {
+      "playerId": 12806,
+      "name": "Jarod Willey",
+      "age": 24,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.51,
+      "projWar": 0.4,
+      "totalMinorIp": 38
+    },
+    {
+      "playerId": 7815,
+      "name": "Francisco Coronado",
+      "age": 34,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.4,
+      "totalMinorIp": 579
+    },
+    {
+      "playerId": 13914,
+      "name": "SEUNG-KYU KIM",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.51,
+      "projWar": 0.4,
+      "totalMinorIp": 144
+    },
+    {
+      "playerId": 12454,
+      "name": "CHICO MITSUKURI",
+      "age": 23,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.46,
+      "projWar": 0.4,
+      "totalMinorIp": 159
+    },
+    {
+      "playerId": 11430,
+      "name": "DAN PLANTE",
+      "age": 30,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.72,
+      "projWar": 0.4,
+      "totalMinorIp": 311
+    },
+    {
+      "playerId": 11494,
+      "name": "EDWIN VILLALOBOS",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.67,
+      "projWar": 0.4,
+      "totalMinorIp": 124
+    },
+    {
+      "playerId": 13056,
+      "name": "Quintin Bugbie",
+      "age": 21,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.56,
+      "projWar": 0.3,
+      "totalMinorIp": 55
+    },
+    {
+      "playerId": 11571,
+      "name": "ALEX ARAIZA",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.62,
+      "projWar": 0.3,
+      "totalMinorIp": 456
+    },
+    {
+      "playerId": 13001,
+      "name": "SEAN BANNERMAN",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.5,
+      "projWar": 0.3,
+      "totalMinorIp": 72
+    },
+    {
+      "playerId": 12452,
+      "name": "SCOTT JENSEN",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.63,
+      "projWar": 0.3,
+      "totalMinorIp": 103
+    },
+    {
+      "playerId": 11831,
+      "name": "Gabel Lijzenga",
+      "age": 25,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.57,
+      "projWar": 0.3,
+      "totalMinorIp": 61
+    },
+    {
+      "playerId": 12217,
+      "name": "Jovica Pupovac",
+      "age": 24,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.63,
+      "projWar": 0.3,
+      "totalMinorIp": 407
+    },
+    {
+      "playerId": 9353,
+      "name": "Randy Shapiro",
+      "age": 34,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.54,
+      "projWar": 0.3,
+      "totalMinorIp": 9
+    },
+    {
+      "playerId": 12243,
+      "name": "SCOTT STOKES",
+      "age": 23,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.65,
+      "projWar": 0.3,
+      "totalMinorIp": 144
+    },
+    {
+      "playerId": 12086,
+      "name": "Theodore Tippett",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.59,
+      "projWar": 0.3,
+      "totalMinorIp": 133
+    },
+    {
+      "playerId": 12855,
+      "name": "Ole van den Hoogen",
+      "age": 23,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.58,
+      "projWar": 0.3,
+      "totalMinorIp": 255
+    },
+    {
+      "playerId": 11743,
+      "name": "DANNY MCINTOSH",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.7,
+      "projWar": 0.2,
+      "totalMinorIp": 185
+    },
+    {
+      "playerId": 12901,
+      "name": "Jarod Pavey",
+      "age": 22,
+      "level": "A",
+      "tfr": 3,
+      "projFip": 4.59,
+      "projWar": 0.2,
+      "totalMinorIp": 7
+    },
+    {
+      "playerId": 11631,
+      "name": "Jim Alcorn",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.7,
+      "projWar": 0.2,
+      "totalMinorIp": 140
+    },
+    {
+      "playerId": 10045,
+      "name": "MIKE BERRY",
+      "age": 29,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.69,
+      "projWar": 0.2,
+      "totalMinorIp": 504
+    },
+    {
+      "playerId": 12303,
+      "name": "MIGUEL CARREON",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.7,
+      "projWar": 0.2,
+      "totalMinorIp": 102
+    },
+    {
+      "playerId": 12227,
+      "name": "Ewan de Vet",
+      "age": 24,
+      "level": "AA",
+      "tfr": 3,
+      "projFip": 4.68,
+      "projWar": 0.2,
+      "totalMinorIp": 197
+    },
+    {
+      "playerId": 8492,
+      "name": "PETE FERGUSSON",
+      "age": 31,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.67,
+      "projWar": 0.2,
+      "totalMinorIp": 274
+    },
+    {
+      "playerId": 11408,
+      "name": "Trevor Hiscock",
+      "age": 30,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.62,
+      "projWar": 0.2,
+      "totalMinorIp": 145
+    },
+    {
+      "playerId": 11714,
+      "name": "SERGIO MARQUEZ",
+      "age": 29,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.66,
+      "projWar": 0.2,
+      "totalMinorIp": 406
+    },
+    {
+      "playerId": 8363,
+      "name": "AARON PARKER",
+      "age": 32,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.72,
+      "projWar": 0.2,
+      "totalMinorIp": 272
+    },
+    {
+      "playerId": 11392,
+      "name": "Nawaf Rafi",
+      "age": 29,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.63,
+      "projWar": 0.2,
+      "totalMinorIp": 47
+    },
+    {
+      "playerId": 9109,
+      "name": "MARK SCHLOBOHM",
+      "age": 34,
+      "level": "AAA",
+      "tfr": 3,
+      "projFip": 4.66,
+      "projWar": 0.2,
+      "totalMinorIp": 83
+    },
+    {
+      "playerId": 14258,
+      "name": "Nicholas Sanders",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.65,
+      "projWar": 0.7,
+      "totalMinorIp": 34
+    },
+    {
+      "playerId": 14711,
+      "name": "Honório Imaginrio",
+      "age": 21,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.69,
+      "projWar": 0.6,
+      "totalMinorIp": 85
+    },
+    {
+      "playerId": 12381,
+      "name": "ROARTY BROWN",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.71,
+      "projWar": 0.5,
+      "totalMinorIp": 340
+    },
+    {
+      "playerId": 13037,
+      "name": "Dustin Calhoun",
+      "age": 22,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.72,
+      "projWar": 0.5,
+      "totalMinorIp": 166
+    },
+    {
+      "playerId": 12419,
+      "name": "GIAN-ANDREA CARANDINI",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.74,
+      "projWar": 0.5,
+      "totalMinorIp": 178
+    },
+    {
+      "playerId": 12898,
+      "name": "Freddy Fuentes",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.7,
+      "projWar": 0.5,
+      "totalMinorIp": 119
+    },
+    {
+      "playerId": 12948,
+      "name": "MARTY ROMAN",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.72,
+      "projWar": 0.5,
+      "totalMinorIp": 125
+    },
+    {
+      "playerId": 11608,
+      "name": "OTTON VAN DER VLUGT",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.73,
+      "projWar": 0.5,
+      "totalMinorIp": 537
+    },
+    {
+      "playerId": 13921,
+      "name": "Foppe Rutte",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.68,
+      "projWar": 0.5,
+      "totalMinorIp": 188
+    },
+    {
+      "playerId": 13087,
+      "name": "Dario Gomez",
+      "age": 22,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.67,
+      "projWar": 0.4,
+      "totalMinorIp": 51
+    },
+    {
+      "playerId": 13201,
+      "name": "HAMZAH BIN BASIL",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.76,
+      "projWar": 0.4,
+      "totalMinorIp": 138
+    },
+    {
+      "playerId": 13098,
+      "name": "Edgar Martinez",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.79,
+      "projWar": 0.4,
+      "totalMinorIp": 24
+    },
+    {
+      "playerId": 12891,
+      "name": "Matt Miller",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.67,
+      "projWar": 0.4,
+      "totalMinorIp": 33
+    },
+    {
+      "playerId": 11746,
+      "name": "Jason Pigeon",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.77,
+      "projWar": 0.4,
+      "totalMinorIp": 480
+    },
+    {
+      "playerId": 11723,
+      "name": "SERGIO TREJO",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.73,
+      "projWar": 0.4,
+      "totalMinorIp": 95
+    },
+    {
+      "playerId": 12732,
+      "name": "Pedro Aguilar",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.77,
+      "projWar": 0.4,
+      "totalMinorIp": 1
+    },
+    {
+      "playerId": 13074,
+      "name": "Jean Berger",
+      "age": 21,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.72,
+      "projWar": 0.4,
+      "totalMinorIp": 48
+    },
+    {
+      "playerId": 12904,
+      "name": "Tomislav Ckrebic",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.69,
+      "projWar": 0.4,
+      "totalMinorIp": 33
+    },
+    {
+      "playerId": 12620,
+      "name": "Rex Fouracre",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.74,
+      "projWar": 0.4,
+      "totalMinorIp": 84
+    },
+    {
+      "playerId": 8905,
+      "name": "Martin Gilbert",
+      "age": 32,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.74,
+      "projWar": 0.4,
+      "totalMinorIp": 188
+    },
+    {
+      "playerId": 12081,
+      "name": "Angel Gonzalez",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.74,
+      "projWar": 0.4,
+      "totalMinorIp": 129
+    },
+    {
+      "playerId": 11641,
+      "name": "MASAKATSU KIMURA",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.77,
+      "projWar": 0.4,
+      "totalMinorIp": 192
+    },
+    {
+      "playerId": 11023,
+      "name": "GEOFF LEE",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.76,
+      "projWar": 0.4,
+      "totalMinorIp": 197
+    },
+    {
+      "playerId": 13229,
+      "name": "Hughie Lloyd",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.73,
+      "projWar": 0.4,
+      "totalMinorIp": 104
+    },
+    {
+      "playerId": 11583,
+      "name": "Matt Marr",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.75,
+      "projWar": 0.4,
+      "totalMinorIp": 183
+    },
+    {
+      "playerId": 10579,
+      "name": "Ross Miranda",
+      "age": 27,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.74,
+      "projWar": 0.4,
+      "totalMinorIp": 406
+    },
+    {
+      "playerId": 13772,
+      "name": "Xavier Nattrass",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.71,
+      "projWar": 0.4,
+      "totalMinorIp": 110
+    },
+    {
+      "playerId": 11809,
+      "name": "Leo Ruiz",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.73,
+      "projWar": 0.4,
+      "totalMinorIp": 137
+    },
+    {
+      "playerId": 13790,
+      "name": "KYRAN WILLIAMS",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.75,
+      "projWar": 0.4,
+      "totalMinorIp": 231
+    },
+    {
+      "playerId": 11643,
+      "name": "HANNA BIN RAGHIB",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.76,
+      "projWar": 0.3,
+      "totalMinorIp": 156
+    },
+    {
+      "playerId": 12853,
+      "name": "Adnan bin Siraj",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.74,
+      "projWar": 0.3,
+      "totalMinorIp": 137
+    },
+    {
+      "playerId": 12943,
+      "name": "Danny Aguilar",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.72,
+      "projWar": 0.3,
+      "totalMinorIp": 217
+    },
+    {
+      "playerId": 13141,
+      "name": "Jovan Djorovic",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.78,
+      "projWar": 0.3,
+      "totalMinorIp": 84
+    },
+    {
+      "playerId": 11053,
+      "name": "Lionel Durante",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.8,
+      "projWar": 0.3,
+      "totalMinorIp": 238
+    },
+    {
+      "playerId": 10563,
+      "name": "MARK HAMILTON",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.79,
+      "projWar": 0.3,
+      "totalMinorIp": 371
+    },
+    {
+      "playerId": 12942,
+      "name": "HYUN-WOO KIM",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.78,
+      "projWar": 0.3,
+      "totalMinorIp": 241
+    },
+    {
+      "playerId": 10002,
+      "name": "JOHN MADIGAN",
+      "age": 30,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.8,
+      "projWar": 0.3,
+      "totalMinorIp": 495
+    },
+    {
+      "playerId": 14219,
+      "name": "Armando Mendes",
+      "age": 21,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.75,
+      "projWar": 0.3,
+      "totalMinorIp": 107
+    },
+    {
+      "playerId": 13814,
+      "name": "Dan Meyer",
+      "age": 21,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.78,
+      "projWar": 0.3,
+      "totalMinorIp": 42
+    },
+    {
+      "playerId": 11312,
+      "name": "Manabu Okuno",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.76,
+      "projWar": 0.3,
+      "totalMinorIp": 81
+    },
+    {
+      "playerId": 12598,
+      "name": "Glenn Oskam",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.77,
+      "projWar": 0.3,
+      "totalMinorIp": 12
+    },
+    {
+      "playerId": 11991,
+      "name": "Juan Ramirez",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.75,
+      "projWar": 0.3,
+      "totalMinorIp": 186
+    },
+    {
+      "playerId": 10938,
+      "name": "STEPHEN RIX",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.77,
+      "projWar": 0.3,
+      "totalMinorIp": 412
+    },
+    {
+      "playerId": 11544,
+      "name": "ELIJAH WORTHY",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.3,
+      "totalMinorIp": 136
+    },
+    {
+      "playerId": 13048,
+      "name": "Dylan Bartosz",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.2,
+      "totalMinorIp": 93
+    },
+    {
+      "playerId": 13909,
+      "name": "BILL CAWTHORNE",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.84,
+      "projWar": 0.2,
+      "totalMinorIp": 252
+    },
+    {
+      "playerId": 13919,
+      "name": "Chris Coles",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.2,
+      "totalMinorIp": 43
+    },
+    {
+      "playerId": 12432,
+      "name": "RICO ESQUIVEL",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.8,
+      "projWar": 0.2,
+      "totalMinorIp": 206
+    },
+    {
+      "playerId": 12459,
+      "name": "David Estrada",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.71,
+      "projWar": 0.2,
+      "totalMinorIp": 209
+    },
+    {
+      "playerId": 12194,
+      "name": "Ricky Felix",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0.2,
+      "totalMinorIp": 311
+    },
+    {
+      "playerId": 13473,
+      "name": "Hiroki Kojima",
+      "age": 23,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.2,
+      "totalMinorIp": 31
+    },
+    {
+      "playerId": 12893,
+      "name": "Hiromichi Ono",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.83,
+      "projWar": 0.2,
+      "totalMinorIp": 132
+    },
+    {
+      "playerId": 13421,
+      "name": "Frits Vuijk",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0.2,
+      "totalMinorIp": 33
+    },
+    {
+      "playerId": 11882,
+      "name": "Leonor Accioli",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.2,
+      "totalMinorIp": 133
+    },
+    {
+      "playerId": 11603,
+      "name": "Willie Barragan",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.83,
+      "projWar": 0.2,
+      "totalMinorIp": 209
+    },
+    {
+      "playerId": 12339,
+      "name": "MANUEL BARRIENTOS",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.83,
+      "projWar": 0.2,
+      "totalMinorIp": 335
+    },
+    {
+      "playerId": 8188,
+      "name": "JOHN BECKHAM",
+      "age": 34,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.85,
+      "projWar": 0.2,
+      "totalMinorIp": 297
+    },
+    {
+      "playerId": 12072,
+      "name": "Khoury bin Suhayl",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.83,
+      "projWar": 0.2,
+      "totalMinorIp": 267
+    },
+    {
+      "playerId": 8033,
+      "name": "RICKY CRUZ",
+      "age": 33,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.83,
+      "projWar": 0.2,
+      "totalMinorIp": 356
+    },
+    {
+      "playerId": 11340,
+      "name": "Lewis Curry",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.77,
+      "projWar": 0.2,
+      "totalMinorIp": 84
+    },
+    {
+      "playerId": 12362,
+      "name": "MAXIM DERKSEN",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.8,
+      "projWar": 0.2,
+      "totalMinorIp": 98
+    },
+    {
+      "playerId": 13255,
+      "name": "Victor Escobar",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.83,
+      "projWar": 0.2,
+      "totalMinorIp": 166
+    },
+    {
+      "playerId": 10969,
+      "name": "JASON GARNETT",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.2,
+      "totalMinorIp": 284
+    },
+    {
+      "playerId": 11114,
+      "name": "Travis Himes",
+      "age": 27,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.75,
+      "projWar": 0.2,
+      "totalMinorIp": 562
+    },
+    {
+      "playerId": 11592,
+      "name": "MANATO HIRA",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.8,
+      "projWar": 0.2,
+      "totalMinorIp": 326
+    },
+    {
+      "playerId": 11083,
+      "name": "Remco Hoeksma",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.2,
+      "totalMinorIp": 375
+    },
+    {
+      "playerId": 13185,
+      "name": "DON KELLY",
+      "age": 24,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.72,
+      "projWar": 0.2,
+      "totalMinorIp": 38
+    },
+    {
+      "playerId": 12680,
+      "name": "Ji-hoon Kim",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.79,
+      "projWar": 0.2,
+      "totalMinorIp": 58
+    },
+    {
+      "playerId": 11911,
+      "name": "Jong-ho Kim",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.84,
+      "projWar": 0.2,
+      "totalMinorIp": 526
+    },
+    {
+      "playerId": 13456,
+      "name": "Seiichiro Koga",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.2,
+      "totalMinorIp": 170
+    },
+    {
+      "playerId": 12967,
+      "name": "JAE-HEE KWAK",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.2,
+      "totalMinorIp": 273
+    },
+    {
+      "playerId": 13131,
+      "name": "Luis Lopez",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.2,
+      "totalMinorIp": 332
+    },
+    {
+      "playerId": 13812,
+      "name": "Willis Lozano",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.84,
+      "projWar": 0.2,
+      "totalMinorIp": 185
+    },
+    {
+      "playerId": 11969,
+      "name": "Karst Lubbers",
+      "age": 24,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.84,
+      "projWar": 0.2,
+      "totalMinorIp": 46
+    },
+    {
+      "playerId": 10974,
+      "name": "KEVIN MAJOR",
+      "age": 24,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.2,
+      "totalMinorIp": 114
+    },
+    {
+      "playerId": 12019,
+      "name": "Juan Maldonado",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.7,
+      "projWar": 0.2,
+      "totalMinorIp": 222
+    },
+    {
+      "playerId": 11236,
+      "name": "Tae-geun Park",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.73,
+      "projWar": 0.2,
+      "totalMinorIp": 87
+    },
+    {
+      "playerId": 11795,
+      "name": "JOSE RUIZ",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.2,
+      "totalMinorIp": 166
+    },
+    {
+      "playerId": 12711,
+      "name": "Juan Sastre",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.73,
+      "projWar": 0.2,
+      "totalMinorIp": 519
+    },
+    {
+      "playerId": 12083,
+      "name": "Ciro Strambi",
+      "age": 24,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.83,
+      "projWar": 0.2,
+      "totalMinorIp": 140
+    },
+    {
+      "playerId": 13746,
+      "name": "Ab van Soest",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.85,
+      "projWar": 0.2,
+      "totalMinorIp": 88
+    },
+    {
+      "playerId": 11942,
+      "name": "Warren Wonnocott",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.84,
+      "projWar": 0.2,
+      "totalMinorIp": 133
+    },
+    {
+      "playerId": 12664,
+      "name": "Amjad bin Raghib",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.85,
+      "projWar": 0.1,
+      "totalMinorIp": 12
+    },
+    {
+      "playerId": 12266,
+      "name": "Bobby Faber",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.88,
+      "projWar": 0.1,
+      "totalMinorIp": 76
+    },
+    {
+      "playerId": 12406,
+      "name": "ALFREDO LANGSTRAAT",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.78,
+      "projWar": 0.1,
+      "totalMinorIp": 115
+    },
+    {
+      "playerId": 12260,
+      "name": "BILL POND",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0.1,
+      "totalMinorIp": 163
+    },
+    {
+      "playerId": 11558,
+      "name": "MIKE SMITH",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.83,
+      "projWar": 0.1,
+      "totalMinorIp": 160
+    },
+    {
+      "playerId": 13272,
+      "name": "Jamie Wells",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.9,
+      "projWar": 0.1,
+      "totalMinorIp": 21
+    },
+    {
+      "playerId": 14832,
+      "name": "Tobias Aalderink",
+      "age": 21,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.1,
+      "totalMinorIp": 61
+    },
+    {
+      "playerId": 12202,
+      "name": "Alejandro Arocha",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0.1,
+      "totalMinorIp": 194
+    },
+    {
+      "playerId": 11025,
+      "name": "JUSTIN BILLETT",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0.1,
+      "totalMinorIp": 164
+    },
+    {
+      "playerId": 12280,
+      "name": "KHAIR AL DIN BIN SOFIAN",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0.1,
+      "totalMinorIp": 98
+    },
+    {
+      "playerId": 11924,
+      "name": "Danny Bueno",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.88,
+      "projWar": 0.1,
+      "totalMinorIp": 155
+    },
+    {
+      "playerId": 11926,
+      "name": "Lorenz Buitenkamp",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0.1,
+      "totalMinorIp": 110
+    },
+    {
+      "playerId": 13713,
+      "name": "Dong-chan Cho",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.89,
+      "projWar": 0.1,
+      "totalMinorIp": 66
+    },
+    {
+      "playerId": 12307,
+      "name": "MIKE EDWARDS",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0.1,
+      "totalMinorIp": 279
+    },
+    {
+      "playerId": 11754,
+      "name": "Landon Gunn",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0.1,
+      "totalMinorIp": 346
+    },
+    {
+      "playerId": 12978,
+      "name": "AARON HERRICK",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0.1,
+      "totalMinorIp": 24
+    },
+    {
+      "playerId": 11822,
+      "name": "Jordan Ibarra",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.89,
+      "projWar": 0.1,
+      "totalMinorIp": 271
+    },
+    {
+      "playerId": 11789,
+      "name": "LOGAN KIPLING",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.79,
+      "projWar": 0.1,
+      "totalMinorIp": 81
+    },
+    {
+      "playerId": 10877,
+      "name": "CORBIN KNIPPER",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0.1,
+      "totalMinorIp": 248
+    },
+    {
+      "playerId": 11788,
+      "name": "RUDKO KONTIC",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.1,
+      "totalMinorIp": 149
+    },
+    {
+      "playerId": 13788,
+      "name": "RIEMER KOPPELAAR",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.82,
+      "projWar": 0.1,
+      "totalMinorIp": 178
+    },
+    {
+      "playerId": 11251,
+      "name": "Joon-ho Lee",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.1,
+      "totalMinorIp": 232
+    },
+    {
+      "playerId": 12345,
+      "name": "Joong-seok Lee",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0.1,
+      "totalMinorIp": 144
+    },
+    {
+      "playerId": 11483,
+      "name": "KEN LEE",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.88,
+      "projWar": 0.1,
+      "totalMinorIp": 258
+    },
+    {
+      "playerId": 11893,
+      "name": "Shoji Llanttada",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.1,
+      "totalMinorIp": 548
+    },
+    {
+      "playerId": 13786,
+      "name": "STEVE LOCKEN",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0.1,
+      "totalMinorIp": 177
+    },
+    {
+      "playerId": 12571,
+      "name": "Juan Maya",
+      "age": 24,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.88,
+      "projWar": 0.1,
+      "totalMinorIp": 140
+    },
+    {
+      "playerId": 8793,
+      "name": "JAMAL MORROW",
+      "age": 31,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.85,
+      "projWar": 0.1,
+      "totalMinorIp": 139
+    },
+    {
+      "playerId": 13299,
+      "name": "Dae-hyung Oh",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.85,
+      "projWar": 0.1,
+      "totalMinorIp": 163
+    },
+    {
+      "playerId": 12884,
+      "name": "Jorge Quinones",
+      "age": 23,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.79,
+      "projWar": 0.1,
+      "totalMinorIp": 8
+    },
+    {
+      "playerId": 10976,
+      "name": "MARK ROGERS",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.84,
+      "projWar": 0.1,
+      "totalMinorIp": 237
+    },
+    {
+      "playerId": 10634,
+      "name": "Doug Schueller",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.85,
+      "projWar": 0.1,
+      "totalMinorIp": 394
+    },
+    {
+      "playerId": 13081,
+      "name": "Bruno Sells",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0.1,
+      "totalMinorIp": 63
+    },
+    {
+      "playerId": 11080,
+      "name": "Takayasu Tsukamoto",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0.1,
+      "totalMinorIp": 191
+    },
+    {
+      "playerId": 12880,
+      "name": "Cam Waterson",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.85,
+      "projWar": 0.1,
+      "totalMinorIp": 122
+    },
+    {
+      "playerId": 12981,
+      "name": "STEVE WILBUR",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.81,
+      "projWar": 0.1,
+      "totalMinorIp": 116
+    },
+    {
+      "playerId": 10987,
+      "name": "DANTE WILLIAMS",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.9,
+      "projWar": 0.1,
+      "totalMinorIp": 70
+    },
+    {
+      "playerId": 12994,
+      "name": "JAROD WEDEMEYER",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.88,
+      "projWar": 0,
+      "totalMinorIp": 73
+    },
+    {
+      "playerId": 12210,
+      "name": "Jordan Alvarez",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.94,
+      "projWar": 0,
+      "totalMinorIp": 66
+    },
+    {
+      "playerId": 13198,
+      "name": "CHRIS ANDRADE",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.86,
+      "projWar": 0,
+      "totalMinorIp": 280
+    },
+    {
+      "playerId": 10667,
+      "name": "Gervasio Atares",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.91,
+      "projWar": 0,
+      "totalMinorIp": 401
+    },
+    {
+      "playerId": 12340,
+      "name": "ABU BAKR BIN NAJI",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.93,
+      "projWar": 0,
+      "totalMinorIp": 465
+    },
+    {
+      "playerId": 13150,
+      "name": "Braz Cafu",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.93,
+      "projWar": 0,
+      "totalMinorIp": 51
+    },
+    {
+      "playerId": 11802,
+      "name": "Bryan Clark",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.94,
+      "projWar": 0,
+      "totalMinorIp": 77
+    },
+    {
+      "playerId": 12946,
+      "name": "KEN CORBIN",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.93,
+      "projWar": 0,
+      "totalMinorIp": 278
+    },
+    {
+      "playerId": 10675,
+      "name": "Sibrand Dubbeldam",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.92,
+      "projWar": 0,
+      "totalMinorIp": 555
+    },
+    {
+      "playerId": 11617,
+      "name": "ISAIAH EDWARDS",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.9,
+      "projWar": 0,
+      "totalMinorIp": 309
+    },
+    {
+      "playerId": 13793,
+      "name": "TIMMY FEENSTRA",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.92,
+      "projWar": 0,
+      "totalMinorIp": 87
+    },
+    {
+      "playerId": 11888,
+      "name": "Yukio Kondo",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.92,
+      "projWar": 0,
+      "totalMinorIp": 184
+    },
+    {
+      "playerId": 11954,
+      "name": "Jong-yeol Lee",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.93,
+      "projWar": 0,
+      "totalMinorIp": 133
+    },
+    {
+      "playerId": 11757,
+      "name": "DWAYNE MACDERMID",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.92,
+      "projWar": 0,
+      "totalMinorIp": 340
+    },
+    {
+      "playerId": 11787,
+      "name": "ED MCGREER",
+      "age": 24,
+      "level": "A",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0,
+      "totalMinorIp": 280
+    },
+    {
+      "playerId": 12627,
+      "name": "Noah Moy",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.94,
+      "projWar": 0,
+      "totalMinorIp": 8
+    },
+    {
+      "playerId": 11611,
+      "name": "HAMZAH QASIM",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.87,
+      "projWar": 0,
+      "totalMinorIp": 156
+    },
+    {
+      "playerId": 11005,
+      "name": "JORGE RODRIGUEZ",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.9,
+      "projWar": 0,
+      "totalMinorIp": 158
+    },
+    {
+      "playerId": 11417,
+      "name": "MAXIMINO ROSSITO",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.92,
+      "projWar": 0,
+      "totalMinorIp": 85
+    },
+    {
+      "playerId": 12921,
+      "name": "KOICHI SASAKI",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.92,
+      "projWar": 0,
+      "totalMinorIp": 198
+    },
+    {
+      "playerId": 12600,
+      "name": "Ryoji Toki",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.92,
+      "projWar": 0,
+      "totalMinorIp": 83
+    },
+    {
+      "playerId": 13251,
+      "name": "Maurice Wells",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.91,
+      "projWar": 0,
+      "totalMinorIp": 174
+    },
+    {
+      "playerId": 9139,
+      "name": "JOSEPH WHITE",
+      "age": 34,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.92,
+      "projWar": 0,
+      "totalMinorIp": 182
+    },
+    {
+      "playerId": 10636,
+      "name": "JEFF WILLEMS",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.93,
+      "projWar": 0,
+      "totalMinorIp": 53
+    },
+    {
+      "playerId": 12473,
+      "name": "Jose Ruiz",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2.5,
+      "projFip": 4.93,
+      "projWar": 0,
+      "totalMinorIp": 132
+    },
+    {
+      "playerId": 12666,
+      "name": "Joe Judson",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2.5,
+      "projFip": 4.95,
+      "projWar": -0.1,
+      "totalMinorIp": 42
+    },
+    {
+      "playerId": 10333,
+      "name": "Hugo Feliciano",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": 0,
+      "totalMinorIp": 221
+    },
+    {
+      "playerId": 11022,
+      "name": "KELLY ROSENBERGER",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.97,
+      "projWar": 0,
+      "totalMinorIp": 57
+    },
+    {
+      "playerId": 12846,
+      "name": "Ricardo Figueroa",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": 0,
+      "totalMinorIp": 42
+    },
+    {
+      "playerId": 9577,
+      "name": "NICK GULLEY",
+      "age": 30,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.94,
+      "projWar": 0,
+      "totalMinorIp": 82
+    },
+    {
+      "playerId": 11669,
+      "name": "ELTON JOHN",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.96,
+      "projWar": 0,
+      "totalMinorIp": 136
+    },
+    {
+      "playerId": 12198,
+      "name": "Orlando Barboza",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.97,
+      "projWar": -0.1,
+      "totalMinorIp": 198
+    },
+    {
+      "playerId": 13741,
+      "name": "Kane Aston",
+      "age": 22,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.06,
+      "projWar": -0.1,
+      "totalMinorIp": 159
+    },
+    {
+      "playerId": 13539,
+      "name": "Valerio Bessi",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.99,
+      "projWar": -0.1,
+      "totalMinorIp": 23
+    },
+    {
+      "playerId": 13205,
+      "name": "ELIGIO BRAMANTE",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.1,
+      "totalMinorIp": 183
+    },
+    {
+      "playerId": 12183,
+      "name": "Basilio Brandini",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.1,
+      "projWar": -0.1,
+      "totalMinorIp": 113
+    },
+    {
+      "playerId": 11901,
+      "name": "Juan Canas",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": -0.1,
+      "totalMinorIp": 368
+    },
+    {
+      "playerId": 13103,
+      "name": "Allen Dunbar",
+      "age": 22,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.08,
+      "projWar": -0.1,
+      "totalMinorIp": 49
+    },
+    {
+      "playerId": 9081,
+      "name": "BRETT GRINE",
+      "age": 31,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": -0.1,
+      "totalMinorIp": 12
+    },
+    {
+      "playerId": 9486,
+      "name": "JOSH HALL",
+      "age": 33,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.99,
+      "projWar": -0.1,
+      "totalMinorIp": 126
+    },
+    {
+      "playerId": 12471,
+      "name": "Teddy Hewson",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": -0.1,
+      "totalMinorIp": 156
+    },
+    {
+      "playerId": 10845,
+      "name": "Josh Houle",
+      "age": 27,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.02,
+      "projWar": -0.1,
+      "totalMinorIp": 130
+    },
+    {
+      "playerId": 9132,
+      "name": "ERIC HUFFMAN",
+      "age": 31,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.1,
+      "totalMinorIp": 225
+    },
+    {
+      "playerId": 12561,
+      "name": "Lachlan Innes",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": -0.1,
+      "totalMinorIp": 199
+    },
+    {
+      "playerId": 12281,
+      "name": "GARRUS JOHNSON",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.1,
+      "totalMinorIp": 46
+    },
+    {
+      "playerId": 13510,
+      "name": "Yong-koo Lee",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.01,
+      "projWar": -0.1,
+      "totalMinorIp": 110
+    },
+    {
+      "playerId": 11675,
+      "name": "GILBERT LELOUP",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.97,
+      "projWar": -0.1,
+      "totalMinorIp": 112
+    },
+    {
+      "playerId": 7612,
+      "name": "RYAN MARKS",
+      "age": 34,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.1,
+      "projWar": -0.1,
+      "totalMinorIp": 112
+    },
+    {
+      "playerId": 12264,
+      "name": "Tony Martinez",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": -0.1,
+      "totalMinorIp": 93
+    },
+    {
+      "playerId": 12259,
+      "name": "TAE-KON PARK",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.01,
+      "projWar": -0.1,
+      "totalMinorIp": 185
+    },
+    {
+      "playerId": 11783,
+      "name": "MARCEL REALE",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.1,
+      "totalMinorIp": 85
+    },
+    {
+      "playerId": 12229,
+      "name": "Job Schoenmakers",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.12,
+      "projWar": -0.1,
+      "totalMinorIp": 142
+    },
+    {
+      "playerId": 13281,
+      "name": "Lee Smith",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.1,
+      "totalMinorIp": 150
+    },
+    {
+      "playerId": 13483,
+      "name": "Radovan Stanisic",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": -0.1,
+      "totalMinorIp": 193
+    },
+    {
+      "playerId": 11676,
+      "name": "RYUZO TABUCHI",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.98,
+      "projWar": -0.1,
+      "totalMinorIp": 268
+    },
+    {
+      "playerId": 13600,
+      "name": "Gary Talbot",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.99,
+      "projWar": -0.1,
+      "totalMinorIp": 291
+    },
+    {
+      "playerId": 12201,
+      "name": "Branislav Veselin",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.99,
+      "projWar": -0.1,
+      "totalMinorIp": 312
+    },
+    {
+      "playerId": 11578,
+      "name": "Edwin Zapata",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.96,
+      "projWar": -0.1,
+      "totalMinorIp": 504
+    },
+    {
+      "playerId": 12241,
+      "name": "George Black",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.06,
+      "projWar": -0.1,
+      "totalMinorIp": 115
+    },
+    {
+      "playerId": 11970,
+      "name": "Callum Farrow",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.07,
+      "projWar": -0.1,
+      "totalMinorIp": 129
+    },
+    {
+      "playerId": 12970,
+      "name": "BERT RODRIGUEZ",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.08,
+      "projWar": -0.1,
+      "totalMinorIp": 79
+    },
+    {
+      "playerId": 11089,
+      "name": "Juan Troche",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.1,
+      "totalMinorIp": 201
+    },
+    {
+      "playerId": 14039,
+      "name": "Seung-hyeon Ahn",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.09,
+      "projWar": -0.2,
+      "totalMinorIp": 25
+    },
+    {
+      "playerId": 12810,
+      "name": "Nicky Beaumont",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.15,
+      "projWar": -0.2,
+      "totalMinorIp": 177
+    },
+    {
+      "playerId": 11317,
+      "name": "Henry Boon",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 4.99,
+      "projWar": -0.2,
+      "totalMinorIp": 310
+    },
+    {
+      "playerId": 12232,
+      "name": "Ian Boyle",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.12,
+      "projWar": -0.2,
+      "totalMinorIp": 74
+    },
+    {
+      "playerId": 11649,
+      "name": "Pat Burkhard",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.2,
+      "totalMinorIp": 484
+    },
+    {
+      "playerId": 11464,
+      "name": "SAM BURKS",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.1,
+      "projWar": -0.2,
+      "totalMinorIp": 80
+    },
+    {
+      "playerId": 11049,
+      "name": "Claude Buso",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.2,
+      "totalMinorIp": 452
+    },
+    {
+      "playerId": 11449,
+      "name": "KEVIN CASEY",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.2,
+      "totalMinorIp": 146
+    },
+    {
+      "playerId": 11801,
+      "name": "FRANCISCO CASTRO",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.2,
+      "totalMinorIp": 169
+    },
+    {
+      "playerId": 11988,
+      "name": "Glenn Claessens",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.03,
+      "projWar": -0.2,
+      "totalMinorIp": 230
+    },
+    {
+      "playerId": 13476,
+      "name": "Brian Clark",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.02,
+      "projWar": -0.2,
+      "totalMinorIp": 67
+    },
+    {
+      "playerId": 12235,
+      "name": "Luigi Collard",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.13,
+      "projWar": -0.2,
+      "totalMinorIp": 89
+    },
+    {
+      "playerId": 12413,
+      "name": "JEFF HOBBS",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.01,
+      "projWar": -0.2,
+      "totalMinorIp": 329
+    },
+    {
+      "playerId": 13818,
+      "name": "Antonio Jimenez",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.22,
+      "projWar": -0.2,
+      "totalMinorIp": 45
+    },
+    {
+      "playerId": 14189,
+      "name": "Bryan Moseley",
+      "age": 21,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.12,
+      "projWar": -0.2,
+      "totalMinorIp": 10
+    },
+    {
+      "playerId": 12448,
+      "name": "SOTAN NAKADA",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.21,
+      "projWar": -0.2,
+      "totalMinorIp": 223
+    },
+    {
+      "playerId": 12249,
+      "name": "GEORGE NORMAN",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 4.99,
+      "projWar": -0.2,
+      "totalMinorIp": 84
+    },
+    {
+      "playerId": 12735,
+      "name": "Salvatore Rospigliosi",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.04,
+      "projWar": -0.2,
+      "totalMinorIp": 301
+    },
+    {
+      "playerId": 12957,
+      "name": "JAVY RUIZ",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.01,
+      "projWar": -0.2,
+      "totalMinorIp": 163
+    },
+    {
+      "playerId": 13485,
+      "name": "Stewart Shaw",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.04,
+      "projWar": -0.2,
+      "totalMinorIp": 34
+    },
+    {
+      "playerId": 10967,
+      "name": "TONY SMITH",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.03,
+      "projWar": -0.2,
+      "totalMinorIp": 201
+    },
+    {
+      "playerId": 11235,
+      "name": "Shigeki Ueno",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.14,
+      "projWar": -0.2,
+      "totalMinorIp": 124
+    },
+    {
+      "playerId": 13935,
+      "name": "Lee Younker",
+      "age": 22,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5,
+      "projWar": -0.2,
+      "totalMinorIp": 77
+    },
+    {
+      "playerId": 12405,
+      "name": "ABDUL-GHAFUR BIN NAWAF",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.18,
+      "projWar": -0.2,
+      "totalMinorIp": 42
+    },
+    {
+      "playerId": 12746,
+      "name": "Keith Blondell",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.18,
+      "projWar": -0.2,
+      "totalMinorIp": 21
+    },
+    {
+      "playerId": 13086,
+      "name": "Chris Dixon",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.13,
+      "projWar": -0.2,
+      "totalMinorIp": 51
+    },
+    {
+      "playerId": 11918,
+      "name": "Woo-jin Yoo",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.03,
+      "projWar": -0.2,
+      "totalMinorIp": 82
+    },
+    {
+      "playerId": 14851,
+      "name": "Ewan Attwood",
+      "age": 21,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.27,
+      "projWar": -0.3,
+      "totalMinorIp": 17
+    },
+    {
+      "playerId": 13050,
+      "name": "Josh Boyden",
+      "age": 22,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.04,
+      "projWar": -0.3,
+      "totalMinorIp": 136
+    },
+    {
+      "playerId": 12209,
+      "name": "Humberto Boye",
+      "age": 24,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.05,
+      "projWar": -0.3,
+      "totalMinorIp": 195
+    },
+    {
+      "playerId": 13926,
+      "name": "Jasa Bulatovic",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.05,
+      "projWar": -0.3,
+      "totalMinorIp": 72
+    },
+    {
+      "playerId": 13520,
+      "name": "Silvano Cato",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.07,
+      "projWar": -0.3,
+      "totalMinorIp": 56
+    },
+    {
+      "playerId": 7221,
+      "name": "TOMÁS CORDERO",
+      "age": 36,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.06,
+      "projWar": -0.3,
+      "totalMinorIp": 30
+    },
+    {
+      "playerId": 11054,
+      "name": "Eddie Duran",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.15,
+      "projWar": -0.3,
+      "totalMinorIp": 261
+    },
+    {
+      "playerId": 11800,
+      "name": "ABDUL-NASIR FAKHRY",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.07,
+      "projWar": -0.3,
+      "totalMinorIp": 198
+    },
+    {
+      "playerId": 13693,
+      "name": "Joon-ho Jung",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.09,
+      "projWar": -0.3,
+      "totalMinorIp": 271
+    },
+    {
+      "playerId": 12458,
+      "name": "Ersilio Maffi",
+      "age": 24,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.06,
+      "projWar": -0.3,
+      "totalMinorIp": 203
+    },
+    {
+      "playerId": 11632,
+      "name": "ZHU MAK",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.25,
+      "projWar": -0.3,
+      "totalMinorIp": 71
+    },
+    {
+      "playerId": 12562,
+      "name": "Carlos Navarro",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.19,
+      "projWar": -0.3,
+      "totalMinorIp": 250
+    },
+    {
+      "playerId": 12643,
+      "name": "Waldemar Reinders",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.09,
+      "projWar": -0.3,
+      "totalMinorIp": 28
+    },
+    {
+      "playerId": 11555,
+      "name": "TEINOSUKE SASAKI",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.07,
+      "projWar": -0.3,
+      "totalMinorIp": 373
+    },
+    {
+      "playerId": 13240,
+      "name": "Lenny Tomkins",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.23,
+      "projWar": -0.3,
+      "totalMinorIp": 47
+    },
+    {
+      "playerId": 12403,
+      "name": "BENNY WRIGHT",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.06,
+      "projWar": -0.3,
+      "totalMinorIp": 153
+    },
+    {
+      "playerId": 13502,
+      "name": "Wijnand Blauw",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.27,
+      "projWar": -0.3,
+      "totalMinorIp": 54
+    },
+    {
+      "playerId": 12090,
+      "name": "Gennarino Carnascialli",
+      "age": 24,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.14,
+      "projWar": -0.3,
+      "totalMinorIp": 259
+    },
+    {
+      "playerId": 12885,
+      "name": "Bradley Clow",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.04,
+      "projWar": -0.3,
+      "totalMinorIp": 148
+    },
+    {
+      "playerId": 13535,
+      "name": "Mario Huerta",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.19,
+      "projWar": -0.3,
+      "totalMinorIp": 79
+    },
+    {
+      "playerId": 13148,
+      "name": "Graciano Kains",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.08,
+      "projWar": -0.3,
+      "totalMinorIp": 351
+    },
+    {
+      "playerId": 11518,
+      "name": "CARLOS PEREZ",
+      "age": 25,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.03,
+      "projWar": -0.3,
+      "totalMinorIp": 498
+    },
+    {
+      "playerId": 13670,
+      "name": "Jon Prévot",
+      "age": 22,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.27,
+      "projWar": -0.3,
+      "totalMinorIp": 28
+    },
+    {
+      "playerId": 13157,
+      "name": "Daniel Alvarado",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.11,
+      "projWar": -0.4,
+      "totalMinorIp": 80
+    },
+    {
+      "playerId": 8044,
+      "name": "ERIC BRUMAN",
+      "age": 33,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.11,
+      "projWar": -0.4,
+      "totalMinorIp": 73
+    },
+    {
+      "playerId": 13525,
+      "name": "Dobrica Gorkic",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.13,
+      "projWar": -0.4,
+      "totalMinorIp": 32
+    },
+    {
+      "playerId": 11645,
+      "name": "YASUMITSU MACHIDA",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.11,
+      "projWar": -0.4,
+      "totalMinorIp": 133
+    },
+    {
+      "playerId": 13105,
+      "name": "Draza Moljevic",
+      "age": 22,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.09,
+      "projWar": -0.4,
+      "totalMinorIp": 57
+    },
+    {
+      "playerId": 13989,
+      "name": "Gerard Peacock",
+      "age": 22,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.08,
+      "projWar": -0.4,
+      "totalMinorIp": 124
+    },
+    {
+      "playerId": 13099,
+      "name": "Don Wyatt",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.08,
+      "projWar": -0.4,
+      "totalMinorIp": 20
+    },
+    {
+      "playerId": 12646,
+      "name": "Eligio Bottesini",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.14,
+      "projWar": -0.4,
+      "totalMinorIp": 117
+    },
+    {
+      "playerId": 13223,
+      "name": "Rich Nicholls",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.4,
+      "totalMinorIp": 105
+    },
+    {
+      "playerId": 12863,
+      "name": "Wessel Ballast",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.14,
+      "projWar": -0.5,
+      "totalMinorIp": 312
+    },
+    {
+      "playerId": 11460,
+      "name": "PASCAL BERCOVICI",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.13,
+      "projWar": -0.5,
+      "totalMinorIp": 274
+    },
+    {
+      "playerId": 12219,
+      "name": "Ki-seop Jung",
+      "age": 24,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.14,
+      "projWar": -0.5,
+      "totalMinorIp": 184
+    },
+    {
+      "playerId": 11950,
+      "name": "Seong-hyeon Kim",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.13,
+      "projWar": -0.5,
+      "totalMinorIp": 65
+    },
+    {
+      "playerId": 11610,
+      "name": "SRETEN KUKCENJAC",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.15,
+      "projWar": -0.5,
+      "totalMinorIp": 93
+    },
+    {
+      "playerId": 13466,
+      "name": "Herman Moesker",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.18,
+      "projWar": -0.5,
+      "totalMinorIp": 40
+    },
+    {
+      "playerId": 12848,
+      "name": "Yoshii Sato",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.18,
+      "projWar": -0.5,
+      "totalMinorIp": 23
+    },
+    {
+      "playerId": 12415,
+      "name": "RIC STUFI",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.5,
+      "totalMinorIp": 86
+    },
+    {
+      "playerId": 12077,
+      "name": "Roy Thompson",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.17,
+      "projWar": -0.5,
+      "totalMinorIp": 33
+    },
+    {
+      "playerId": 11559,
+      "name": "ED HAYDON",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.21,
+      "projWar": -0.5,
+      "totalMinorIp": 70
+    },
+    {
+      "playerId": 11806,
+      "name": "Seong-ho Kim",
+      "age": 26,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.5,
+      "totalMinorIp": 539
+    },
+    {
+      "playerId": 10984,
+      "name": "MAYUMI SHIMOMURA",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.18,
+      "projWar": -0.5,
+      "totalMinorIp": 41
+    },
+    {
+      "playerId": 13715,
+      "name": "Jorge Hernandez",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.26,
+      "projWar": -0.6,
+      "totalMinorIp": 6
+    },
+    {
+      "playerId": 14736,
+      "name": "Michael Utting",
+      "age": 21,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.6,
+      "totalMinorIp": 205
+    },
+    {
+      "playerId": 12467,
+      "name": "Reece Blair",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.6,
+      "totalMinorIp": 187
+    },
+    {
+      "playerId": 12410,
+      "name": "BRODY DALLE",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.19,
+      "projWar": -0.6,
+      "totalMinorIp": 315
+    },
+    {
+      "playerId": 13982,
+      "name": "Borisav Djukanovic",
+      "age": 22,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.17,
+      "projWar": -0.6,
+      "totalMinorIp": 75
+    },
+    {
+      "playerId": 12874,
+      "name": "Al Montoya",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.22,
+      "projWar": -0.6,
+      "totalMinorIp": 18
+    },
+    {
+      "playerId": 13809,
+      "name": "Yugi Muto",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.6,
+      "totalMinorIp": 123
+    },
+    {
+      "playerId": 12684,
+      "name": "Jin-ho Seol",
+      "age": 24,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.6,
+      "totalMinorIp": 146
+    },
+    {
+      "playerId": 13232,
+      "name": "Ramon Garza",
+      "age": 23,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.23,
+      "projWar": -0.7,
+      "totalMinorIp": 73
+    },
+    {
+      "playerId": 12603,
+      "name": "Jesus Villegas",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.16,
+      "projWar": -0.7,
+      "totalMinorIp": 117
+    },
+    {
+      "playerId": 13575,
+      "name": "Asim Zukic",
+      "age": 23,
+      "level": "A",
+      "tfr": 2,
+      "projFip": 5.2,
+      "projWar": -0.7,
+      "totalMinorIp": 42
+    },
+    {
+      "playerId": 13237,
+      "name": "Joel Mendoa",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 2,
+      "projFip": 5.22,
+      "projWar": -0.8,
+      "totalMinorIp": 122
+    },
+    {
+      "playerId": 12741,
+      "name": "Jovan Sekulic",
+      "age": 24,
+      "level": "AA",
+      "tfr": 2,
+      "projFip": 5.25,
+      "projWar": -0.8,
+      "totalMinorIp": 51
+    },
+    {
+      "playerId": 10702,
+      "name": "Hugo Fernandez",
+      "age": 27,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.21,
+      "projWar": -0.3,
+      "totalMinorIp": 133
+    },
+    {
+      "playerId": 12504,
+      "name": "Ratib bin Afeef",
+      "age": 26,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.24,
+      "projWar": -0.3,
+      "totalMinorIp": 93
+    },
+    {
+      "playerId": 13035,
+      "name": "Tony Harding",
+      "age": 22,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.3,
+      "projWar": -0.3,
+      "totalMinorIp": 4
+    },
+    {
+      "playerId": 9579,
+      "name": "JOSH RIPPERT",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.21,
+      "projWar": -0.4,
+      "totalMinorIp": 146
+    },
+    {
+      "playerId": 13616,
+      "name": "Iwan Abbas",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.42,
+      "projWar": -0.4,
+      "totalMinorIp": 136
+    },
+    {
+      "playerId": 13036,
+      "name": "Steve Brunskill",
+      "age": 22,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.35,
+      "projWar": -0.4,
+      "totalMinorIp": 92
+    },
+    {
+      "playerId": 13224,
+      "name": "David Gonzalez",
+      "age": 23,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.47,
+      "projWar": -0.4,
+      "totalMinorIp": 44
+    },
+    {
+      "playerId": 12959,
+      "name": "HORST RIJNEVELD",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.49,
+      "projWar": -0.4,
+      "totalMinorIp": 80
+    },
+    {
+      "playerId": 12886,
+      "name": "George Storey",
+      "age": 22,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.38,
+      "projWar": -0.4,
+      "totalMinorIp": 19
+    },
+    {
+      "playerId": 12006,
+      "name": "Lílian Cassadora",
+      "age": 25,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.39,
+      "projWar": -0.4,
+      "totalMinorIp": 51
+    },
+    {
+      "playerId": 12621,
+      "name": "Francisco Castruita",
+      "age": 24,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.35,
+      "projWar": -0.4,
+      "totalMinorIp": 12
+    },
+    {
+      "playerId": 11576,
+      "name": "ROBBY DROHAN",
+      "age": 24,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.3,
+      "projWar": -0.4,
+      "totalMinorIp": 131
+    },
+    {
+      "playerId": 13731,
+      "name": "Leon Park",
+      "age": 22,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.43,
+      "projWar": -0.4,
+      "totalMinorIp": 7
+    },
+    {
+      "playerId": 13815,
+      "name": "Mike Vallen",
+      "age": 22,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.38,
+      "projWar": -0.5,
+      "totalMinorIp": 48
+    },
+    {
+      "playerId": 12966,
+      "name": "DAVID CHAVEZ",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.41,
+      "projWar": -0.5,
+      "totalMinorIp": 239
+    },
+    {
+      "playerId": 12767,
+      "name": "Wei-quo Mak",
+      "age": 23,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.56,
+      "projWar": -0.5,
+      "totalMinorIp": 8
+    },
+    {
+      "playerId": 13124,
+      "name": "Pat Cunningham",
+      "age": 23,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.47,
+      "projWar": -0.6,
+      "totalMinorIp": 37
+    },
+    {
+      "playerId": 13215,
+      "name": "Victor Felix",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.29,
+      "projWar": -0.6,
+      "totalMinorIp": 56
+    },
+    {
+      "playerId": 11828,
+      "name": "Dan Gilles",
+      "age": 25,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.24,
+      "projWar": -0.6,
+      "totalMinorIp": 123
+    },
+    {
+      "playerId": 11993,
+      "name": "Moises Ortiz",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.22,
+      "projWar": -0.6,
+      "totalMinorIp": 210
+    },
+    {
+      "playerId": 13804,
+      "name": "Jamie Reynolds",
+      "age": 22,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.63,
+      "projWar": -0.6,
+      "totalMinorIp": 49
+    },
+    {
+      "playerId": 12690,
+      "name": "Cássio Esqueira",
+      "age": 24,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.55,
+      "projWar": -0.6,
+      "totalMinorIp": 31
+    },
+    {
+      "playerId": 11951,
+      "name": "Gauthier Castiglione",
+      "age": 26,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.19,
+      "projWar": -0.7,
+      "totalMinorIp": 338
+    },
+    {
+      "playerId": 11014,
+      "name": "TIM COZZI",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.24,
+      "projWar": -0.7,
+      "totalMinorIp": 307
+    },
+    {
+      "playerId": 10561,
+      "name": "ALLEN FESS",
+      "age": 26,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.22,
+      "projWar": -0.7,
+      "totalMinorIp": 203
+    },
+    {
+      "playerId": 10801,
+      "name": "Greg Patrick",
+      "age": 31,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.23,
+      "projWar": -0.7,
+      "totalMinorIp": 19
+    },
+    {
+      "playerId": 13138,
+      "name": "Ubaydah bin Azhar",
+      "age": 23,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.32,
+      "projWar": -0.7,
+      "totalMinorIp": 13
+    },
+    {
+      "playerId": 12054,
+      "name": "Umayr bin Houd",
+      "age": 24,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.26,
+      "projWar": -0.7,
+      "totalMinorIp": 125
+    },
+    {
+      "playerId": 13173,
+      "name": "JOEL BANKS",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.34,
+      "projWar": -0.8,
+      "totalMinorIp": 125
+    },
+    {
+      "playerId": 13546,
+      "name": "Vincent Bradley",
+      "age": 22,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.27,
+      "projWar": -0.8,
+      "totalMinorIp": 158
+    },
+    {
+      "playerId": 11505,
+      "name": "DAVE CAVAZOS",
+      "age": 25,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.33,
+      "projWar": -0.8,
+      "totalMinorIp": 69
+    },
+    {
+      "playerId": 13047,
+      "name": "Shaun Crouch",
+      "age": 22,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.32,
+      "projWar": -0.8,
+      "totalMinorIp": 74
+    },
+    {
+      "playerId": 12397,
+      "name": "MANNY ESTRADA",
+      "age": 22,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.33,
+      "projWar": -0.8,
+      "totalMinorIp": 82
+    },
+    {
+      "playerId": 10399,
+      "name": "Warren Nunes",
+      "age": 27,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.26,
+      "projWar": -0.8,
+      "totalMinorIp": 464
+    },
+    {
+      "playerId": 10716,
+      "name": "Peyton Orr",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.24,
+      "projWar": -0.8,
+      "totalMinorIp": 101
+    },
+    {
+      "playerId": 11007,
+      "name": "MYRON PENNINGTON",
+      "age": 25,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.33,
+      "projWar": -0.8,
+      "totalMinorIp": 80
+    },
+    {
+      "playerId": 10754,
+      "name": "Jose Aguilera",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.28,
+      "projWar": -0.8,
+      "totalMinorIp": 178
+    },
+    {
+      "playerId": 10985,
+      "name": "KEITH KLEIN",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.3,
+      "projWar": -0.8,
+      "totalMinorIp": 76
+    },
+    {
+      "playerId": 13029,
+      "name": "Ernst Mahoney",
+      "age": 21,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.3,
+      "projWar": -0.8,
+      "totalMinorIp": 145
+    },
+    {
+      "playerId": 12010,
+      "name": "Pino Funicello",
+      "age": 25,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.36,
+      "projWar": -0.9,
+      "totalMinorIp": 135
+    },
+    {
+      "playerId": 10975,
+      "name": "JOE HARDING",
+      "age": 26,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.37,
+      "projWar": -0.9,
+      "totalMinorIp": 100
+    },
+    {
+      "playerId": 10962,
+      "name": "VICTOR LENZY",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.28,
+      "projWar": -0.9,
+      "totalMinorIp": 211
+    },
+    {
+      "playerId": 10449,
+      "name": "Kyle Michael",
+      "age": 27,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.31,
+      "projWar": -0.9,
+      "totalMinorIp": 266
+    },
+    {
+      "playerId": 12836,
+      "name": "Edouard Monasta",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.36,
+      "projWar": -0.9,
+      "totalMinorIp": 68
+    },
+    {
+      "playerId": 12597,
+      "name": "Huibrecht Mulder",
+      "age": 24,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.29,
+      "projWar": -0.9,
+      "totalMinorIp": 114
+    },
+    {
+      "playerId": 12569,
+      "name": "Addie van der Scheer",
+      "age": 24,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.33,
+      "projWar": -0.9,
+      "totalMinorIp": 16
+    },
+    {
+      "playerId": 12505,
+      "name": "Aniq Abdul-Rashid",
+      "age": 26,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.32,
+      "projWar": -0.9,
+      "totalMinorIp": 157
+    },
+    {
+      "playerId": 10652,
+      "name": "Cleto Favela",
+      "age": 27,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.33,
+      "projWar": -0.9,
+      "totalMinorIp": 75
+    },
+    {
+      "playerId": 10599,
+      "name": "NICK KENNEY",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.38,
+      "projWar": -1,
+      "totalMinorIp": 87
+    },
+    {
+      "playerId": 12815,
+      "name": "Tai sun Li",
+      "age": 24,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.37,
+      "projWar": -1,
+      "totalMinorIp": 78
+    },
+    {
+      "playerId": 12450,
+      "name": "JUSTIN MANEILLI",
+      "age": 23,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.35,
+      "projWar": -1,
+      "totalMinorIp": 154
+    },
+    {
+      "playerId": 12499,
+      "name": "Martyn Manuel",
+      "age": 24,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.39,
+      "projWar": -1,
+      "totalMinorIp": 56
+    },
+    {
+      "playerId": 12655,
+      "name": "Ivo Zonta",
+      "age": 24,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.48,
+      "projWar": -1,
+      "totalMinorIp": 33
+    },
+    {
+      "playerId": 11793,
+      "name": "Carl Beckett",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.32,
+      "projWar": -1.1,
+      "totalMinorIp": 408
+    },
+    {
+      "playerId": 11451,
+      "name": "YUUCHI IKEDA",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.36,
+      "projWar": -1.1,
+      "totalMinorIp": 265
+    },
+    {
+      "playerId": 12654,
+      "name": "Francisco Armendariz",
+      "age": 24,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.44,
+      "projWar": -1.1,
+      "totalMinorIp": 27
+    },
+    {
+      "playerId": 12422,
+      "name": "ILIJA SESELY",
+      "age": 23,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.4,
+      "projWar": -1.1,
+      "totalMinorIp": 231
+    },
+    {
+      "playerId": 12568,
+      "name": "Este Verrochio",
+      "age": 24,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.41,
+      "projWar": -1.1,
+      "totalMinorIp": 141
+    },
+    {
+      "playerId": 13225,
+      "name": "Abdul-Rahim bin Karif",
+      "age": 23,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.45,
+      "projWar": -1.2,
+      "totalMinorIp": 15
+    },
+    {
+      "playerId": 13019,
+      "name": "Chet Legge",
+      "age": 23,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.44,
+      "projWar": -1.2,
+      "totalMinorIp": 45
+    },
+    {
+      "playerId": 13083,
+      "name": "Jason Morris",
+      "age": 22,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.48,
+      "projWar": -1.2,
+      "totalMinorIp": 49
+    },
+    {
+      "playerId": 13044,
+      "name": "John Luckett",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.5,
+      "projWar": -1.3,
+      "totalMinorIp": 62
+    },
+    {
+      "playerId": 13068,
+      "name": "Leo Loman",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 1.5,
+      "projFip": 5.45,
+      "projWar": -1.4,
+      "totalMinorIp": 126
+    },
+    {
+      "playerId": 13069,
+      "name": "Chris Stewart",
+      "age": 21,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.46,
+      "projWar": -1.4,
+      "totalMinorIp": 111
+    },
+    {
+      "playerId": 13541,
+      "name": "Brendan Ayres",
+      "age": 23,
+      "level": "AA",
+      "tfr": 1.5,
+      "projFip": 5.57,
+      "projWar": -1.5,
+      "totalMinorIp": 163
+    },
+    {
+      "playerId": 13302,
+      "name": "Ammar Seif",
+      "age": 23,
+      "level": "A",
+      "tfr": 1.5,
+      "projFip": 5.51,
+      "projWar": -1.5,
+      "totalMinorIp": 46
+    },
+    {
+      "playerId": 10638,
+      "name": "DEVIN BLUME",
+      "age": 25,
+      "level": "AA",
+      "tfr": 1,
+      "projFip": 5.51,
+      "projWar": -0.4,
+      "totalMinorIp": 136
+    },
+    {
+      "playerId": 13249,
+      "name": "Dave Naylor",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 1,
+      "projFip": 5.5,
+      "projWar": -0.6,
+      "totalMinorIp": 59
+    },
+    {
+      "playerId": 14350,
+      "name": "Ljuba Dobrica",
+      "age": 23,
+      "level": "AA",
+      "tfr": 1,
+      "projFip": 5.72,
+      "projWar": -0.8,
+      "totalMinorIp": 30
+    },
+    {
+      "playerId": 13448,
+      "name": "Graciano Will",
+      "age": 23,
+      "level": "A",
+      "tfr": 1,
+      "projFip": 5.83,
+      "projWar": -0.8,
+      "totalMinorIp": 20
+    },
+    {
+      "playerId": 11445,
+      "name": "CLYDE BARCLAY",
+      "age": 26,
+      "level": "AAA",
+      "tfr": 1,
+      "projFip": 5.44,
+      "projWar": -1.2,
+      "totalMinorIp": 545
+    },
+    {
+      "playerId": 11286,
+      "name": "Jesse Auger",
+      "age": 25,
+      "level": "AA",
+      "tfr": 1,
+      "projFip": 5.53,
+      "projWar": -1.3,
+      "totalMinorIp": 88
+    },
+    {
+      "playerId": 11890,
+      "name": "Milan Andric",
+      "age": 25,
+      "level": "AA",
+      "tfr": 1,
+      "projFip": 5.48,
+      "projWar": -1.3,
+      "totalMinorIp": 192
+    },
+    {
+      "playerId": 11798,
+      "name": "JOHN BEDLECOM",
+      "age": 24,
+      "level": "A",
+      "tfr": 1,
+      "projFip": 5.57,
+      "projWar": -1.4,
+      "totalMinorIp": 213
+    },
+    {
+      "playerId": 13042,
+      "name": "Jose Martinez",
+      "age": 22,
+      "level": "AAA",
+      "tfr": 1,
+      "projFip": 5.65,
+      "projWar": -1.4,
+      "totalMinorIp": 52
+    },
+    {
+      "playerId": 10641,
+      "name": "ALEC EVANS",
+      "age": 27,
+      "level": "AA",
+      "tfr": 1,
+      "projFip": 5.48,
+      "projWar": -1.4,
+      "totalMinorIp": 236
+    },
+    {
+      "playerId": 11701,
+      "name": "MANNY AVALOS",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 1,
+      "projFip": 5.45,
+      "projWar": -1.5,
+      "totalMinorIp": 148
+    },
+    {
+      "playerId": 10989,
+      "name": "KYLE PAINTER",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 1,
+      "projFip": 5.62,
+      "projWar": -1.5,
+      "totalMinorIp": 104
+    },
+    {
+      "playerId": 12882,
+      "name": "Ricardo Gutierrez",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 1,
+      "projFip": 5.71,
+      "projWar": -1.6,
+      "totalMinorIp": 33
+    },
+    {
+      "playerId": 13142,
+      "name": "Appolonius Hayek",
+      "age": 23,
+      "level": "A",
+      "tfr": 1,
+      "projFip": 5.72,
+      "projWar": -1.7,
+      "totalMinorIp": 7
+    },
+    {
+      "playerId": 13813,
+      "name": "Paul Rathwell",
+      "age": 25,
+      "level": "AAA",
+      "tfr": 1,
+      "projFip": 5.71,
+      "projWar": -2,
+      "totalMinorIp": 85
+    },
+    {
+      "playerId": 12636,
+      "name": "Stephen Jones",
+      "age": 24,
+      "level": "AA",
+      "tfr": 1,
+      "projFip": 5.9,
+      "projWar": -2.1,
+      "totalMinorIp": 41
+    },
+    {
+      "playerId": 13547,
+      "name": "Dushan Vasiljevic",
+      "age": 23,
+      "level": "A",
+      "tfr": 1,
+      "projFip": 5.87,
+      "projWar": -2.3,
+      "totalMinorIp": 27
+    },
+    {
+      "playerId": 12731,
+      "name": "Do-hyung Lee",
+      "age": 23,
+      "level": "A",
+      "tfr": 1,
+      "projFip": 5.93,
+      "projWar": -2.3,
+      "totalMinorIp": 18
+    },
+    {
+      "playerId": 12900,
+      "name": "Vinny Andrade",
+      "age": 23,
+      "level": "AAA",
+      "tfr": 0.5,
+      "projFip": 5.97,
+      "projWar": -0.9,
+      "totalMinorIp": 12
+    },
+    {
+      "playerId": 12872,
+      "name": "Emir Boulos",
+      "age": 24,
+      "level": "AAA",
+      "tfr": 0.5,
+      "projFip": 5.96,
+      "projWar": -0.9,
+      "totalMinorIp": 40
+    },
+    {
+      "playerId": 10639,
+      "name": "ADAM MEYER",
+      "age": 26,
+      "level": "AA",
+      "tfr": 0.5,
+      "projFip": 5.89,
+      "projWar": -0.9,
+      "totalMinorIp": 59
+    },
+    {
+      "playerId": 13439,
+      "name": "Willie Gonzalez",
+      "age": 23,
+      "level": "AA",
+      "tfr": 0.5,
+      "projFip": 6.02,
+      "projWar": -1,
+      "totalMinorIp": 3
+    },
+    {
+      "playerId": 12984,
+      "name": "DESIDERIO ROMANELLI",
+      "age": 22,
+      "level": "A",
+      "tfr": 0.5,
+      "projFip": 6.37,
+      "projWar": -1.2,
+      "totalMinorIp": 67
+    },
+    {
+      "playerId": 10405,
+      "name": "Jason White",
+      "age": 28,
+      "level": "AAA",
+      "tfr": 0.5,
+      "projFip": 6.15,
+      "projWar": -1.3,
+      "totalMinorIp": 147
+    },
+    {
+      "playerId": 12004,
+      "name": "Valter Mina",
+      "age": 25,
+      "level": "AA",
+      "tfr": 0.5,
+      "projFip": 5.83,
+      "projWar": -2,
+      "totalMinorIp": 55
+    },
+    {
+      "playerId": 14144,
+      "name": "Jong-su Kim",
+      "age": 22,
+      "level": "A",
+      "tfr": 0.5,
+      "projFip": 5.85,
+      "projWar": -2.1,
+      "totalMinorIp": 109
+    },
+    {
+      "playerId": 14096,
+      "name": "Juan Blancas",
+      "age": 22,
+      "level": "A",
+      "tfr": 0.5,
+      "projFip": 6.04,
+      "projWar": -2.2,
+      "totalMinorIp": 22
+    },
+    {
+      "playerId": 12003,
+      "name": "Miguel Franco",
+      "age": 24,
+      "level": "AA",
+      "tfr": 0.5,
+      "projFip": 5.76,
+      "projWar": -2.3,
+      "totalMinorIp": 90
+    },
+    {
+      "playerId": 13710,
+      "name": "Carlos Canchola",
+      "age": 23,
+      "level": "AA",
+      "tfr": 0.5,
+      "projFip": 6.46,
+      "projWar": -2.7,
+      "totalMinorIp": 17
+    }
+  ]
+}

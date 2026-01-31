@@ -1,18 +1,18 @@
 {
-  "date": "2026-01-30T23:45:14.399Z",
+  "date": "2026-01-31T21:53:35.302Z",
   "results": [
     {
       "name": "TFR Distribution",
       "passed": false,
       "expected": "Elite (4.5+): 1-3%, Above Avg (4.0-4.5): 3-6%, Average (3.0-4.0): 30-50%",
-      "actual": "Elite: 0.4%, Above Avg: 2.0%, Average: 39.0%",
+      "actual": "Elite: 1.3%, Above Avg: 2.7%, Average: 37.3%",
       "message": "Distribution does not match expected prospect spread"
     },
     {
       "name": "Top Prospects FIP Range",
       "passed": true,
       "expected": "2.80-3.50 FIP (elite MLB range)",
-      "actual": "3.45 FIP (Elite MLB avg: 3.26)"
+      "actual": "3.43 FIP (Elite MLB avg: 3.26)"
     },
     {
       "name": "Top 200 Prospects vs MLB Average",
@@ -30,19 +30,19 @@
       "name": "Level Distribution (Top 100)",
       "passed": true,
       "expected": "AAA: 30-45%, AA: 30-45%, A: 10-25%, Rookie: 5-15%",
-      "actual": "AAA: 38%, AA: 31%, A: 20%, Rookie: 11%"
+      "actual": "AAA: 41%, AA: 31%, A: 17%, Rookie: 11%"
     },
     {
       "name": "Distribution Compression",
       "passed": true,
-      "expected": "At least 30% of top 100 below 4.0 TFR",
-      "actual": "75% below 4.0"
+      "expected": "30-60% of top 100 below 4.0 TFR",
+      "actual": "57% below 4.0"
     },
     {
       "name": "Young Prospects Represented",
       "passed": true,
       "expected": "At least 20% of top 100 age ≤22",
-      "actual": "61% age ≤22"
+      "actual": "60% age ≤22"
     }
   ]
 }
