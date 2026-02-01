@@ -164,20 +164,21 @@ export class PotentialStatsService {
       runsPerWin: leagueContext.runsPerWin,
     } : {};
 
-    const { fip, war: baseWar } = fipWarService.calculate({ ip, k9, bb9, hr9 }, leagueConstants);
+    const { fip, war } = fipWarService.calculate({ ip, k9, bb9, hr9 }, leagueConstants);
 
-    // Apply continuous sliding scale WAR multiplier based on FIP quality
-    // This prevents bunching by treating each pitcher individually:
+    // WAR multiplier disabled for peak projections
+    // Peak projections are already ceiling outcomes, so no additional boost needed
+    // Farm Rankings uses simple formula: ((replacementFip - fip) / runsPerWin) * (ip / 9)
+    //
+    // Previous multiplier logic (now disabled):
     // - FIP < 3.0:  1.35x (generational talent, possible 8+ WAR)
     // - FIP 3.0:    1.30x (elite ace, 6-7 WAR range)
     // - FIP 3.5:    1.20x (top 20 pitcher)
     // - FIP 4.0:    1.10x (top quartile)
     // - FIP 4.2+:   1.00x (league average and below)
     //
-    // This accounts for OOTP stretching elite performance for video game balance,
-    // with a smooth gradient rather than hard tiers.
-    const warMultiplier = this.calculateWarMultiplier(fip);
-    const war = baseWar * warMultiplier;
+    // const warMultiplier = this.calculateWarMultiplier(fip);
+    // const war = baseWar * warMultiplier;
 
     return {
       k9: Math.round(k9 * 10) / 10,
@@ -192,45 +193,47 @@ export class PotentialStatsService {
     };
   }
 
-  /**
-   * Calculate continuous WAR multiplier based on FIP quality
-   *
-   * Uses piecewise linear interpolation to prevent bunching:
-   * - FIP < 3.0:  1.35x (generational, 8+ WAR potential)
-   * - FIP 3.0:    1.30x (elite ace, 6-7 WAR)
-   * - FIP 3.5:    1.20x (top 20)
-   * - FIP 4.0:    1.10x (good)
-   * - FIP 4.2+:   1.00x (average and below)
-   *
-   * This creates smooth transitions rather than hard tier cutoffs.
-   */
-  private static calculateWarMultiplier(fip: number): number {
-    const breakpoints = [
-      { fip: 2.5, multiplier: 1.35 },
-      { fip: 3.0, multiplier: 1.30 },
-      { fip: 3.5, multiplier: 1.20 },
-      { fip: 4.0, multiplier: 1.10 },
-      { fip: 4.2, multiplier: 1.00 },
-      { fip: 6.0, multiplier: 1.00 }  // No boost for poor pitchers
-    ];
-
-    // Clamp at boundaries
-    if (fip <= breakpoints[0].fip) return breakpoints[0].multiplier;
-    if (fip >= breakpoints[breakpoints.length - 1].fip) return breakpoints[breakpoints.length - 1].multiplier;
-
-    // Linear interpolation between breakpoints
-    for (let i = 0; i < breakpoints.length - 1; i++) {
-      const lower = breakpoints[i];
-      const upper = breakpoints[i + 1];
-
-      if (fip >= lower.fip && fip <= upper.fip) {
-        const t = (fip - lower.fip) / (upper.fip - lower.fip);
-        return lower.multiplier + t * (upper.multiplier - lower.multiplier);
-      }
-    }
-
-    return 1.00; // Fallback
-  }
+  // WAR multiplier disabled - preserved for reference if needed in future
+  //
+  // /**
+  //  * Calculate continuous WAR multiplier based on FIP quality
+  //  *
+  //  * Uses piecewise linear interpolation to prevent bunching:
+  //  * - FIP < 3.0:  1.35x (generational, 8+ WAR potential)
+  //  * - FIP 3.0:    1.30x (elite ace, 6-7 WAR)
+  //  * - FIP 3.5:    1.20x (top 20)
+  //  * - FIP 4.0:    1.10x (good)
+  //  * - FIP 4.2+:   1.00x (average and below)
+  //  *
+  //  * This creates smooth transitions rather than hard tier cutoffs.
+  //  */
+  // private static calculateWarMultiplier(fip: number): number {
+  //   const breakpoints = [
+  //     { fip: 2.5, multiplier: 1.35 },
+  //     { fip: 3.0, multiplier: 1.30 },
+  //     { fip: 3.5, multiplier: 1.20 },
+  //     { fip: 4.0, multiplier: 1.10 },
+  //     { fip: 4.2, multiplier: 1.00 },
+  //     { fip: 6.0, multiplier: 1.00 }  // No boost for poor pitchers
+  //   ];
+  //
+  //   // Clamp at boundaries
+  //   if (fip <= breakpoints[0].fip) return breakpoints[0].multiplier;
+  //   if (fip >= breakpoints[breakpoints.length - 1].fip) return breakpoints[breakpoints.length - 1].multiplier;
+  //
+  //   // Linear interpolation between breakpoints
+  //   for (let i = 0; i < breakpoints.length - 1; i++) {
+  //     const lower = breakpoints[i];
+  //     const upper = breakpoints[i + 1];
+  //
+  //     if (fip >= lower.fip && fip <= upper.fip) {
+  //       const t = (fip - lower.fip) / (upper.fip - lower.fip);
+  //       return lower.multiplier + t * (upper.multiplier - lower.multiplier);
+  //     }
+  //   }
+  //
+  //   return 1.00; // Fallback
+  // }
 
   /**
    * Get the expected range for a stat at a given rating

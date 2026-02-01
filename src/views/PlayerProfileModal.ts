@@ -339,9 +339,6 @@ export class PlayerProfileModal {
                     : { stuff: data.scoutStuff, control: data.scoutControl, hra: data.scoutHra, ovr: data.scoutOvr, pot: data.scoutPot };
 
                 if (scouting.stuff !== undefined) {
-                    // Need a reference MLB FIP for percentile. Use average ~4.20
-                    const mlbFips = [4.20]; 
-                    
                     const tfrInput = {
                         playerId: data.playerId,
                         playerName: data.playerName,
@@ -350,12 +347,12 @@ export class PlayerProfileModal {
                         minorLeagueStats: minorStats
                     };
 
-                    const tfrResult = trueFutureRatingService.calculateTrueFutureRatings([tfrInput], mlbFips)[0];
+                    const [tfrResult] = await trueFutureRatingService.calculateTrueFutureRatings([tfrInput]);
 
                     if (tfrResult) {
                         data.trueFutureRating = tfrResult.trueFutureRating;
                         data.tfrPercentile = tfrResult.percentile;
-                        data.starGap = tfrResult.starGap;
+                        data.starGap = Math.max(0, (scouting.pot ?? scouting.ovr ?? 0) - (scouting.ovr ?? 0));
                         // data.isProspect = true; // REMOVED: Keep as MLB player to show current year stats/projections
                         
                         // Re-render header to show TFR badge
@@ -411,7 +408,10 @@ export class PlayerProfileModal {
 
             if (!proj && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
                 try {
-                    const leagueStats = await leagueStatsService.getLeagueStats(projectionBaseYear);
+                    // For peak projections, use last full season (2020) for consistent league context
+                    // This ensures replacementFip = avgFip + 1.0 is consistent across all prospects
+                    const leagueYear = isProspectProjection ? 2020 : projectionBaseYear;
+                    const leagueStats = await leagueStatsService.getLeagueStats(leagueYear);
                     const leagueContext = {
                         fipConstant: leagueStats.fipConstant,
                         avgFip: leagueStats.avgFip,
@@ -504,6 +504,13 @@ export class PlayerProfileModal {
                   currentYear,
                   this.mlbDebutYear
                 );
+
+                // For peak projections, update data to show peak ratings in bars (not current ratings)
+                if (isProspectProjection && proj?.projectedRatings) {
+                  data.estimatedStuff = proj.projectedRatings.stuff;
+                  data.estimatedControl = proj.projectedRatings.control;
+                  data.estimatedHra = proj.projectedRatings.hra;
+                }
             }
         }
 
@@ -694,9 +701,9 @@ export class PlayerProfileModal {
       const hr9Delta = comparison ? formatDelta(s.hr9, comparison.hr9) : '';
       const ipDelta = comparison ? formatDelta(s.ip, comparison.ip) : '';
 
-      const k9ProjFlip = this.renderFlipCell(s.k9.toFixed(2), Math.round(r.stuff).toString(), 'Projected True Stuff');
-      const bb9ProjFlip = this.renderFlipCell(s.bb9.toFixed(2), Math.round(r.control).toString(), 'Projected True Control');
-      const hr9ProjFlip = this.renderFlipCell(s.hr9.toFixed(2), Math.round(r.hra).toString(), 'Projected True HRA');
+      const k9ProjFlip = this.renderFlipCell(s.k9.toFixed(2), this.clampRatingForDisplay(r.stuff).toString(), 'Projected True Stuff');
+      const bb9ProjFlip = this.renderFlipCell(s.bb9.toFixed(2), this.clampRatingForDisplay(r.control).toString(), 'Projected True Control');
+      const hr9ProjFlip = this.renderFlipCell(s.hr9.toFixed(2), this.clampRatingForDisplay(r.hra).toString(), 'Projected True HRA');
 
       let comparisonHtml = '';
       if (comparison) {
@@ -707,9 +714,9 @@ export class PlayerProfileModal {
           const actControl = RatingEstimatorService.estimateControl(comparison.bb9, comparison.ip).rating;
           const actHra = RatingEstimatorService.estimateHRA(comparison.hr9, comparison.ip).rating;
 
-          const k9ActFlip = this.renderFlipCell(comparison.k9.toFixed(2), actStuff.toString(), 'Estimated Stuff (Snapshot)');
-          const bb9ActFlip = this.renderFlipCell(comparison.bb9.toFixed(2), actControl.toString(), 'Estimated Control (Snapshot)');
-          const hr9ActFlip = this.renderFlipCell(comparison.hr9.toFixed(2), actHra.toString(), 'Estimated HRA (Snapshot)');
+          const k9ActFlip = this.renderFlipCell(comparison.k9.toFixed(2), this.clampRatingForDisplay(actStuff).toString(), 'Estimated Stuff (Snapshot)');
+          const bb9ActFlip = this.renderFlipCell(comparison.bb9.toFixed(2), this.clampRatingForDisplay(actControl).toString(), 'Estimated Control (Snapshot)');
+          const hr9ActFlip = this.renderFlipCell(comparison.hr9.toFixed(2), this.clampRatingForDisplay(actHra).toString(), 'Estimated HRA (Snapshot)');
 
           comparisonHtml = `
             <tr style="border-top: 1px solid var(--color-border);">
@@ -787,6 +794,15 @@ export class PlayerProfileModal {
         </div>
       </div>
     `;
+  }
+
+  /**
+   * Clamp True Ratings for display purposes (20-80 scale)
+   * Backend calculations use actual values, but UI shows clamped values
+   * This matches OOTP's approach of hiding extreme overages
+   */
+  private clampRatingForDisplay(rating: number): number {
+    return Math.max(20, Math.min(80, Math.round(rating)));
   }
 
   private bindScoutUploadLink(): void {
@@ -1080,7 +1096,10 @@ export class PlayerProfileModal {
           typeof this.currentPlayerData.estimatedControl === 'number' &&
           typeof this.currentPlayerData.estimatedHra === 'number') {
         try {
-          const leagueStats = await leagueStatsService.getLeagueStats(projectionBaseYear);
+          // For peak projections, use last full season (2020) for consistent league context
+          const isProspect = this.currentPlayerData.isProspect === true;
+          const leagueYear = isProspect ? 2020 : projectionBaseYear;
+          const leagueStats = await leagueStatsService.getLeagueStats(leagueYear);
           const leagueContext = {
             fipConstant: leagueStats.fipConstant,
             avgFip: leagueStats.avgFip,

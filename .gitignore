@@ -45,3 +45,8 @@ world_baseball_league_draft_pool_-_draft_pool_batting_potential.csv
 ootp_data_20260122.csv
 homer_data.csv
 homers.json
+
+# ai
+.claude/
+.claude/settings.local.json
+.claude/settings.local.json

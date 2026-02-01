@@ -360,33 +360,7 @@ export class GlobalSearchBar {
               estimatedHra: scoutMatch.hra,
             };
           } else {
-            // Get MLB pitcher FIPs for percentile ranking
-            const [multiYearStats, leagueAverages] = await Promise.all([
-              trueRatingsService.getMultiYearPitchingStats(year, 3),
-              trueRatingsService.getLeagueAverages(year),
-            ]);
-
-            // Calculate True Ratings for MLB pitchers to get FIP distribution
-            const mlbInputs = allPitchers.map(stat => {
-            const scouting = this.resolveScoutingFromLookup(stat.player_id, stat.playerName, scoutingLookup);
-            return {
-              playerId: stat.player_id,
-              playerName: stat.playerName,
-              yearlyStats: multiYearStats.get(stat.player_id) ?? [],
-              scoutingRatings: scouting ? {
-                playerId: stat.player_id,
-                playerName: stat.playerName,
-                stuff: scouting.stuff,
-                control: scouting.control,
-                hra: scouting.hra,
-              } : undefined,
-            };
-          });
-
-          const mlbTrueRatings = trueRatingsCalculationService.calculateTrueRatings(mlbInputs, leagueAverages);
-          const mlbFips = mlbTrueRatings.map(tr => tr.fipLike + 3.47);
-
-          // Calculate TFR for this prospect
+            // Calculate TFR for this prospect
           const tfrInput = {
             playerId,
             playerName,
@@ -403,7 +377,7 @@ export class GlobalSearchBar {
             minorLeagueStats: minorStats,
           };
 
-          const [tfrResult] = trueFutureRatingService.calculateTrueFutureRatings([tfrInput], mlbFips);
+          const [tfrResult] = await trueFutureRatingService.calculateTrueFutureRatings([tfrInput]);
 
           if (tfrResult) {
             isProspect = true;

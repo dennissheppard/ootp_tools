@@ -1294,7 +1294,7 @@ export class TrueRatingsView {
 
     // Find prospects (scouting entries without MLB stats)
     const mlbPlayerIds = new Set(pitchersWithStats.map(p => p.player_id));
-    const prospects = await this.buildProspectRows(mlbPlayerIds, results);
+    const prospects = await this.buildProspectRows(mlbPlayerIds);
 
     // Merge MLB pitchers with prospects
     const allPitchers = [...enrichedPitchers, ...prospects];
@@ -1310,8 +1310,7 @@ export class TrueRatingsView {
    * These rows will have isProspect=true and show TFR instead of TR.
    */
   private async buildProspectRows(
-    mlbPlayerIds: Set<number>,
-    mlbTrueRatings: { playerId: number; fipLike: number }[]
+    mlbPlayerIds: Set<number>
   ): Promise<PitcherRow[]> {
     // Find scouting entries not in MLB stats
     const prospectScouting = this.scoutingRatings.filter(s =>
@@ -1321,9 +1320,6 @@ export class TrueRatingsView {
     if (prospectScouting.length === 0) {
       return [];
     }
-
-    // Get MLB FIPs for percentile calculation
-    const mlbFips = mlbTrueRatings.map(tr => tr.fipLike + 3.47);
 
     // Build TFR inputs for prospects
     // Batch fetch all minor league stats at once - includes past 3 years
@@ -1346,7 +1342,7 @@ export class TrueRatingsView {
     });
 
     // Calculate TFR for all prospects
-    const tfrResults = trueFutureRatingService.calculateTrueFutureRatings(tfrInputs, mlbFips);
+    const tfrResults = await trueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
     const tfrMap = new Map(tfrResults.map(r => [r.playerId, r]));
 
     // Fetch player/team data for prospects
@@ -1442,11 +1438,15 @@ export class TrueRatingsView {
           trueFutureRating: tfr.trueFutureRating,
           tfrPercentile: tfr.percentile,
           fipLike: tfr.projFip - 3.47, // Convert back to FIP-like (without constant)
-          estimatedStuff: Math.round((tfr.projK9 - 2.07) / 0.074),
-          estimatedControl: Math.round((5.22 - tfr.projBb9) / 0.052),
-          estimatedHra: Math.round((2.08 - tfr.projHr9) / 0.024),
+          // Convert projected peak rates to ratings using relaxed clamped ranges
+          // Clamped ranges: K9[3.0-11.0], BB9[0.85-7.0], HR9[0.20-2.5] → 20-80 scale
+          // These allow actual MLB extremes for generational prospects (80/80/80)
+          // Display clamping happens in formatValue() to show 20-80 in UI
+          estimatedStuff: Math.round(20 + ((Math.max(3.0, Math.min(11.0, tfr.projK9)) - 3.0) / (11.0 - 3.0)) * 60),
+          estimatedControl: Math.round(20 + ((7.0 - Math.max(0.85, Math.min(7.0, tfr.projBb9))) / (7.0 - 0.85)) * 60),
+          estimatedHra: Math.round(20 + ((2.5 - Math.max(0.20, Math.min(2.5, tfr.projHr9))) / (2.5 - 0.20)) * 60),
           scoutOverall,
-          starGap: tfr.starGap,
+          starGap: Math.max(0, (scouting.pot ?? scoutOverall) - scoutOverall),
           isProspect: true,
           prospectHasStats,
           prospectLevel: seasonStats?.level,
@@ -2045,6 +2045,13 @@ export class TrueRatingsView {
       return this.renderPositionLabel(row);
     }
     if (typeof value === 'number') {
+      // Clamp True Ratings for display (20-80 scale)
+      // Backend calculations use actual values, UI shows clamped values (matches OOTP)
+      if (key === 'estimatedStuff' || key === 'estimatedControl' || key === 'estimatedHra') {
+        const clamped = Math.max(20, Math.min(80, Math.round(value)));
+        return clamped.toString();
+      }
+
       if (Number.isInteger(value)) {
         return value.toString();
       }

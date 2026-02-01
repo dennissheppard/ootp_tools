@@ -32,14 +32,13 @@ export interface TrueFutureRatingInput {
   trueRating?: number;
 }
 
-export interface TrueFutureRatingResult {
+/**
+ * Intermediate result with blended component values (before percentile ranking)
+ */
+export interface ComponentBlendedResult {
   playerId: number;
   playerName: string;
   age: number;
-  /** Star gap (POT - OVR), indicates development stage */
-  starGap: number;
-  /** Weight given to scouting (0-1) */
-  scoutingWeight: number;
   /** Scouting-expected rates */
   scoutK9: number;
   scoutBb9: number;
@@ -48,13 +47,41 @@ export interface TrueFutureRatingResult {
   adjustedK9: number;
   adjustedBb9: number;
   adjustedHr9: number;
-  /** Blended projected rates */
+  /** Blended component values (weighted scout + stats) */
+  stuffValue: number;   // Blended K9
+  controlValue: number; // Blended BB9
+  hraValue: number;     // Blended HR9
+  /** Total minor league IP */
+  totalMinorIp: number;
+  /** True Rating if available (for comparison) */
+  trueRating?: number;
+}
+
+export interface TrueFutureRatingResult {
+  playerId: number;
+  playerName: string;
+  age: number;
+  /** Percentile rank for Stuff component (0-100) */
+  stuffPercentile: number;
+  /** Percentile rank for Control component (0-100) */
+  controlPercentile: number;
+  /** Percentile rank for HRA component (0-100) */
+  hraPercentile: number;
+  /** Scouting-expected rates */
+  scoutK9: number;
+  scoutBb9: number;
+  scoutHr9: number;
+  /** Adjusted minor league rates (MLB-equivalent) */
+  adjustedK9: number;
+  adjustedBb9: number;
+  adjustedHr9: number;
+  /** Projected rates (mapped from MLB distributions) */
   projK9: number;
   projBb9: number;
   projHr9: number;
-  /** Projected FIP */
+  /** Projected peak FIP */
   projFip: number;
-  /** Percentile rank against MLB pitchers */
+  /** Percentile rank among all prospects */
   percentile: number;
   /** True Future Rating (0.5-5.0 scale) */
   trueFutureRating: number;
@@ -108,6 +135,21 @@ const LEVEL_ADJUSTMENTS: Record<MinorLeagueLevel, { k9: number; bb9: number; hr9
 /** Year weights for minor league stats (current year, previous year) */
 const MINOR_YEAR_WEIGHTS = [5, 3];
 
+/**
+ * Level weights for IP reliability calculation
+ *
+ * Converts raw IP to "AAA-equivalent IP" for scouting weight determination.
+ * 100 IP in Rookie ball is much less reliable than 100 IP in AAA.
+ *
+ * TUNABLE: These values can be optimized via parameter search
+ */
+const LEVEL_IP_WEIGHTS: Record<MinorLeagueLevel, number> = {
+  aaa: 1.0,  // Full weight - AAA IP is highly reliable
+  aa: 0.7,   // 100 AA IP = 70 "AAA-equivalent" IP
+  a: 0.4,    // 100 A IP = 40 "AAA-equivalent" IP
+  r: 0.2,    // 100 R IP = 20 "AAA-equivalent" IP (very unreliable)
+};
+
 /** FIP constant (WBL calibrated) */
 const FIP_CONSTANT = 3.47;
 
@@ -124,17 +166,27 @@ const FIP_CONSTANT = 3.47;
  * - 3.0+: Top 45% - everyone with a shot
  */
 const PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
-  { threshold: 98.0, rating: 5.0 },  // Elite: Top 2% (~21 prospects)
-  { threshold: 96.0, rating: 4.5 },  // Star: Top 4% (~43 total at 4.5+)
-  { threshold: 92.0, rating: 4.0 },  // Above Avg: Top 8% (~86 total at 4.0+)
-  { threshold: 75.0, rating: 3.5 },  // Average: Top 25% (~268 total at 3.5+)
-  { threshold: 55.0, rating: 3.0 },  // Fringe: Top 45%
-  { threshold: 35.0, rating: 2.5 },  // Below Avg
-  { threshold: 18.0, rating: 2.0 },  // Poor
-  { threshold: 8.0, rating: 1.5 },   // Very Poor
-  { threshold: 3.0, rating: 1.0 },   // Replacement
-  { threshold: 0.0, rating: 0.5 },   // Bust
+  { threshold: 99.0, rating: 5.0 },  // Elite: Top 1% (~10 prospects)
+  { threshold: 97.0, rating: 4.5 },  // Star: 97-99% (~20 prospects)
+  { threshold: 93.0, rating: 4.0 },  // Above Avg: 93-97% (~40 prospects)
+  { threshold: 75.0, rating: 3.5 },  // Average: 75-93% (~180 prospects)
+  { threshold: 60.0, rating: 3.0 },  // Fringe: 60-75% (~150 prospects)
+  { threshold: 35.0, rating: 2.5 },  // Below Avg: 35-60% (~250 prospects)
+  { threshold: 20.0, rating: 2.0 },  // Poor: 20-35% (~150 prospects)
+  { threshold: 10.0, rating: 1.5 },  // Very Poor: 10-20% (~100 prospects)
+  { threshold: 5.0, rating: 1.0 },   // Replacement: 5-10% (~50 prospects)
+  { threshold: 0.0, rating: 0.5 },   // Bust: 0-5% (~50 prospects)
 ];
+
+// ============================================================================
+// MLB Distribution Interface
+// ============================================================================
+
+export interface MLBPercentileDistribution {
+  k9Values: number[];   // Sorted ascending (higher is better)
+  bb9Values: number[];  // Sorted ascending (lower is better)
+  hr9Values: number[];  // Sorted ascending (lower is better)
+}
 
 // ============================================================================
 // Service Class
@@ -142,38 +194,228 @@ const PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
 
 class TrueFutureRatingService {
   /**
-   * Calculate scouting weight based on age, star gap, and IP.
+   * Calculate scouting weight based on level-weighted IP (experience).
    *
-   * Higher weight = trust scouting more (stats are noise)
-   * Lower weight = trust stats more (player is developed)
+   * Higher weight = trust scouting more (limited stats)
+   * Lower weight = trust stats more (proven track record)
    *
-   * UPDATED: January 31, 2026 - Reduced weight for older prospects
-   * Older players are closer to their ceiling - trust track record over scout projection
-   * Peak development age is 21-24, after that rely more on stats
+   * UPDATED: January 31, 2026 - Level-weighted IP approach
+   * Weight determined by "AAA-equivalent IP", not raw IP
+   * IP is weighted by level (AAA=1.0, AA=0.7, A=0.4, R=0.2)
+   *
+   * Weighted IP < 75: 100% scout (no reliable stats)
+   * Weighted IP 76-150: 80% scout (emerging track record)
+   * Weighted IP 151-250: 70% scout (solid sample)
+   * Weighted IP 250+: 60% scout (extensive track record)
+   *
+   * Example: 150 IP in Rookie (150 * 0.2 = 30 weighted) → 100% scout weight
+   *          150 IP in AAA (150 * 1.0 = 150 weighted) → 80% scout weight
    */
-  calculateScoutingWeight(age: number, starGap: number, totalMinorIp: number): number {
-    // Age-based base weight (trust stats more as players age)
-    let baseWeight: number;
+  calculateScoutingWeight(weightedIp: number): number {
+    if (weightedIp < 75) return 1.0;       // 100% scout
+    else if (weightedIp <= 150) return 0.8; // 80% scout
+    else if (weightedIp <= 250) return 0.7; // 70% scout
+    else return 0.6;                          // 60% scout
+  }
 
-    if (age >= 30) baseWeight = 0.20; // 30+: Almost entirely trust stats
-    else if (age >= 27) baseWeight = 0.30; // 27-29: Mostly trust stats
-    else if (age >= 25) baseWeight = 0.40; // 25-26: Trust stats more than scouts
-    else if (age >= 23) baseWeight = 0.60; // 23-24: Balance (peak dev age)
-    else baseWeight = 0.70; // <23: Trust scouts more (less developed)
+  /**
+   * Build MLB percentile distributions from 2015-2020 peak-age data.
+   * Returns sorted arrays of K9, BB9, HR9 rates for mapping prospect percentiles.
+   *
+   * UPDATED: January 31, 2026 - Peak-age filtering
+   * Uses ages 25-29 only (peak years) to build distributions
+   * This ensures we're mapping prospect peaks to actual MLB peaks
+   */
+  async buildMLBPercentileDistribution(): Promise<MLBPercentileDistribution> {
+    const years = [2015, 2016, 2017, 2018, 2019, 2020];
+    const allK9: number[] = [];
+    const allBb9: number[] = [];
+    const allHr9: number[] = [];
 
-    // For young prospects only, add bonuses for rawness
-    if (age < 25) {
-      // More raw (larger gap) = trust scouting more
-      const gapBonus = (starGap / 4.0) * 0.12; // 0% to 12%
+    // Load DOB data to filter by age
+    const dobMap = await this.loadPlayerDOBs();
 
-      // Less IP = trust scouting more (stats are noisy)
-      const ipFactor = (50 / (50 + totalMinorIp)) * 0.12; // 0% to 12%
+    // Load MLB data for all years
+    for (const year of years) {
+      try {
+        const mlbStats = await trueRatingsService.getTruePitchingStats(year);
 
-      return Math.min(0.90, baseWeight + gapBonus + ipFactor);
+        // Extract rate stats from peak-age pitchers only (25-29)
+        for (const stat of mlbStats) {
+          const ip = trueRatingsService.parseIp(stat.ip);
+
+          // Require minimum IP to avoid small-sample outliers
+          // 50 IP is about 1/3 of a starter season or a full reliever season
+          if (ip < 50) continue;
+
+          // Calculate age for this season
+          const age = this.calculateAge(dobMap.get(stat.player_id), year);
+          if (!age || age < 25 || age > 29) continue; // Skip non-peak ages
+
+          // Calculate rate stats from counting stats
+          const k9 = (stat.k / ip) * 9;
+          const bb9 = (stat.bb / ip) * 9;
+          const hr9 = (stat.hra / ip) * 9;
+
+          // Validate rates are reasonable (filter extreme outliers)
+          // These are very generous bounds - just catching data errors
+          if (k9 > 2 && k9 < 15 && bb9 >= 0.5 && bb9 < 8 && hr9 >= 0.2 && hr9 < 3) {
+            allK9.push(k9);
+            allBb9.push(bb9);
+            allHr9.push(hr9);
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to load MLB data for ${year}, skipping:`, error);
+      }
     }
 
-    // For older prospects (25+), no bonuses - just use base weight
-    return baseWeight;
+    // Sort arrays (for percentile lookup)
+    allK9.sort((a, b) => a - b);  // Ascending: lower values = lower percentile
+    allBb9.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
+    allHr9.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
+
+    console.log(`📊 Built MLB distributions: ${allK9.length} peak-age pitchers (ages 25-29) from 2015-2020`);
+
+    return {
+      k9Values: allK9,
+      bb9Values: allBb9,
+      hr9Values: allHr9,
+    };
+  }
+
+  /**
+   * Load player DOBs from mlb_dob.csv
+   */
+  private async loadPlayerDOBs(): Promise<Map<number, Date>> {
+    try {
+      const response = await fetch('/data/mlb_dob.csv');
+      const csvText = await response.text();
+
+      const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const dobMap = new Map<number, Date>();
+
+      // Skip header
+      for (let i = 1; i < lines.length; i++) {
+        const [idStr, dobStr] = lines[i].split(',');
+        const playerId = parseInt(idStr, 10);
+
+        if (!playerId || !dobStr) continue;
+
+        // Parse MM/DD/YYYY format
+        const [month, day, year] = dobStr.split('/').map(s => parseInt(s, 10));
+        if (!month || !day || !year) continue;
+
+        const dob = new Date(year, month - 1, day);
+        dobMap.set(playerId, dob);
+      }
+
+      console.log(`📅 Loaded ${dobMap.size} player DOBs`);
+      return dobMap;
+    } catch (error) {
+      console.warn('Failed to load DOB data, using all ages:', error);
+      return new Map();
+    }
+  }
+
+  /**
+   * Calculate age at the start of a season
+   */
+  private calculateAge(dob: Date | undefined, season: number): number | null {
+    if (!dob) return null;
+
+    const seasonStart = new Date(season, 3, 1); // April 1st of season year
+    const ageMs = seasonStart.getTime() - dob.getTime();
+    const age = Math.floor(ageMs / (1000 * 60 * 60 * 24 * 365.25));
+
+    return age;
+  }
+
+  /**
+   * Map a prospect's percentile to the corresponding MLB rate value.
+   * Uses linear interpolation on the sorted MLB distribution.
+   *
+   * @param percentile - Prospect's percentile rank (0-100)
+   * @param mlbValues - Sorted array of MLB rates
+   * @returns Interpolated MLB rate at that percentile
+   */
+  mapPercentileToMLBValue(percentile: number, mlbValues: number[]): number {
+    if (mlbValues.length === 0) {
+      throw new Error('MLB distribution is empty');
+    }
+
+    // Clamp percentile to 0-100
+    const clampedPercentile = Math.max(0, Math.min(100, percentile));
+
+    // Convert percentile to array index (0-100 → 0 to length-1)
+    const position = (clampedPercentile / 100) * (mlbValues.length - 1);
+
+    // Get floor and ceiling indices
+    const lowerIdx = Math.floor(position);
+    const upperIdx = Math.ceil(position);
+
+    // Handle edge cases
+    if (lowerIdx === upperIdx) {
+      return mlbValues[lowerIdx];
+    }
+
+    // Linear interpolation
+    const lowerValue = mlbValues[lowerIdx];
+    const upperValue = mlbValues[upperIdx];
+    const fraction = position - lowerIdx;
+
+    return lowerValue + (upperValue - lowerValue) * fraction;
+  }
+
+  /**
+   * Rank prospects by each component and assign percentiles.
+   * Returns a map of playerId to component percentiles.
+   *
+   * @param componentResults - Array of component-blended results
+   * @returns Map of playerId to { stuffPercentile, controlPercentile, hraPercentile }
+   */
+  rankProspectsByComponent(
+    componentResults: ComponentBlendedResult[]
+  ): Map<number, { stuffPercentile: number; controlPercentile: number; hraPercentile: number }> {
+    const percentiles = new Map<number, { stuffPercentile: number; controlPercentile: number; hraPercentile: number }>();
+
+    if (componentResults.length === 0) {
+      return percentiles;
+    }
+
+    const n = componentResults.length;
+
+    // Rank by Stuff (K9 - higher is better)
+    const stuffSorted = [...componentResults].sort((a, b) => b.stuffValue - a.stuffValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = stuffSorted[i];
+      const stuffPercentile = ((n - i - 1) / (n - 1)) * 100;
+
+      if (!percentiles.has(prospect.playerId)) {
+        percentiles.set(prospect.playerId, { stuffPercentile: 0, controlPercentile: 0, hraPercentile: 0 });
+      }
+      percentiles.get(prospect.playerId)!.stuffPercentile = stuffPercentile;
+    }
+
+    // Rank by Control (BB9 - lower is better, so invert)
+    const controlSorted = [...componentResults].sort((a, b) => a.controlValue - b.controlValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = controlSorted[i];
+      const controlPercentile = ((n - i - 1) / (n - 1)) * 100;
+
+      percentiles.get(prospect.playerId)!.controlPercentile = controlPercentile;
+    }
+
+    // Rank by HRA (HR9 - lower is better, so invert)
+    const hraSorted = [...componentResults].sort((a, b) => a.hraValue - b.hraValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = hraSorted[i];
+      const hraPercentile = ((n - i - 1) / (n - 1)) * 100;
+
+      percentiles.get(prospect.playerId)!.hraPercentile = hraPercentile;
+    }
+
+    return percentiles;
   }
 
   /**
@@ -196,11 +438,13 @@ class TrueFutureRatingService {
   /**
    * Calculate weighted average of minor league stats across levels and years.
    * More recent years weighted higher. Stats weighted by IP.
+   *
+   * UPDATED: Now also returns level-weighted IP for scouting weight calculation.
    */
   calculateWeightedMinorStats(
     stats: MinorLeagueStatsWithLevel[],
     currentYear: number
-  ): { k9: number; bb9: number; hr9: number; totalIp: number } | null {
+  ): { k9: number; bb9: number; hr9: number; totalIp: number; weightedIp: number } | null {
     if (stats.length === 0) {
       return null;
     }
@@ -210,6 +454,7 @@ class TrueFutureRatingService {
     let weightedHr9Sum = 0;
     let totalWeight = 0;
     let totalIp = 0;
+    let weightedIp = 0;
 
     for (const stat of stats) {
       // Calculate year weight (current year = 5, previous = 3, older = 2)
@@ -230,6 +475,11 @@ class TrueFutureRatingService {
 
       totalWeight += weight;
       totalIp += stat.ip;
+
+      // Calculate level-weighted IP for reliability assessment
+      // AAA IP is worth 1.0x, AA worth 0.7x, A worth 0.4x, R worth 0.2x
+      const levelWeight = LEVEL_IP_WEIGHTS[stat.level] ?? 0.5;
+      weightedIp += stat.ip * levelWeight;
     }
 
     if (totalWeight === 0) {
@@ -241,6 +491,7 @@ class TrueFutureRatingService {
       bb9: weightedBb9Sum / totalWeight,
       hr9: weightedHr9Sum / totalWeight,
       totalIp,
+      weightedIp, // "AAA-equivalent IP" for scouting weight determination
     };
   }
 
@@ -275,15 +526,45 @@ class TrueFutureRatingService {
   }
 
   /**
-   * Calculate True Future Rating for a single player.
+   * Calculate True Future Rating for a single player (simplified version).
+   * NOTE: This is a legacy function for individual prospect lookups.
+   * For accurate TFR ratings, use calculateTrueFutureRatings() with full prospect pool.
+   *
+   * This function estimates TFR without MLB distribution mapping or proper percentile ranking.
+   * It's useful for quick estimates but won't be as accurate as the full algorithm.
    */
-  calculateTrueFutureRating(input: TrueFutureRatingInput): Omit<TrueFutureRatingResult, 'percentile' | 'trueFutureRating'> {
-    const { scouting, minorLeagueStats, age } = input;
+  calculateTrueFutureRating(input: TrueFutureRatingInput): {
+    projFip: number;
+    projK9: number;
+    projBb9: number;
+    projHr9: number;
+    totalMinorIp: number;
+  } {
+    const componentBlend = this.calculateComponentBlend(input);
 
-    // Calculate star gap (default to 2 if not available)
-    const ovr = scouting.ovr ?? 2.0;
-    const pot = scouting.pot ?? ovr;
-    const starGap = Math.max(0, pot - ovr);
+    // For individual calculations, just use the blended values directly
+    // (without MLB distribution mapping)
+    const projFip = this.calculateFip(
+      componentBlend.stuffValue,
+      componentBlend.controlValue,
+      componentBlend.hraValue
+    );
+
+    return {
+      projFip: Math.round(projFip * 100) / 100,
+      projK9: Math.round(componentBlend.stuffValue * 100) / 100,
+      projBb9: Math.round(componentBlend.controlValue * 100) / 100,
+      projHr9: Math.round(componentBlend.hraValue * 100) / 100,
+      totalMinorIp: componentBlend.totalMinorIp,
+    };
+  }
+
+  /**
+   * Calculate blended component values for a single player.
+   * Returns stuff/control/HRA values (before percentile ranking and MLB mapping).
+   */
+  calculateComponentBlend(input: TrueFutureRatingInput): ComponentBlendedResult {
+    const { scouting, minorLeagueStats, age } = input;
 
     // Calculate weighted minor league stats
     const currentYear = minorLeagueStats.length > 0
@@ -292,9 +573,11 @@ class TrueFutureRatingService {
 
     const weightedStats = this.calculateWeightedMinorStats(minorLeagueStats, currentYear);
     const totalMinorIp = weightedStats?.totalIp ?? 0;
+    const weightedIp = weightedStats?.weightedIp ?? 0;
 
-    // Calculate scouting weight
-    const scoutingWeight = this.calculateScoutingWeight(age, starGap, totalMinorIp);
+    // Calculate scouting weight (level-weighted IP-based)
+    // Use weightedIp instead of totalIp to account for level reliability
+    const scoutingWeight = this.calculateScoutingWeight(weightedIp);
 
     // Calculate scouting-expected rates
     const scoutRates = this.scoutingToExpectedRates(scouting);
@@ -310,197 +593,105 @@ class TrueFutureRatingService {
       adjustedHr9 = weightedStats.hr9;
     }
 
-    // Blend scouting and stats
-    const projK9 = scoutingWeight * scoutRates.k9 + (1 - scoutingWeight) * adjustedK9;
-    const projBb9 = scoutingWeight * scoutRates.bb9 + (1 - scoutingWeight) * adjustedBb9;
-    const projHr9 = scoutingWeight * scoutRates.hr9 + (1 - scoutingWeight) * adjustedHr9;
-
-    // Calculate projected FIP
-    const projFip = this.calculateFip(projK9, projBb9, projHr9);
+    // Blend scouting and stats SEPARATELY for each component
+    const stuffValue = scoutingWeight * scoutRates.k9 + (1 - scoutingWeight) * adjustedK9;
+    const controlValue = scoutingWeight * scoutRates.bb9 + (1 - scoutingWeight) * adjustedBb9;
+    const hraValue = scoutingWeight * scoutRates.hr9 + (1 - scoutingWeight) * adjustedHr9;
 
     return {
       playerId: input.playerId,
       playerName: input.playerName,
       age,
-      starGap,
-      scoutingWeight,
       scoutK9: Math.round(scoutRates.k9 * 100) / 100,
       scoutBb9: Math.round(scoutRates.bb9 * 100) / 100,
       scoutHr9: Math.round(scoutRates.hr9 * 100) / 100,
       adjustedK9: Math.round(adjustedK9 * 100) / 100,
       adjustedBb9: Math.round(adjustedBb9 * 100) / 100,
       adjustedHr9: Math.round(adjustedHr9 * 100) / 100,
-      projK9: Math.round(projK9 * 100) / 100,
-      projBb9: Math.round(projBb9 * 100) / 100,
-      projHr9: Math.round(projHr9 * 100) / 100,
-      projFip: Math.round(projFip * 100) / 100,
-      trueRating: input.trueRating,
+      stuffValue: Math.round(stuffValue * 100) / 100,
+      controlValue: Math.round(controlValue * 100) / 100,
+      hraValue: Math.round(hraValue * 100) / 100,
       totalMinorIp,
+      trueRating: input.trueRating,
     };
   }
 
   /**
-   * Calculate confidence factor based on certainty of projection reaching peak.
-   * Lower confidence = more regression toward replacement level.
+   * Calculate True Future Ratings for multiple players using percentile-based approach.
    *
-   * UPDATED: January 31, 2026 - Added age penalty for older prospects
-   * 2017 validation showed 30-year-old prospects getting elite TFR ratings
-   * Older players are less likely to develop further - already near ceiling
-   *
-   * Returns value between 0 and 1:
-   * - 1.0 = very confident (peak development age, near MLB, good data)
-   * - 0.3 = very uncertain (too young/old, far from MLB, limited data)
-   */
-  calculateConfidenceFactor(
-    age: number,
-    level: string,
-    totalMinorIp: number,
-    scoutFip: number,
-    adjustedFip: number
-  ): number {
-    let confidence = 1.0;
-
-    // Age factor: Peak development window is 21-24
-    // Too young = uncertain development, too old = limited upside
-    if (age <= 19) confidence *= 0.75; // Very young, highly uncertain
-    else if (age <= 20) confidence *= 0.84; // Still developing
-    else if (age <= 22) confidence *= 0.95; // Good development window
-    else if (age <= 24) confidence *= 1.00; // Peak development age - BEST prospects
-    else if (age <= 26) confidence *= 0.85; // Past peak, limited upside
-    else if (age <= 28) confidence *= 0.65; // Old for prospect, ceiling likely reached
-    else if (age <= 30) confidence *= 0.45; // Very old, minimal upside
-    else confidence *= 0.25; // 31+ = organizational filler, not a prospect
-
-    // Level factor: Rookie-only penalty
-    // Optimizer found 0.929 but that still gives 24% rookies in top 100 (target: 3-10%)
-    // Manual adjustment to 0.87 for stronger penalty
-    const levelLower = level.toLowerCase();
-    if (levelLower.includes('r') || levelLower.includes('rookie')) {
-      confidence *= 0.87; // Strong penalty for extreme distance from MLB
-    }
-    // AAA, AA, A: No penalty (scouting weight already handles this)
-
-    // Sample size factor: Less proven = more uncertain
-    // Tuned via complete optimization (score 49.5/100)
-    if (totalMinorIp < 50) confidence *= 0.80;  // (optimized: 0.798)
-    else if (totalMinorIp < 100) confidence *= 0.92;  // (optimized: 0.919)
-    else if (totalMinorIp < 200) confidence *= 0.95;  // (optimized: 0.949)
-    // 200+ IP stays at 1.0 (proven over full season+)
-
-    // Scout-stat agreement: If stats way worse than scout projects, reduce confidence
-    // Tuned via complete optimization (score 49.5/100)
-    const scoutStatGap = Math.abs(adjustedFip - scoutFip);
-    if (scoutStatGap > 2.0) confidence *= 0.75;  // Huge disagreement (optimized: 0.753)
-    else if (scoutStatGap > 1.5) confidence *= 0.93;  // Large disagreement (optimized: 0.931)
-    else if (scoutStatGap > 1.0) confidence *= 0.97;  // Moderate disagreement (optimized: 0.973)
-    // Gap < 1.0 stays at 1.0 (scout and stats agree)
-
-    return Math.max(0.59, confidence); // Floor at 59% confidence (optimized: 0.595)
-  }
-
-  /**
-   * Apply regression toward average prospect outcome based on confidence.
-   *
-   * Logic: Not every prospect reaches their peak. We regress projections
-   * toward "average prospect outcome" based on uncertainty.
-   *
-   * This is ONLY used for ranking/percentile calculation.
-   * Peak projections (for WAR, etc.) should use un-regressed values.
-   *
-   * High confidence: Little regression (they'll likely reach peak)
-   * Low confidence: More regression (bust risk is higher)
-   */
-  applyConfidenceRegression(projFip: number, confidence: number): number {
-    // Average outcome for prospects who make MLB (accounting for bust rate)
-    // Most prospects never reach their peak, so this is well below replacement
-    // Tuned via complete optimization (score 49.5/100): 4.88 FIP
-    const averageProspectFip = 4.88;
-
-    // Use linear confidence for aggressive regression
-    // This ensures proper separation between high/low confidence prospects
-    // confidence=1.0: no regression (use projFip as-is)
-    // confidence=0.7: 70% peak, 30% average = ~3.98 for 3.50 peak
-    // confidence=0.6: 60% peak, 40% average = ~4.14 for 3.50 peak
-    // confidence=0.5: 50% peak, 50% average = ~4.30 for 3.50 peak
-    return confidence * projFip + (1 - confidence) * averageProspectFip;
-  }
-
-  /**
-   * Calculate True Future Ratings for multiple players and rank against MLB pitchers.
+   * NEW ALGORITHM (January 31, 2026):
+   * 1. Blend scouting + stats separately for each component (stuff/control/HRA)
+   * 2. Rank prospects by each component to get percentiles
+   * 3. Map percentiles to MLB distributions (2015-2020)
+   * 4. Calculate peak FIP from mapped rates
+   * 5. Rank by FIP for final TFR rating
    *
    * @param inputs - Array of prospect inputs
-   * @param mlbFips - Array of current MLB pitcher FIPs (for percentile ranking)
    * @returns Array of TrueFutureRatingResult with percentiles and ratings
    */
-  calculateTrueFutureRatings(
-    inputs: TrueFutureRatingInput[],
-    mlbFips: number[]
-  ): TrueFutureRatingResult[] {
-    // Calculate base results (peak projections)
-    const results = inputs.map(input => this.calculateTrueFutureRating(input));
+  async calculateTrueFutureRatings(
+    inputs: TrueFutureRatingInput[]
+  ): Promise<TrueFutureRatingResult[]> {
+    if (inputs.length === 0) {
+      return [];
+    }
 
-    // Calculate confidence-adjusted FIPs for ranking (but keep peak projections)
-    const resultsWithConfidence = results.map(result => {
-      // Determine level (from input's latest minor league stats)
-      const input = inputs.find(i => i.playerId === result.playerId);
-      const latestLevel = input?.minorLeagueStats.length
-        ? input.minorLeagueStats[input.minorLeagueStats.length - 1].level
-        : 'a';
+    // Step 1: Calculate component blends for all prospects
+    const componentResults = inputs.map(input => this.calculateComponentBlend(input));
 
-      // Calculate scout-expected FIP (for comparison)
-      const scoutFip = this.calculateFip(result.scoutK9, result.scoutBb9, result.scoutHr9);
+    // Step 2: Rank by each component to get percentiles
+    const componentPercentiles = this.rankProspectsByComponent(componentResults);
 
-      // Calculate adjusted minor league FIP (for comparison)
-      const adjustedFip = this.calculateFip(result.adjustedK9, result.adjustedBb9, result.adjustedHr9);
+    // Step 3: Load MLB distribution for mapping
+    const mlbDist = await this.buildMLBPercentileDistribution();
 
-      // Calculate confidence in projection reaching peak
-      const confidence = this.calculateConfidenceFactor(
-        result.age,
-        latestLevel,
-        result.totalMinorIp,
-        scoutFip,
-        adjustedFip
-      );
+    // Step 4: Map percentiles to MLB rates and calculate FIP
+    const resultsWithFip = componentResults.map(result => {
+      const percentiles = componentPercentiles.get(result.playerId)!;
 
-      // Apply regression for ranking only (don't overwrite peak projection)
-      const rankingFip = this.applyConfidenceRegression(result.projFip, confidence);
+      // Map percentiles to MLB distribution values
+      // For stuff (K9): higher percentile = higher K9 (use percentile as-is)
+      // For control (BB9): higher percentile = lower BB9 (invert percentile)
+      // For HRA (HR9): higher percentile = lower HR9 (invert percentile)
+      let projK9 = this.mapPercentileToMLBValue(percentiles.stuffPercentile, mlbDist.k9Values);
+      let projBb9 = this.mapPercentileToMLBValue(100 - percentiles.controlPercentile, mlbDist.bb9Values);
+      let projHr9 = this.mapPercentileToMLBValue(100 - percentiles.hraPercentile, mlbDist.hr9Values);
+
+      // Clamp to realistic ranges based on actual MLB peak-age extremes
+      // Best observed: K9 9.79, BB9 0.89, HR9 0.2 (Dave Larocque 2020, 123 IP)
+      // Allow generational prospects (80/80/80 scouting) to achieve historical bests
+      // If someone is truly elite at ALL three phases, extreme FIP (~2.0) is mathematically correct
+      projK9 = Math.max(3.0, Math.min(11.0, projK9));   // Max K9: 9.79, allow 11.0 for peak ceiling
+      projBb9 = Math.max(0.85, Math.min(7.0, projBb9));  // Min BB9: 0.89 actual, allow 0.85
+      projHr9 = Math.max(0.20, Math.min(2.5, projHr9));  // Min HR9: 0.2 actual (Dave Larocque)
+
+      // Calculate peak FIP from mapped rates
+      const projFip = this.calculateFip(projK9, projBb9, projHr9);
 
       return {
-        result,
-        rankingFip // Use this for percentile, keep result.projFip for Peak WAR
+        ...result,
+        stuffPercentile: Math.round(percentiles.stuffPercentile * 10) / 10,
+        controlPercentile: Math.round(percentiles.controlPercentile * 10) / 10,
+        hraPercentile: Math.round(percentiles.hraPercentile * 10) / 10,
+        projK9: Math.round(projK9 * 100) / 100,
+        projBb9: Math.round(projBb9 * 100) / 100,
+        projHr9: Math.round(projHr9 * 100) / 100,
+        projFip: Math.round(projFip * 100) / 100,
       };
     });
 
-    // Combine ranking FIPs with MLB FIPs for percentile calculation
-    const allFips = [...mlbFips, ...resultsWithConfidence.map(r => r.rankingFip)];
-    allFips.sort((a, b) => a - b); // Lower FIP is better
+    // Step 5: Rank by FIP among prospects to get final percentile and TFR rating
+    const sortedByFip = [...resultsWithFip].sort((a, b) => a.projFip - b.projFip);
+    const n = sortedByFip.length;
 
-    const n = allFips.length;
-
-    // Calculate percentile for each prospect using ranking FIP
-    return resultsWithConfidence.map(({ result, rankingFip }) => {
-      // Find rank (1-indexed, lower FIP = better rank)
-      let rank = 1;
-      for (const fip of allFips) {
-        if (fip < rankingFip) rank++;
-        else break;
-      }
-
-      // Handle ties by averaging
-      let tiedCount = 0;
-      for (const fip of allFips) {
-        if (fip === rankingFip) tiedCount++;
-      }
-      const avgRank = rank + (tiedCount - 1) / 2;
-
-      // Convert rank to percentile (inverted so higher = better)
-      const percentile = Math.round(((n - avgRank + 0.5) / n) * 1000) / 10;
+    return sortedByFip.map((result, index) => {
+      // Calculate percentile rank (lower FIP = better = higher percentile)
+      const percentile = ((n - index - 1) / (n - 1)) * 100;
       const trueFutureRating = this.percentileToRating(percentile);
 
-      // Return result with original projFip (for Peak WAR) but adjusted ranking
       return {
         ...result,
-        percentile,
+        percentile: Math.round(percentile * 10) / 10,
         trueFutureRating,
       };
     });
@@ -528,12 +719,11 @@ class TrueFutureRatingService {
       return [];
     }
 
-    // Get MLB pitcher FIPs for percentile ranking
+    // Build map of MLB True Ratings by player ID (for comparison)
     const mlbStats = await trueRatingsService.getTruePitchingStats(year);
     const leagueAverages = await trueRatingsService.getLeagueAverages(year);
     const multiYearStats = await trueRatingsService.getMultiYearPitchingStats(year, 3);
 
-    // Calculate True Ratings for MLB pitchers to get their FIP distribution
     const mlbInputs = mlbStats.map(stat => ({
       playerId: stat.player_id,
       playerName: stat.playerName,
@@ -542,22 +732,6 @@ class TrueFutureRatingService {
     }));
 
     const mlbTrueRatings = trueRatingsCalculationService.calculateTrueRatings(mlbInputs, leagueAverages);
-
-    // Filter MLB FIPs to prime years only (ages 25-32) for fair comparison
-    // Prospects project to peak at 25-27, so compare vs MLB prime, not all ages
-    // Ages 25-32 in OOTP: ~4.31-4.38 FIP avg (vs 4.35 all ages)
-    const primeYearsFips = mlbTrueRatings
-      .filter(tr => {
-        const scouting = scoutingRatings.find(s => s.playerId === tr.playerId);
-        const age = scouting?.age ?? 0;
-        return age >= 25 && age <= 32;
-      })
-      .map(tr => tr.fipLike + FIP_CONSTANT);
-
-    // Use prime years FIPs for percentile comparison
-    const mlbFips = primeYearsFips.length > 200 ? primeYearsFips : mlbTrueRatings.map(tr => tr.fipLike + FIP_CONSTANT);
-
-    // Build map of MLB True Ratings by player ID
     const mlbTrMap = new Map(mlbTrueRatings.map(tr => [tr.playerId, tr.trueRating]));
 
     // Build prospect inputs
@@ -596,8 +770,8 @@ class TrueFutureRatingService {
       });
     }
 
-    // Calculate TFR for all prospects
-    return this.calculateTrueFutureRatings(prospectInputs, mlbFips);
+    // Calculate TFR for all prospects using new percentile-based algorithm
+    return await this.calculateTrueFutureRatings(prospectInputs);
   }
 
   /**

@@ -12,6 +12,7 @@ interface FarmColumn {
   key: string;
   label: string;
   sortKey?: string;
+  title?: string;
 }
 
 export class FarmRankingsView {
@@ -31,12 +32,12 @@ export class FarmRankingsView {
   private systemsColumns: FarmColumn[] = [
     { key: 'rank', label: '#' },
     { key: 'teamName', label: 'Organization', sortKey: 'teamName' },
-    { key: 'totalWar', label: 'Total WAR', sortKey: 'totalWar' },
+    { key: 'totalWar', label: 'Farm Score', sortKey: 'totalWar' },
     { key: 'topProspectName', label: 'Top Prospect', sortKey: 'topProspectName' },
-    { key: 'elite', label: 'Elite', sortKey: 'elite' },
-    { key: 'aboveAvg', label: 'Good', sortKey: 'aboveAvg' },
-    { key: 'average', label: 'Avg', sortKey: 'average' },
-    { key: 'fringe', label: 'Depth', sortKey: 'fringe' }
+    { key: 'elite', label: 'Elite', sortKey: 'elite', title: 'Elite (4.5+ TFR)' },
+    { key: 'aboveAvg', label: 'Good', sortKey: 'aboveAvg', title: 'Above Average (3.5-4.0 TFR)' },
+    { key: 'average', label: 'Avg', sortKey: 'average', title: 'Average (2.5-3.0 TFR)' },
+    { key: 'fringe', label: 'Depth', sortKey: 'fringe', title: 'Fringe (< 2.5 TFR)' }
   ];
 
   private prospectsColumns: FarmColumn[] = [
@@ -107,7 +108,11 @@ export class FarmRankingsView {
           <div class="filter-bar">
             <label>Filters:</label>
             <div class="filter-group" role="group" aria-label="Farm filters">
-              
+
+              <!-- Year selector temporarily hidden - no historical scouting data available
+                   Scouting reports are year-agnostic, so showing past years would incorrectly
+                   apply current scouting to historical stats. Re-enable when year-by-year
+                   scouting data becomes available.
               <div class="filter-dropdown" data-filter="year">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
                   Year: <span id="selected-year-display">${this.selectedYear}</span> ▾
@@ -116,6 +121,7 @@ export class FarmRankingsView {
                   ${this.yearOptions.map(year => `<div class="filter-dropdown-item ${year === this.selectedYear ? 'selected' : ''}" data-value="${year}">${year}</div>`).join('')}
                 </div>
               </div>
+              -->
 
               <button class="toggle-btn active" data-view-mode="top-systems" aria-pressed="true">Top Systems</button>
               <button class="toggle-btn" data-view-mode="top-100" aria-pressed="false">Top 100</button>
@@ -156,26 +162,26 @@ export class FarmRankingsView {
         }
     });
 
-    // Year selection
-    this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-            const value = (e.target as HTMLElement).dataset.value;
-            if (!value) return;
-            
-            this.selectedYear = parseInt(value, 10);
-            
-            const displaySpan = this.container.querySelector('#selected-year-display');
-            if (displaySpan) displaySpan.textContent = value;
-            
-            this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
-            (e.target as HTMLElement).classList.add('selected');
-            
-            (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
-            
-            this.showLoadingState();
-            this.loadData();
-        });
-    });
+    // Year selection - disabled until historical scouting data available
+    // this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(item => {
+    //     item.addEventListener('click', (e) => {
+    //         const value = (e.target as HTMLElement).dataset.value;
+    //         if (!value) return;
+    //
+    //         this.selectedYear = parseInt(value, 10);
+    //
+    //         const displaySpan = this.container.querySelector('#selected-year-display');
+    //         if (displaySpan) displaySpan.textContent = value;
+    //
+    //         this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+    //         (e.target as HTMLElement).classList.add('selected');
+    //
+    //         (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+    //
+    //         this.showLoadingState();
+    //         this.loadData();
+    //     });
+    // });
 
     this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -199,10 +205,12 @@ export class FarmRankingsView {
     });
   }
 
-  private showLoadingState(message: string = 'Loading...'): void {
-      const content = this.container.querySelector('#farm-content-area');
-      if (content) content.innerHTML = this.renderLoadingState(message);
-  }
+  // Temporarily unused - was only called from year dropdown handler
+  // Re-enable when historical scouting data becomes available
+  // private showLoadingState(message: string = 'Loading...'): void {
+  //     const content = this.container.querySelector('#farm-content-area');
+  //     if (content) content.innerHTML = this.renderLoadingState(message);
+  // }
 
   private renderLoadingState(title: string): string {
       return `
@@ -503,16 +511,17 @@ export class FarmRankingsView {
       // Add a script/handler call to bind these new toggles
       setTimeout(() => this.bindSystemToggles(), 0);
 
-      // const headerRow = this.systemsColumns.map(col => {
-      //     const isSorted = this.systemsSortKey === col.sortKey;
-      //     const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
-      //     const activeClass = isSorted ? 'sort-active' : '';
-      //     const style = col.key === 'teamName' || col.key === 'topProspectName' ? 'text-align: left;' : 'text-align: center;';
-      //     const width = col.key === 'rank' ? 'width: 40px;' : '';
-      //     const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+      const headerRow = this.systemsColumns.map(col => {
+          const isSorted = this.systemsSortKey === col.sortKey;
+          const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
+          const activeClass = isSorted ? 'sort-active' : '';
+          const style = col.key === 'teamName' || col.key === 'topProspectName' ? 'text-align: left;' : 'text-align: center;';
+          const width = col.key === 'rank' ? 'width: 40px;' : '';
+          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+          const titleAttr = col.title ? `title="${col.title}"` : '';
 
-      //     return `<th ${sortAttr} data-col-key="${col.key}" class="${activeClass}" style="${style} ${width}" draggable="true">${col.label}${sortIcon}</th>`;
-      // }).join('');
+          return `<th ${sortAttr} ${titleAttr} data-col-key="${col.key}" class="${activeClass}" style="${style} ${width}" draggable="true">${col.label}${sortIcon}</th>`;
+      }).join('');
 
       return `
         <div class="stats-table-container">
@@ -520,14 +529,7 @@ export class FarmRankingsView {
             <table class="stats-table" style="width: 100%;">
                 <thead>
                     <tr>
-                        <th style="width: 40px;">#</th>
-                        <th>Organization</th>
-                        <th style="text-align: center;">Farm Score</th>
-                        <th style="text-align: left;">Top Prospect</th>
-                        <th style="text-align: center;" title="Elite (4.5+ TFR)">Elite</th>
-                        <th style="text-align: center;" title="Above Average (3.5-4.0 TFR)">Good</th>
-                        <th style="text-align: center;" title="Average (2.5-3.0 TFR)">Avg</th>
-                        <th style="text-align: center;" title="Fringe (< 2.5 TFR)">Depth</th>
+                        ${headerRow}
                     </tr>
                 </thead>
                 <tbody>
@@ -1091,19 +1093,27 @@ export class FarmRankingsView {
           return;
       }
 
-      // Map prospects to test format
+      // Map prospects to test format (NEW: includes percentile data)
       const prospects = this.data.prospects.map(p => ({
           playerId: p.playerId,
           name: p.name,
           age: p.age,
           level: p.level,
           tfr: p.trueFutureRating,
+          tfrPercentile: p.percentile,
+          stuffPercentile: p.stuffPercentile,
+          controlPercentile: p.controlPercentile,
+          hraPercentile: p.hraPercentile,
           projFip: p.peakFip,
+          projK9: p.projK9,
+          projBb9: p.projBb9,
+          projHr9: p.projHr9,
           projWar: p.peakWar,
           totalMinorIp: p.stats.ip
       }));
 
       const output = {
+          algorithm: 'percentile-based-v2',
           year: this.selectedYear,
           generated: new Date().toISOString(),
           totalProspects: prospects.length,

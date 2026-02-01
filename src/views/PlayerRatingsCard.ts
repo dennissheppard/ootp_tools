@@ -570,6 +570,15 @@ export class PlayerRatingsCard {
   }
 
   /**
+   * Clamp True Ratings for display purposes (20-80 scale)
+   * Backend calculations use actual values, but UI shows clamped values
+   * This matches OOTP's approach of hiding extreme overages
+   */
+  private static clampRatingForDisplay(rating: number): number {
+    return Math.max(20, Math.min(80, Math.round(rating)));
+  }
+
+  /**
    * Render a comparison bar (estimated vs scout)
    */
   static renderRatingBar(label: string, estimated?: number, scout?: number): string {
@@ -597,7 +606,8 @@ export class PlayerRatingsCard {
       `;
     }
 
-    const estValue = estimated;
+    // Clamp estimated rating for display (backend may have values >80 for elite prospects)
+    const estValue = this.clampRatingForDisplay(estimated);
     const diff = estValue - scoutValue;
     const diffText = diff > 0 ? `+${diff}` : `${diff}`;
     const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
@@ -673,7 +683,8 @@ export class PlayerRatingsCard {
       `;
     }
 
-    const estValue = estimated;
+    // Clamp estimated rating for display (backend may have values >80 for elite prospects)
+    const estValue = this.clampRatingForDisplay(estimated);
     const estWidth = Math.max(20, Math.min(80, estValue));
     const estClass = this.getRatingClassForValue(estValue);
 

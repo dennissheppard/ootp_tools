@@ -687,24 +687,26 @@ class ProjectionService {
         if (baseIp < 100) baseIp = 100;
     } else {
         // Fallback to formula-based approach if distributions not available
+        // Updated for peak projections: stamina 50 → 160 IP, 60 → 190 IP, 70 → 220 IP (before modifiers)
         baseIp = isSp
-            ? 100 + (stamina * 1.2) // 30->136, 80->196
-            : 30 + (stamina * 0.6); // 20->42, 80->78
+            ? 10 + (stamina * 3.0) // More aggressive for peak workload
+            : 30 + (stamina * 0.6); // RP unchanged: 20->42, 80->78
 
-        // Clamp
-        if (isSp) baseIp = Math.max(100, Math.min(240, baseIp));
+        // Clamp - increased max for SP peak projections
+        if (isSp) baseIp = Math.max(100, Math.min(280, baseIp));
         else baseIp = Math.max(30, Math.min(100, baseIp));
     }
 
     // 3. Injury Modifier
+    // Peak projection assumes a healthy season, so less punitive than career average
     const proneness = scouting?.injuryProneness?.toLowerCase() ?? 'normal';
     let injuryMod = 1.0;
     switch (proneness) {
         case 'iron man': injuryMod = 1.15; break;
         case 'durable': injuryMod = 1.08; break;
         case 'normal': injuryMod = 1.0; break;
-        case 'fragile': injuryMod = 0.85; break;
-        case 'wrecked': injuryMod = 0.65; break;
+        case 'fragile': injuryMod = 0.92; break; // Can still have healthy peak season
+        case 'wrecked': injuryMod = 0.75; break; // Significantly limits ceiling
     }
     baseIp *= injuryMod;
 

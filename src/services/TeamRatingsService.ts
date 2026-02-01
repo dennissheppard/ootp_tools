@@ -36,12 +36,19 @@ export interface RatedProspect {
     playerId: number;
     name: string;
     trueFutureRating: number;
+    percentile: number; // TFR percentile among all prospects
+    stuffPercentile: number; // Component percentile (0-100)
+    controlPercentile: number; // Component percentile (0-100)
+    hraPercentile: number; // Component percentile (0-100)
     age: number;
     level: string;
     teamId: number;
     peakFip: number;
     peakWar: number;
     peakIp: number; // Projected peak season IP
+    projK9: number; // Projected peak K/9
+    projBb9: number; // Projected peak BB/9
+    projHr9: number; // Projected peak HR/9
     potentialRatings: {
         stuff: number;
         control: number;
@@ -159,21 +166,23 @@ class TeamRatingsService {
           const isSp = stamina >= 30 && pitchCount >= 3;
 
           // Calculate realistic IP projection based on stamina and injury proneness
+          // PEAK PROJECTION: Age 27 peak assumes healthy, full workload season
           let projectedIp: number;
           if (isSp) {
-              // SP: Base IP from stamina (40-70 stamina → 120-200 IP typical range)
-              // Use percentile-based approach: stamina 50 → ~150 IP, 70 → ~180 IP
-              const baseIp = 80 + (stamina * 1.8); // stamina 50 → 170, 70 → 206
+              // SP: Peak workload formula
+              // Elite starters (70+ stamina) should project to 220-240+ IP
+              // stamina 50 → 180 IP, 60 → 210 IP, 70 → 240 IP
+              const baseIp = 30 + (stamina * 3.0); // More aggressive for peak projection
 
-              // Injury adjustment
+              // Injury adjustment (less aggressive for peak - assume healthy season)
               let injuryFactor = 1.0;
               if (injury === 'Normal') injuryFactor = 1.0;
-              else if (injury === 'Fragile') injuryFactor = 0.85;
+              else if (injury === 'Fragile') injuryFactor = 0.90; // Still capable of workhorse season
               else if (injury === 'Durable') injuryFactor = 1.10;
-              else if (injury === 'Wrecked') injuryFactor = 0.60;
+              else if (injury === 'Wrecked') injuryFactor = 0.75; // Significantly limits ceiling
               else if (injury === 'Ironman') injuryFactor = 1.15;
 
-              projectedIp = Math.round(Math.max(100, Math.min(220, baseIp * injuryFactor)));
+              projectedIp = Math.round(Math.max(120, Math.min(260, baseIp * injuryFactor)));
           } else {
               // RP: 50-75 IP typical range
               const baseIp = 50 + (stamina * 0.5); // stamina 30 → 65, 50 → 75
@@ -194,12 +203,19 @@ class TeamRatingsService {
               playerId: tfr.playerId,
               name: tfr.playerName,
               trueFutureRating: tfr.trueFutureRating,
+              percentile: tfr.percentile,
+              stuffPercentile: tfr.stuffPercentile,
+              controlPercentile: tfr.controlPercentile,
+              hraPercentile: tfr.hraPercentile,
               age: tfr.age,
               level: this.getLevelLabel(player.level),
               teamId: player.teamId,
               peakFip: tfr.projFip,
               peakWar: peakWar,
               peakIp: projectedIp,
+              projK9: tfr.projK9,
+              projBb9: tfr.projBb9,
+              projHr9: tfr.projHr9,
               potentialRatings: {
                   stuff: tfr.projK9,
                   control: tfr.projBb9,

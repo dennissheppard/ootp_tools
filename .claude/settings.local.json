@@ -27,7 +27,15 @@
       "Bash(do grep \"^$id,\" \"public\\\\data\\\\players.csv\")",
       "Bash(echo:*)",
       "Bash(done)",
-      "Bash(npx ts-node:*)"
+      "Bash(npx ts-node:*)",
+      "Bash(dir \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\\\\dist\\\\data\")",
+      "Bash(findstr:*)",
+      "Bash(dir:*)",
+      "Bash(del \"\\\\.\\\\C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\\\\nul\")",
+      "Bash(powershell -Command \"Remove-Item ''\\\\.\\\\C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\\\\nul''\")",
+      "Bash(powershell -Command \"Remove-Item ''\\\\?\\\\C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\\\\nul''\")",
+      "Bash(powershell -Command \"Remove-Item ''.\\\\nul''\")",
+      "Bash(test:*)"
     ]
   }
 }
