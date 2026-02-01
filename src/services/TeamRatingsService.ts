@@ -36,19 +36,20 @@ export interface RatedProspect {
     playerId: number;
     name: string;
     trueFutureRating: number;
-    percentile: number; // TFR percentile among all prospects
-    stuffPercentile: number; // Component percentile (0-100)
-    controlPercentile: number; // Component percentile (0-100)
-    hraPercentile: number; // Component percentile (0-100)
     age: number;
     level: string;
     teamId: number;
+    orgId: number;
     peakFip: number;
     peakWar: number;
-    peakIp: number; // Projected peak season IP
-    projK9: number; // Projected peak K/9
-    projBb9: number; // Projected peak BB/9
-    projHr9: number; // Projected peak HR/9
+    peakIp?: number;
+    projK9?: number;
+    projBb9?: number;
+    projHr9?: number;
+    percentile?: number;
+    stuffPercentile?: number;
+    controlPercentile?: number;
+    hraPercentile?: number;
     potentialRatings: {
         stuff: number;
         control: number;
@@ -210,6 +211,7 @@ class TeamRatingsService {
               age: tfr.age,
               level: this.getLevelLabel(player.level),
               teamId: player.teamId,
+              orgId: orgId,
               peakFip: tfr.projFip,
               peakWar: peakWar,
               peakIp: projectedIp,
@@ -229,7 +231,7 @@ class TeamRatingsService {
                   pitches: pitchCount
               },
               stats: {
-                  ip: tfr.totalMinorIp,
+                  ip: projectedIp,
                   k9: tfr.adjustedK9,
                   bb9: tfr.adjustedBb9,
                   hr9: tfr.adjustedHr9
@@ -278,21 +280,6 @@ class TeamRatingsService {
 
           // 2. System Overview Data
           const allOrgProspects = [...group.rotation, ...group.bullpen];
-          
-          // Calculate True Farm Rating (Farm Score)
-          // Formula: Sum(top 10) + 0.5 * Sum(next 20) + 0.25 * Sum(next 30)
-          // Only counting positive WAR contributions
-          
-          // Sort all prospects by Peak WAR descending
-          allOrgProspects.sort((a, b) => b.peakWar - a.peakWar);
-
-          const getPosWar = (p: RatedProspect) => Math.max(0, p.peakWar);
-
-          const top10 = allOrgProspects.slice(0, 10).reduce((sum, p) => sum + getPosWar(p), 0);
-          const next20 = allOrgProspects.slice(10, 30).reduce((sum, p) => sum + getPosWar(p), 0);
-          const next30 = allOrgProspects.slice(30, 60).reduce((sum, p) => sum + getPosWar(p), 0);
-
-          const totalWar = top10 + (0.5 * next20) + (0.25 * next30);
 
           // Top Prospect - Highest Peak WAR, with TFR as tie-breaker
           const topProspect = allOrgProspects.reduce((prev, current) => {
@@ -301,12 +288,12 @@ class TeamRatingsService {
               return prev;
           });
 
-          // Tiers
+          // Tiers - bucket prospects by True Future Rating
           const tierCounts = {
-              elite: 0,
-              aboveAvg: 0,
-              average: 0,
-              fringe: 0
+              elite: 0,       // TFR >= 4.5
+              aboveAvg: 0,    // TFR 3.5-4.4
+              average: 0,     // TFR 2.5-3.4
+              fringe: 0       // TFR < 2.5 (Depth)
           };
 
           allOrgProspects.forEach(p => {
@@ -315,6 +302,21 @@ class TeamRatingsService {
               else if (p.trueFutureRating >= 2.5) tierCounts.average++;
               else tierCounts.fringe++;
           });
+
+          // Calculate Farm Score based on tier counts (out of 100)
+          // Elite: 10 pts each, Good: 5 pts each, Avg: 1 pt each
+          // Depth (Fringe): scaled based on count
+          const eliteScore = tierCounts.elite * 10;
+          const goodScore = tierCounts.aboveAvg * 5;
+          const avgScore = tierCounts.average * 1;
+
+          let depthScore = 0;
+          if (tierCounts.fringe < 10) depthScore = 0;
+          else if (tierCounts.fringe < 15) depthScore = 2;
+          else if (tierCounts.fringe < 25) depthScore = 4;
+          else depthScore = 5;
+
+          const totalWar = eliteScore + goodScore + avgScore + depthScore;
 
           systems.push({
               teamId: orgId,
@@ -327,8 +329,11 @@ class TeamRatingsService {
           });
       });
 
-      // Sort Top 100 Prospects by TFR desc
+      // Sort Top 100 Prospects by Percentile (Precision TFR) desc
       const sortedProspects = allProspects.sort((a, b) => {
+          if (b.percentile !== undefined && a.percentile !== undefined && b.percentile !== a.percentile) {
+              return b.percentile - a.percentile;
+          }
           if (b.trueFutureRating !== a.trueFutureRating) {
               return b.trueFutureRating - a.trueFutureRating;
           }

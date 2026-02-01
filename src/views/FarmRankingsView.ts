@@ -1,4 +1,4 @@
-import { teamRatingsService, FarmData, FarmSystemRankings, RatedProspect } from '../services/TeamRatingsService';
+import { teamRatingsService, FarmData, FarmSystemRankings, FarmSystemOverview, RatedProspect } from '../services/TeamRatingsService';
 import { PlayerProfileModal } from './PlayerProfileModal';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
@@ -22,6 +22,8 @@ export class FarmRankingsView {
   private data: FarmData | null = null;
   private playerProfileModal: PlayerProfileModal;
   private yearOptions = Array.from({ length: 6 }, (_, i) => 2021 - i); // 2021 down to 2016
+  private top100Prospects: RatedProspect[] = [];
+  private selectedTeam: string = 'all';
 
   // Sorting and Dragging state
   private systemsSortKey: string = 'totalWar';
@@ -43,7 +45,7 @@ export class FarmRankingsView {
   private prospectsColumns: FarmColumn[] = [
     { key: 'rank', label: '#' },
     { key: 'name', label: 'Name', sortKey: 'name' },
-    { key: 'team', label: 'Team', sortKey: 'teamId' },
+    { key: 'team', label: 'Team', sortKey: 'orgId' },
     { key: 'trueFutureRating', label: 'TFR', sortKey: 'trueFutureRating' },
     { key: 'peakWar', label: 'Peak WAR', sortKey: 'peakWar' },
     { key: 'peakFip', label: 'Peak FIP', sortKey: 'peakFip' },
@@ -125,8 +127,18 @@ export class FarmRankingsView {
 
               <button class="toggle-btn active" data-view-mode="top-systems" aria-pressed="true">Top Systems</button>
               <button class="toggle-btn" data-view-mode="top-100" aria-pressed="false">Top 100</button>
+              
+              <div class="filter-dropdown" data-filter="team" style="display: none;">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Team: <span id="selected-team-display">All</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="team-dropdown-menu">
+                  <div class="filter-dropdown-item selected" data-value="all">All</div>
+                </div>
+              </div>
+
               <button class="toggle-btn" data-view-mode="reports" aria-pressed="false">Reports</button>
-              <button class="toggle-btn" id="export-tfr-btn" title="Export TFR data for automated testing">Export for Testing</button>
+              <button class="toggle-btn" id="export-tfr-btn" title="Export TFR data for automated testing" style="display: none;">Export for Testing</button>
             </div>
           </div>
         </div>
@@ -203,6 +215,14 @@ export class FarmRankingsView {
     this.container.querySelector('#export-tfr-btn')?.addEventListener('click', () => {
         this.exportTFRForTesting();
     });
+
+    // Secret trigger for export button
+    this.container.querySelector('.view-title')?.addEventListener('dblclick', () => {
+        const btn = this.container.querySelector<HTMLElement>('#export-tfr-btn');
+        if (btn) {
+            btn.style.display = btn.style.display === 'none' ? 'inline-block' : 'none';
+        }
+    });
   }
 
   // Temporarily unused - was only called from year dropdown handler
@@ -248,9 +268,58 @@ export class FarmRankingsView {
       `;
   }
 
+  private updateTeamFilter(): void {
+      const menu = this.container.querySelector<HTMLElement>('#team-dropdown-menu');
+      if (!menu || !this.data) return;
+
+      const teams = new Set<string>();
+      this.data.prospects.forEach(p => {
+          teams.add(this.getTeamName(p.orgId));
+      });
+
+      const sortedTeams = Array.from(teams).sort();
+      
+      const items = ['all', ...sortedTeams].map(t => {
+          const label = t === 'all' ? 'All' : t;
+          const selectedClass = t === this.selectedTeam ? 'selected' : '';
+          return `<div class="filter-dropdown-item ${selectedClass}" data-value="${t}">${label}</div>`;
+      }).join('');
+      
+      menu.innerHTML = items;
+      this.bindTeamDropdownListeners();
+  }
+
+  private bindTeamDropdownListeners(): void {
+      this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+              const value = (e.target as HTMLElement).dataset.value;
+              if (!value) return;
+
+              this.selectedTeam = value;
+
+              // Update display text
+              const displaySpan = this.container.querySelector('#selected-team-display');
+              if (displaySpan) {
+                  displaySpan.textContent = value === 'all' ? 'All' : value;
+              }
+
+              // Update selected state
+              this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+              (e.target as HTMLElement).classList.add('selected');
+
+              // Close dropdown
+              (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+              this.renderView();
+          });
+      });
+  }
+
   private async loadData(): Promise<void> {
     try {
         this.data = await teamRatingsService.getFarmData(this.selectedYear);
+        this.top100Prospects = this.data.prospects.slice(0, 100);
+        this.updateTeamFilter();
         this.renderView();
     } catch (err) {
         console.error(err);
@@ -265,6 +334,11 @@ export class FarmRankingsView {
       if (!content) return;
 
       this.sortData();
+
+      const teamFilter = this.container.querySelector<HTMLElement>('[data-filter="team"]');
+      if (teamFilter) {
+          teamFilter.style.display = this.viewMode === 'top-100' ? 'inline-block' : 'none';
+      }
 
       switch (this.viewMode) {
           case 'top-systems':
@@ -282,6 +356,7 @@ export class FarmRankingsView {
       this.bindPlayerNameClicks();
       this.bindSortHeaders();
       this.bindColumnDragAndDrop();
+      this.bindFlipCards();
   }
 
   private sortData(): void {
@@ -309,14 +384,14 @@ export class FarmRankingsView {
       return this.systemsSortDirection === 'asc' ? compare : -compare;
     });
 
-    // Sort prospects
-    this.data.prospects.sort((a, b) => {
+    // Sort prospects (Top 100 subset)
+    this.top100Prospects.sort((a, b) => {
       let aVal: any;
       let bVal: any;
 
       if (this.prospectsSortKey === 'team') {
-        aVal = this.getTeamName(a.teamId);
-        bVal = this.getTeamName(b.teamId);
+        aVal = this.getTeamName(a.orgId);
+        bVal = this.getTeamName(b.orgId);
       } else {
         aVal = (a as any)[this.prospectsSortKey];
         bVal = (b as any)[this.prospectsSortKey];
@@ -456,6 +531,27 @@ export class FarmRankingsView {
     cells.forEach(cell => cell.classList.toggle(className, add));
   }
 
+  private bindFlipCards(): void {
+    const cells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
+    cells.forEach(cell => {
+      let isFlipped = false;
+
+      cell.addEventListener('mouseenter', () => {
+        if (!isFlipped) {
+          cell.classList.add('is-flipped');
+          isFlipped = true;
+        } else {
+          cell.classList.remove('is-flipped');
+          isFlipped = false;
+        }
+      });
+
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+      });
+    });
+  }
+
   // --- TOP SYSTEMS VIEW ---
   private renderTopSystems(): string {
       if (!this.data || this.data.systems.length === 0) return '<p class="no-stats">No system data available.</p>';
@@ -479,7 +575,7 @@ export class FarmRankingsView {
                             </div>
                         </td>`;
                 case 'totalWar':
-                    return `<td data-col-key="totalWar" style="text-align: center;"><span class="badge ${this.getWarClass(sys.totalWar)}">${sys.totalWar.toFixed(1)}</span></td>`;
+                    return `<td data-col-key="totalWar" style="text-align: center; padding-right: 100px;">${this.renderFarmScoreFlip(sys)}</td>`;
                 case 'topProspectName':
                     return `<td data-col-key="topProspectName" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${sys.topProspectId}">${sys.topProspectName}</button></td>`;
                 case 'elite':
@@ -516,11 +612,15 @@ export class FarmRankingsView {
           const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
           const activeClass = isSorted ? 'sort-active' : '';
           const style = col.key === 'teamName' || col.key === 'topProspectName' ? 'text-align: left;' : 'text-align: center;';
-          const width = col.key === 'rank' ? 'width: 40px;' : '';
+          let width = '';
+          let padding = '';
+          if (col.key === 'rank') width = 'width: 40px;';
+          else if (col.key === 'teamName') width = 'width: 18%;';
+          else if (col.key === 'totalWar') {width = 'width: 12%;', padding = 'padding-right: 100px;'};
           const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
           const titleAttr = col.title ? `title="${col.title}"` : '';
 
-          return `<th ${sortAttr} ${titleAttr} data-col-key="${col.key}" class="${activeClass}" style="${style} ${width}" draggable="true">${col.label}${sortIcon}</th>`;
+          return `<th ${sortAttr} ${titleAttr} data-col-key="${col.key}" class="${activeClass}" style="${style} ${width} ${padding}" draggable="true">${col.label}${sortIcon}</th>`;
       }).join('');
 
       return `
@@ -601,17 +701,26 @@ export class FarmRankingsView {
   private renderTopProspects(): string {
       if (!this.data || this.data.prospects.length === 0) return '<p class="no-stats">No prospect data available.</p>';
 
-      const top100 = this.data.prospects.slice(0, 100);
-      
-      const rows = top100.map((p, idx) => {
+      const filteredProspects = this.selectedTeam === 'all'
+          ? this.top100Prospects
+          : this.top100Prospects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
+
+      if (filteredProspects.length === 0) return '<p class="no-stats">No top 100 prospects found for this team.</p>';
+
+      const rows = filteredProspects.map((p, idx) => {
         const cells = this.prospectsColumns.map(col => {
             switch (col.key) {
                 case 'rank':
-                    return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
+                    const currentRank = idx + 1;
+                    if (this.selectedTeam !== 'all' && this.data) {
+                        const originalRank = this.data.prospects.findIndex(orig => orig.playerId === p.playerId) + 1;
+                        return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${currentRank} <span style="font-weight: normal; font-size: 0.85em; opacity: 0.7;">(#${originalRank})</span></td>`;
+                    }
+                    return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${currentRank}</td>`;
                 case 'name':
                     return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>`;
                 case 'team':
-                    return `<td data-col-key="team" style="text-align: left;">${this.getTeamName(p.teamId)}</td>`;
+                    return `<td data-col-key="team" style="text-align: left;">${this.getTeamName(p.orgId)}</td>`;
                 case 'trueFutureRating':
                     return `<td data-col-key="trueFutureRating" style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>`;
                 case 'peakWar':
@@ -846,6 +955,48 @@ export class FarmRankingsView {
       return 'rating-poor';
   }
 
+  private renderFarmScoreFlip(sys: FarmSystemOverview): string {
+      const front = `<span class="badge ${this.getWarClass(sys.totalWar)}">${sys.totalWar.toFixed(1)}</span>`;
+
+      // Build breakdown text
+      const { elite, aboveAvg, average, fringe } = sys.tierCounts;
+      const eliteScore = elite * 10;
+      const goodScore = aboveAvg * 5;
+      const avgScore = average * 1;
+
+      let depthScore = 0;
+      if (fringe >= 25) depthScore = 5;
+      else if (fringe >= 15) depthScore = 4;
+      else if (fringe >= 10) depthScore = 2;
+
+      // Format breakdown as single line with all components in parentheses
+      const parts = [];
+
+      if (elite > 0) parts.push(`${elite}E (${eliteScore}pts)`);
+      if (aboveAvg > 0) parts.push(`${aboveAvg}G (${goodScore}pts)`);
+      if (average > 0) parts.push(`${average}A (${avgScore}pts)`);
+      parts.push(`Depth: ${fringe} (${depthScore}pts)`);
+
+      const formula = parts.join(' ');
+
+      const back = `
+        <div style="font-size: 0.75rem; line-height: 1.2; text-align: center; padding: 2px; white-space: nowrap;">
+          ${formula || '-'}
+        </div>
+      `;
+
+      return `
+          <div class="flip-cell" style="width: auto; height: auto; min-width: 50px;">
+            <div class="flip-cell-inner">
+              <div class="flip-cell-front">${front}</div>
+              <div class="flip-cell-back" style="background-color: var(--color-surface); padding: 2px 4px; min-width: 90px; border-radius: 4px; box-shadow: 0 0 4px rgba(0,0,0,0.5); left: 50%; translate: -50%;">
+                ${back}
+              </div>
+            </div>
+          </div>
+      `;
+  }
+
   private bindToggleEvents(): void {
       this.container.querySelectorAll('.team-header').forEach(header => {
           header.addEventListener('click', () => {
@@ -948,7 +1099,7 @@ export class FarmRankingsView {
                   hr9: prospect.potentialRatings.hra,
                   fip: prospect.peakFip,
                   war: prospect.peakWar,
-                  ip: prospect.peakIp // Now uses realistic IP based on stamina/injury
+                  ip: prospect.peakIp ?? 0 // Now uses realistic IP based on stamina/injury
               },
               projectedRatings: {
                   stuff: prospect.scoutingRatings.stuff,
@@ -1109,7 +1260,7 @@ export class FarmRankingsView {
           projBb9: p.projBb9,
           projHr9: p.projHr9,
           projWar: p.peakWar,
-          totalMinorIp: p.stats.ip
+          projIp: p.stats.ip
       }));
 
       const output = {
