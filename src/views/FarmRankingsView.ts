@@ -684,12 +684,18 @@ export class FarmRankingsView {
 
   private bindSystemToggles(): void {
       this.container.querySelectorAll('.system-row').forEach(row => {
+          const systemKey = (row as HTMLElement).dataset.systemKey;
+          const detailsRow = this.container.querySelector(`#details-${systemKey}`);
+
+          // Stop propagation for the details row to prevent accidental toggling
+          if (detailsRow) {
+              detailsRow.addEventListener('click', (e) => e.stopPropagation());
+          }
+
           row.addEventListener('click', (e) => {
               // Prevent toggle if clicking a player link
               if ((e.target as HTMLElement).closest('.player-name-link')) return;
 
-              const systemKey = (row as HTMLElement).dataset.systemKey;
-              const detailsRow = this.container.querySelector(`#details-${systemKey}`);
               const icon = row.querySelector('.toggle-icon');
 
               if (detailsRow && icon) {

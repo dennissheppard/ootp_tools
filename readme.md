@@ -150,8 +150,9 @@ scouting_osa_2024-02-10.csv
 
 Supported filename patterns:
 - `scouting_[source]_YYYY-MM-DD.csv`
+- `scouting_[source]_YYYY_MM_DD.csv` (underscores also work)
 - `[source]_YYYY-MM-DD.csv`
-- Any file containing `YYYY-MM-DD` pattern
+- Any file containing `YYYY-MM-DD` or `YYYY_MM_DD` pattern
 
 Upload multiple files at once via Data Management → Scouting Reports. Dates are auto-detected from filenames.
 

@@ -323,10 +323,11 @@ export class DataManagementView {
    * Detect date and optionally source from scouting filename.
    * Supports patterns like:
    * - scouting_my_2024-01-15.csv
+   * - scouting_my_2024_01_15.csv (underscores also work)
    * - scouting_2024-01-15_my.csv
    * - 2024-01-15_scouting.csv
    * - my_2024-01-15.csv
-   * - Any file with YYYY-MM-DD pattern
+   * - Any file with YYYY-MM-DD or YYYY_MM_DD pattern
    */
   private detectScoutingFileInfo(filename: string): { date?: string, source?: ScoutingSource } {
     const name = filename.toLowerCase();
@@ -340,10 +341,11 @@ export class DataManagementView {
       source = 'osa';
     }
 
-    // Try to detect date (YYYY-MM-DD format)
-    const dateMatch = name.match(/(\d{4})-(\d{2})-(\d{2})/);
+    // Try to detect date (YYYY-MM-DD or YYYY_MM_DD format)
+    const dateMatch = name.match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
     if (dateMatch) {
-      date = dateMatch[0];
+      // Normalize to YYYY-MM-DD format
+      date = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
     }
 
     return { date, source };
