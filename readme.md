@@ -40,10 +40,96 @@ finalRating = (trueRating × confidence) + (scoutingProjection × (1 - confidenc
 ```
 
 ### True Future Rating (TFR)
-Projects peak WAR for minor league prospects by:
-1. Applying level adjustments (Rookie → A → AA → AAA → MLB equivalent)
-2. Projecting to peak age (27)
-3. Calculating Peak FIP → WAR
+
+A **pure peak/ceiling projection system** that projects what a prospect's age-27 peak season would look like if everything goes right. TFR answers: *"If this prospect develops perfectly, what would that season look like?"*
+
+**Algorithm Flow:**
+
+1. **Calculate Level-Weighted IP** for scouting weight determination
+   - AAA: 1.0× (full weight)
+   - AA: 0.7× (100 IP = 70 "AAA-equivalent")
+   - A: 0.4× (100 IP = 40 "AAA-equivalent")
+   - R: 0.2× (100 IP = 20 "AAA-equivalent")
+
+2. **Determine Scouting Weight** based on weighted IP
+   - < 75 weighted IP → 100% scout
+   - 76-150 weighted IP → 80% scout
+   - 151-250 weighted IP → 70% scout
+   - 250+ weighted IP → 60% scout
+
+3. **Blend Scouting + Stats** separately per component
+   - Stuff → K9
+   - Control → BB9
+   - HRA → HR9
+
+4. **Rank all prospects** by each component → percentiles
+
+5. **Map component percentiles** to MLB peak-age distributions (2015-2020, ages 25-29)
+
+6. **Calculate FIP** from mapped rates with clamping:
+   - K9: 3.0 to 11.0
+   - BB9: 0.85 to 7.0
+   - HR9: 0.20 to 2.5
+
+7. **Rank by FIP** for final TFR rating (0.5-5.0 scale)
+
+**TFR Rating Scale:**
+
+| TFR | Percentile | Description |
+|-----|------------|-------------|
+| 5.0 | 99-100% | Elite (top ~10 prospects) |
+| 4.5 | 97-99% | Plus-Plus |
+| 4.0 | 93-97% | Plus |
+| 3.5 | 75-93% | Above Average |
+| 3.0 | 60-75% | Average |
+| 2.5 | 35-60% | Fringe |
+| 2.0 | 20-35% | Below Average |
+| 1.5 | 10-20% | Poor |
+| 1.0 | 5-10% | Replacement |
+| 0.5 | 0-5% | Organizational |
+
+**Peak Workload Projections:**
+
+IP projections are based on stamina and injury rating, not minor league IP:
+
+*Starters (Stamina ≥ 30, 3+ pitches):*
+```
+baseIp = 30 + (stamina × 3.0)
+// Stamina 50 → 180 IP, 60 → 210 IP, 70 → 240 IP
+```
+
+*Relievers:*
+```
+baseIp = 50 + (stamina × 0.5)
+// Stamina 30 → 65 IP, 50 → 75 IP
+```
+
+*Injury Modifiers:* Ironman (1.15×), Durable (1.10×), Normal (1.0×), Fragile (0.90×), Wrecked (0.75×)
+
+### Farm System Rankings
+
+Organizations are ranked by **Farm Score**, a tier-based system that weights prospect quality:
+
+**Farm Score Formula:**
+```
+Farm Score = (Elite × 10) + (Good × 5) + (Avg × 1) + Depth Bonus
+```
+
+**Prospect Tiers:**
+| Tier | TFR Range | Points |
+|------|-----------|--------|
+| Elite | ≥ 4.5 | 10 pts each |
+| Good | 3.5-4.4 | 5 pts each |
+| Average | 2.5-3.4 | 1 pt each |
+| Depth | < 2.5 | Scaled (see below) |
+
+**Depth Bonus Scale:**
+- < 10 depth prospects: 0 pts
+- 10-14 depth prospects: 2 pts
+- 15-24 depth prospects: 4 pts
+- 25+ depth prospects: 5 pts
+
+Hover over any Farm Score to see the breakdown formula for that organization.
 
 ### Player Development Tracker
 Tracks scouting ratings over time to visualize player development trends.
@@ -81,7 +167,8 @@ Three-model ensemble for future performance:
 |---------|---------|
 | `TrueRatingsService` | MLB stats fetching, True Rating calculation |
 | `TrueRatingsCalculationService` | Core TR algorithm with multi-year weighting |
-| `TrueFutureRatingService` | Prospect TFR calculation with level adjustments |
+| `TrueFutureRatingService` | Prospect TFR calculation with percentile-based peak projections |
+| `TeamRatingsService` | Farm rankings, organizational depth analysis, Farm Score |
 | `ProjectionService` | Future performance projections |
 | `DevelopmentSnapshotService` | Historical scouting snapshot storage |
 | `ScoutingDataService` | Scouting CSV parsing and storage |
@@ -111,16 +198,20 @@ FIP = ((13 × HR/9) + (3 × BB/9) - (2 × K/9)) / 9 + 3.47
 WAR = ((5.00 - FIP) / 9) × IP / 50
 ```
 
-**Level Adjustments (applied to minor league rates):**
-- AAA: 1.0× (no adjustment)
-- AA: ~0.90-1.05× depending on stat
-- A: ~0.80-1.10×
-- Rookie: ~0.70-1.15×
+**Level-Weighted IP (for TFR scouting weight):**
+```
+weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
+```
+
+**TFR Rate Clamping (based on MLB peak-age extremes):**
+- K9: 3.0 to 11.0 (allows elite strikeout ceiling)
+- BB9: 0.85 to 7.0 (best observed: 0.89)
+- HR9: 0.20 to 2.5 (best observed: 0.2 in 123 IP)
 
 ## Views
 
 - **TrueRatingsView**: MLB pitcher dashboard with TR/projections
-- **FarmRankingsView**: Top 100 prospects, org rankings
+- **FarmRankingsView**: Top 100 prospects, org rankings with Farm Score, sortable/draggable columns
 - **TradeAnalyzerView**: Side-by-side player comparisons
 - **DataManagementView**: File uploads, data refresh
 - **PlayerProfileModal**: Deep-dive with Ratings + Development tabs
@@ -137,9 +228,25 @@ WAR = ((5.00 - FIP) / 9) × IP / 50
 
 ## Configuration
 
+**General:**
 - League start year: 2000
 - Peak age: 27
 - Replacement FIP: 5.00
+
+**True Ratings:**
 - Full confidence IP threshold: 150
-- Starter workload (projections): 180 IP
-- Reliever workload (projections): 65 IP
+
+**TFR Scouting Weights:**
+- < 75 weighted IP: 100% scout
+- 76-150 weighted IP: 80% scout
+- 151-250 weighted IP: 70% scout
+- 250+ weighted IP: 60% scout
+
+**Peak Workload Projections:**
+- SP base: 30 + (stamina × 3.0), clamped 120-260 IP
+- RP base: 50 + (stamina × 0.5), clamped 40-80 IP
+
+**MLB Distribution Data:**
+- Source years: 2015-2020
+- Peak ages: 25-29
+- Minimum IP: 50

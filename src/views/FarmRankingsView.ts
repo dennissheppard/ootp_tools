@@ -137,7 +137,7 @@ export class FarmRankingsView {
                 </div>
               </div>
 
-              <button class="toggle-btn" data-view-mode="reports" aria-pressed="false">Reports</button>
+              <button class="toggle-btn" data-view-mode="reports" aria-pressed="false" style="border-right: none; border-top-right-radius: var(--border-radius); border-bottom-right-radius: var(--border-radius);">Reports</button>
               <button class="toggle-btn" id="export-tfr-btn" title="Export TFR data for automated testing" style="display: none;">Export for Testing</button>
             </div>
           </div>
@@ -219,8 +219,24 @@ export class FarmRankingsView {
     // Secret trigger for export button
     this.container.querySelector('.view-title')?.addEventListener('dblclick', () => {
         const btn = this.container.querySelector<HTMLElement>('#export-tfr-btn');
+        const reportsBtn = this.container.querySelector<HTMLElement>('[data-view-mode="reports"]');
         if (btn) {
-            btn.style.display = btn.style.display === 'none' ? 'inline-block' : 'none';
+            const isNowVisible = btn.style.display === 'none';
+            btn.style.display = isNowVisible ? 'inline-block' : 'none';
+            
+            if (reportsBtn) {
+                if (isNowVisible) {
+                    // Export is visible, Reports is middle element
+                    reportsBtn.style.borderRight = '';
+                    reportsBtn.style.borderTopRightRadius = '';
+                    reportsBtn.style.borderBottomRightRadius = '';
+                } else {
+                    // Export is hidden, Reports is last visible element
+                    reportsBtn.style.borderRight = 'none';
+                    reportsBtn.style.borderTopRightRadius = 'var(--border-radius)';
+                    reportsBtn.style.borderBottomRightRadius = 'var(--border-radius)';
+                }
+            }
         }
     });
   }
@@ -408,7 +424,7 @@ export class FarmRankingsView {
   }
 
   private bindSortHeaders(): void {
-    const headers = this.container.querySelectorAll<HTMLElement>('th[data-sort-key]');
+    const headers = this.container.querySelectorAll<HTMLElement>('.stats-table:not(.nested-system-table) th[data-sort-key]');
     headers.forEach(header => {
       header.addEventListener('click', () => {
         if (this.isDraggingColumn) return;
@@ -534,20 +550,9 @@ export class FarmRankingsView {
   private bindFlipCards(): void {
     const cells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
     cells.forEach(cell => {
-      let isFlipped = false;
-
-      cell.addEventListener('mouseenter', () => {
-        if (!isFlipped) {
-          cell.classList.add('is-flipped');
-          isFlipped = true;
-        } else {
-          cell.classList.remove('is-flipped');
-          isFlipped = false;
-        }
-      });
-
       cell.addEventListener('click', (e) => {
         e.stopPropagation();
+        cell.classList.toggle('is-flipped');
       });
     });
   }
@@ -596,8 +601,8 @@ export class FarmRankingsView {
             ${cells}
         </tr>
         <tr id="details-${systemKey}" style="display: none; background-color: var(--color-surface-hover);">
-            <td colspan="${this.systemsColumns.length}" style="padding: 0;">
-                <div style="padding: 1rem; max-height: 400px; overflow-y: auto;">
+            <td colspan="${this.systemsColumns.length}" style="padding: 1rem;">
+                <div style="max-height: 400px; overflow-y: auto;">
                     ${this.renderSystemDetails(allProspects)}
                 </div>
             </td>
@@ -644,26 +649,29 @@ export class FarmRankingsView {
     if (prospects.length === 0) return '<p class="no-stats">No prospects found.</p>';
 
     const columns: FarmColumn[] = [
-        { key: 'name', label: 'Name' },
-        { key: 'trueFutureRating', label: 'TFR' },
-        { key: 'level', label: 'Lvl' },
-        { key: 'age', label: 'Age' },
-        { key: 'peakFip', label: 'Peak FIP' },
-        { key: 'peakWar', label: 'Peak WAR' }
+        { key: 'name', label: 'Name', sortKey: 'name' },
+        { key: 'trueFutureRating', label: 'TFR', sortKey: 'trueFutureRating' },
+        { key: 'level', label: 'Lvl', sortKey: 'level' },
+        { key: 'age', label: 'Age', sortKey: 'age' },
+        { key: 'peakFip', label: 'Peak FIP', sortKey: 'peakFip' },
+        { key: 'peakWar', label: 'Peak WAR', sortKey: 'peakWar' }
     ];
 
-    const headerRow = columns.map(col => `<th>${col.label}</th>`).join('');
+    const headerRow = columns.map(col => {
+      const style = col.key === 'name' ? 'text-align: left;' : 'text-align: center;';
+      return `<th data-col-key="${col.key}" data-sort-key="${col.sortKey}" style="${style} position: sticky; top: 0; background-color: var(--color-surface); z-index: 10; box-shadow: inset 0 -1px 0 var(--color-border);" draggable="true">${col.label}</th>`;
+    }).join('');
 
     const rows = prospects.map(player => {
       const cells = columns.map(col => {
         const style = col.key === 'name' ? 'style="text-align: left;"' : '';
-        return `<td ${style}>${this.renderCell(player, col)}</td>`;
+        return `<td ${style} data-col-key="${col.key}">${this.renderCell(player, col)}</td>`;
       }).join('');
       return `<tr>${cells}</tr>`;
     }).join('');
 
     return `
-      <table class="stats-table team-ratings-table" style="width: 100%; font-size: 0.9em;">
+      <table class="stats-table team-ratings-table nested-system-table" style="width: 100%; font-size: 0.9em; border-collapse: separate; border-spacing: 0;">
         <thead>
           <tr>${headerRow}</tr>
         </thead>
@@ -683,7 +691,7 @@ export class FarmRankingsView {
               const systemKey = (row as HTMLElement).dataset.systemKey;
               const detailsRow = this.container.querySelector(`#details-${systemKey}`);
               const icon = row.querySelector('.toggle-icon');
-              
+
               if (detailsRow && icon) {
                   const isHidden = (detailsRow as HTMLElement).style.display === 'none';
                   (detailsRow as HTMLElement).style.display = isHidden ? 'table-row' : 'none';
@@ -692,9 +700,144 @@ export class FarmRankingsView {
               }
           });
       });
-      
+
       // Re-bind player name clicks for the newly rendered details
       this.bindPlayerNameClicks();
+
+      // Bind sorting and dragging for nested tables
+      this.bindNestedTableInteractions();
+  }
+
+  private bindNestedTableInteractions(): void {
+    const nestedTables = this.container.querySelectorAll<HTMLTableElement>('.nested-system-table');
+    nestedTables.forEach(table => {
+      const headers = table.querySelectorAll<HTMLTableCellElement>('thead th[data-col-key]');
+      let draggedKey: string | null = null;
+
+      headers.forEach(header => {
+        // Sorting
+        header.addEventListener('click', (e) => {
+          e.stopPropagation(); // Prevent click from bubbling to parent row toggle
+          if (draggedKey) return; // Don't sort while dragging
+          this.sortNestedTable(table, header.dataset.sortKey || '');
+        });
+
+        // Dragging
+        header.addEventListener('dragstart', (e) => {
+          e.stopPropagation(); // Prevent drag from bubbling
+          draggedKey = header.dataset.colKey ?? null;
+          header.classList.add('dragging');
+          if (draggedKey) {
+            e.dataTransfer?.setData('text/plain', draggedKey);
+          }
+        });
+
+        header.addEventListener('dragover', (e) => {
+          if (!draggedKey) return;
+          e.preventDefault();
+          const targetKey = header.dataset.colKey;
+          if (!targetKey || targetKey === draggedKey) {
+            this.clearNestedDropIndicators(table);
+            return;
+          }
+          const rect = header.getBoundingClientRect();
+          const isBefore = e.clientX < rect.left + rect.width / 2;
+          this.updateNestedDropIndicator(table, targetKey, isBefore ? 'before' : 'after');
+        });
+
+        header.addEventListener('drop', (e) => {
+          e.preventDefault();
+          const targetKey = header.dataset.colKey;
+          const position = header.dataset.dropPosition as 'before' | 'after' | undefined;
+          if (!draggedKey || !targetKey || draggedKey === targetKey) {
+            draggedKey = null;
+            this.clearNestedDropIndicators(table);
+            return;
+          }
+          this.reorderNestedColumns(table, draggedKey, targetKey, position ?? 'before');
+          draggedKey = null;
+          this.clearNestedDropIndicators(table);
+        });
+
+        header.addEventListener('dragend', () => {
+          header.classList.remove('dragging');
+          draggedKey = null;
+          this.clearNestedDropIndicators(table);
+        });
+      });
+    });
+  }
+
+  private sortNestedTable(table: HTMLTableElement, sortKey: string): void {
+    const tbody = table.querySelector('tbody');
+    if (!tbody) return;
+
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const isAsc = !table.dataset.sortAsc || table.dataset.sortAsc === 'false';
+
+    rows.sort((a, b) => {
+      const aCell = a.querySelector(`td[data-col-key="${sortKey}"]`) || a.children[0];
+      const bCell = b.querySelector(`td[data-col-key="${sortKey}"]`) || b.children[0];
+      const aVal = aCell?.textContent?.trim() || '';
+      const bVal = bCell?.textContent?.trim() || '';
+
+      const aNum = parseFloat(aVal);
+      const bNum = parseFloat(bVal);
+
+      if (!isNaN(aNum) && !isNaN(bNum)) {
+        return isAsc ? aNum - bNum : bNum - aNum;
+      }
+      return isAsc ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+    table.dataset.sortKey = sortKey;
+    table.dataset.sortAsc = String(isAsc);
+  }
+
+  private reorderNestedColumns(table: HTMLTableElement, draggedKey: string, targetKey: string, position: 'before' | 'after'): void {
+    const headers = Array.from(table.querySelectorAll('thead th[data-col-key]')) as HTMLTableCellElement[];
+    const fromIdx = headers.findIndex(h => h.dataset.colKey === draggedKey);
+    const toIdx = headers.findIndex(h => h.dataset.colKey === targetKey);
+
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    const rows = table.querySelectorAll('tbody tr');
+    const [draggedHeader] = headers.splice(fromIdx, 1);
+    let insertIdx = position === 'after' ? toIdx + 1 : toIdx;
+    if (fromIdx < insertIdx) insertIdx -= 1;
+    headers.splice(insertIdx, 0, draggedHeader);
+
+    // Reorder header cells
+    const thead = table.querySelector('thead tr');
+    if (thead) {
+      headers.forEach(h => thead.appendChild(h));
+    }
+
+    // Reorder body cells
+    rows.forEach(row => {
+      const cells = Array.from(row.children);
+      const [draggedCell] = cells.splice(fromIdx, 1);
+      cells.splice(insertIdx, 0, draggedCell as Element);
+      cells.forEach(cell => row.appendChild(cell));
+    });
+  }
+
+  private updateNestedDropIndicator(table: HTMLTableElement, targetKey: string, position: 'before' | 'after'): void {
+    this.clearNestedDropIndicators(table);
+    const header = table.querySelector(`thead th[data-col-key="${targetKey}"]`) as HTMLTableCellElement;
+    if (header) {
+      header.dataset.dropPosition = position;
+      header.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
+    }
+  }
+
+  private clearNestedDropIndicators(table: HTMLTableElement): void {
+    const cells = table.querySelectorAll('th.drop-before, th.drop-after');
+    cells.forEach(cell => {
+      cell.classList.remove('drop-before', 'drop-after');
+      delete (cell as HTMLElement).dataset.dropPosition;
+    });
   }
 
   // --- TOP 100 PROSPECTS VIEW ---
