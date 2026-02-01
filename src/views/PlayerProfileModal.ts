@@ -10,6 +10,8 @@ import { leagueStatsService } from '../services/LeagueStatsService';
 import { fipWarService } from '../services/FipWarService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
+import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
+import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
 
 export type { PlayerRatingsData as PlayerProfileData };
 
@@ -31,6 +33,10 @@ export class PlayerProfileModal {
   private leagueFipLikes: number[] = [];
   // private cachedLeagueAverages: any = null; // Store league averages from table for consistent recalculation
   private cachedMlbStats: YearlyPitchingStats[] | null = null; // Store MLB stats from table for consistent recalculation
+
+  // Development chart state
+  private developmentChart: DevelopmentChart | null = null;
+  private activeDevMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra'];
 
   // League configuration
   private readonly LEAGUE_START_YEAR = 2000;
@@ -518,6 +524,7 @@ export class PlayerProfileModal {
 
         this.bindScoutUploadLink();
         this.bindScoutSourceToggle(data, combinedStats, hasMinorLeague, projectionHtml);
+        this.bindTabSwitching();
         // Trigger shimmer animation on True Ratings bars only (not scout bars)
         requestAnimationFrame(() => {
           const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
@@ -539,6 +546,12 @@ export class PlayerProfileModal {
     this.overlay.classList.remove('visible');
     this.overlay.setAttribute('aria-hidden', 'true');
 
+    // Clean up development chart
+    if (this.developmentChart) {
+      this.developmentChart.destroy();
+      this.developmentChart = null;
+    }
+
     // Reset drag state and position for next open
     if (this.modal) {
       this.modal.classList.remove('dragging');
@@ -556,10 +569,101 @@ export class PlayerProfileModal {
   private renderContent(data: PlayerRatingsData, stats: SeasonStatsRow[], showLevel: boolean, projectionHtml: string = ''): string {
     const hasScout = PlayerRatingsCard.hasScoutingData(data);
     return `
-      ${PlayerRatingsCard.renderRatingsComparison(data, hasScout)}
-      ${projectionHtml}
-      ${PlayerRatingsCard.renderSeasonStatsTable(stats, { showLevel, hasScouting: hasScout })}
+      <div class="profile-tabs">
+        <button class="profile-tab active" data-tab="ratings">Ratings</button>
+        <button class="profile-tab" data-tab="development">Development</button>
+      </div>
+      <div class="profile-tab-content">
+        <div class="tab-pane active" data-pane="ratings">
+          ${PlayerRatingsCard.renderRatingsComparison(data, hasScout)}
+          ${projectionHtml}
+          ${PlayerRatingsCard.renderSeasonStatsTable(stats, { showLevel, hasScouting: hasScout })}
+        </div>
+        <div class="tab-pane" data-pane="development">
+          ${this.renderDevelopmentTab(data.playerId)}
+        </div>
+      </div>
     `;
+  }
+
+  private renderDevelopmentTab(playerId: number): string {
+    return `
+      <div class="development-section">
+        <div class="development-header">
+          <h4>Development History</h4>
+          <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
+        </div>
+        ${renderMetricToggles(this.activeDevMetrics, () => {})}
+        <div class="development-chart-container" id="development-chart-${playerId}"></div>
+      </div>
+    `;
+  }
+
+  private async initDevelopmentChart(playerId: number): Promise<void> {
+    // Clean up existing chart
+    if (this.developmentChart) {
+      this.developmentChart.destroy();
+      this.developmentChart = null;
+    }
+
+    // Fetch snapshots
+    const snapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+
+    // Update snapshot count
+    const countEl = this.overlay?.querySelector('#dev-snapshot-count');
+    if (countEl) {
+      countEl.textContent = `${snapshots.length} snapshot${snapshots.length !== 1 ? 's' : ''}`;
+    }
+
+    // Create and render chart
+    this.developmentChart = new DevelopmentChart({
+      containerId: `development-chart-${playerId}`,
+      snapshots,
+      metrics: this.activeDevMetrics,
+      height: 280,
+    });
+    this.developmentChart.render();
+
+    // Bind metric toggle handlers
+    const container = this.overlay?.querySelector('.development-section');
+    if (container) {
+      bindMetricToggleHandlers(container as HTMLElement, (metric, enabled) => {
+        if (enabled && !this.activeDevMetrics.includes(metric)) {
+          this.activeDevMetrics.push(metric);
+        } else if (!enabled) {
+          this.activeDevMetrics = this.activeDevMetrics.filter(m => m !== metric);
+        }
+        this.developmentChart?.updateMetrics(this.activeDevMetrics);
+      });
+    }
+  }
+
+  private bindTabSwitching(): void {
+    const tabs = this.overlay?.querySelectorAll<HTMLButtonElement>('.profile-tab');
+    tabs?.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.dataset.tab;
+        if (!targetTab) return;
+
+        // Update tab buttons
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Update tab panes
+        const panes = this.overlay?.querySelectorAll<HTMLElement>('.tab-pane');
+        panes?.forEach(pane => {
+          if (pane.dataset.pane === targetTab) {
+            pane.classList.add('active');
+            // Initialize development chart when switching to that tab
+            if (targetTab === 'development' && this.currentPlayerData) {
+              this.initDevelopmentChart(this.currentPlayerData.playerId);
+            }
+          } else {
+            pane.classList.remove('active');
+          }
+        });
+      });
+    });
   }
 
   private renderProjectionSkeleton(): string {
@@ -982,6 +1086,7 @@ export class PlayerProfileModal {
 
               this.bindScoutUploadLink();
               this.bindScoutSourceToggle(updatedData, stats, hasMinorLeague, newProjectionHtml);
+              this.bindTabSwitching();
               requestAnimationFrame(() => {
                  const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
                  ratingBars.forEach(bar => bar.classList.add('shimmer-once'));

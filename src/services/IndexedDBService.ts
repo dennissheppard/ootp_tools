@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'wbl_database';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 const SCOUTING_STORE = 'scouting_ratings';
 const STATS_STORE = 'minor_league_stats';
 const METADATA_STORE = 'minor_league_metadata';
@@ -13,6 +13,7 @@ const MLB_PLAYER_STATS_STORE = 'mlb_player_pitching_stats'; // MLB player-specif
 const MLB_LEAGUE_STATS_STORE = 'mlb_league_stats'; // Full MLB league data by year (replaces localStorage)
 const PLAYERS_STORE = 'players'; // Player roster cache
 const TEAMS_STORE = 'teams'; // Team list cache
+const DEVELOPMENT_SNAPSHOTS_STORE = 'player_development_snapshots'; // v7: Historical TR/TFR/scouting tracking
 
 export interface ScoutingRecord {
   key: string; // Format: "YYYY-MM-DD_source"
@@ -71,6 +72,27 @@ export interface TeamsRecord {
   key: string; // Always "current" (single record)
   data: any[]; // Array of Team objects
   fetchedAt: number; // timestamp for cache invalidation
+}
+
+export interface DevelopmentSnapshotRecord {
+  key: string; // Format: "playerId_YYYY-MM-DD"
+  playerId: number;
+  date: string; // YYYY-MM-DD
+  snapshotType: 'data_upload' | 'manual';
+  // Core ratings (nullable - may not have all data)
+  trueRating?: number;
+  trueFutureRating?: number;
+  // Scouting ratings (20-80 scale)
+  scoutStuff?: number;
+  scoutControl?: number;
+  scoutHra?: number;
+  // Star ratings (0.5-5.0 scale)
+  scoutOvr?: number;
+  scoutPot?: number;
+  // Metadata
+  source: 'my' | 'osa' | 'calculated';
+  level?: string; // MLB, AAA, AA, A, R
+  age?: number;
 }
 
 class IndexedDBService {
@@ -164,6 +186,15 @@ class IndexedDBService {
           const teamsStore = db.createObjectStore(TEAMS_STORE, { keyPath: 'key' });
           teamsStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
           console.log(`✅ Created teams cache store (replaces localStorage)`);
+        }
+
+        // Create development snapshots store (v7) - for tracking player development over time
+        if (!db.objectStoreNames.contains(DEVELOPMENT_SNAPSHOTS_STORE)) {
+          const devSnapshotsStore = db.createObjectStore(DEVELOPMENT_SNAPSHOTS_STORE, { keyPath: 'key' });
+          devSnapshotsStore.createIndex('playerId', 'playerId', { unique: false });
+          devSnapshotsStore.createIndex('date', 'date', { unique: false });
+          devSnapshotsStore.createIndex('playerId_date', ['playerId', 'date'], { unique: false });
+          console.log(`✅ Created development snapshots store for player tracking`);
         }
 
         console.log(`✅ IndexedDB upgrade complete (now v${newVersion})`);
@@ -775,6 +806,138 @@ class IndexedDBService {
           resolve(null);
         }
       };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Development Snapshots methods (v7)
+  async saveDevelopmentSnapshot(snapshot: DevelopmentSnapshotRecord): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(DEVELOPMENT_SNAPSHOTS_STORE)) {
+      console.warn(`⚠️ Cannot save development snapshot - IndexedDB needs upgrade to v7. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([DEVELOPMENT_SNAPSHOTS_STORE], 'readwrite');
+      const store = transaction.objectStore(DEVELOPMENT_SNAPSHOTS_STORE);
+      const request = store.put(snapshot);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async saveDevelopmentSnapshots(snapshots: DevelopmentSnapshotRecord[]): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(DEVELOPMENT_SNAPSHOTS_STORE)) {
+      console.warn(`⚠️ Cannot save development snapshots - IndexedDB needs upgrade to v7. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([DEVELOPMENT_SNAPSHOTS_STORE], 'readwrite');
+      const store = transaction.objectStore(DEVELOPMENT_SNAPSHOTS_STORE);
+
+      let completed = 0;
+      const total = snapshots.length;
+
+      if (total === 0) {
+        resolve();
+        return;
+      }
+
+      for (const snapshot of snapshots) {
+        const request = store.put(snapshot);
+        request.onsuccess = () => {
+          completed++;
+          if (completed === total) {
+            resolve();
+          }
+        };
+        request.onerror = () => reject(request.error);
+      }
+    });
+  }
+
+  async getPlayerDevelopmentSnapshots(playerId: number): Promise<DevelopmentSnapshotRecord[]> {
+    await this.init();
+    if (!this.db) return [];
+
+    if (!this.db.objectStoreNames.contains(DEVELOPMENT_SNAPSHOTS_STORE)) {
+      return [];
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([DEVELOPMENT_SNAPSHOTS_STORE], 'readonly');
+      const store = transaction.objectStore(DEVELOPMENT_SNAPSHOTS_STORE);
+      const index = store.index('playerId');
+      const request = index.getAll(playerId);
+
+      request.onsuccess = () => {
+        const records = request.result as DevelopmentSnapshotRecord[];
+        // Sort by date ascending (oldest first)
+        records.sort((a, b) => a.date.localeCompare(b.date));
+        resolve(records);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllDevelopmentSnapshots(): Promise<DevelopmentSnapshotRecord[]> {
+    await this.init();
+    if (!this.db) return [];
+
+    if (!this.db.objectStoreNames.contains(DEVELOPMENT_SNAPSHOTS_STORE)) {
+      return [];
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([DEVELOPMENT_SNAPSHOTS_STORE], 'readonly');
+      const store = transaction.objectStore(DEVELOPMENT_SNAPSHOTS_STORE);
+      const request = store.getAll();
+
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteDevelopmentSnapshot(key: string): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(DEVELOPMENT_SNAPSHOTS_STORE)) {
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([DEVELOPMENT_SNAPSHOTS_STORE], 'readwrite');
+      const store = transaction.objectStore(DEVELOPMENT_SNAPSHOTS_STORE);
+      const request = store.delete(key);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteAllDevelopmentSnapshots(): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(DEVELOPMENT_SNAPSHOTS_STORE)) {
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([DEVELOPMENT_SNAPSHOTS_STORE], 'readwrite');
+      const store = transaction.objectStore(DEVELOPMENT_SNAPSHOTS_STORE);
+      const request = store.clear();
+
+      request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });
   }

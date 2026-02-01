@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@types/papaparse": "^5.5.2",
+    "apexcharts": "^5.3.6",
     "csv-parse": "^6.1.0",
     "papaparse": "^5.5.3"
   }

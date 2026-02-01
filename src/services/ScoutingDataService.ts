@@ -1,5 +1,6 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService } from './IndexedDBService';
+import { developmentSnapshotService } from './DevelopmentSnapshotService';
 
 type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness';
 
@@ -139,6 +140,9 @@ class ScoutingDataService {
         const key = this.storageKey(date, source);
         localStorage.setItem(key, JSON.stringify(ratings));
       }
+
+      // Create development snapshots for player tracking
+      await developmentSnapshotService.createSnapshotsFromScoutingUpload(date, ratings, source);
     } catch (e) {
       console.error('Failed to save scouting ratings', e);
       throw e; // Re-throw so UI can handle quota errors

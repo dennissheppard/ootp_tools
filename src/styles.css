@@ -3634,6 +3634,10 @@ td:hover .stat-tooltip {
   transform: rotateY(180deg);
 }
 
+.flip-cell.is-flipped .flip-cell-inner {
+  transform: rotateY(180deg);
+}
+
 .flip-cell-front, .flip-cell-back {
   position: absolute;
   width: 100%;
@@ -5425,4 +5429,207 @@ td:hover .stat-tooltip {
   .analysis-war-comparison {
     grid-template-columns: 1fr;
   }
+}
+
+/* ========================================
+   DEVELOPMENT CHART STYLES
+   ======================================== */
+
+.development-section {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.development-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 1rem;
+}
+
+.development-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.snapshot-count {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.05);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.development-chart-container {
+  min-height: 300px;
+  background: rgba(15, 20, 25, 0.3);
+  border-radius: var(--border-radius);
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+/* Metric Toggle Checkboxes */
+.development-metric-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.development-metric-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  transition: color 0.2s ease;
+}
+
+.development-metric-toggle:hover {
+  color: var(--color-text);
+}
+
+.development-metric-toggle input[type="checkbox"] {
+  display: none;
+}
+
+.toggle-indicator {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  opacity: 0.4;
+  transition: opacity 0.2s ease;
+}
+
+.development-metric-toggle input[type="checkbox"]:checked + .toggle-indicator {
+  opacity: 1;
+}
+
+.toggle-label {
+  font-weight: 500;
+}
+
+/* Empty State */
+.development-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 250px;
+  text-align: center;
+  color: var(--color-text-muted);
+  padding: 2rem;
+}
+
+.development-empty-icon {
+  color: var(--color-border);
+  margin-bottom: 1rem;
+}
+
+.development-empty-state h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.development-empty-state p {
+  margin: 0 0 0.5rem 0;
+  font-size: 0.9rem;
+}
+
+.development-empty-hint {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+/* Raw Data Table */
+.development-data-table {
+  margin-top: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+}
+
+.development-data-table summary {
+  padding: 0.75rem 1rem;
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  transition: background 0.2s ease;
+}
+
+.development-data-table summary:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.development-data-table[open] summary {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.development-data-table .stats-table {
+  font-size: 0.8rem;
+  margin: 0;
+}
+
+.development-data-table .stats-table th,
+.development-data-table .stats-table td {
+  padding: 0.5rem 0.75rem;
+}
+
+/* Profile Tabs (for PlayerProfileModal) */
+.profile-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 1.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.profile-tab {
+  padding: 0.75rem 1.25rem;
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.profile-tab:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.profile-tab.active {
+  color: var(--color-primary);
+}
+
+.profile-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-primary);
+}
+
+.profile-tab-content {
+  position: relative;
+}
+
+.tab-pane {
+  display: none;
+}
+
+.tab-pane.active {
+  display: block;
 }
