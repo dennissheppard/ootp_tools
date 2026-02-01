@@ -268,7 +268,7 @@ export class DataManagementView {
           if (statsInputs) statsInputs.style.display = 'none';
           if (scoutingInputs) scoutingInputs.style.display = 'grid';
           if (formatHint) formatHint.textContent = 'Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]';
-          if (namingHint) namingHint.textContent = 'Naming convention: Any CSV file.';
+          if (namingHint) namingHint.innerHTML = 'For bulk historical upload, use: <code>scouting_[source]_YYYY-MM-DD.csv</code> (e.g. scouting_my_2024-03-15.csv)';
       }
   }
 
@@ -306,7 +306,7 @@ export class DataManagementView {
     else if (name.startsWith('aa_') || name.includes('aa')) level = 'aa';
     else if (name.startsWith('a_') || name.includes('high_a') || name.includes('low_a')) level = 'a';
     else if (name.startsWith('r_') || name.includes('rookie')) level = 'r';
-    
+
     if (!level) {
         if (name.includes('_a_') || name.startsWith('a_')) level = 'a';
     }
@@ -317,6 +317,36 @@ export class DataManagementView {
     }
 
     return { year, level };
+  }
+
+  /**
+   * Detect date and optionally source from scouting filename.
+   * Supports patterns like:
+   * - scouting_my_2024-01-15.csv
+   * - scouting_2024-01-15_my.csv
+   * - 2024-01-15_scouting.csv
+   * - my_2024-01-15.csv
+   * - Any file with YYYY-MM-DD pattern
+   */
+  private detectScoutingFileInfo(filename: string): { date?: string, source?: ScoutingSource } {
+    const name = filename.toLowerCase();
+    let date: string | undefined;
+    let source: ScoutingSource | undefined;
+
+    // Try to detect source from filename
+    if (name.includes('_my_') || name.includes('_my.') || name.startsWith('my_') || name.includes('my_scout')) {
+      source = 'my';
+    } else if (name.includes('_osa_') || name.includes('_osa.') || name.startsWith('osa_') || name.includes('osa_scout')) {
+      source = 'osa';
+    }
+
+    // Try to detect date (YYYY-MM-DD format)
+    const dateMatch = name.match(/(\d{4})-(\d{2})-(\d{2})/);
+    if (dateMatch) {
+      date = dateMatch[0];
+    }
+
+    return { date, source };
   }
 
   private updateFileDisplay(): void {
@@ -337,7 +367,12 @@ export class DataManagementView {
                     const levelStr = info.level ? info.level.toUpperCase() : `<span style="opacity:0.5">Using ${this.selectedLevel.toUpperCase()}</span>`;
                     details = `${levelStr} ${yearStr}`;
                 } else {
-                    details = `<span style="color: var(--color-primary)">${this.selectedScoutingSource.toUpperCase()}</span> Report (${this.currentGameDate || 'Current'})`;
+                    const scoutInfo = this.detectScoutingFileInfo(f.name);
+                    const displaySource = scoutInfo.source || this.selectedScoutingSource;
+                    const displayDate = scoutInfo.date
+                        ? `<span style="color: var(--color-success)">${scoutInfo.date}</span>`
+                        : `<span style="opacity:0.5">${this.currentGameDate || 'Current'}</span>`;
+                    details = `<span style="color: var(--color-primary)">${displaySource.toUpperCase()}</span> ${displayDate}`;
                 }
 
                 return `<div style="display:flex; justify-content:space-between; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.1)">
@@ -383,16 +418,20 @@ export class DataManagementView {
                 await minorLeagueStatsService.saveStats(year, level, stats, 'csv');
                 successCount++;
             } else {
-                const ratings = scoutingDataService.parseScoutingCsv(content, this.selectedScoutingSource);
+                // Detect date and source from filename for historical uploads
+                const scoutInfo = this.detectScoutingFileInfo(file.name);
+                const saveSource = scoutInfo.source || this.selectedScoutingSource;
+
+                const ratings = scoutingDataService.parseScoutingCsv(content, saveSource);
                 if (ratings.length === 0) {
                     failCount++;
                     errors.push(`${file.name}: No valid scouting data found.`);
                     continue;
                 }
-                
-                // Use current game date if available, otherwise default to today
-                const saveDate = this.currentGameDate || new Date().toISOString().split('T')[0];
-                await scoutingDataService.saveScoutingRatings(saveDate, ratings, this.selectedScoutingSource);
+
+                // Use date from filename if available, otherwise fall back to game date or today
+                const saveDate = scoutInfo.date || this.currentGameDate || new Date().toISOString().split('T')[0];
+                await scoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
                 successCount++;
             }
 
