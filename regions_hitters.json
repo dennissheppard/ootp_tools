@@ -1,0 +1,100 @@
+[
+  {
+    "name": "babip",
+    "x": 1653,
+    "y": 653,
+    "width": 63,
+    "height": 50
+  },
+  {
+    "name": "avoid k",
+    "x": 1649,
+    "y": 703,
+    "width": 74,
+    "height": 51
+  },
+  {
+    "name": "contact",
+    "x": 1650,
+    "y": 756,
+    "width": 69,
+    "height": 54
+  },
+  {
+    "name": "gap",
+    "x": 1653,
+    "y": 813,
+    "width": 58,
+    "height": 45
+  },
+  {
+    "name": "power",
+    "x": 1650,
+    "y": 856,
+    "width": 68,
+    "height": 58
+  },
+  {
+    "name": "eye",
+    "x": 1650,
+    "y": 912,
+    "width": 68,
+    "height": 50
+  },
+  {
+    "name": "plate_appearances",
+    "x": 74,
+    "y": 1233,
+    "width": 84,
+    "height": 44
+  },
+  {
+    "name": "speed",
+    "x": 970,
+    "y": 1913,
+    "width": 87,
+    "height": 45
+  },
+  {
+    "name": "hits",
+    "x": 330,
+    "y": 1236,
+    "width": 103,
+    "height": 42
+  },
+  {
+    "name": "doubles",
+    "x": 472,
+    "y": 1235,
+    "width": 76,
+    "height": 43
+  },
+  {
+    "name": "triples",
+    "x": 616,
+    "y": 1236,
+    "width": 71,
+    "height": 37
+  },
+  {
+    "name": "HR",
+    "x": 752,
+    "y": 1230,
+    "width": 68,
+    "height": 48
+  },
+  {
+    "name": "BB",
+    "x": 899,
+    "y": 1235,
+    "width": 78,
+    "height": 42
+  },
+  {
+    "name": "Ks",
+    "x": 1177,
+    "y": 1231,
+    "width": 80,
+    "height": 47
+  }
+]

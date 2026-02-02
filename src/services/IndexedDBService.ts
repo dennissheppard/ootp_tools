@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'wbl_database';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const SCOUTING_STORE = 'scouting_ratings';
 const STATS_STORE = 'minor_league_stats';
 const METADATA_STORE = 'minor_league_metadata';
@@ -14,6 +14,12 @@ const MLB_LEAGUE_STATS_STORE = 'mlb_league_stats'; // Full MLB league data by ye
 const PLAYERS_STORE = 'players'; // Player roster cache
 const TEAMS_STORE = 'teams'; // Team list cache
 const DEVELOPMENT_SNAPSHOTS_STORE = 'player_development_snapshots'; // v7: Historical TR/TFR/scouting tracking
+
+// v8: Batting stats stores
+const BATTING_STATS_STORE = 'minor_league_batting_stats'; // League-level batting data by year/level
+const PLAYER_BATTING_STATS_STORE = 'player_minor_league_batting_stats'; // Player-indexed batting stats
+const MLB_PLAYER_BATTING_STATS_STORE = 'mlb_player_batting_stats'; // MLB player batting stats cache
+const HITTER_SCOUTING_STORE = 'hitter_scouting_ratings'; // Hitter scouting data (future)
 
 export interface ScoutingRecord {
   key: string; // Format: "YYYY-MM-DD_source"
@@ -93,6 +99,30 @@ export interface DevelopmentSnapshotRecord {
   source: 'my' | 'osa' | 'calculated';
   level?: string; // MLB, AAA, AA, A, R
   age?: number;
+}
+
+// v8: Batting stats records
+export interface BattingStatsRecord {
+  key: string; // Format: "year_level"
+  year: number;
+  level: string;
+  data: any[];
+}
+
+export interface PlayerBattingStatsRecord {
+  key: string; // Format: "playerId_year_level"
+  playerId: number;
+  year: number;
+  level: string;
+  data: any; // Single player's batting stats
+}
+
+export interface MlbPlayerBattingStatsRecord {
+  key: string; // Format: "playerId" or "playerId_year"
+  playerId: number;
+  year?: number;
+  data: any[]; // Array of BattingStats
+  fetchedAt: number;
 }
 
 class IndexedDBService {
@@ -197,6 +227,39 @@ class IndexedDBService {
           console.log(`✅ Created development snapshots store for player tracking`);
         }
 
+        // Create minor league batting stats store (v8)
+        if (!db.objectStoreNames.contains(BATTING_STATS_STORE)) {
+          const battingStatsStore = db.createObjectStore(BATTING_STATS_STORE, { keyPath: 'key' });
+          battingStatsStore.createIndex('year', 'year', { unique: false });
+          battingStatsStore.createIndex('level', 'level', { unique: false });
+          console.log(`✅ Created minor league batting stats store`);
+        }
+
+        // Create player-indexed minor league batting stats store (v8)
+        if (!db.objectStoreNames.contains(PLAYER_BATTING_STATS_STORE)) {
+          const playerBattingStatsStore = db.createObjectStore(PLAYER_BATTING_STATS_STORE, { keyPath: 'key' });
+          playerBattingStatsStore.createIndex('playerId', 'playerId', { unique: false });
+          playerBattingStatsStore.createIndex('year', 'year', { unique: false });
+          playerBattingStatsStore.createIndex('level', 'level', { unique: false });
+          console.log(`✅ Created player-indexed batting stats store`);
+        }
+
+        // Create MLB player batting stats cache (v8)
+        if (!db.objectStoreNames.contains(MLB_PLAYER_BATTING_STATS_STORE)) {
+          const mlbBattingStatsStore = db.createObjectStore(MLB_PLAYER_BATTING_STATS_STORE, { keyPath: 'key' });
+          mlbBattingStatsStore.createIndex('playerId', 'playerId', { unique: false });
+          mlbBattingStatsStore.createIndex('fetchedAt', 'fetchedAt', { unique: false });
+          console.log(`✅ Created MLB player batting stats cache`);
+        }
+
+        // Create hitter scouting ratings store (v8) - for future hitter scouting data
+        if (!db.objectStoreNames.contains(HITTER_SCOUTING_STORE)) {
+          const hitterScoutingStore = db.createObjectStore(HITTER_SCOUTING_STORE, { keyPath: 'key' });
+          hitterScoutingStore.createIndex('date', 'date', { unique: false });
+          hitterScoutingStore.createIndex('source', 'source', { unique: false });
+          console.log(`✅ Created hitter scouting ratings store`);
+        }
+
         console.log(`✅ IndexedDB upgrade complete (now v${newVersion})`);
       };
     });
@@ -266,6 +329,75 @@ class IndexedDBService {
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([SCOUTING_STORE], 'readwrite');
       const store = transaction.objectStore(SCOUTING_STORE);
+      const request = store.delete(key);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Hitter scouting ratings methods
+  async saveHitterScoutingRatings(date: string, source: string, data: any[]): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    const key = `${date}_${source}`;
+    const record: ScoutingRecord = { key, date, source, data };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([HITTER_SCOUTING_STORE], 'readwrite');
+      const store = transaction.objectStore(HITTER_SCOUTING_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getHitterScoutingRatings(date: string, source: string): Promise<any[] | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    const key = `${date}_${source}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([HITTER_SCOUTING_STORE], 'readonly');
+      const store = transaction.objectStore(HITTER_SCOUTING_STORE);
+      const request = store.get(key);
+
+      request.onsuccess = () => {
+        const record = request.result as ScoutingRecord | undefined;
+        resolve(record?.data || null);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllHitterScoutingKeys(source: string): Promise<{ date: string; key: string }[]> {
+    await this.init();
+    if (!this.db) return [];
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([HITTER_SCOUTING_STORE], 'readonly');
+      const store = transaction.objectStore(HITTER_SCOUTING_STORE);
+      const index = store.index('source');
+      const request = index.getAll(source);
+
+      request.onsuccess = () => {
+        const records = request.result as ScoutingRecord[];
+        resolve(records.map(r => ({ date: r.date, key: r.key })));
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteHitterScoutingRatings(key: string): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([HITTER_SCOUTING_STORE], 'readwrite');
+      const store = transaction.objectStore(HITTER_SCOUTING_STORE);
       const request = store.delete(key);
 
       request.onsuccess = () => resolve();
@@ -938,6 +1070,240 @@ class IndexedDBService {
       const request = store.clear();
 
       request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Minor league batting stats methods (v8)
+  async saveBattingStats(year: number, level: string, data: any[]): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(BATTING_STATS_STORE)) {
+      console.warn(`⚠️ Cannot save batting stats - IndexedDB needs upgrade to v8. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    const key = `${year}_${level}`;
+    const record: BattingStatsRecord = { key, year, level, data };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([BATTING_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(BATTING_STATS_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getBattingStats(year: number, level: string): Promise<any[] | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    if (!this.db.objectStoreNames.contains(BATTING_STATS_STORE)) {
+      return null;
+    }
+
+    const key = `${year}_${level}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([BATTING_STATS_STORE], 'readonly');
+      const store = transaction.objectStore(BATTING_STATS_STORE);
+      const request = store.get(key);
+
+      request.onsuccess = () => {
+        const record = request.result as BattingStatsRecord | undefined;
+        resolve(record?.data || null);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteBattingStats(year: number, level: string): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(BATTING_STATS_STORE)) {
+      return;
+    }
+
+    const key = `${year}_${level}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([BATTING_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(BATTING_STATS_STORE);
+      const request = store.delete(key);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Player-indexed batting stats methods (v8)
+  async savePlayerBattingStats(playerId: number, year: number, level: string, data: any): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(PLAYER_BATTING_STATS_STORE)) {
+      console.warn(`⚠️ Cannot save player batting stats - IndexedDB needs upgrade to v8. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    const key = `${playerId}_${year}_${level}`;
+    const record: PlayerBattingStatsRecord = { key, playerId, year, level, data };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([PLAYER_BATTING_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(PLAYER_BATTING_STATS_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getPlayerBattingStats(playerId: number, startYear?: number, endYear?: number): Promise<PlayerBattingStatsRecord[]> {
+    await this.init();
+    if (!this.db) return [];
+
+    if (!this.db.objectStoreNames.contains(PLAYER_BATTING_STATS_STORE)) {
+      return [];
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([PLAYER_BATTING_STATS_STORE], 'readonly');
+      const store = transaction.objectStore(PLAYER_BATTING_STATS_STORE);
+      const index = store.index('playerId');
+      const request = index.getAll(playerId);
+
+      request.onsuccess = () => {
+        let records = request.result as PlayerBattingStatsRecord[];
+
+        // Filter by year range if provided
+        if (startYear !== undefined && endYear !== undefined) {
+          records = records.filter(r => r.year >= startYear && r.year <= endYear);
+        }
+
+        resolve(records);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deletePlayerBattingStats(playerId: number, year: number, level: string): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(PLAYER_BATTING_STATS_STORE)) {
+      return;
+    }
+
+    const key = `${playerId}_${year}_${level}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([PLAYER_BATTING_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(PLAYER_BATTING_STATS_STORE);
+      const request = store.delete(key);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // MLB Player Batting Stats methods (v8)
+  async saveMlbPlayerBattingStats(playerId: number, data: any[], year?: number): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(MLB_PLAYER_BATTING_STATS_STORE)) {
+      console.warn(`⚠️ Cannot save MLB batting stats - IndexedDB needs upgrade to v8. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    const key = year ? `${playerId}_${year}` : `${playerId}`;
+    const record: MlbPlayerBattingStatsRecord = {
+      key,
+      playerId,
+      year,
+      data,
+      fetchedAt: Date.now()
+    };
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_PLAYER_BATTING_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(MLB_PLAYER_BATTING_STATS_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getMlbPlayerBattingStats(playerId: number, year?: number): Promise<{ data: any[]; fetchedAt: number } | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    if (!this.db.objectStoreNames.contains(MLB_PLAYER_BATTING_STATS_STORE)) {
+      return null;
+    }
+
+    const key = year ? `${playerId}_${year}` : `${playerId}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_PLAYER_BATTING_STATS_STORE], 'readonly');
+      const store = transaction.objectStore(MLB_PLAYER_BATTING_STATS_STORE);
+      const request = store.get(key);
+
+      request.onsuccess = () => {
+        const record = request.result as MlbPlayerBattingStatsRecord | undefined;
+        if (record) {
+          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+        } else {
+          resolve(null);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteMlbPlayerBattingStats(playerId: number, year?: number): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(MLB_PLAYER_BATTING_STATS_STORE)) {
+      return;
+    }
+
+    const key = year ? `${playerId}_${year}` : `${playerId}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([MLB_PLAYER_BATTING_STATS_STORE], 'readwrite');
+      const store = transaction.objectStore(MLB_PLAYER_BATTING_STATS_STORE);
+      const request = store.delete(key);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Check if we have batting data
+  async hasMinorLeagueBattingData(): Promise<boolean> {
+    await this.init();
+    if (!this.db) return false;
+
+    if (!this.db.objectStoreNames.contains(BATTING_STATS_STORE)) {
+      return false;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([BATTING_STATS_STORE], 'readonly');
+      const store = transaction.objectStore(BATTING_STATS_STORE);
+      const request = store.count();
+
+      request.onsuccess = () => {
+        resolve(request.result > 0);
+      };
       request.onerror = () => reject(request.error);
     });
   }

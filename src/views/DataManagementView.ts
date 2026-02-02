@@ -1,5 +1,7 @@
 import { minorLeagueStatsService, MinorLeagueLevel } from '../services/MinorLeagueStatsService';
+import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingStatsService';
 import { scoutingDataService, ScoutingSource } from '../services/ScoutingDataService';
+import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { dateService } from '../services/DateService';
 import { indexedDBService } from '../services/IndexedDBService';
 import { trueRatingsService, LEAGUE_START_YEAR } from '../services/TrueRatingsService';
@@ -7,15 +9,17 @@ import { MessageModal } from './MessageModal';
 import { storageMigration } from '../services/StorageMigration';
 
 type DataMode = 'stats' | 'scouting';
+type ScoutingPlayerType = 'pitcher' | 'hitter';
 
 export class DataManagementView {
   private container: HTMLElement;
-  private selectedYear: number = 2021; 
+  private selectedYear: number = 2021;
   private selectedLevel: MinorLeagueLevel = 'aaa';
   private selectedFiles: File[] = [];
   private messageModal: MessageModal;
   private currentMode: DataMode = 'stats';
   private selectedScoutingSource: ScoutingSource = 'my';
+  private selectedScoutingPlayerType: ScoutingPlayerType = 'pitcher';
   private currentGameDate: string = '';
 
   constructor(container: HTMLElement) {
@@ -106,7 +110,14 @@ export class DataManagementView {
             </div>
 
             <!-- Scouting Inputs -->
-            <div id="scouting-inputs" class="rating-inputs" style="display: none; grid-template-columns: 1fr 1fr; margin-bottom: 1.5rem;">
+            <div id="scouting-inputs" class="rating-inputs" style="display: none; grid-template-columns: 1fr 1fr 1fr; margin-bottom: 1.5rem;">
+                <div class="rating-field">
+                    <label for="scout-player-type">Player Type</label>
+                    <div class="toggle-group" style="justify-self: start;">
+                        <button class="toggle-btn active" data-player-type="pitcher">Pitchers</button>
+                        <button class="toggle-btn" data-player-type="hitter">Hitters</button>
+                    </div>
+                </div>
                 <div class="rating-field">
                     <label for="scout-source">Source</label>
                      <div class="toggle-group" style="justify-self: start;">
@@ -198,6 +209,16 @@ export class DataManagementView {
         });
     });
 
+    // Player Type Toggles (for scouting)
+    this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            this.selectedScoutingPlayerType = btn.dataset.playerType as ScoutingPlayerType;
+            this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            this.updateModeUI();
+        });
+    });
+
     yearInput?.addEventListener('change', (e) => {
       this.selectedYear = Number((e.target as HTMLInputElement).value);
     });
@@ -267,8 +288,13 @@ export class DataManagementView {
       } else {
           if (statsInputs) statsInputs.style.display = 'none';
           if (scoutingInputs) scoutingInputs.style.display = 'grid';
-          if (formatHint) formatHint.textContent = 'Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]';
-          if (namingHint) namingHint.innerHTML = 'For bulk historical upload, use: <code>scouting_[source]_YYYY-MM-DD.csv</code> (e.g. scouting_my_2024-03-15.csv)';
+          if (this.selectedScoutingPlayerType === 'pitcher') {
+              if (formatHint) formatHint.textContent = 'Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]';
+              if (namingHint) namingHint.innerHTML = 'For bulk historical upload, use: <code>scouting_[source]_YYYY-MM-DD.csv</code> (e.g. scouting_my_2024-03-15.csv)';
+          } else {
+              if (formatHint) formatHint.textContent = 'Format: player_id, name, power, eye, avoidK [, babip, gap, speed, age]';
+              if (namingHint) namingHint.innerHTML = 'For bulk historical upload, use: <code>hitter_scouting_[source]_YYYY-MM-DD.csv</code>';
+          }
       }
   }
 
@@ -423,17 +449,29 @@ export class DataManagementView {
                 // Detect date and source from filename for historical uploads
                 const scoutInfo = this.detectScoutingFileInfo(file.name);
                 const saveSource = scoutInfo.source || this.selectedScoutingSource;
-
-                const ratings = scoutingDataService.parseScoutingCsv(content, saveSource);
-                if (ratings.length === 0) {
-                    failCount++;
-                    errors.push(`${file.name}: No valid scouting data found.`);
-                    continue;
-                }
-
-                // Use date from filename if available, otherwise fall back to game date or today
                 const saveDate = scoutInfo.date || this.currentGameDate || new Date().toISOString().split('T')[0];
-                await scoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
+
+                // Determine player type from filename or UI selection
+                const isHitterFile = file.name.toLowerCase().includes('hitter');
+                const playerType = isHitterFile ? 'hitter' : this.selectedScoutingPlayerType;
+
+                if (playerType === 'hitter') {
+                    const ratings = hitterScoutingDataService.parseScoutingCsv(content, saveSource);
+                    if (ratings.length === 0) {
+                        failCount++;
+                        errors.push(`${file.name}: No valid hitter scouting data found.`);
+                        continue;
+                    }
+                    await hitterScoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
+                } else {
+                    const ratings = scoutingDataService.parseScoutingCsv(content, saveSource);
+                    if (ratings.length === 0) {
+                        failCount++;
+                        errors.push(`${file.name}: No valid scouting data found.`);
+                        continue;
+                    }
+                    await scoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
+                }
                 successCount++;
             }
 
@@ -484,7 +522,7 @@ export class DataManagementView {
       const tbody = this.container.querySelector<HTMLElement>('#existing-data-list');
       if (!tbody) return;
 
-      const foundData: {type: 'Stats' | 'Scout', yearOrDate: string, details: string, count: number, id: string, isLatest?: boolean, source?: 'api' | 'csv'}[] = [];
+      const foundData: {type: 'Stats' | 'Scout' | 'HitterScout', yearOrDate: string, details: string, count: number, id: string, isLatest?: boolean, source?: 'api' | 'csv'}[] = [];
       const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
 
       // Try to get stats metadata from IndexedDB
@@ -519,9 +557,8 @@ export class DataManagementView {
               }
           }
       }
-      
-      // Check Scouting Snapshots
-      // Iterate year range 2000-2030 to find scouting data
+
+      // Check Pitcher Scouting Snapshots
       let totalScoutingSnapshots = 0;
       for (let y = 2000; y <= 2030; y++) {
           for (const source of ['my', 'osa']) {
@@ -533,10 +570,27 @@ export class DataManagementView {
                   foundData.push({
                       type: 'Scout',
                       yearOrDate: snap.date,
-                      details: source === 'my' ? 'My Scout' : 'OSA',
+                      details: `Pitcher ${source === 'my' ? 'My' : 'OSA'}`,
                       count: snap.count,
-                      id: snap.key, // Use the full storage key as ID
-                      isLatest: index === 0 // Assuming getAvailableScoutingSnapshots sorts desc
+                      id: snap.key,
+                      isLatest: index === 0
+                  });
+              });
+          }
+      }
+
+      // Check Hitter Scouting Snapshots
+      for (let y = 2000; y <= 2030; y++) {
+          for (const source of ['my', 'osa']) {
+              const snapshots = await hitterScoutingDataService.getAvailableScoutingSnapshots(y, source as ScoutingSource);
+              snapshots.forEach((snap, index) => {
+                  foundData.push({
+                      type: 'HitterScout',
+                      yearOrDate: snap.date,
+                      details: `Hitter ${source === 'my' ? 'My' : 'OSA'}`,
+                      count: snap.count,
+                      id: `hitter_${snap.key}`,
+                      isLatest: index === 0
                   });
               });
           }
@@ -559,18 +613,21 @@ export class DataManagementView {
           }
 
           let latestBadge = '';
-          if (d.type === 'Scout' && d.isLatest) {
+          if ((d.type === 'Scout' || d.type === 'HitterScout') && d.isLatest) {
               latestBadge = `<span class="badge" style="background: rgba(0, 186, 124, 0.2); color: #00ba7c; margin-left: 0.5rem; font-size: 0.7em;">LATEST</span>`;
           }
 
+          const badgeClass = d.type === 'Stats' ? 'badge-position' : d.type === 'HitterScout' ? 'badge-active' : 'badge-retired';
+          const displayType = d.type === 'HitterScout' ? 'Scout' : d.type;
+
           return `
             <tr>
-                <td><span class="badge ${d.type === 'Stats' ? 'badge-position' : 'badge-retired'}">${d.type}</span></td>
+                <td><span class="badge ${badgeClass}">${displayType}</span></td>
                 <td>${d.yearOrDate}</td>
                 <td>${d.details} ${sourceBadge}${latestBadge}</td>
                 <td>${d.count} records</td>
                 <td style="text-align: right;">
-                    <button class="btn-link delete-btn" data-id="${d.id}" style="color: var(--color-error);">Delete</button>
+                    <button class="btn-link delete-btn" data-id="${d.id}" data-type="${d.type}" style="color: var(--color-error);">Delete</button>
                 </td>
             </tr>
           `;
@@ -580,6 +637,7 @@ export class DataManagementView {
           btn.addEventListener('click', async (e) => {
               const el = e.target as HTMLElement;
               const id = el.dataset.id;
+              const type = el.dataset.type;
               if (!id) return;
 
               if (confirm(`Are you sure you want to delete this data?`)) {
@@ -593,9 +651,13 @@ export class DataManagementView {
                           await indexedDBService.deleteStatsMetadata(year, level);
                       }
                   }
-                  // Handle Scouting: ID format "wbl_scouting_ratings_..." (LS) or "YYYY-MM-DD_source" (IDB)
+                  // Handle Hitter Scouting: ID format "hitter_YYYY-MM-DD_source"
+                  else if (type === 'HitterScout' || id.startsWith('hitter_')) {
+                      const hitterKey = id.replace(/^hitter_/, '');
+                      await hitterScoutingDataService.clearScoutingRatings(hitterKey);
+                  }
+                  // Handle Pitcher Scouting: ID format "YYYY-MM-DD_source"
                   else {
-                      // Assume anything else is scouting data since we only list Stats and Scout types
                       await scoutingDataService.clearScoutingRatings(id);
                   }
 
@@ -689,33 +751,50 @@ export class DataManagementView {
         await trueRatingsService.getTruePitchingStats(currentYear);
       }
 
-      // Load bundled minor league stats (fast - no API calls)
-      console.log('📦 Loading bundled minor league data...');
+      // Load bundled minor league pitching stats (fast - no API calls)
+      console.log('📦 Loading bundled minor league pitching data...');
       const bundleResult = await minorLeagueStatsService.loadDefaultMinorLeagueData();
-      console.log(`✅ Loaded ${bundleResult.loaded} bundled datasets`);
+      console.log(`✅ Loaded ${bundleResult.loaded} bundled pitching datasets`);
       if (bundleResult.errors.length > 0) {
-        console.warn(`⚠️ ${bundleResult.errors.length} files failed to load:`, bundleResult.errors);
+        console.warn(`⚠️ ${bundleResult.errors.length} pitching files failed to load:`, bundleResult.errors);
+      }
+
+      // Load bundled minor league batting stats (fast - no API calls)
+      console.log('📦 Loading bundled minor league batting data...');
+      const battingBundleResult = await minorLeagueBattingStatsService.loadDefaultMinorLeagueBattingData();
+      console.log(`✅ Loaded ${battingBundleResult.loaded} bundled batting datasets`);
+      if (battingBundleResult.errors.length > 0) {
+        console.warn(`⚠️ ${battingBundleResult.errors.length} batting files failed to load:`, battingBundleResult.errors);
       }
 
       // Fetch current year from API if not in bundle (2025+)
       if (currentYear > 2024) {
-        console.log(`📥 Fetching current year (${currentYear}) from API...`);
+        console.log(`📥 Fetching current year (${currentYear}) pitching from API...`);
         for (const level of levels) {
           await minorLeagueStatsService.getStats(currentYear, level);
           await delay(250);
         }
+        console.log(`📥 Fetching current year (${currentYear}) batting from API...`);
+        for (const level of levels) {
+          await minorLeagueBattingStatsService.getStats(currentYear, level);
+          await delay(250);
+        }
       }
 
-      // Load default OSA scouting data
+      // Load default OSA scouting data (pitchers and hitters)
       console.log('📋 Loading default OSA scouting data...');
       const gameDate = await dateService.getCurrentDate();
-      const osaCount = await scoutingDataService.loadDefaultOsaData(gameDate);
-      if (osaCount > 0) {
-        console.log(`✅ Loaded ${osaCount} OSA scouting ratings`);
+      const [pitcherOsaCount, hitterOsaCount] = await Promise.all([
+        scoutingDataService.loadDefaultOsaData(gameDate),
+        hitterScoutingDataService.loadDefaultHitterOsaData(gameDate)
+      ]);
+      const totalOsaCount = pitcherOsaCount + hitterOsaCount;
+      if (totalOsaCount > 0) {
+        console.log(`✅ Loaded ${pitcherOsaCount} pitcher + ${hitterOsaCount} hitter OSA scouting ratings`);
       }
 
       // All done - show onboarding explanation
-      this.showOnboardingComplete(osaCount, mlbBundleResult.loaded + bundleResult.loaded);
+      this.showOnboardingComplete(totalOsaCount, mlbBundleResult.loaded + bundleResult.loaded + battingBundleResult.loaded);
     } catch (error) {
       console.error('Onboarding fetch error:', error);
       this.showOnboardingError();
@@ -953,12 +1032,20 @@ export class DataManagementView {
 
     try {
       const gameDate = await dateService.getCurrentDate();
-      const count = await scoutingDataService.loadDefaultOsaData(gameDate, force);
+      const [pitcherCount, hitterCount] = await Promise.all([
+        scoutingDataService.loadDefaultOsaData(gameDate, force),
+        hitterScoutingDataService.loadDefaultHitterOsaData(gameDate, force)
+      ]);
+      const totalCount = pitcherCount + hitterCount;
 
-      if (count > 0) {
+      if (totalCount > 0) {
+        const details = [];
+        if (pitcherCount > 0) details.push(`${pitcherCount.toLocaleString()} pitchers`);
+        if (hitterCount > 0) details.push(`${hitterCount.toLocaleString()} hitters`);
+
         this.messageModal.show(
           'Success',
-          `Loaded ${count.toLocaleString()} OSA scouting ratings from bundled file.`
+          `Loaded ${details.join(' + ')} OSA scouting ratings from bundled files.`
         );
 
         // Refresh the data list and status
@@ -972,7 +1059,7 @@ export class DataManagementView {
       } else {
         this.messageModal.show(
           'No Data Loaded',
-          'The bundled OSA file exists but contains no valid ratings, or OSA data is already loaded.'
+          'The bundled OSA files exist but contain no valid ratings, or OSA data is already loaded.'
         );
       }
     } catch (error) {

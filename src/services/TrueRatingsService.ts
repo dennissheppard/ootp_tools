@@ -3,6 +3,7 @@ import { playerService } from './PlayerService';
 import { statsService } from './StatsService';
 import { dateService } from './DateService';
 import { LeagueAverages, YearlyPitchingStats } from './TrueRatingsCalculationService';
+import { YearlyHittingStats } from './HitterTrueRatingsCalculationService';
 import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
 
@@ -759,6 +760,74 @@ class TrueRatingsService {
           playerStatsMap.set(pitcher.player_id, []);
         }
         playerStatsMap.get(pitcher.player_id)!.push(yearlyStats);
+      }
+    }
+
+    // Sort each player's stats by year descending (most recent first)
+    playerStatsMap.forEach(stats => {
+      stats.sort((a, b) => b.year - a.year);
+    });
+
+    return playerStatsMap;
+  }
+
+  /**
+   * Fetch and aggregate batting stats across multiple years for hitter True Rating calculation.
+   *
+   * Returns a map of playerId → yearly stats array (most recent first).
+   * Handles players who didn't bat in all years.
+   * Leverages existing caching for each year's data.
+   *
+   * @param endYear - The most recent year to include
+   * @param yearsBack - Number of years to fetch (default 4 to support dynamic season weighting)
+   * @param minPaPerYear - Minimum PA in a year to include that year's stats (default 10)
+   * @returns Map of playerId → YearlyHittingStats[]
+   */
+  public async getMultiYearBattingStats(
+    endYear: number,
+    yearsBack: number = 4,
+    minPaPerYear: number = 10
+  ): Promise<Map<number, YearlyHittingStats[]>> {
+    const years = Array.from({ length: yearsBack }, (_, i) => endYear - i)
+      .filter(y => y >= LEAGUE_START_YEAR);
+
+    const yearlyDataPromises = years.map(async year => {
+      try {
+        return await this.getTrueBattingStats(year);
+      } catch (error) {
+        console.warn(`Failed to load batting stats for ${year}, skipping.`, error);
+        return [] as TruePlayerBattingStats[];
+      }
+    });
+    const yearlyData = await Promise.all(yearlyDataPromises);
+
+    const playerStatsMap = new Map<number, YearlyHittingStats[]>();
+
+    for (let i = 0; i < years.length; i++) {
+      const year = years[i];
+      const statsForYear = yearlyData[i];
+
+      for (const batter of statsForYear) {
+        if (batter.pa < minPaPerYear) continue;
+
+        const yearlyStats: YearlyHittingStats = {
+          year,
+          pa: batter.pa,
+          ab: batter.ab,
+          h: batter.h,
+          d: batter.d,
+          t: batter.t,
+          hr: batter.hr,
+          bb: batter.bb,
+          k: batter.k,
+          sb: batter.sb,
+          cs: batter.cs,
+        };
+
+        if (!playerStatsMap.has(batter.player_id)) {
+          playerStatsMap.set(batter.player_id, []);
+        }
+        playerStatsMap.get(batter.player_id)!.push(yearlyStats);
       }
     }
 

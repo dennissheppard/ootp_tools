@@ -102,6 +102,38 @@ export interface MinorLeagueStatsWithLevel extends MinorLeagueStats {
 }
 
 /**
+ * Minor league batting stats for a player (simplified version for analysis)
+ */
+export interface MinorLeagueBattingStats {
+  id: number;       // Player ID
+  name: string;
+  // Core counting stats
+  pa: number;       // Plate appearances
+  ab: number;       // At bats
+  h: number;        // Hits
+  d: number;        // Doubles
+  t: number;        // Triples
+  hr: number;       // Home runs
+  bb: number;       // Walks
+  k: number;        // Strikeouts
+  sb: number;       // Stolen bases
+  cs: number;       // Caught stealing
+  // Calculated rate stats
+  avg: number;      // Batting average (H/AB)
+  obp: number;      // On-base percentage
+  slg: number;      // Slugging percentage
+  ops: number;      // On-base plus slugging
+  iso: number;      // Isolated power (SLG - AVG)
+  bb_pct: number;   // Walk percentage (BB/PA)
+  k_pct: number;    // Strikeout percentage (K/PA)
+}
+
+export interface MinorLeagueBattingStatsWithLevel extends MinorLeagueBattingStats {
+  year: number;
+  level: MinorLeagueLevel;
+}
+
+/**
  * Get display label for a minor league level
  */
 export function getLevelLabel(level: MinorLeagueLevel): string {

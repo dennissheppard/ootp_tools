@@ -5,11 +5,15 @@ import { trueRatingsCalculationService } from './TrueRatingsCalculationService';
 import { leagueStatsService } from './LeagueStatsService';
 import { fipWarService } from './FipWarService';
 import { RatingEstimatorService } from './RatingEstimatorService';
-import { PitcherScoutingRatings } from '../models/ScoutingData';
+import { PitcherScoutingRatings, HitterScoutingRatings } from '../models/ScoutingData';
 import { projectionService } from './ProjectionService';
 import { dateService } from './DateService';
 import { playerService } from './PlayerService';
 import { trueFutureRatingService } from './TrueFutureRatingService';
+import { hitterTrueFutureRatingService, HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
+import { hitterScoutingDataService } from './HitterScoutingDataService';
+import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
+import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 
 export interface RatedPlayer {
   playerId: number;
@@ -99,6 +103,84 @@ export interface FarmData {
     reports: FarmSystemRankings[];
     systems: FarmSystemOverview[];
     prospects: RatedProspect[];
+}
+
+// ============================================================================
+// Hitter Prospect Interfaces
+// ============================================================================
+
+export interface RatedHitterProspect {
+    playerId: number;
+    name: string;
+    trueFutureRating: number;
+    age: number;
+    level: string;
+    teamId: number;
+    orgId: number;
+    /** Projected wOBA at peak */
+    projWoba: number;
+    /** Percentile rank among hitter prospects */
+    percentile: number;
+    /** Projected rate stats */
+    projBbPct: number;
+    projKPct: number;
+    projIso: number;
+    projAvg: number;
+    /** Derived rate stats */
+    projObp: number;
+    projSlg: number;
+    projOps: number;
+    /** Projected PA (based on injury proneness) */
+    projPa: number;
+    /** wRC+ (100 = league average) */
+    wrcPlus: number;
+    /** Projected batting WAR */
+    projWar: number;
+    /** Total minor league PA */
+    totalMinorPa: number;
+    /** Injury proneness */
+    injuryProneness?: string;
+    /** Scouting ratings */
+    scoutingRatings: {
+        power: number;
+        eye: number;
+        avoidK: number;
+        babip: number;
+        gap: number;
+        speed: number;
+        ovr: number;
+        pot: number;
+    };
+    /** Position */
+    position: number;
+}
+
+export interface HitterFarmSystemRankings {
+    teamId: number;
+    teamName: string;
+    totalScore: number;
+    allProspects: RatedHitterProspect[];
+}
+
+export interface HitterFarmSystemOverview {
+    teamId: number;
+    teamName: string;
+    totalScore: number;
+    prospectCount: number;
+    topProspectName: string;
+    topProspectId: number;
+    tierCounts: {
+        elite: number;     // TFR >= 4.5
+        aboveAvg: number;  // TFR 3.5-4.4
+        average: number;   // TFR 2.5-3.4
+        fringe: number;    // TFR < 2.5
+    };
+}
+
+export interface HitterFarmData {
+    reports: HitterFarmSystemRankings[];
+    systems: HitterFarmSystemOverview[];
+    prospects: RatedHitterProspect[];
 }
 
 export interface TeamRatingResult {
@@ -344,6 +426,213 @@ class TeamRatingsService {
           reports,
           systems: systems.sort((a, b) => b.totalWar - a.totalWar),
           prospects: sortedProspects
+      };
+  }
+
+  /**
+   * Get hitter prospect farm data for all organizations.
+   * Similar to getFarmData() but for hitters.
+   */
+  async getHitterFarmData(year: number): Promise<HitterFarmData> {
+      // Fetch hitter scouting data and league averages in parallel
+      const [myScoutingRatings, osaScoutingRatings, leagueAvg] = await Promise.all([
+          hitterScoutingDataService.getLatestScoutingRatings('my'),
+          hitterScoutingDataService.getLatestScoutingRatings('osa'),
+          leagueBattingAveragesService.getLeagueAverages(year)
+      ]);
+
+      // Merge scouting data (my takes priority)
+      const scoutingMap = new Map<number, HitterScoutingRatings>();
+      for (const rating of osaScoutingRatings) {
+          if (rating.playerId > 0) scoutingMap.set(rating.playerId, rating);
+      }
+      for (const rating of myScoutingRatings) {
+          if (rating.playerId > 0) scoutingMap.set(rating.playerId, rating);
+      }
+
+      if (scoutingMap.size === 0) {
+          console.warn(`[HitterFarmRankings] No hitter scouting data found.`);
+          return { reports: [], systems: [], prospects: [] };
+      }
+
+      if (!leagueAvg) {
+          console.warn(`[HitterFarmRankings] No league averages found for ${year}, using defaults.`);
+      }
+
+      // Fetch player and team data
+      const [allPlayers, teams] = await Promise.all([
+          playerService.getAllPlayers(),
+          teamService.getAllTeams()
+      ]);
+
+      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+      const teamMap = new Map(teams.map(t => [t.id, t]));
+
+      // Fetch minor league batting stats for TFR calculation
+      const allMinorStats = await minorLeagueBattingStatsService.getAllPlayerStatsBatch(
+          year - 2,
+          year
+      );
+
+      // Build TFR inputs for all prospects with scouting data
+      const tfrInputs: HitterTrueFutureRatingInput[] = [];
+      const prospectPlayerMap = new Map<number, { player: any; scouting: HitterScoutingRatings }>();
+
+      scoutingMap.forEach((scouting, playerId) => {
+          const player = playerMap.get(playerId);
+          if (!player) return;
+
+          // Only include minor leaguers (not on MLB roster)
+          const team = teamMap.get(player.teamId);
+          if (!team || team.parentTeamId === 0) return; // Skip MLB players
+
+          const minorStats = allMinorStats.get(playerId) ?? [];
+
+          tfrInputs.push({
+              playerId,
+              playerName: scouting.playerName ?? `${player.firstName} ${player.lastName}`,
+              age: player.age,
+              scouting,
+              minorLeagueStats: minorStats,
+          });
+
+          prospectPlayerMap.set(playerId, { player, scouting });
+      });
+
+      // Calculate True Future Ratings
+      const tfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
+
+      // Build prospect list grouped by organization
+      const orgGroups = new Map<number, RatedHitterProspect[]>();
+      const allProspects: RatedHitterProspect[] = [];
+
+      tfrResults.forEach(tfr => {
+          const prospectInfo = prospectPlayerMap.get(tfr.playerId);
+          if (!prospectInfo) return;
+
+          const { player, scouting } = prospectInfo;
+          const team = teamMap.get(player.teamId);
+          if (!team) return;
+
+          const orgId = team.parentTeamId;
+
+          // Calculate derived stats
+          const projSlg = tfr.projAvg + tfr.projIso;
+          const projObp = tfr.projAvg + (tfr.projBbPct / 100); // Simplified OBP
+          const projOps = projObp + projSlg;
+          const projPa = leagueBattingAveragesService.getProjectedPa(scouting.injuryProneness);
+
+          // Calculate wRC+ and WAR using league averages
+          let wrcPlus = 100; // Default to league average
+          let projWar = 0;
+          if (leagueAvg) {
+              wrcPlus = leagueBattingAveragesService.calculateWrcPlus(tfr.projWoba, leagueAvg);
+              projWar = leagueBattingAveragesService.calculateBattingWar(tfr.projWoba, projPa, leagueAvg);
+          }
+
+          const prospect: RatedHitterProspect = {
+              playerId: tfr.playerId,
+              name: tfr.playerName,
+              trueFutureRating: tfr.trueFutureRating,
+              percentile: tfr.percentile,
+              age: tfr.age,
+              level: this.getLevelLabel(player.level),
+              teamId: player.teamId,
+              orgId,
+              projWoba: tfr.projWoba,
+              projBbPct: tfr.projBbPct,
+              projKPct: tfr.projKPct,
+              projIso: tfr.projIso,
+              projAvg: tfr.projAvg,
+              projObp: Math.round(projObp * 1000) / 1000,
+              projSlg: Math.round(projSlg * 1000) / 1000,
+              projOps: Math.round(projOps * 1000) / 1000,
+              projPa,
+              wrcPlus,
+              projWar,
+              totalMinorPa: tfr.totalMinorPa,
+              injuryProneness: scouting.injuryProneness,
+              scoutingRatings: {
+                  power: scouting.power,
+                  eye: scouting.eye,
+                  avoidK: scouting.avoidK,
+                  babip: scouting.babip ?? 50,
+                  gap: scouting.gap ?? 50,
+                  speed: scouting.speed ?? 50,
+                  ovr: scouting.ovr,
+                  pot: scouting.pot,
+              },
+              position: player.position,
+          };
+
+          allProspects.push(prospect);
+
+          if (!orgGroups.has(orgId)) {
+              orgGroups.set(orgId, []);
+          }
+          orgGroups.get(orgId)!.push(prospect);
+      });
+
+      // Generate reports and system overviews
+      const reports: HitterFarmSystemRankings[] = [];
+      const systems: HitterFarmSystemOverview[] = [];
+
+      orgGroups.forEach((prospects, orgId) => {
+          const team = teamMap.get(orgId);
+          if (!team) return;
+
+          // Sort by percentile/TFR descending
+          prospects.sort((a, b) => {
+              if (b.percentile !== a.percentile) return b.percentile - a.percentile;
+              return b.trueFutureRating - a.trueFutureRating;
+          });
+
+          // Calculate score (similar to pitcher farm score)
+          const tierCounts = {
+              elite: 0,
+              aboveAvg: 0,
+              average: 0,
+              fringe: 0
+          };
+
+          prospects.forEach(p => {
+              if (p.trueFutureRating >= 4.5) tierCounts.elite++;
+              else if (p.trueFutureRating >= 3.5) tierCounts.aboveAvg++;
+              else if (p.trueFutureRating >= 2.5) tierCounts.average++;
+              else tierCounts.fringe++;
+          });
+
+          const totalScore = (tierCounts.elite * 10) + (tierCounts.aboveAvg * 5) + (tierCounts.average * 1);
+
+          reports.push({
+              teamId: orgId,
+              teamName: team.nickname,
+              totalScore,
+              allProspects: prospects,
+          });
+
+          const topProspect = prospects[0];
+          systems.push({
+              teamId: orgId,
+              teamName: team.nickname,
+              totalScore,
+              prospectCount: prospects.length,
+              topProspectName: topProspect?.name ?? '',
+              topProspectId: topProspect?.playerId ?? 0,
+              tierCounts,
+          });
+      });
+
+      // Sort prospects by percentile
+      const sortedProspects = allProspects.sort((a, b) => {
+          if (b.percentile !== a.percentile) return b.percentile - a.percentile;
+          return b.trueFutureRating - a.trueFutureRating;
+      });
+
+      return {
+          reports: reports.sort((a, b) => b.totalScore - a.totalScore),
+          systems: systems.sort((a, b) => b.totalScore - a.totalScore),
+          prospects: sortedProspects,
       };
   }
 

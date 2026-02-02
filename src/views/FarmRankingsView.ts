@@ -1,4 +1,13 @@
-import { teamRatingsService, FarmData, FarmSystemRankings, FarmSystemOverview, RatedProspect } from '../services/TeamRatingsService';
+import {
+  teamRatingsService,
+  FarmData,
+  FarmSystemRankings,
+  FarmSystemOverview,
+  RatedProspect,
+  HitterFarmData,
+  HitterFarmSystemOverview,
+  RatedHitterProspect
+} from '../services/TeamRatingsService';
 import { PlayerProfileModal } from './PlayerProfileModal';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
@@ -19,10 +28,14 @@ export class FarmRankingsView {
   private container: HTMLElement;
   private selectedYear: number = 2021;
   private viewMode: 'top-systems' | 'top-100' | 'reports' = 'top-systems';
+  private showPitchers: boolean = true;
+  private showHitters: boolean = true;
   private data: FarmData | null = null;
+  private hitterData: HitterFarmData | null = null;
   private playerProfileModal: PlayerProfileModal;
   private yearOptions = Array.from({ length: 6 }, (_, i) => 2021 - i); // 2021 down to 2016
   private top100Prospects: RatedProspect[] = [];
+  private top100HitterProspects: RatedHitterProspect[] = [];
   private selectedTeam: string = 'all';
 
   // Sorting and Dragging state
@@ -30,7 +43,7 @@ export class FarmRankingsView {
   private systemsSortDirection: 'asc' | 'desc' = 'desc';
   private prospectsSortKey: string = 'trueFutureRating';
   private prospectsSortDirection: 'asc' | 'desc' = 'desc';
-  
+
   private systemsColumns: FarmColumn[] = [
     { key: 'rank', label: '#' },
     { key: 'teamName', label: 'Organization', sortKey: 'teamName' },
@@ -49,6 +62,19 @@ export class FarmRankingsView {
     { key: 'trueFutureRating', label: 'TFR', sortKey: 'trueFutureRating' },
     { key: 'peakWar', label: 'Peak WAR', sortKey: 'peakWar' },
     { key: 'peakFip', label: 'Peak FIP', sortKey: 'peakFip' },
+    { key: 'age', label: 'Age', sortKey: 'age' },
+    { key: 'level', label: 'Level', sortKey: 'level' }
+  ];
+
+  private hitterProspectsColumns: FarmColumn[] = [
+    { key: 'rank', label: '#' },
+    { key: 'name', label: 'Name', sortKey: 'name' },
+    { key: 'position', label: 'Pos', sortKey: 'position' },
+    { key: 'team', label: 'Team', sortKey: 'orgId' },
+    { key: 'trueFutureRating', label: 'TFR', sortKey: 'trueFutureRating' },
+    { key: 'wrcPlus', label: 'wRC+', sortKey: 'wrcPlus', title: 'Weighted Runs Created Plus (100 = league average)' },
+    { key: 'projWar', label: 'WAR', sortKey: 'projWar', title: 'Projected Batting WAR' },
+    { key: 'projWoba', label: 'wOBA', sortKey: 'projWoba', title: 'Projected weighted On-Base Average' },
     { key: 'age', label: 'Age', sortKey: 'age' },
     { key: 'level', label: 'Level', sortKey: 'level' }
   ];
@@ -125,6 +151,10 @@ export class FarmRankingsView {
               </div>
               -->
 
+              <button class="toggle-btn active" data-prospect-type="pitchers" aria-pressed="true">Pitchers</button>
+              <button class="toggle-btn active" data-prospect-type="hitters" aria-pressed="true">Hitters</button>
+              <span class="filter-separator"></span>
+
               <button class="toggle-btn active" data-view-mode="top-systems" aria-pressed="true">Top Systems</button>
               <button class="toggle-btn" data-view-mode="top-100" aria-pressed="false">Top 100</button>
               
@@ -195,6 +225,39 @@ export class FarmRankingsView {
     //     });
     // });
 
+    // Prospect type toggle (Pitchers / Hitters) - allows both to be active
+    this.container.querySelectorAll('[data-prospect-type]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const type = (e.target as HTMLElement).dataset.prospectType as 'pitchers' | 'hitters';
+            const button = e.target as HTMLElement;
+
+            // Toggle the clicked button
+            if (type === 'pitchers') {
+                this.showPitchers = !this.showPitchers;
+            } else {
+                this.showHitters = !this.showHitters;
+            }
+
+            // Ensure at least one is selected
+            if (!this.showPitchers && !this.showHitters) {
+                // Re-enable the one we just turned off
+                if (type === 'pitchers') {
+                    this.showPitchers = true;
+                } else {
+                    this.showHitters = true;
+                }
+                return;
+            }
+
+            button.classList.toggle('active', type === 'pitchers' ? this.showPitchers : this.showHitters);
+            button.setAttribute('aria-pressed', String(type === 'pitchers' ? this.showPitchers : this.showHitters));
+
+            // Reload data for the new filter
+            this.showLoadingState();
+            this.loadData();
+        });
+    });
+
     this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
         btn.addEventListener('click', (e) => {
             const mode = (e.target as HTMLElement).dataset.viewMode as 'top-systems' | 'top-100' | 'reports';
@@ -241,12 +304,10 @@ export class FarmRankingsView {
     });
   }
 
-  // Temporarily unused - was only called from year dropdown handler
-  // Re-enable when historical scouting data becomes available
-  // private showLoadingState(message: string = 'Loading...'): void {
-  //     const content = this.container.querySelector('#farm-content-area');
-  //     if (content) content.innerHTML = this.renderLoadingState(message);
-  // }
+  private showLoadingState(message: string = 'Loading...'): void {
+      const content = this.container.querySelector('#farm-content-area');
+      if (content) content.innerHTML = this.renderLoadingState(message);
+  }
 
   private renderLoadingState(title: string): string {
       return `
@@ -286,21 +347,29 @@ export class FarmRankingsView {
 
   private updateTeamFilter(): void {
       const menu = this.container.querySelector<HTMLElement>('#team-dropdown-menu');
-      if (!menu || !this.data) return;
+      if (!menu) return;
 
       const teams = new Set<string>();
-      this.data.prospects.forEach(p => {
-          teams.add(this.getTeamName(p.orgId));
-      });
+
+      if (this.showPitchers && this.data) {
+          this.data.prospects.forEach(p => {
+              teams.add(this.getTeamName(p.orgId));
+          });
+      }
+      if (this.showHitters && this.hitterData) {
+          this.hitterData.prospects.forEach(p => {
+              teams.add(this.getTeamName(p.orgId));
+          });
+      }
 
       const sortedTeams = Array.from(teams).sort();
-      
+
       const items = ['all', ...sortedTeams].map(t => {
           const label = t === 'all' ? 'All' : t;
           const selectedClass = t === this.selectedTeam ? 'selected' : '';
           return `<div class="filter-dropdown-item ${selectedClass}" data-value="${t}">${label}</div>`;
       }).join('');
-      
+
       menu.innerHTML = items;
       this.bindTeamDropdownListeners();
   }
@@ -333,8 +402,34 @@ export class FarmRankingsView {
 
   private async loadData(): Promise<void> {
     try {
-        this.data = await teamRatingsService.getFarmData(this.selectedYear);
-        this.top100Prospects = this.data.prospects.slice(0, 100);
+        // Load data based on which toggles are active
+        const loadPromises: Promise<void>[] = [];
+
+        if (this.showPitchers) {
+            loadPromises.push(
+                teamRatingsService.getFarmData(this.selectedYear).then(data => {
+                    this.data = data;
+                    this.top100Prospects = data.prospects.slice(0, 100);
+                })
+            );
+        } else {
+            this.data = null;
+            this.top100Prospects = [];
+        }
+
+        if (this.showHitters) {
+            loadPromises.push(
+                teamRatingsService.getHitterFarmData(this.selectedYear).then(data => {
+                    this.hitterData = data;
+                    this.top100HitterProspects = data.prospects.slice(0, 100);
+                })
+            );
+        } else {
+            this.hitterData = null;
+            this.top100HitterProspects = [];
+        }
+
+        await Promise.all(loadPromises);
         this.updateTeamFilter();
         this.renderView();
     } catch (err) {
@@ -345,7 +440,10 @@ export class FarmRankingsView {
   }
 
   private renderView(): void {
-      if (!this.data) return;
+      const hasPitcherData = this.showPitchers && this.data !== null;
+      const hasHitterData = this.showHitters && this.hitterData !== null;
+      if (!hasPitcherData && !hasHitterData) return;
+
       const content = this.container.querySelector('#farm-content-area');
       if (!content) return;
 
@@ -356,19 +454,35 @@ export class FarmRankingsView {
           teamFilter.style.display = this.viewMode === 'top-100' ? 'inline-block' : 'none';
       }
 
+      // Hide reports view if hitters only (reports not yet implemented for hitters)
+      const reportsBtn = this.container.querySelector<HTMLElement>('[data-view-mode="reports"]');
+      if (reportsBtn) {
+          reportsBtn.style.display = this.showPitchers ? '' : 'none';
+      }
+
+      // Fall back to top-systems if viewing reports without pitchers
+      if (!this.showPitchers && this.viewMode === 'reports') {
+          this.viewMode = 'top-systems';
+          this.container.querySelectorAll('[data-view-mode]').forEach(b => {
+              const isActive = (b as HTMLElement).dataset.viewMode === 'top-systems';
+              b.classList.toggle('active', isActive);
+              b.setAttribute('aria-pressed', String(isActive));
+          });
+      }
+
       switch (this.viewMode) {
           case 'top-systems':
-              content.innerHTML = this.renderTopSystems();
+              content.innerHTML = this.renderCombinedTopSystems();
               break;
           case 'top-100':
-              content.innerHTML = this.renderTopProspects();
+              content.innerHTML = this.renderCombinedTopProspects();
               break;
           case 'reports':
               content.innerHTML = this.renderReports();
               this.bindToggleEvents(); // Only needed for collapsible reports
               break;
       }
-      
+
       this.bindPlayerNameClicks();
       this.bindSortHeaders();
       this.bindColumnDragAndDrop();
@@ -376,6 +490,15 @@ export class FarmRankingsView {
   }
 
   private sortData(): void {
+    if (this.showPitchers && this.data) {
+      this.sortPitcherData();
+    }
+    if (this.showHitters && this.hitterData) {
+      this.sortHitterData();
+    }
+  }
+
+  private sortPitcherData(): void {
     if (!this.data) return;
 
     // Sort systems
@@ -423,9 +546,95 @@ export class FarmRankingsView {
     });
   }
 
+  private sortHitterData(): void {
+    if (!this.hitterData) return;
+
+    // Sort systems
+    this.hitterData.systems.sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+
+      if (['elite', 'aboveAvg', 'average', 'fringe'].includes(this.systemsSortKey)) {
+        aVal = (a.tierCounts as any)[this.systemsSortKey];
+        bVal = (b.tierCounts as any)[this.systemsSortKey];
+      } else {
+        aVal = (a as any)[this.systemsSortKey];
+        bVal = (b as any)[this.systemsSortKey];
+      }
+
+      let compare = 0;
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        compare = aVal - bVal;
+      } else {
+        compare = String(aVal).localeCompare(String(bVal));
+      }
+      return this.systemsSortDirection === 'asc' ? compare : -compare;
+    });
+
+    // Sort prospects (Top 100 subset)
+    this.top100HitterProspects.sort((a, b) => {
+      let aVal: any;
+      let bVal: any;
+
+      if (this.prospectsSortKey === 'team') {
+        aVal = this.getTeamName(a.orgId);
+        bVal = this.getTeamName(b.orgId);
+      } else {
+        aVal = (a as any)[this.prospectsSortKey];
+        bVal = (b as any)[this.prospectsSortKey];
+      }
+
+      let compare = 0;
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        compare = aVal - bVal;
+      } else {
+        compare = String(aVal).localeCompare(String(bVal));
+      }
+      return this.prospectsSortDirection === 'asc' ? compare : -compare;
+    });
+  }
+
+  // --- COMBINED VIEWS ---
+  private renderCombinedTopSystems(): string {
+      const sections: string[] = [];
+
+      if (this.showPitchers && this.data && this.data.systems.length > 0) {
+          sections.push(this.renderTopSystems());
+      }
+      if (this.showHitters && this.hitterData && this.hitterData.systems.length > 0) {
+          sections.push(this.renderHitterTopSystems());
+      }
+
+      if (sections.length === 0) {
+          return '<p class="no-stats">No system data available.</p>';
+      }
+
+      return sections.join('');
+  }
+
+  private renderCombinedTopProspects(): string {
+      const sections: string[] = [];
+
+      if (this.showPitchers && this.data && this.data.prospects.length > 0) {
+          sections.push(this.renderTopProspects());
+      }
+      if (this.showHitters && this.hitterData && this.hitterData.prospects.length > 0) {
+          sections.push(this.renderHitterTopProspects());
+      }
+
+      if (sections.length === 0) {
+          return '<p class="no-stats">No prospect data available.</p>';
+      }
+
+      return sections.join('');
+  }
+
   private bindSortHeaders(): void {
     const headers = this.container.querySelectorAll<HTMLElement>('.stats-table:not(.nested-system-table) th[data-sort-key]');
     headers.forEach(header => {
+      // Ensure we don't accidentally select headers from nested tables (descendants of the selected table)
+      if (header.closest('.nested-system-table')) return;
+
       header.addEventListener('click', () => {
         if (this.isDraggingColumn) return;
         const key = header.dataset.sortKey;
@@ -458,6 +667,9 @@ export class FarmRankingsView {
     let draggedKey: string | null = null;
 
     headers.forEach(header => {
+      // Ensure we don't accidentally select headers from nested tables
+      if (header.closest('.nested-system-table')) return;
+
       header.addEventListener('dragstart', (e) => {
         draggedKey = header.dataset.colKey ?? null;
         this.isDraggingColumn = true;
@@ -693,8 +905,13 @@ export class FarmRankingsView {
           }
 
           row.addEventListener('click', (e) => {
+              const target = e.target as HTMLElement;
+              
+              // Verify we are clicking the system row itself, not a nested row (e.g. inside details)
+              if (target.closest('tr') !== row) return;
+
               // Prevent toggle if clicking a player link
-              if ((e.target as HTMLElement).closest('.player-name-link')) return;
+              if (target.closest('.player-name-link')) return;
 
               const icon = row.querySelector('.toggle-icon');
 
@@ -916,6 +1133,222 @@ export class FarmRankingsView {
       `;
   }
 
+  // --- HITTER TOP SYSTEMS VIEW ---
+  private renderHitterTopSystems(): string {
+      if (!this.hitterData || this.hitterData.systems.length === 0) return '<p class="no-stats">No hitter system data available.</p>';
+
+      const rows = this.hitterData.systems.map((sys, idx) => {
+        const report = this.hitterData?.reports.find(r => r.teamId === sys.teamId);
+        const allProspects = report ? report.allProspects : [];
+        const systemKey = `sys-hitter-${sys.teamId}`;
+
+        const cells = this.systemsColumns.map(col => {
+            switch (col.key) {
+                case 'rank':
+                    return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
+                case 'teamName':
+                    return `
+                        <td data-col-key="teamName" style="font-weight: 600; text-align: left;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
+                                ${sys.teamName}
+                            </div>
+                        </td>`;
+                case 'totalWar':
+                    return `<td data-col-key="totalWar" style="text-align: center; padding-right: 100px;">${this.renderHitterFarmScoreFlip(sys)}</td>`;
+                case 'topProspectName':
+                    return `<td data-col-key="topProspectName" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${sys.topProspectId}">${sys.topProspectName}</button></td>`;
+                case 'elite':
+                    return `<td data-col-key="elite" style="text-align: center;">${sys.tierCounts.elite > 0 ? `<span class="badge rating-elite">${sys.tierCounts.elite}</span>` : '-'}</td>`;
+                case 'aboveAvg':
+                    return `<td data-col-key="aboveAvg" style="text-align: center;">${sys.tierCounts.aboveAvg > 0 ? `<span class="badge rating-plus">${sys.tierCounts.aboveAvg}</span>` : '-'}</td>`;
+                case 'average':
+                    return `<td data-col-key="average" style="text-align: center;">${sys.tierCounts.average > 0 ? `<span class="badge rating-avg">${sys.tierCounts.average}</span>` : '-'}</td>`;
+                case 'fringe':
+                    return `<td data-col-key="fringe" style="text-align: center;">${sys.tierCounts.fringe > 0 ? `<span class="badge rating-fringe">${sys.tierCounts.fringe}</span>` : '-'}</td>`;
+                default:
+                    return `<td></td>`;
+            }
+        }).join('');
+
+        return `
+        <tr class="system-row" data-system-key="${systemKey}" style="cursor: pointer;">
+            ${cells}
+        </tr>
+        <tr id="details-${systemKey}" style="display: none; background-color: var(--color-surface-hover);">
+            <td colspan="${this.systemsColumns.length}" style="padding: 1rem;">
+                <div style="max-height: 400px; overflow-y: auto;">
+                    ${this.renderHitterSystemDetails(allProspects)}
+                </div>
+            </td>
+        </tr>
+      `}).join('');
+
+      setTimeout(() => this.bindSystemToggles(), 0);
+
+      const headerRow = this.systemsColumns.map(col => {
+          const isSorted = this.systemsSortKey === col.sortKey;
+          const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
+          const activeClass = isSorted ? 'sort-active' : '';
+          const style = col.key === 'teamName' || col.key === 'topProspectName' ? 'text-align: left;' : 'text-align: center;';
+          let width = '';
+          let padding = '';
+          if (col.key === 'rank') width = 'width: 40px;';
+          else if (col.key === 'teamName') width = 'width: 18%;';
+          else if (col.key === 'totalWar') {width = 'width: 12%;', padding = 'padding-right: 100px;'};
+          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+          const titleAttr = col.title ? `title="${col.title}"` : '';
+
+          return `<th ${sortAttr} ${titleAttr} data-col-key="${col.key}" class="${activeClass}" style="${style} ${width} ${padding}" draggable="true">${col.label}${sortIcon}</th>`;
+      }).join('');
+
+      return `
+        <div class="stats-table-container">
+            <h3 class="section-title">Hitter Farm Rankings <span class="note-text">(by True Farm Rating)</span></h3>
+            <table class="stats-table" style="width: 100%;">
+                <thead>
+                    <tr>
+                        ${headerRow}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        </div>
+      `;
+  }
+
+  private renderHitterFarmScoreFlip(sys: HitterFarmSystemOverview): string {
+      return `
+        <div class="flip-cell" style="width: auto; height: auto; min-width: 50px;">
+            <div class="flip-cell-inner">
+                <div class="flip-cell-front">
+                    <span class="badge ${this.getScoreClass(sys.totalScore)}">${sys.totalScore}</span>
+                </div>
+                <div class="flip-cell-back" style="background-color: var(--color-surface); padding: 2px 4px; border-radius: 4px; box-shadow: 0 0 4px rgba(0,0,0,0.5); left: 50%; translate: -50%;">
+                    <span class="badge rating-avg">${sys.prospectCount} prospects</span>
+                </div>
+            </div>
+        </div>
+      `;
+  }
+
+  private renderHitterSystemDetails(prospects: RatedHitterProspect[]): string {
+      if (prospects.length === 0) return '<p class="no-stats">No hitter prospects.</p>';
+
+      const rows = prospects.map((p, idx) => `
+        <tr>
+            <td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>
+            <td style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>
+            <td style="text-align: center;">${getPositionLabel(p.position)}</td>
+            <td style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>
+            <td style="text-align: center;"><span class="badge ${this.getWrcPlusClass(p.wrcPlus)}">${Math.round(p.wrcPlus)}</span></td>
+            <td style="text-align: center;"><span class="badge ${this.getWarClass(p.projWar)}">${p.projWar.toFixed(1)}</span></td>
+            <td style="text-align: center;">${p.projWoba.toFixed(3)}</td>
+            <td style="text-align: center;">${p.age}</td>
+            <td style="text-align: center;"><span class="level-badge level-${p.level.toLowerCase()}">${p.level}</span></td>
+        </tr>
+      `).join('');
+
+      return `
+        <table class="stats-table nested-system-table" style="width: 100%;">
+            <thead>
+                <tr>
+                    <th style="width: 30px;">#</th>
+                    <th style="text-align: left;">Name</th>
+                    <th style="text-align: center;">Pos</th>
+                    <th style="text-align: center;">TFR</th>
+                    <th style="text-align: center;" title="Weighted Runs Created Plus (100 = league average)">wRC+</th>
+                    <th style="text-align: center;" title="Projected Batting WAR">WAR</th>
+                    <th style="text-align: center;" title="Projected weighted On-Base Average">wOBA</th>
+                    <th style="text-align: center;">Age</th>
+                    <th style="text-align: center;">Level</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+      `;
+  }
+
+  // --- HITTER TOP 100 PROSPECTS VIEW ---
+  private renderHitterTopProspects(): string {
+      if (!this.hitterData || this.hitterData.prospects.length === 0) return '<p class="no-stats">No hitter prospect data available.</p>';
+
+      const filteredProspects = this.selectedTeam === 'all'
+          ? this.top100HitterProspects
+          : this.top100HitterProspects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
+
+      if (filteredProspects.length === 0) return '<p class="no-stats">No top 100 hitter prospects found for this team.</p>';
+
+      const rows = filteredProspects.map((p, idx) => {
+        const cells = this.hitterProspectsColumns.map(col => {
+            switch (col.key) {
+                case 'rank':
+                    const currentRank = idx + 1;
+                    if (this.selectedTeam !== 'all' && this.hitterData) {
+                        const originalRank = this.hitterData.prospects.findIndex(orig => orig.playerId === p.playerId) + 1;
+                        return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${currentRank} <span style="font-weight: normal; font-size: 0.85em; opacity: 0.7;">(#${originalRank})</span></td>`;
+                    }
+                    return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${currentRank}</td>`;
+                case 'name':
+                    return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>`;
+                case 'position':
+                    return `<td data-col-key="position" style="text-align: center;">${getPositionLabel(p.position)}</td>`;
+                case 'team':
+                    return `<td data-col-key="team" style="text-align: left;">${this.getTeamName(p.orgId)}</td>`;
+                case 'trueFutureRating':
+                    return `<td data-col-key="trueFutureRating" style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>`;
+                case 'wrcPlus':
+                    return `<td data-col-key="wrcPlus" style="text-align: center;"><span class="badge ${this.getWrcPlusClass(p.wrcPlus)}">${Math.round(p.wrcPlus)}</span></td>`;
+                case 'projWar':
+                    return `<td data-col-key="projWar" style="text-align: center;"><span class="badge ${this.getWarClass(p.projWar)}">${p.projWar.toFixed(1)}</span></td>`;
+                case 'projWoba':
+                    return `<td data-col-key="projWoba" style="text-align: center;">${p.projWoba.toFixed(3)}</td>`;
+                case 'projIso':
+                    return `<td data-col-key="projIso" style="text-align: center;">${p.projIso.toFixed(3)}</td>`;
+                case 'age':
+                    return `<td data-col-key="age" style="text-align: center;">${p.age}</td>`;
+                case 'level':
+                    return `<td data-col-key="level" style="text-align: center;"><span class="level-badge level-${p.level.toLowerCase()}">${p.level}</span></td>`;
+                default:
+                    return `<td></td>`;
+            }
+        }).join('');
+
+        return `<tr>${cells}</tr>`;
+      }).join('');
+
+      const headerRow = this.hitterProspectsColumns.map(col => {
+          const isSorted = this.prospectsSortKey === col.sortKey;
+          const sortIcon = isSorted ? (this.prospectsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
+          const activeClass = isSorted ? 'sort-active' : '';
+          const style = col.key === 'name' || col.key === 'team' ? 'text-align: left;' : 'text-align: center;';
+          const width = col.key === 'rank' ? 'width: 40px;' : '';
+          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+
+          return `<th ${sortAttr} data-col-key="${col.key}" class="${activeClass}" style="${style} ${width}" draggable="true">${col.label}${sortIcon}</th>`;
+      }).join('');
+
+      return `
+        <div class="stats-table-container">
+            <h3 class="section-title">Top 100 Hitter Prospects <span class="note-text">(by True Future Rating)</span></h3>
+            <table class="stats-table" style="width: 100%;">
+                <thead>
+                    <tr>
+                        ${headerRow}
+                    </tr>
+                </thead>
+                <tbody>
+                    ${rows}
+                </tbody>
+            </table>
+        </div>
+      `;
+  }
+
   // --- REPORTS VIEW (Original) ---
   private renderReports(): string {
       if (!this.data) return '';
@@ -1101,6 +1534,14 @@ export class FarmRankingsView {
       if (war >= 4) return 'rating-plus';
       if (war >= 2) return 'rating-avg';
       if (war >= 0) return 'rating-fringe';
+      return 'rating-poor';
+  }
+
+  private getWrcPlusClass(wrcPlus: number): string {
+      if (wrcPlus >= 140) return 'rating-elite';
+      if (wrcPlus >= 120) return 'rating-plus';
+      if (wrcPlus >= 100) return 'rating-avg';
+      if (wrcPlus >= 80) return 'rating-fringe';
       return 'rating-poor';
   }
 
@@ -1367,18 +1808,14 @@ export class FarmRankingsView {
   }
 
   private getTeamName(teamId: number): string {
-      // Helper to find team name from reports data if needed, or simple lookup
-      // Since we don't have a direct Team Map here, we can infer from reports or systems
+      // Helper to find team name from systems data
       if (this.data) {
           const sys = this.data.systems.find(s => s.teamId === teamId);
           if (sys) return sys.teamName;
-          // Try to find in prospect's team ID? No, prospect stores minor league team ID usually.
-          // We need parent team name.
-          // RatedProspect stores teamId (which is minor league team).
-          // We don't have parent name easily accessible on prospect object.
-          // For now, return "Org " + teamId or generic.
-          // Wait, getFarmData logic in service does look up parent.
-          // We should probably add `orgName` to RatedProspect for display convenience.
+      }
+      if (this.hitterData) {
+          const sys = this.hitterData.systems.find(s => s.teamId === teamId);
+          if (sys) return sys.teamName;
       }
       return 'Org';
   }

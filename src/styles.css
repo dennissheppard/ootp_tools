@@ -761,6 +761,49 @@ body {
   color: rgba(63, 81, 181, 0.95);
 }
 
+/* Position badges (Batter positions) */
+.pos-catcher {
+  background: linear-gradient(135deg, rgba(156, 39, 176, 0.22), rgba(156, 39, 176, 0.1));
+  border-color: rgba(156, 39, 176, 0.45);
+  color: rgba(156, 39, 176, 0.95);
+}
+
+.pos-middle-infield {
+  background: linear-gradient(135deg, rgba(103, 58, 183, 0.22), rgba(103, 58, 183, 0.1));
+  border-color: rgba(103, 58, 183, 0.45);
+  color: rgba(103, 58, 183, 0.95);
+}
+
+.pos-center-field {
+  background: linear-gradient(135deg, rgba(0, 150, 136, 0.22), rgba(0, 150, 136, 0.1));
+  border-color: rgba(0, 150, 136, 0.45);
+  color: rgba(0, 150, 136, 0.95);
+}
+
+.pos-corner {
+  background: linear-gradient(135deg, rgba(63, 81, 181, 0.22), rgba(63, 81, 181, 0.1));
+  border-color: rgba(63, 81, 181, 0.45);
+  color: rgba(63, 81, 181, 0.95);
+}
+
+.pos-corner-outfield {
+  background: linear-gradient(135deg, rgba(33, 150, 243, 0.22), rgba(33, 150, 243, 0.1));
+  border-color: rgba(33, 150, 243, 0.45);
+  color: rgba(33, 150, 243, 0.95);
+}
+
+.pos-dh {
+  background: linear-gradient(135deg, rgba(255, 152, 0, 0.22), rgba(255, 152, 0, 0.1));
+  border-color: rgba(255, 152, 0, 0.45);
+  color: rgba(255, 152, 0, 0.95);
+}
+
+.pos-utility {
+  background: linear-gradient(135deg, rgba(158, 158, 158, 0.22), rgba(158, 158, 158, 0.1));
+  border-color: rgba(158, 158, 158, 0.45);
+  color: rgba(158, 158, 158, 0.95);
+}
+
 .sort-active {
   border-color: var(--color-primary);
   box-shadow: 0 0 0 1px rgba(29, 155, 240, 0.35);
@@ -1960,6 +2003,12 @@ td.player-cell.player-name {
 .filter-group > *:last-child .toggle-btn {
   border-top-right-radius: var(--border-radius);
   border-bottom-right-radius: var(--border-radius);
+}
+
+.filter-separator {
+  width: 1px;
+  margin: 0.25rem 0;
+  background-color: var(--color-border);
 }
 
 .true-ratings-table {
@@ -5632,4 +5681,341 @@ td:hover .stat-tooltip {
 
 .tab-pane.active {
   display: block;
+}
+
+/* =============================================================================
+   BATTER PROFILE MODAL
+   ============================================================================= */
+
+.batter-profile-modal .modal-lg {
+  max-width: 800px;
+}
+
+.batter-profile-modal .profile-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.batter-profile-modal .profile-title-group {
+  flex: 1;
+  min-width: 200px;
+}
+
+.batter-profile-modal .modal-title {
+  margin: 0 0 0.25rem 0;
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.batter-profile-modal .player-team-info {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.batter-profile-modal .player-team-info .parent-team {
+  opacity: 0.7;
+}
+
+.batter-profile-modal .player-position-age {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.batter-profile-modal .position-badge {
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.batter-profile-modal .age-label {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.batter-profile-modal .ratings-header-slot {
+  display: flex;
+  align-items: center;
+}
+
+.batter-profile-modal .header-metadata-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  min-width: 180px;
+}
+
+.batter-profile-modal .header-metadata-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.batter-profile-modal .header-metadata-label {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  width: 50px;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.batter-profile-modal .header-metadata-bar {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.batter-profile-modal .header-metadata-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease-out;
+}
+
+.batter-profile-modal .header-metadata-bar-fill.rating-elite {
+  background: linear-gradient(90deg, #ffd700, #ffec80);
+}
+
+.batter-profile-modal .header-metadata-bar-fill.rating-plus {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.batter-profile-modal .header-metadata-bar-fill.rating-avg {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.batter-profile-modal .header-metadata-bar-fill.rating-fringe {
+  background: linear-gradient(90deg, #6b7280, #9ca3af);
+}
+
+.batter-profile-modal .header-metadata-bar-fill.rating-poor {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.batter-profile-modal .header-metadata-value {
+  font-size: 0.8rem;
+  font-weight: 700;
+  width: 28px;
+  text-align: right;
+}
+
+/* Profile Body Layout */
+.batter-profile-modal .profile-body-grid {
+  display: grid;
+  grid-template-columns: 1fr 240px;
+  gap: 1.5rem;
+}
+
+@media (max-width: 700px) {
+  .batter-profile-modal .profile-body-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.batter-profile-modal .section-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin: 0 0 0.75rem 0;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+/* Summary Stats Section */
+.batter-profile-modal .summary-stats-section {
+  margin-bottom: 1.5rem;
+}
+
+.batter-profile-modal .summary-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+}
+
+.batter-profile-modal .summary-stat {
+  text-align: center;
+  padding: 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border-radius: 8px;
+  border: 1px solid var(--color-border);
+}
+
+.batter-profile-modal .summary-stat.highlight {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+}
+
+.batter-profile-modal .summary-stat .stat-value {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.batter-profile-modal .summary-stat .stat-label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  margin-top: 0.25rem;
+}
+
+/* Stats History Table */
+.batter-profile-modal .stats-history-section {
+  margin-bottom: 1rem;
+}
+
+.batter-profile-modal .stats-table-wrapper {
+  overflow-x: auto;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.batter-profile-modal .profile-stats-table {
+  font-size: 0.8rem;
+}
+
+.batter-profile-modal .profile-stats-table th,
+.batter-profile-modal .profile-stats-table td {
+  padding: 0.4rem 0.6rem;
+  white-space: nowrap;
+}
+
+.batter-profile-modal .profile-stats-table .level-badge {
+  font-size: 0.65rem;
+  padding: 0.15rem 0.4rem;
+}
+
+/* Scouting Section */
+.batter-profile-modal .scouting-section {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.batter-profile-modal .scouting-stars {
+  display: flex;
+  justify-content: space-around;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.batter-profile-modal .star-rating {
+  text-align: center;
+}
+
+.batter-profile-modal .star-label {
+  display: block;
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  margin-bottom: 0.25rem;
+}
+
+.batter-profile-modal .star-value {
+  font-size: 1rem;
+  color: #ffd700;
+  letter-spacing: -1px;
+}
+
+.batter-profile-modal .scouting-ratings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.batter-profile-modal .scouting-rating-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.batter-profile-modal .scouting-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  width: 55px;
+}
+
+.batter-profile-modal .scouting-bar {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.batter-profile-modal .scouting-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease-out;
+}
+
+.batter-profile-modal .scouting-bar-fill.rating-elite {
+  background: linear-gradient(90deg, #ffd700, #ffec80);
+}
+
+.batter-profile-modal .scouting-bar-fill.rating-plus {
+  background: linear-gradient(90deg, #22c55e, #4ade80);
+}
+
+.batter-profile-modal .scouting-bar-fill.rating-avg {
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+}
+
+.batter-profile-modal .scouting-bar-fill.rating-fringe {
+  background: linear-gradient(90deg, #6b7280, #9ca3af);
+}
+
+.batter-profile-modal .scouting-bar-fill.rating-poor {
+  background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+.batter-profile-modal .scouting-value {
+  font-size: 0.8rem;
+  font-weight: 700;
+  width: 24px;
+  text-align: right;
+}
+
+.batter-profile-modal .injury-status {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  font-size: 0.8rem;
+}
+
+.batter-profile-modal .injury-label {
+  color: var(--color-text-muted);
+}
+
+.batter-profile-modal .injury-value {
+  font-weight: 600;
+}
+
+.batter-profile-modal .no-data {
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+.batter-profile-modal .error {
+  color: var(--color-error);
+  text-align: center;
+  padding: 2rem;
+}
+
+.batter-profile-modal .loading-spinner {
+  text-align: center;
+  padding: 3rem;
+  color: var(--color-text-muted);
 }
