@@ -44,6 +44,15 @@ export interface PlayerRatingsData {
   osaOvr?: number;
   osaPot?: number;
 
+  // My Scout pitch data
+  myPitches?: string[];
+  myPitchRatings?: Record<string, number>;
+
+  // OSA pitch data
+  osaPitches?: string[];
+  osaPitchRatings?: Record<string, number>;
+
+  // Legacy single-source fields (deprecated, use my/osa variants)
   pitchCount?: number;
   pitches?: string[];  // List of pitch names
   pitchRatings?: Record<string, number>;  // Pitch name -> rating mapping
@@ -406,7 +415,26 @@ export class PlayerRatingsCard {
    * Render header pitches list (pitch names with ratings)
    */
   static renderHeaderPitches(data: PlayerRatingsData): string {
-    if (!data.pitches || data.pitches.length === 0) return '';
+    // Select pitches based on active scout source
+    const activeSource = data.activeScoutSource ?? 'my';
+
+    // Use source-specific pitch data, falling back to legacy fields
+    let pitches: string[];
+    let pitchRatings: Record<string, number>;
+
+    if (activeSource === 'my' && data.myPitches) {
+      pitches = data.myPitches;
+      pitchRatings = data.myPitchRatings ?? {};
+    } else if (activeSource === 'osa' && data.osaPitches) {
+      pitches = data.osaPitches;
+      pitchRatings = data.osaPitchRatings ?? {};
+    } else {
+      // Fallback to legacy single-source fields
+      pitches = data.pitches ?? [];
+      pitchRatings = data.pitchRatings ?? {};
+    }
+
+    if (pitches.length === 0) return '';
 
     const pitchNameMap: Record<string, string> = {
       fbp: 'Fastball',
@@ -429,9 +457,9 @@ export class PlayerRatingsCard {
         ?? (pitchName.endsWith('p') ? pitchName.slice(0, -1) : pitchName);
     };
 
-    const pitchList = data.pitches.map(pitchName => ({
+    const pitchList = pitches.map(pitchName => ({
       raw: pitchName,
-      rating: data.pitchRatings?.[pitchName] ?? 0,
+      rating: pitchRatings[pitchName] ?? 0,
       display: normalizePitchName(pitchName)
     }));
 

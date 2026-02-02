@@ -1042,21 +1042,27 @@ export class PlayerProfileModal {
                 const recent = this.currentMlbStats[0];
                 let isSp = recent && recent.ip > 80;
                 
+                // Use scout source-specific values for projection
+                const activePitchRatings = newSource === 'osa' ? updatedData.osaPitchRatings : updatedData.myPitchRatings;
+                const activePitchCount = activePitchRatings ? Object.values(activePitchRatings).filter(v => v >= 45).length : 0;
+                const activeStamina = newSource === 'osa' ? updatedData.osaStamina : updatedData.scoutStamina;
+                const activeInjury = newSource === 'osa' ? updatedData.osaInjuryProneness : updatedData.scoutInjuryProneness;
+
                 const proj = await projectionService.calculateProjection(
-                    { 
-                        stuff: updatedData.estimatedStuff!, 
-                        control: updatedData.estimatedControl!, 
-                        hra: updatedData.estimatedHra! 
+                    {
+                        stuff: updatedData.estimatedStuff!,
+                        control: updatedData.estimatedControl!,
+                        hra: updatedData.estimatedHra!
                     },
                     historicalAge,
-                    updatedData.pitchCount ?? 0,
+                    activePitchCount,
                     isSp ? 20 : 0,
                     leagueContext,
-                    updatedData.scoutStamina,
-                    updatedData.scoutInjuryProneness,
+                    activeStamina,
+                    activeInjury,
                     this.currentMlbStats,
                     updatedData.trueRating ?? 0,
-                    updatedData.pitchRatings
+                    activePitchRatings
                 );
 
                 // Re-render projection HTML (simplified - assuming no comparison update needed for basic toggle)
@@ -1082,6 +1088,25 @@ export class PlayerProfileModal {
                   headerSlot.innerHTML = PlayerRatingsCard.renderRatingEmblem(updatedData);
                   const emblem = headerSlot.querySelector<HTMLElement>('.rating-emblem');
                   if (emblem) emblem.classList.add('shimmer-once');
+              }
+
+              // Re-render Header Pitches (they change per scout source)
+              const pitchesSlot = this.overlay?.querySelector<HTMLElement>('.header-pitches-slot');
+              if (pitchesSlot) {
+                  pitchesSlot.innerHTML = PlayerRatingsCard.renderHeaderPitches(updatedData);
+                  requestAnimationFrame(() => {
+                    const donutFills = pitchesSlot.querySelectorAll<SVGCircleElement>('.pitch-donut-fill');
+                    donutFills.forEach(fill => {
+                      fill.style.strokeDashoffset = 'var(--donut-circumference)';
+                      fill.classList.remove('animate-once');
+                    });
+                    window.setTimeout(() => {
+                      donutFills.forEach(fill => {
+                        void fill.getBoundingClientRect();
+                        fill.classList.add('animate-once');
+                      });
+                    }, 50);
+                  });
               }
 
               this.bindScoutUploadLink();

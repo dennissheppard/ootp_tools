@@ -179,7 +179,6 @@ export class TrueRatingsView {
   private rawPitcherStats: PitcherRow[] = [];
   private rawBatterStats: BatterRow[] = [];
   private playerProfileModal: PlayerProfileModal;
-  private scoutingLookup: ScoutingLookup | null = null;
   private playerRowLookup: Map<number, PitcherRow> = new Map();
   // @ts-ignore - Batter row lookup for future use in PlayerProfileModal
   private _batterRowLookup: Map<number, BatterRow> = new Map();
@@ -1278,7 +1277,6 @@ export class TrueRatingsView {
     // Store league averages for passing to modal (ensures consistent recalculation)
     this.cachedLeagueAverages = leagueAverages;
     const scoutingLookup = this.buildScoutingLookup(this.scoutingRatings);
-    this.scoutingLookup = scoutingLookup;
     const scoutingMatchMap = new Map<number, PitcherScoutingRatings>();
 
     const inputs: Array<{ playerId: number; playerName: string; yearlyStats: YearlyPitchingStats[]; scoutingRatings?: PitcherScoutingRatings; role?: PitcherRole }> = [];
@@ -2770,8 +2768,6 @@ export class TrueRatingsView {
     const row = this.playerRowLookup.get(playerId);
     if (!row) return;
 
-    const scouting = this.scoutingLookup ? this.resolveScoutingRating(row, this.scoutingLookup) : undefined;
-
     // Resolve scouting from both sources for toggle UI
     const myScoutingLookup = this.buildScoutingLookup(this.myScoutingRatings);
     const osaScoutingLookup = this.buildScoutingLookup(this.osaScoutingRatings);
@@ -2833,9 +2829,13 @@ export class TrueRatingsView {
       hasMyScout: !!myScouting,
       hasOsaScout: !!osaScouting,
 
-      pitchCount: scouting?.pitches ? Object.values(scouting.pitches).filter(rating => rating >= 45).length : 0,
-      pitches: scouting?.pitches ? Object.keys(scouting.pitches) : [],
-      pitchRatings: scouting?.pitches ?? {},
+      // My Scout pitch data
+      myPitches: myScouting?.pitches ? Object.keys(myScouting.pitches) : undefined,
+      myPitchRatings: myScouting?.pitches,
+
+      // OSA pitch data
+      osaPitches: osaScouting?.pitches ? Object.keys(osaScouting.pitches) : undefined,
+      osaPitchRatings: osaScouting?.pitches,
       // TFR fields for prospects
       trueFutureRating: row.trueFutureRating,
       tfrPercentile: row.tfrPercentile,

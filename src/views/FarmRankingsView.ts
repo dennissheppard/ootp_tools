@@ -1644,7 +1644,6 @@ export class FarmRankingsView {
 
       const myScouting = this.resolveScouting(playerId, getFullName(player), myScoutingLookup);
       const osaScouting = this.resolveScouting(playerId, getFullName(player), osaScoutingLookup);
-      const activeScouting = myScouting || osaScouting;
 
       // 3. Fetch MLB Context & Stats
       // Use cached/service data if possible to avoid heavy re-calc
@@ -1740,11 +1739,14 @@ export class FarmRankingsView {
           activeScoutSource: myScouting ? 'my' : 'osa',
           hasMyScout: !!myScouting,
           hasOsaScout: !!osaScouting,
-          
-          // Pitch Data (Detailed)
-          pitchCount: activeScouting?.pitches ? Object.values(activeScouting.pitches).filter(v => v >= 45).length : 0,
-          pitches: activeScouting?.pitches ? Object.keys(activeScouting.pitches) : [],
-          pitchRatings: activeScouting?.pitches ?? {},
+
+          // My Scout pitch data
+          myPitches: myScouting?.pitches ? Object.keys(myScouting.pitches) : undefined,
+          myPitchRatings: myScouting?.pitches,
+
+          // OSA pitch data
+          osaPitches: osaScouting?.pitches ? Object.keys(osaScouting.pitches) : undefined,
+          osaPitchRatings: osaScouting?.pitches,
 
           // TFR
           isProspect: true,
