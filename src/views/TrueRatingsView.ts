@@ -1606,6 +1606,8 @@ export class TrueRatingsView {
           bbPer9: prospectBb9,
           hraPer9: prospectHr9,
           fip: prospectHasStats ? fipWarService.calculateFip({ ip: prospectIp, k9: prospectK9, bb9: prospectBb9, hr9: prospectHr9 }, 3.47) : 0,
+          // Age
+          age: player ? Math.max(16, player.age - (this.currentGameYear ?? new Date().getFullYear()) + this.selectedYear) : (scouting.age ?? 22),
           // Team info
           teamDisplay,
           teamFilter,
