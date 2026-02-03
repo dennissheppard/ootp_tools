@@ -60,22 +60,34 @@ const STABILIZATION = {
  *
  * Format: statValue = intercept + slope * rating
  * Inverse: rating = (statValue - intercept) / slope
+ *
+ * UPDATED: Fixed calibration issues:
+ * - Power: Previous formula gave negative ISO at rating 20 (impossible)
+ * - Eye: Previous formula gave BB% of 0.94% at rating 20 (too low, MLB avg ~8.5%)
  */
 const REGRESSION_COEFFICIENTS = {
-  // Eye (20-80) → BB% (3% to 14%)
-  // BB% = -3.18 + 0.206 * eye
-  eye: { intercept: -3.18, slope: 0.206 },
+  // Eye (20-80) → BB% (5% to 14%)
+  // BB% = 2.0 + 0.15 * eye
+  // At 20: 2.0 + 0.15 * 20 = 5.0%
+  // At 80: 2.0 + 0.15 * 80 = 14.0%
+  eye: { intercept: 2.0, slope: 0.15 },
 
-  // AvoidK (20-80) → K% (inverse: 33% to 8%)
-  // K% = 45.5 - 0.467 * avoidK
+  // AvoidK (20-80) → K% (inverse: 36% to 8%)
+  // K% = 45.5 - 0.467 * avoidK (unchanged - works well)
+  // At 20: 45.5 - 0.467 * 20 = 36.2%
+  // At 80: 45.5 - 0.467 * 80 = 8.1%
   avoidK: { intercept: 45.5, slope: -0.467 },
 
-  // Power (20-80) → ISO (0.03 to 0.22)
-  // ISO = -0.088 + 0.0036 * power
-  power: { intercept: -0.088, slope: 0.0036 },
+  // Power (20-80) → ISO (0.08 to 0.26)
+  // ISO = 0.02 + 0.003 * power
+  // At 20: 0.02 + 0.003 * 20 = 0.08
+  // At 80: 0.02 + 0.003 * 80 = 0.26
+  power: { intercept: 0.02, slope: 0.003 },
 
-  // BABIP rating (20-80) → AVG (0.18 to 0.30)
-  // AVG = 0.139 + 0.00236 * babip
+  // BABIP rating (20-80) → AVG (0.186 to 0.328)
+  // AVG = 0.139 + 0.00236 * babip (unchanged - works well)
+  // At 20: 0.139 + 0.00236 * 20 = 0.186
+  // At 80: 0.139 + 0.00236 * 80 = 0.328
   babip: { intercept: 0.139, slope: 0.00236 },
 
   // Gap (20-80) → Doubles/AB (0.01 to 0.05)

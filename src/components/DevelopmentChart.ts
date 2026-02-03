@@ -8,20 +8,37 @@
 import ApexCharts from 'apexcharts';
 import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
 
-export type DevelopmentMetric = 'scoutStuff' | 'scoutControl' | 'scoutHra' | 'scoutOvr' | 'scoutPot';
+// Pitcher metrics
+export type PitcherDevelopmentMetric = 'scoutStuff' | 'scoutControl' | 'scoutHra';
+// Hitter metrics
+export type HitterDevelopmentMetric = 'scoutPower' | 'scoutEye' | 'scoutAvoidK' | 'scoutBabip' | 'scoutGap' | 'scoutSpeed';
+// Common metrics
+export type CommonDevelopmentMetric = 'scoutOvr' | 'scoutPot';
+// Combined type
+export type DevelopmentMetric = PitcherDevelopmentMetric | HitterDevelopmentMetric | CommonDevelopmentMetric;
 
 interface DevelopmentChartConfig {
   containerId: string;
   snapshots: DevelopmentSnapshotRecord[];
   metrics?: DevelopmentMetric[];
   height?: number;
+  playerType?: 'pitcher' | 'hitter'; // Used for metric toggles
 }
 
 // Metric display configuration
-const METRIC_CONFIG: Record<DevelopmentMetric, { name: string; color: string; scale: 'scouting' | 'stars' }> = {
+const METRIC_CONFIG: Record<DevelopmentMetric, { name: string; color: string; scale: 'scouting' | 'stars' | 'speed' }> = {
+  // Pitcher metrics
   scoutStuff: { name: 'Stuff', color: '#1d9bf0', scale: 'scouting' },
   scoutControl: { name: 'Control', color: '#00ba7c', scale: 'scouting' },
   scoutHra: { name: 'HR Avoid', color: '#f97316', scale: 'scouting' },
+  // Hitter metrics
+  scoutPower: { name: 'Power', color: '#ef4444', scale: 'scouting' },
+  scoutEye: { name: 'Eye', color: '#3b82f6', scale: 'scouting' },
+  scoutAvoidK: { name: 'Avoid K', color: '#22c55e', scale: 'scouting' },
+  scoutBabip: { name: 'BABIP', color: '#f59e0b', scale: 'scouting' },
+  scoutGap: { name: 'Gap', color: '#8b5cf6', scale: 'scouting' },
+  scoutSpeed: { name: 'Speed', color: '#06b6d4', scale: 'speed' },
+  // Common metrics
   scoutOvr: { name: 'OVR Stars', color: '#ffc107', scale: 'stars' },
   scoutPot: { name: 'POT Stars', color: '#a855f7', scale: 'stars' },
 };
@@ -108,12 +125,19 @@ export class DevelopmentChart {
       const config = METRIC_CONFIG[metric];
       const data = this.snapshots
         .filter(s => s[metric] !== undefined)
-        .map(s => ({
-          x: new Date(s.date).getTime(),
-          y: config.scale === 'stars'
-            ? s[metric] as number  // Stars are 0.5-5.0
-            : (s[metric] as number) / 10, // Convert 20-80 to 2-8 for visual alignment
-        }));
+        .map(s => {
+          const rawValue = s[metric] as number;
+          let y: number;
+          if (config.scale === 'stars') {
+            y = rawValue;  // Stars are 0.5-5.0
+          } else if (config.scale === 'speed') {
+            // Speed is 20-200, normalize to 2-8 range for visual alignment
+            y = ((rawValue - 20) / 180) * 6 + 2;
+          } else {
+            y = rawValue / 10; // Convert 20-80 to 2-8 for visual alignment
+          }
+          return { x: new Date(s.date).getTime(), y };
+        });
 
       return {
         name: config.name,
@@ -129,14 +153,16 @@ export class DevelopmentChart {
     // Determine if we're showing stars (0.5-5) or scouting (2-8 after /10)
     const hasStars = this.metrics.some(m => METRIC_CONFIG[m].scale === 'stars');
     const hasScouting = this.metrics.some(m => METRIC_CONFIG[m].scale === 'scouting');
+    const hasSpeed = this.metrics.some(m => METRIC_CONFIG[m].scale === 'speed');
 
     // Y-axis config based on what we're showing
+    // Speed is normalized to 2-8 range, so it works with scouting
     let yMin = 0;
     let yMax = 8;
-    if (hasStars && !hasScouting) {
+    if (hasStars && !hasScouting && !hasSpeed) {
       yMin = 0;
       yMax = 5;
-    } else if (hasScouting && !hasStars) {
+    } else if ((hasScouting || hasSpeed) && !hasStars) {
       yMin = 2;
       yMax = 8;
     }
@@ -202,6 +228,11 @@ export class DevelopmentChart {
             const config = METRIC_CONFIG[metric];
             if (config.scale === 'stars') {
               return `${val.toFixed(1)} stars`;
+            }
+            if (config.scale === 'speed') {
+              // Convert back from normalized to 20-200 scale
+              const speedVal = Math.round((val - 2) / 6 * 180 + 20);
+              return `${speedVal}`;
             }
             // Convert back from /10 to actual 20-80 scale
             return `${Math.round(val * 10)}`;
@@ -296,12 +327,17 @@ export class DevelopmentChart {
 
 /**
  * Helper function to render metric toggle checkboxes
+ * @param activeMetrics - Currently active metrics
+ * @param playerType - 'pitcher' or 'hitter' to show appropriate metrics
  */
 export function renderMetricToggles(
   activeMetrics: DevelopmentMetric[],
-  _onToggle?: (metric: DevelopmentMetric, enabled: boolean) => void
+  playerType: 'pitcher' | 'hitter' = 'pitcher'
 ): string {
-  const allMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra', 'scoutOvr', 'scoutPot'];
+  const pitcherMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra', 'scoutOvr', 'scoutPot'];
+  const hitterMetrics: DevelopmentMetric[] = ['scoutPower', 'scoutEye', 'scoutAvoidK', 'scoutBabip', 'scoutOvr', 'scoutPot'];
+
+  const allMetrics = playerType === 'hitter' ? hitterMetrics : pitcherMetrics;
 
   return `
     <div class="development-metric-toggles">

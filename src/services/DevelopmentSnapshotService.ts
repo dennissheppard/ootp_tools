@@ -5,7 +5,7 @@
  * Snapshots are created automatically when scouting data is uploaded.
  */
 
-import { PitcherScoutingRatings } from '../models/ScoutingData';
+import { PitcherScoutingRatings, HitterScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService, DevelopmentSnapshotRecord } from './IndexedDBService';
 
 class DevelopmentSnapshotService {
@@ -33,6 +33,7 @@ class DevelopmentSnapshotService {
         playerId: r.playerId,
         date,
         snapshotType: 'data_upload' as const,
+        playerType: 'pitcher' as const,
         scoutStuff: r.stuff,
         scoutControl: r.control,
         scoutHra: r.hra,
@@ -44,10 +45,57 @@ class DevelopmentSnapshotService {
 
     try {
       await indexedDBService.saveDevelopmentSnapshots(snapshots);
-      console.log(`📸 Created ${snapshots.length} development snapshots for ${date}`);
+      console.log(`📸 Created ${snapshots.length} pitcher development snapshots for ${date}`);
       return snapshots.length;
     } catch (error) {
-      console.error('Failed to create development snapshots:', error);
+      console.error('Failed to create pitcher development snapshots:', error);
+      return 0;
+    }
+  }
+
+  /**
+   * Create development snapshots from a hitter scouting data upload.
+   * Called after hitter scouting ratings are saved.
+   *
+   * @param date - The date of the scouting upload (YYYY-MM-DD)
+   * @param ratings - Array of hitter scouting ratings from the upload
+   * @param source - 'my' or 'osa'
+   */
+  async createHitterSnapshotsFromScoutingUpload(
+    date: string,
+    ratings: HitterScoutingRatings[],
+    source: 'my' | 'osa'
+  ): Promise<number> {
+    if (ratings.length === 0) {
+      return 0;
+    }
+
+    const snapshots: DevelopmentSnapshotRecord[] = ratings
+      .filter(r => r.playerId > 0) // Skip invalid player IDs
+      .map(r => ({
+        key: `${r.playerId}_${date}`,
+        playerId: r.playerId,
+        date,
+        snapshotType: 'data_upload' as const,
+        playerType: 'hitter' as const,
+        scoutPower: r.power,
+        scoutEye: r.eye,
+        scoutAvoidK: r.avoidK,
+        scoutBabip: r.babip,
+        scoutGap: r.gap,
+        scoutSpeed: r.speed,
+        scoutOvr: r.ovr,
+        scoutPot: r.pot,
+        source,
+        age: r.age,
+      }));
+
+    try {
+      await indexedDBService.saveDevelopmentSnapshots(snapshots);
+      console.log(`📸 Created ${snapshots.length} hitter development snapshots for ${date}`);
+      return snapshots.length;
+    } catch (error) {
+      console.error('Failed to create hitter development snapshots:', error);
       return 0;
     }
   }

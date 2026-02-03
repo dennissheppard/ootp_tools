@@ -85,13 +85,21 @@ export interface DevelopmentSnapshotRecord {
   playerId: number;
   date: string; // YYYY-MM-DD
   snapshotType: 'data_upload' | 'manual';
+  playerType?: 'pitcher' | 'hitter'; // Distinguish pitcher vs hitter snapshots
   // Core ratings (nullable - may not have all data)
   trueRating?: number;
   trueFutureRating?: number;
-  // Scouting ratings (20-80 scale)
+  // Pitcher scouting ratings (20-80 scale)
   scoutStuff?: number;
   scoutControl?: number;
   scoutHra?: number;
+  // Hitter scouting ratings (20-80 scale)
+  scoutPower?: number;
+  scoutEye?: number;
+  scoutAvoidK?: number;
+  scoutBabip?: number;
+  scoutGap?: number;
+  scoutSpeed?: number;  // Note: 20-200 scale
   // Star ratings (0.5-5.0 scale)
   scoutOvr?: number;
   scoutPot?: number;

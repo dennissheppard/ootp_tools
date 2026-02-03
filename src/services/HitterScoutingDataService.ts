@@ -1,6 +1,7 @@
 import { HitterScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService } from './IndexedDBService';
 import { ScoutingSource } from './ScoutingDataService';
+import { developmentSnapshotService } from './DevelopmentSnapshotService';
 
 type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'babip' | 'gap' | 'speed' | 'injuryProneness' | 'age' | 'ovr' | 'pot';
 
@@ -147,6 +148,9 @@ class HitterScoutingDataService {
         const key = this.storageKey(date, source);
         localStorage.setItem(key, JSON.stringify(ratings));
       }
+
+      // Create development snapshots for tracking over time
+      await developmentSnapshotService.createHitterSnapshotsFromScoutingUpload(date, ratings, source);
     } catch (e) {
       console.error('Failed to save hitter scouting ratings', e);
       throw e;

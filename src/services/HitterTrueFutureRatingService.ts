@@ -13,6 +13,7 @@
 import { HitterScoutingRatings } from '../models/ScoutingData';
 import { MinorLeagueBattingStatsWithLevel, MinorLeagueLevel } from '../models/Stats';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
+import { trueRatingsService } from './TrueRatingsService';
 
 // ============================================================================
 // Interfaces
@@ -32,6 +33,14 @@ export interface HitterTrueFutureRatingResult {
   playerId: number;
   playerName: string;
   age: number;
+  /** Percentile rank for Eye component (0-100) */
+  eyePercentile: number;
+  /** Percentile rank for AvoidK component (0-100) */
+  avoidKPercentile: number;
+  /** Percentile rank for Power component (0-100) */
+  powerPercentile: number;
+  /** Percentile rank for BABIP component (0-100) */
+  babipPercentile: number;
   /** Scouting-expected rates */
   scoutBbPct: number;
   scoutKPct: number;
@@ -42,7 +51,7 @@ export interface HitterTrueFutureRatingResult {
   adjustedKPct: number;
   adjustedIso: number;
   adjustedAvg: number;
-  /** Projected rates (blended scout + stats) */
+  /** Projected rates (mapped from MLB distributions) */
   projBbPct: number;
   projKPct: number;
   projIso: number;
@@ -57,6 +66,46 @@ export interface HitterTrueFutureRatingResult {
   trueRating?: number;
   /** Total minor league PA */
   totalMinorPa: number;
+}
+
+/**
+ * Intermediate result with blended component values (before percentile ranking)
+ */
+export interface HitterComponentBlendedResult {
+  playerId: number;
+  playerName: string;
+  age: number;
+  /** Scouting-expected rates */
+  scoutBbPct: number;
+  scoutKPct: number;
+  scoutIso: number;
+  scoutAvg: number;
+  /** Adjusted minor league rates (MLB-equivalent) */
+  adjustedBbPct: number;
+  adjustedKPct: number;
+  adjustedIso: number;
+  adjustedAvg: number;
+  /** Blended component values (weighted scout + stats) */
+  eyeValue: number;      // Blended BB%
+  avoidKValue: number;   // Blended K%
+  powerValue: number;    // Blended ISO
+  babipValue: number;    // Blended AVG
+  /** Total minor league PA */
+  totalMinorPa: number;
+  /** Total weighted PA for reliability */
+  totalWeightedPa: number;
+  /** True Rating if available (for comparison) */
+  trueRating?: number;
+}
+
+/**
+ * MLB peak-age distribution for hitter stat mapping
+ */
+export interface MLBHitterPercentileDistribution {
+  bbPctValues: number[];  // Sorted ascending (higher is better)
+  kPctValues: number[];   // Sorted ascending (lower is better)
+  isoValues: number[];    // Sorted ascending (higher is better)
+  avgValues: number[];    // Sorted ascending (higher is better)
 }
 
 // ============================================================================
@@ -290,7 +339,293 @@ class HitterTrueFutureRatingService {
   }
 
   /**
+   * Build MLB percentile distributions from 2015-2020 peak-age batting data.
+   * Returns sorted arrays of BB%, K%, ISO, AVG for mapping prospect percentiles.
+   *
+   * Uses ages 25-29 only (peak years) to build distributions.
+   * This ensures we're mapping prospect peaks to actual MLB peaks.
+   */
+  async buildMLBHitterPercentileDistribution(): Promise<MLBHitterPercentileDistribution> {
+    const years = [2015, 2016, 2017, 2018, 2019, 2020];
+    const allBbPct: number[] = [];
+    const allKPct: number[] = [];
+    const allIso: number[] = [];
+    const allAvg: number[] = [];
+
+    // Load DOB data to filter by age
+    const dobMap = await this.loadPlayerDOBs();
+
+    // Load MLB batting data for all years
+    for (const year of years) {
+      try {
+        const mlbStats = await trueRatingsService.getTrueBattingStats(year);
+
+        // Extract rate stats from peak-age hitters only (25-29)
+        for (const stat of mlbStats) {
+          const pa = stat.pa;
+
+          // Require minimum PA to avoid small-sample outliers
+          // 300 PA is about half a season
+          if (pa < 300) continue;
+
+          // Calculate age for this season
+          const age = this.calculateAge(dobMap.get(stat.player_id), year);
+          if (!age || age < 25 || age > 29) continue; // Skip non-peak ages
+
+          // Calculate rate stats
+          const bbPct = (stat.bb / pa) * 100;
+          const kPct = (stat.k / pa) * 100;
+
+          // Calculate ISO from stats
+          const singles = stat.h - stat.d - stat.t - stat.hr;
+          const totalBases = singles + 2 * stat.d + 3 * stat.t + 4 * stat.hr;
+          const slg = stat.ab > 0 ? totalBases / stat.ab : 0;
+          const iso = slg - stat.avg;
+
+          // Validate rates are reasonable (filter extreme outliers)
+          if (bbPct >= 2 && bbPct <= 25 && kPct >= 5 && kPct <= 40 &&
+              iso >= 0.02 && iso <= 0.400 && stat.avg >= 0.150 && stat.avg <= 0.400) {
+            allBbPct.push(bbPct);
+            allKPct.push(kPct);
+            allIso.push(iso);
+            allAvg.push(stat.avg);
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to load MLB batting data for ${year}, skipping:`, error);
+      }
+    }
+
+    // Sort arrays (for percentile lookup)
+    allBbPct.sort((a, b) => a - b);  // Ascending: lower values = lower percentile
+    allKPct.sort((a, b) => a - b);   // Ascending: lower values = lower percentile (but lower is better)
+    allIso.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
+    allAvg.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
+
+    console.log(`📊 Built MLB hitter distributions: ${allBbPct.length} peak-age hitters (ages 25-29) from 2015-2020`);
+
+    return {
+      bbPctValues: allBbPct,
+      kPctValues: allKPct,
+      isoValues: allIso,
+      avgValues: allAvg,
+    };
+  }
+
+  /**
+   * Load player DOBs from mlb_dob.csv
+   */
+  private async loadPlayerDOBs(): Promise<Map<number, Date>> {
+    try {
+      const response = await fetch('/data/mlb_dob.csv');
+      const csvText = await response.text();
+
+      const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const dobMap = new Map<number, Date>();
+
+      // Skip header
+      for (let i = 1; i < lines.length; i++) {
+        const [idStr, dobStr] = lines[i].split(',');
+        const playerId = parseInt(idStr, 10);
+
+        if (!playerId || !dobStr) continue;
+
+        // Parse MM/DD/YYYY format
+        const [month, day, year] = dobStr.split('/').map(s => parseInt(s, 10));
+        if (!month || !day || !year) continue;
+
+        const dob = new Date(year, month - 1, day);
+        dobMap.set(playerId, dob);
+      }
+
+      return dobMap;
+    } catch (error) {
+      console.warn('Failed to load DOB data, using all ages:', error);
+      return new Map();
+    }
+  }
+
+  /**
+   * Calculate age at the start of a season
+   */
+  private calculateAge(dob: Date | undefined, season: number): number | null {
+    if (!dob) return null;
+
+    const seasonStart = new Date(season, 3, 1); // April 1st of season year
+    const ageMs = seasonStart.getTime() - dob.getTime();
+    const age = Math.floor(ageMs / (1000 * 60 * 60 * 24 * 365.25));
+
+    return age;
+  }
+
+  /**
+   * Map a prospect's percentile to the corresponding MLB rate value.
+   * Uses linear interpolation on the sorted MLB distribution.
+   *
+   * @param percentile - Prospect's percentile rank (0-100)
+   * @param mlbValues - Sorted array of MLB rates
+   * @returns Interpolated MLB rate at that percentile
+   */
+  mapPercentileToMLBValue(percentile: number, mlbValues: number[]): number {
+    if (mlbValues.length === 0) {
+      throw new Error('MLB distribution is empty');
+    }
+
+    // Clamp percentile to 0-100
+    const clampedPercentile = Math.max(0, Math.min(100, percentile));
+
+    // Convert percentile to array index (0-100 → 0 to length-1)
+    const position = (clampedPercentile / 100) * (mlbValues.length - 1);
+
+    // Get floor and ceiling indices
+    const lowerIdx = Math.floor(position);
+    const upperIdx = Math.ceil(position);
+
+    // Handle edge cases
+    if (lowerIdx === upperIdx) {
+      return mlbValues[lowerIdx];
+    }
+
+    // Linear interpolation
+    const lowerValue = mlbValues[lowerIdx];
+    const upperValue = mlbValues[upperIdx];
+    const fraction = position - lowerIdx;
+
+    return lowerValue + (upperValue - lowerValue) * fraction;
+  }
+
+  /**
+   * Rank prospects by each component and assign percentiles.
+   * Returns a map of playerId to component percentiles.
+   *
+   * @param componentResults - Array of component-blended results
+   * @returns Map of playerId to { eyePercentile, avoidKPercentile, powerPercentile, babipPercentile }
+   */
+  rankProspectsByComponent(
+    componentResults: HitterComponentBlendedResult[]
+  ): Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; babipPercentile: number }> {
+    const percentiles = new Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; babipPercentile: number }>();
+
+    if (componentResults.length === 0) {
+      return percentiles;
+    }
+
+    const n = componentResults.length;
+
+    // Rank by Eye (BB% - higher is better)
+    const eyeSorted = [...componentResults].sort((a, b) => b.eyeValue - a.eyeValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = eyeSorted[i];
+      const eyePercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
+
+      if (!percentiles.has(prospect.playerId)) {
+        percentiles.set(prospect.playerId, { eyePercentile: 0, avoidKPercentile: 0, powerPercentile: 0, babipPercentile: 0 });
+      }
+      percentiles.get(prospect.playerId)!.eyePercentile = eyePercentile;
+    }
+
+    // Rank by AvoidK (K% - lower is better, so sort ascending)
+    const avoidKSorted = [...componentResults].sort((a, b) => a.avoidKValue - b.avoidKValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = avoidKSorted[i];
+      const avoidKPercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
+
+      percentiles.get(prospect.playerId)!.avoidKPercentile = avoidKPercentile;
+    }
+
+    // Rank by Power (ISO - higher is better)
+    const powerSorted = [...componentResults].sort((a, b) => b.powerValue - a.powerValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = powerSorted[i];
+      const powerPercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
+
+      percentiles.get(prospect.playerId)!.powerPercentile = powerPercentile;
+    }
+
+    // Rank by BABIP (AVG - higher is better)
+    const babipSorted = [...componentResults].sort((a, b) => b.babipValue - a.babipValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = babipSorted[i];
+      const babipPercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
+
+      percentiles.get(prospect.playerId)!.babipPercentile = babipPercentile;
+    }
+
+    return percentiles;
+  }
+
+  /**
+   * Calculate blended component values for a single player.
+   * Returns eye/avoidK/power/babip values (before percentile ranking and MLB mapping).
+   */
+  calculateComponentBlend(input: HitterTrueFutureRatingInput): HitterComponentBlendedResult {
+    const { scouting, minorLeagueStats, age } = input;
+
+    // Calculate weighted minor league stats
+    const currentYear = minorLeagueStats.length > 0
+      ? Math.max(...minorLeagueStats.map(s => s.year))
+      : new Date().getFullYear();
+
+    const weightedStats = this.calculateWeightedMinorStats(minorLeagueStats, currentYear);
+    const totalMinorPa = weightedStats?.totalPa ?? 0;
+    const weightedPa = weightedStats?.weightedPa ?? 0;
+
+    // Calculate scouting weight (PA-based)
+    const scoutingWeight = this.calculateScoutingWeight(weightedPa);
+
+    // Calculate scouting-expected rates
+    const scoutRates = this.scoutingToExpectedRates(scouting);
+
+    // If no minor league stats, use scouting only
+    let adjustedBbPct = scoutRates.bbPct;
+    let adjustedKPct = scoutRates.kPct;
+    let adjustedIso = scoutRates.iso;
+    let adjustedAvg = scoutRates.avg;
+
+    if (weightedStats) {
+      adjustedBbPct = weightedStats.bbPct;
+      adjustedKPct = weightedStats.kPct;
+      adjustedIso = weightedStats.iso;
+      adjustedAvg = weightedStats.avg;
+    }
+
+    // Blend scouting and stats SEPARATELY for each component
+    const eyeValue = scoutingWeight * scoutRates.bbPct + (1 - scoutingWeight) * adjustedBbPct;
+    const avoidKValue = scoutingWeight * scoutRates.kPct + (1 - scoutingWeight) * adjustedKPct;
+    const powerValue = scoutingWeight * scoutRates.iso + (1 - scoutingWeight) * adjustedIso;
+    const babipValue = scoutingWeight * scoutRates.avg + (1 - scoutingWeight) * adjustedAvg;
+
+    return {
+      playerId: input.playerId,
+      playerName: input.playerName,
+      age,
+      scoutBbPct: Math.round(scoutRates.bbPct * 10) / 10,
+      scoutKPct: Math.round(scoutRates.kPct * 10) / 10,
+      scoutIso: Math.round(scoutRates.iso * 1000) / 1000,
+      scoutAvg: Math.round(scoutRates.avg * 1000) / 1000,
+      adjustedBbPct: Math.round(adjustedBbPct * 10) / 10,
+      adjustedKPct: Math.round(adjustedKPct * 10) / 10,
+      adjustedIso: Math.round(adjustedIso * 1000) / 1000,
+      adjustedAvg: Math.round(adjustedAvg * 1000) / 1000,
+      eyeValue: Math.round(eyeValue * 100) / 100,
+      avoidKValue: Math.round(avoidKValue * 100) / 100,
+      powerValue: Math.round(powerValue * 1000) / 1000,
+      babipValue: Math.round(babipValue * 1000) / 1000,
+      totalMinorPa,
+      totalWeightedPa: weightedPa,
+      trueRating: input.trueRating,
+    };
+  }
+
+  /**
    * Calculate True Future Ratings for multiple hitter prospects.
+   *
+   * NEW ALGORITHM:
+   * 1. Blend scouting + stats separately for each component (eye/avoidK/power/babip)
+   * 2. Rank prospects by each component to get percentiles
+   * 3. Map percentiles to MLB distributions (2015-2020)
+   * 4. Calculate peak wOBA from mapped rates
+   * 5. Rank by wOBA for final TFR rating
    */
   async calculateTrueFutureRatings(
     inputs: HitterTrueFutureRatingInput[]
@@ -299,83 +634,86 @@ class HitterTrueFutureRatingService {
       return [];
     }
 
-    // Step 1: Calculate blended projections for all prospects
-    const resultsWithWoba = inputs.map(input => {
-      const { scouting, minorLeagueStats, age } = input;
+    // Step 1: Calculate component blends for all prospects
+    const componentResults = inputs.map(input => this.calculateComponentBlend(input));
 
-      // Calculate weighted minor league stats
-      const currentYear = minorLeagueStats.length > 0
-        ? Math.max(...minorLeagueStats.map(s => s.year))
-        : new Date().getFullYear();
+    // Step 2: Rank by each component to get percentiles
+    const componentPercentiles = this.rankProspectsByComponent(componentResults);
 
-      const weightedStats = this.calculateWeightedMinorStats(minorLeagueStats, currentYear);
-      const totalMinorPa = weightedStats?.totalPa ?? 0;
-      const weightedPa = weightedStats?.weightedPa ?? 0;
+    // Step 3: Load MLB distribution for mapping
+    const mlbDist = await this.buildMLBHitterPercentileDistribution();
 
-      // Calculate scouting weight
-      const scoutingWeight = this.calculateScoutingWeight(weightedPa);
+    // Step 4: Map percentiles to MLB rates and calculate wOBA
+    const resultsWithWoba = componentResults.map(result => {
+      const percentiles = componentPercentiles.get(result.playerId)!;
 
-      // Calculate scouting-expected rates
-      const scoutRates = this.scoutingToExpectedRates(scouting);
+      // Map percentiles to MLB distribution values
+      // For eye (BB%): higher percentile = higher BB% (use percentile as-is)
+      // For avoidK (K%): higher percentile = lower K% (invert percentile)
+      // For power (ISO): higher percentile = higher ISO (use percentile as-is)
+      // For babip (AVG): higher percentile = higher AVG (use percentile as-is)
+      let projBbPct = this.mapPercentileToMLBValue(percentiles.eyePercentile, mlbDist.bbPctValues);
+      let projKPct = this.mapPercentileToMLBValue(100 - percentiles.avoidKPercentile, mlbDist.kPctValues);
+      let projIso = this.mapPercentileToMLBValue(percentiles.powerPercentile, mlbDist.isoValues);
+      let projAvg = this.mapPercentileToMLBValue(percentiles.babipPercentile, mlbDist.avgValues);
 
-      // Use scouting if no stats, otherwise blend
-      let adjustedBbPct = scoutRates.bbPct;
-      let adjustedKPct = scoutRates.kPct;
-      let adjustedIso = scoutRates.iso;
-      let adjustedAvg = scoutRates.avg;
+      // Clamp to realistic ranges
+      projBbPct = Math.max(3.0, Math.min(20.0, projBbPct));
+      projKPct = Math.max(5.0, Math.min(35.0, projKPct));
+      projIso = Math.max(0.05, Math.min(0.350, projIso));
+      projAvg = Math.max(0.200, Math.min(0.350, projAvg));
 
-      if (weightedStats) {
-        adjustedBbPct = weightedStats.bbPct;
-        adjustedKPct = weightedStats.kPct;
-        adjustedIso = weightedStats.iso;
-        adjustedAvg = weightedStats.avg;
-      }
-
-      // Blend scouting and stats
-      const projBbPct = scoutingWeight * scoutRates.bbPct + (1 - scoutingWeight) * adjustedBbPct;
-      const projKPct = scoutingWeight * scoutRates.kPct + (1 - scoutingWeight) * adjustedKPct;
-      const projIso = scoutingWeight * scoutRates.iso + (1 - scoutingWeight) * adjustedIso;
-      const projAvg = scoutingWeight * scoutRates.avg + (1 - scoutingWeight) * adjustedAvg;
-
-      // Calculate projected wOBA
+      // Calculate peak wOBA from mapped rates
       const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projIso, projAvg);
 
       return {
-        playerId: input.playerId,
-        playerName: input.playerName,
-        age,
-        scoutBbPct: Math.round(scoutRates.bbPct * 10) / 10,
-        scoutKPct: Math.round(scoutRates.kPct * 10) / 10,
-        scoutIso: Math.round(scoutRates.iso * 1000) / 1000,
-        scoutAvg: Math.round(scoutRates.avg * 1000) / 1000,
-        adjustedBbPct: Math.round(adjustedBbPct * 10) / 10,
-        adjustedKPct: Math.round(adjustedKPct * 10) / 10,
-        adjustedIso: Math.round(adjustedIso * 1000) / 1000,
-        adjustedAvg: Math.round(adjustedAvg * 1000) / 1000,
+        ...result,
+        eyePercentile: Math.round(percentiles.eyePercentile * 10) / 10,
+        avoidKPercentile: Math.round(percentiles.avoidKPercentile * 10) / 10,
+        powerPercentile: Math.round(percentiles.powerPercentile * 10) / 10,
+        babipPercentile: Math.round(percentiles.babipPercentile * 10) / 10,
         projBbPct: Math.round(projBbPct * 10) / 10,
         projKPct: Math.round(projKPct * 10) / 10,
         projIso: Math.round(projIso * 1000) / 1000,
         projAvg: Math.round(projAvg * 1000) / 1000,
         projWoba: Math.round(projWoba * 1000) / 1000,
-        totalMinorPa,
-        trueRating: input.trueRating,
-        percentile: 0,
-        trueFutureRating: 0,
       };
     });
 
-    // Step 2: Rank by wOBA to get percentiles and TFR
+    // Step 5: Rank by wOBA among prospects to get final percentile and TFR rating
     const sortedByWoba = [...resultsWithWoba].sort((a, b) => b.projWoba - a.projWoba);
     const n = sortedByWoba.length;
 
     return sortedByWoba.map((result, index) => {
+      // Calculate percentile rank (higher wOBA = better = higher percentile)
       const percentile = n > 1 ? ((n - index - 1) / (n - 1)) * 100 : 50;
       const trueFutureRating = this.percentileToRating(percentile);
 
       return {
-        ...result,
+        playerId: result.playerId,
+        playerName: result.playerName,
+        age: result.age,
+        eyePercentile: result.eyePercentile,
+        avoidKPercentile: result.avoidKPercentile,
+        powerPercentile: result.powerPercentile,
+        babipPercentile: result.babipPercentile,
+        scoutBbPct: result.scoutBbPct,
+        scoutKPct: result.scoutKPct,
+        scoutIso: result.scoutIso,
+        scoutAvg: result.scoutAvg,
+        adjustedBbPct: result.adjustedBbPct,
+        adjustedKPct: result.adjustedKPct,
+        adjustedIso: result.adjustedIso,
+        adjustedAvg: result.adjustedAvg,
+        projBbPct: result.projBbPct,
+        projKPct: result.projKPct,
+        projIso: result.projIso,
+        projAvg: result.projAvg,
+        projWoba: result.projWoba,
         percentile: Math.round(percentile * 10) / 10,
         trueFutureRating,
+        trueRating: result.trueRating,
+        totalMinorPa: result.totalMinorPa,
       };
     });
   }

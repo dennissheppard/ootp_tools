@@ -11,6 +11,8 @@ import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingSt
 import { dateService } from '../services/DateService';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
 import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
+import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
+import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
 
 export interface BatterProfileData {
   playerId: number;
@@ -100,6 +102,10 @@ export class BatterProfileModal {
   private osaScoutingData: HitterScoutingRatings | null = null;
   private projectionYear: number = new Date().getFullYear();
   private currentData: BatterProfileData | null = null;
+
+  // Development tab state
+  private developmentChart: DevelopmentChart | null = null;
+  private activeDevMetrics: DevelopmentMetric[] = ['scoutPower', 'scoutEye', 'scoutAvoidK'];
 
   constructor() {
     this.ensureOverlayExists();
@@ -392,6 +398,12 @@ export class BatterProfileModal {
       this.modal.style.left = '';
       this.modal.style.top = '';
     }
+
+    // Clean up development chart
+    if (this.developmentChart) {
+      this.developmentChart.destroy();
+      this.developmentChart = null;
+    }
   }
 
   private formatTeamInfo(team?: string, parentTeam?: string): string {
@@ -613,12 +625,108 @@ export class BatterProfileModal {
     const statsSection = this.renderStatsTable(stats);
 
     return `
-      <div class="profile-body">
-        ${ratingsComparison}
-        ${projectionSection}
-        ${statsSection}
+      <div class="profile-tabs">
+        <button class="profile-tab active" data-tab="ratings">Ratings</button>
+        <button class="profile-tab" data-tab="development">Development</button>
+      </div>
+      <div class="profile-tab-content">
+        <div class="tab-pane active" data-pane="ratings">
+          <div class="profile-body">
+            ${ratingsComparison}
+            ${projectionSection}
+            ${statsSection}
+          </div>
+        </div>
+        <div class="tab-pane" data-pane="development">
+          ${this.renderDevelopmentTab(data.playerId)}
+        </div>
       </div>
     `;
+  }
+
+  private renderDevelopmentTab(playerId: number): string {
+    return `
+      <div class="development-section">
+        <div class="development-header">
+          <h4>Development History</h4>
+          <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
+        </div>
+        ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
+        <div class="development-chart-container" id="development-chart-${playerId}"></div>
+      </div>
+    `;
+  }
+
+  private async initDevelopmentChart(playerId: number): Promise<void> {
+    // Clean up existing chart
+    if (this.developmentChart) {
+      this.developmentChart.destroy();
+      this.developmentChart = null;
+    }
+
+    // Fetch snapshots
+    const snapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+
+    // Filter to only hitter snapshots (those with hitter-specific fields)
+    const hitterSnapshots = snapshots.filter(s =>
+      s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
+    );
+
+    // Update snapshot count
+    const countEl = this.overlay?.querySelector('#dev-snapshot-count');
+    if (countEl) {
+      countEl.textContent = `${hitterSnapshots.length} snapshot${hitterSnapshots.length !== 1 ? 's' : ''}`;
+    }
+
+    // Create and render chart
+    this.developmentChart = new DevelopmentChart({
+      containerId: `development-chart-${playerId}`,
+      snapshots: hitterSnapshots,
+      metrics: this.activeDevMetrics,
+      height: 280,
+    });
+    this.developmentChart.render();
+
+    // Bind metric toggle handlers
+    const container = this.overlay?.querySelector('.development-section');
+    if (container) {
+      bindMetricToggleHandlers(container as HTMLElement, (metric, enabled) => {
+        if (enabled && !this.activeDevMetrics.includes(metric)) {
+          this.activeDevMetrics.push(metric);
+        } else if (!enabled) {
+          this.activeDevMetrics = this.activeDevMetrics.filter(m => m !== metric);
+        }
+        this.developmentChart?.updateMetrics(this.activeDevMetrics);
+      });
+    }
+  }
+
+  private bindTabSwitching(): void {
+    const tabs = this.overlay?.querySelectorAll<HTMLButtonElement>('.profile-tab');
+    tabs?.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.dataset.tab;
+        if (!targetTab) return;
+
+        // Update tab buttons
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Update tab panes
+        const panes = this.overlay?.querySelectorAll<HTMLElement>('.tab-pane');
+        panes?.forEach(pane => {
+          if (pane.dataset.pane === targetTab) {
+            pane.classList.add('active');
+            // Initialize development chart when switching to that tab
+            if (targetTab === 'development' && this.currentData) {
+              this.initDevelopmentChart(this.currentData.playerId);
+            }
+          } else {
+            pane.classList.remove('active');
+          }
+        });
+      });
+    });
   }
 
   private renderProjection(data: BatterProfileData, stats: BatterSeasonStats[]): string {
@@ -953,6 +1061,7 @@ export class BatterProfileModal {
 
   private bindBodyEvents(): void {
     this.bindScoutSourceToggle();
+    this.bindTabSwitching();
   }
 
   private bindScoutSourceToggle(): void {

@@ -6,6 +6,7 @@ import {
   RatedProspect,
   HitterFarmData,
   HitterFarmSystemOverview,
+  HitterFarmSystemRankings,
   RatedHitterProspect
 } from '../services/TeamRatingsService';
 import { PlayerProfileModal } from './PlayerProfileModal';
@@ -469,20 +470,10 @@ export class FarmRankingsView {
           teamFilter.style.display = this.viewMode === 'top-100' ? 'inline-block' : 'none';
       }
 
-      // Hide reports view if hitters only (reports not yet implemented for hitters)
+      // Show reports button - now supports both pitchers and hitters
       const reportsBtn = this.container.querySelector<HTMLElement>('[data-view-mode="reports"]');
       if (reportsBtn) {
-          reportsBtn.style.display = this.showPitchers ? '' : 'none';
-      }
-
-      // Fall back to top-systems if viewing reports without pitchers
-      if (!this.showPitchers && this.viewMode === 'reports') {
-          this.viewMode = 'top-systems';
-          this.container.querySelectorAll('[data-view-mode]').forEach(b => {
-              const isActive = (b as HTMLElement).dataset.viewMode === 'top-systems';
-              b.classList.toggle('active', isActive);
-              b.setAttribute('aria-pressed', String(isActive));
-          });
+          reportsBtn.style.display = '';
       }
 
       switch (this.viewMode) {
@@ -1593,32 +1584,320 @@ export class FarmRankingsView {
 
   // --- REPORTS VIEW (Original) ---
   private renderReports(): string {
-      if (!this.data) return '';
-      
-      // Render layout containers manually since we're injecting into content area
-      const rotSorted = [...this.data.reports].sort((a, b) => b.rotationScore - a.rotationScore);
-      const penSorted = [...this.data.reports].sort((a, b) => b.bullpenScore - a.bullpenScore);
+      const hasPitcherData = this.showPitchers && this.data;
+      const hasHitterData = this.showHitters && this.hitterData;
 
+      if (!hasPitcherData && !hasHitterData) return '<p class="no-stats">No data available for reports.</p>';
+
+      let pitcherReports = '';
+      let hitterReports = '';
+
+      // Pitcher reports
+      if (hasPitcherData && this.data) {
+        const rotSorted = [...this.data.reports].sort((a, b) => b.rotationScore - a.rotationScore);
+        const penSorted = [...this.data.reports].sort((a, b) => b.bullpenScore - a.bullpenScore);
+
+        pitcherReports = `
+          <div class="team-ratings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+              <div id="farm-rotation-rankings">
+                  ${this.renderFarmCollapsible({
+                      title: 'Top Future Rotations',
+                      note: '(Ranked by Top 5 Peak WAR)',
+                      type: 'rotation',
+                      teams: rotSorted
+                  })}
+              </div>
+              <div id="farm-bullpen-rankings">
+                  ${this.renderFarmCollapsible({
+                      title: 'Top Future Bullpens',
+                      note: '(Ranked by Top 5 Peak WAR)',
+                      type: 'bullpen',
+                      teams: penSorted
+                  })}
+              </div>
+          </div>
+        `;
+      }
+
+      // Hitter reports
+      if (hasHitterData && this.hitterData) {
+        hitterReports = this.renderHitterReports();
+      }
+
+      return pitcherReports + hitterReports;
+  }
+
+  private renderHitterReports(): string {
+    if (!this.hitterData) return '';
+
+    // Sort organizations by total score (future lineup strength)
+    const lineupSorted = [...this.hitterData.reports].sort((a, b) => b.totalScore - a.totalScore);
+
+    // Group prospects by position for position depth rankings
+    const positionGroups = this.groupHittersByPosition();
+
+    return `
+      <div class="team-ratings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+          <div id="farm-lineup-rankings">
+              ${this.renderHitterLineupCollapsible({
+                  title: 'Top Future Lineups',
+                  note: '(Ranked by Total Farm Score)',
+                  teams: lineupSorted
+              })}
+          </div>
+          <div id="farm-position-depth">
+              ${this.renderPositionDepthCollapsible({
+                  title: 'Position Depth Rankings',
+                  note: '(Top 5 by Position)',
+                  positions: positionGroups
+              })}
+          </div>
+      </div>
+    `;
+  }
+
+  private groupHittersByPosition(): Map<string, RatedHitterProspect[]> {
+    if (!this.hitterData) return new Map();
+
+    const groups = new Map<string, RatedHitterProspect[]>();
+    const positionOrder = ['C', 'SS', '2B', '3B', '1B', 'CF', 'LF', 'RF', 'DH'];
+
+    // Initialize all positions
+    for (const pos of positionOrder) {
+      groups.set(pos, []);
+    }
+
+    // Group all prospects by position
+    for (const prospect of this.hitterData.prospects) {
+      const pos = prospect.position || 'DH';
+      if (!groups.has(pos)) {
+        groups.set(pos, []);
+      }
+      groups.get(pos)!.push(prospect);
+    }
+
+    // Sort each position group by TFR
+    for (const [_pos, prospects] of groups) {
+      prospects.sort((a, b) => b.trueFutureRating - a.trueFutureRating);
+    }
+
+    return groups;
+  }
+
+  private renderHitterLineupCollapsible(params: {
+    title: string;
+    note: string;
+    teams: HitterFarmSystemRankings[];
+  }): string {
+    const previewTeams = params.teams.slice(0, 3);
+    const preview = previewTeams.length
+      ? previewTeams.map((team, idx) => this.renderHitterTeamPreviewRow(team, idx + 1)).join('')
+      : '<p class="no-stats">No data available.</p>';
+
+    const fullList = params.teams.length
+      ? params.teams.map((team, idx) => this.renderHitterTeamRow(team, idx + 1)).join('')
+      : '<p class="no-stats">No data available.</p>';
+
+    return `
+      <details class="team-collapsible">
+        <summary class="team-collapsible-summary">
+          <div>
+            <h3 class="section-title">${params.title} <span class="note-text">${params.note}</span></h3>
+            <div class="team-preview-list">
+              ${preview}
+            </div>
+          </div>
+          <span class="team-collapsible-label">
+            <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
+            <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
+            <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
+            <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
+          </span>
+        </summary>
+        <div class="team-list">
+          ${fullList}
+        </div>
+      </details>
+    `;
+  }
+
+  private renderHitterTeamPreviewRow(team: HitterFarmSystemRankings, rank: number): string {
+    const scoreClass = this.getScoreClass(team.totalScore);
+
+    return `
+      <div class="team-preview-row">
+        <span class="team-preview-rank">#${rank}</span>
+        <span class="team-preview-name">${team.teamName}</span>
+        <span class="badge ${scoreClass} team-preview-score">${team.totalScore.toFixed(1)}</span>
+      </div>
+    `;
+  }
+
+  private renderHitterTeamRow(team: HitterFarmSystemRankings, rank: number): string {
+    const scoreClass = this.getScoreClass(team.totalScore);
+    const teamKey = `${team.teamId}-lineup`;
+
+    return `
+      <div class="team-card">
+          <div class="team-header" data-team-key="${teamKey}" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 0.5rem;">
+              <div style="display: flex; align-items: center; gap: 1rem;">
+                  <span style="font-weight: bold; color: var(--color-text-muted); width: 20px;">#${rank}</span>
+                  <span style="font-weight: 600;">${team.teamName}</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 1rem;">
+                   <span class="badge ${scoreClass}" style="font-size: 1.1em;">${team.totalScore.toFixed(1)}</span>
+                   <span class="toggle-icon">▼</span>
+              </div>
+          </div>
+          <div class="team-details" id="details-${teamKey}" style="display: none; padding: 0.5rem; background: var(--color-surface-hover); margin-bottom: 1rem; border-radius: 4px;">
+              ${this.renderHitterTeamDetailsTable(team)}
+          </div>
+      </div>
+    `;
+  }
+
+  private renderHitterTeamDetailsTable(team: HitterFarmSystemRankings): string {
+    // Show top 8 hitters (a typical lineup)
+    const players = team.allProspects.slice(0, 8);
+
+    const columns: FarmColumn[] = [
+        { key: 'position', label: 'Pos' },
+        { key: 'name', label: 'Name' },
+        { key: 'trueFutureRating', label: 'TFR' },
+        { key: 'level', label: 'Lvl' },
+        { key: 'age', label: 'Age' },
+        { key: 'wrcPlus', label: 'wRC+' },
+        { key: 'projWar', label: 'WAR' }
+    ];
+
+    const headerRow = columns.map(col => `<th>${col.label}</th>`).join('');
+
+    const rows = players.map(player => {
+      const cells = columns.map(col => `<td>${this.renderHitterCell(player, col)}</td>`).join('');
+      return `<tr>${cells}</tr>`;
+    }).join('');
+
+    const emptyRow = players.length === 0
+      ? `<tr><td colspan="${columns.length}" style="text-align: center; color: var(--color-text-muted)">No qualified prospects</td></tr>`
+      : '';
+
+    return `
+      <table class="stats-table team-ratings-table" style="width: 100%; font-size: 0.9em;">
+        <thead>
+          <tr>${headerRow}</tr>
+        </thead>
+        <tbody>
+          ${rows}
+          ${emptyRow}
+        </tbody>
+      </table>
+    `;
+  }
+
+  private renderHitterCell(player: RatedHitterProspect, column: FarmColumn): string {
+    switch (column.key) {
+      case 'position':
+        return player.position || 'DH';
+      case 'name':
+        return `<button class="btn-link player-name-link" data-player-id="${player.playerId}" data-player-type="hitter">${player.name}</button>`;
+      case 'trueFutureRating':
+        return this.renderRatingBadge(player.trueFutureRating);
+      case 'level':
+        return player.level;
+      case 'age':
+        return player.age.toString();
+      case 'wrcPlus':
+        const wrcClass = this.getWrcPlusClass(player.wrcPlus);
+        return `<span class="badge ${wrcClass}" style="padding: 2px 6px; font-size: 0.85em;">${player.wrcPlus}</span>`;
+      case 'projWar':
+        const warClass = this.getWarClass(player.projWar);
+        return `<span class="badge ${warClass}" style="padding: 2px 6px; font-size: 0.85em;">${player.projWar.toFixed(1)}</span>`;
+      default:
+        return '';
+    }
+  }
+
+  private renderPositionDepthCollapsible(params: {
+    title: string;
+    note: string;
+    positions: Map<string, RatedHitterProspect[]>;
+  }): string {
+    const positionOrder = ['C', 'SS', '2B', '3B', '1B', 'CF', 'LF', 'RF'];
+
+    // Preview: show top prospect at each key position
+    const previewPositions = ['C', 'SS', 'CF'];
+    const preview = previewPositions.map(pos => {
+      const prospects = params.positions.get(pos) || [];
+      if (prospects.length === 0) return '';
+      const top = prospects[0];
       return `
-        <div class="team-ratings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
-            <div id="farm-rotation-rankings">
-                ${this.renderFarmCollapsible({
-                    title: 'Top Future Rotations',
-                    note: '(Ranked by Top 5 Peak WAR)',
-                    type: 'rotation',
-                    teams: rotSorted
-                })}
-            </div>
-            <div id="farm-bullpen-rankings">
-                ${this.renderFarmCollapsible({
-                    title: 'Top Future Bullpens',
-                    note: '(Ranked by Top 5 Peak WAR)',
-                    type: 'bullpen',
-                    teams: penSorted
-                })}
-            </div>
+        <div class="team-preview-row">
+          <span class="team-preview-rank">${pos}</span>
+          <span class="team-preview-name">${top.name}</span>
+          <span class="badge ${this.getRatingClass(top.trueFutureRating)} team-preview-score">${top.trueFutureRating.toFixed(1)}</span>
         </div>
       `;
+    }).join('');
+
+    // Full list: all positions with top 5 at each
+    const fullList = positionOrder.map(pos => {
+      const prospects = params.positions.get(pos) || [];
+      const top5 = prospects.slice(0, 5);
+
+      if (top5.length === 0) return '';
+
+      const rows = top5.map((p, idx) => `
+        <tr>
+          <td style="width: 30px; text-align: center; color: var(--color-text-muted);">${idx + 1}</td>
+          <td><button class="btn-link player-name-link" data-player-id="${p.playerId}" data-player-type="hitter">${p.name}</button></td>
+          <td>${p.team || 'FA'}</td>
+          <td>${this.renderRatingBadge(p.trueFutureRating)}</td>
+          <td>${p.wrcPlus}</td>
+        </tr>
+      `).join('');
+
+      return `
+        <div style="margin-bottom: 1rem;">
+          <h4 style="margin: 0.5rem 0; font-size: 0.95em; color: var(--color-text-secondary);">${pos}</h4>
+          <table class="stats-table" style="width: 100%; font-size: 0.85em;">
+            <thead>
+              <tr><th>#</th><th>Name</th><th>Team</th><th>TFR</th><th>wRC+</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      `;
+    }).join('');
+
+    return `
+      <details class="team-collapsible">
+        <summary class="team-collapsible-summary">
+          <div>
+            <h3 class="section-title">${params.title} <span class="note-text">${params.note}</span></h3>
+            <div class="team-preview-list">
+              ${preview}
+            </div>
+          </div>
+          <span class="team-collapsible-label">
+            <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
+            <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
+            <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
+            <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
+          </span>
+        </summary>
+        <div class="team-list">
+          ${fullList}
+        </div>
+      </details>
+    `;
+  }
+
+  private getRatingClass(rating: number): string {
+    if (rating >= 4.5) return 'rating-elite';
+    if (rating >= 4.0) return 'rating-plus';
+    if (rating >= 3.0) return 'rating-avg';
+    if (rating >= 2.0) return 'rating-fringe';
+    return 'rating-poor';
   }
 
   private renderFarmCollapsible(params: {
