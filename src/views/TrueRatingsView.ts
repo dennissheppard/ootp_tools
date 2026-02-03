@@ -62,7 +62,7 @@ interface HitterTrueRatingFields {
   estimatedPower?: number;
   estimatedEye?: number;
   estimatedAvoidK?: number;
-  estimatedBabip?: number;
+  estimatedContact?: number;
   /** Total PA used in calculation */
   totalPa?: number;
 }
@@ -1433,7 +1433,7 @@ export class TrueRatingsView {
         estimatedPower: result.estimatedPower,
         estimatedEye: result.estimatedEye,
         estimatedAvoidK: result.estimatedAvoidK,
-        estimatedBabip: result.estimatedBabip,
+        estimatedContact: result.estimatedContact,
         totalPa: result.totalPa,
       };
     });
@@ -2027,7 +2027,7 @@ export class TrueRatingsView {
         { key: 'estimatedPower', label: 'True Pow', sortKey: 'estimatedPower' },
         { key: 'estimatedEye', label: 'True Eye', sortKey: 'estimatedEye' },
         { key: 'estimatedAvoidK', label: 'True AvK', sortKey: 'estimatedAvoidK' },
-        { key: 'estimatedBabip', label: 'True Hit', sortKey: 'estimatedBabip' },
+        { key: 'estimatedContact', label: 'True Hit', sortKey: 'estimatedContact' },
       ];
 
       // Add raw stats columns after True Ratings
@@ -2060,8 +2060,8 @@ export class TrueRatingsView {
         { key: 'avg', label: 'AVG', sortKey: 'avg', accessor: (row) => {
           if (typeof row.avg === 'number') {
             const avg = row.avg.toFixed(3);
-            const estBabip = Math.max(20, Math.min(80, Math.round(row.estimatedBabip || 50)));
-            return this.renderFlipCell(avg, estBabip.toString(), 'Est Hit Tool (BABIP) Rating');
+            const estContact = Math.max(20, Math.min(80, Math.round(row.estimatedContact || 50)));
+            return this.renderFlipCell(avg, estContact.toString(), 'Est Contact Rating');
           }
           return '';
         }},
@@ -2113,8 +2113,8 @@ export class TrueRatingsView {
       { key: 'avg', label: 'AVG', sortKey: 'avg', accessor: (row) => {
         if (typeof row.avg === 'number') {
           const avg = row.avg.toFixed(3);
-          const estBabip = Math.max(20, Math.min(80, Math.round(row.estimatedBabip || 50)));
-          return this.renderFlipCell(avg, estBabip.toString(), 'Est Hit Tool (BABIP) Rating');
+          const estContact = Math.max(20, Math.min(80, Math.round(row.estimatedContact || 50)));
+          return this.renderFlipCell(avg, estContact.toString(), 'Est Contact Rating');
         }
         return '';
       }},
@@ -2138,7 +2138,7 @@ export class TrueRatingsView {
     }
     if (typeof value === 'number') {
       // Clamp estimated ratings for display (20-80 scale)
-      if (key === 'estimatedPower' || key === 'estimatedEye' || key === 'estimatedAvoidK' || key === 'estimatedBabip') {
+      if (key === 'estimatedPower' || key === 'estimatedEye' || key === 'estimatedAvoidK' || key === 'estimatedContact') {
         const clamped = Math.max(20, Math.min(80, Math.round(value)));
         return clamped.toString();
       }
@@ -2971,7 +2971,7 @@ export class TrueRatingsView {
       estimatedPower: row.estimatedPower,
       estimatedEye: row.estimatedEye,
       estimatedAvoidK: row.estimatedAvoidK,
-      estimatedBabip: row.estimatedBabip,
+      estimatedContact: row.estimatedContact,
 
       // Raw stats
       pa: row.pa,

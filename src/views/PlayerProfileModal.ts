@@ -593,7 +593,7 @@ export class PlayerProfileModal {
           <h4>Development History</h4>
           <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
         </div>
-        ${renderMetricToggles(this.activeDevMetrics, () => {})}
+        ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
         <div class="development-chart-container" id="development-chart-${playerId}"></div>
       </div>
     `;

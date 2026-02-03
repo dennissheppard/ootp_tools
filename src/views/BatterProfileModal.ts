@@ -32,13 +32,13 @@ export interface BatterProfileData {
   estimatedPower?: number;
   estimatedEye?: number;
   estimatedAvoidK?: number;
-  estimatedBabip?: number;
+  estimatedContact?: number;
 
   // Scouting data
   scoutPower?: number;
   scoutEye?: number;
   scoutAvoidK?: number;
-  scoutBabip?: number;
+  scoutContact?: number;
   scoutGap?: number;
   scoutSpeed?: number;
   scoutOvr?: number;
@@ -746,12 +746,12 @@ export class BatterProfileModal {
     let projKPct = 22.0; // default K%
 
     // If we have estimated ratings but no projected stats, calculate them
-    if (!projAvg && data.estimatedPower && data.estimatedEye && data.estimatedAvoidK && data.estimatedBabip) {
+    if (!projAvg && data.estimatedPower && data.estimatedEye && data.estimatedAvoidK && data.estimatedContact) {
       projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
       const kPct = HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
       projKPct = kPct;
       const iso = HitterRatingEstimatorService.expectedIso(data.estimatedPower);
-      const avg = HitterRatingEstimatorService.expectedAvg(data.estimatedBabip);
+      const avg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
 
       projAvg = avg;
       projObp = Math.min(0.450, avg + (projBbPct / 100));
@@ -877,7 +877,7 @@ export class BatterProfileModal {
           ${this.renderRatingBar('Power', data.estimatedPower)}
           ${this.renderRatingBar('Eye', data.estimatedEye)}
           ${this.renderRatingBar('Avoid K', data.estimatedAvoidK)}
-          ${this.renderRatingBar('Hitting', data.estimatedBabip)}
+          ${this.renderRatingBar('Hitting', data.estimatedContact)}
         </div>
       `;
     }
@@ -920,7 +920,7 @@ export class BatterProfileModal {
         ${this.renderRatingBarComparison('Power', data.estimatedPower, s.power)}
         ${this.renderRatingBarComparison('Eye', data.estimatedEye, s.eye)}
         ${this.renderRatingBarComparison('Avoid K', data.estimatedAvoidK, s.avoidK)}
-        ${this.renderRatingBarComparison('Hitting', data.estimatedBabip, s.babip ?? 50)}
+        ${this.renderRatingBarComparison('Contact', data.estimatedContact, s.contact ?? 50)}
       </div>
     `;
   }

@@ -116,6 +116,7 @@ export interface RatedHitterProspect {
     age: number;
     level: string;
     teamId: number;
+    team: string;
     orgId: number;
     /** Projected wOBA at peak */
     projWoba: number;
@@ -145,7 +146,7 @@ export interface RatedHitterProspect {
         power: number;
         eye: number;
         avoidK: number;
-        babip: number;
+        contact: number;
         gap: number;
         speed: number;
         ovr: number;
@@ -538,6 +539,7 @@ class TeamRatingsService {
               age: tfr.age,
               level: this.getLevelLabel(player.level),
               teamId: player.teamId,
+              team: team.nickname,
               orgId,
               projWoba: tfr.projWoba,
               projBbPct: tfr.projBbPct,
@@ -556,7 +558,7 @@ class TeamRatingsService {
                   power: scouting.power,
                   eye: scouting.eye,
                   avoidK: scouting.avoidK,
-                  babip: scouting.babip ?? 50,
+                  contact: scouting.contact ?? 50,
                   gap: scouting.gap ?? 50,
                   speed: scouting.speed ?? 50,
                   ovr: scouting.ovr,

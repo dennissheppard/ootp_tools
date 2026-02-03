@@ -1669,7 +1669,7 @@ export class FarmRankingsView {
 
     // Group all prospects by position
     for (const prospect of this.hitterData.prospects) {
-      const pos = prospect.position || 'DH';
+      const pos = String(prospect.position || 'DH');
       if (!groups.has(pos)) {
         groups.set(pos, []);
       }
@@ -1797,7 +1797,7 @@ export class FarmRankingsView {
   private renderHitterCell(player: RatedHitterProspect, column: FarmColumn): string {
     switch (column.key) {
       case 'position':
-        return player.position || 'DH';
+        return String(player.position || 'DH');
       case 'name':
         return `<button class="btn-link player-name-link" data-player-id="${player.playerId}" data-player-type="hitter">${player.name}</button>`;
       case 'trueFutureRating':
@@ -2373,9 +2373,9 @@ export class FarmRankingsView {
       const estimatedAvoidK = hitterProspect?.projKPct
           ? HitterRatingEstimatorService.estimateAvoidK(hitterProspect.projKPct, projPa).rating
           : undefined;
-      // For BABIP, estimate from AVG since we don't have projected BABIP directly
-      const estimatedBabip = hitterProspect?.projAvg
-          ? HitterRatingEstimatorService.estimateBabip(hitterProspect.projAvg + 0.030, projPa).rating // BABIP ≈ AVG + .030
+      // For Contact, estimate from AVG (Contact → AVG has r=0.97)
+      const estimatedContact = hitterProspect?.projAvg
+          ? HitterRatingEstimatorService.estimateContact(hitterProspect.projAvg, projPa).rating
           : undefined;
 
       // Build batter profile data
@@ -2396,13 +2396,13 @@ export class FarmRankingsView {
           estimatedPower,
           estimatedEye,
           estimatedAvoidK,
-          estimatedBabip,
+          estimatedContact,
 
           // Scout data (my)
           scoutPower: myScouting?.power,
           scoutEye: myScouting?.eye,
           scoutAvoidK: myScouting?.avoidK,
-          scoutBabip: myScouting?.babip,
+          scoutContact: myScouting?.contact,
           scoutGap: myScouting?.gap,
           scoutSpeed: myScouting?.speed,
           scoutOvr: myScouting?.ovr,

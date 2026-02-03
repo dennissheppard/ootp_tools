@@ -10,6 +10,7 @@ import { leagueStatsService } from '../services/LeagueStatsService';
 import { fipWarService } from '../services/FipWarService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { projectionAnalysisService, AggregateAnalysisReport } from '../services/ProjectionAnalysisService';
+import { batterProjectionAnalysisService, BatterAggregateAnalysisReport } from '../services/BatterProjectionAnalysisService';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -63,11 +64,16 @@ export class ProjectionsView {
   private hasActualStats = false;
   private teamLookup: Map<number, any> = new Map();
   private analysisReport: AggregateAnalysisReport | null = null;
+  private batterAnalysisReport: BatterAggregateAnalysisReport | null = null;
   private analysisStartYear = 2015; // Default to recent 5-6 years
   private analysisEndYear = 2020;
   private analysisMinIp = 20; // Default minimum IP filter
   private analysisMaxIp = 999; // Default maximum IP filter (effectively unlimited)
   private analysisUseIpFilter = true; // Default to filtering enabled
+  private analysisPlayerType: 'pitchers' | 'batters' = 'pitchers'; // Toggle between pitcher/batter analysis
+  private analysisMinPa = 200; // Default minimum PA filter for batters
+  private analysisMaxPa = 999; // Default maximum PA filter for batters
+  private analysisUsePaFilter = true; // Default to filtering enabled for batters
 
   // Batter-specific properties
   private batterStats: ProjectedBatter[] = [];
@@ -145,8 +151,8 @@ export class ProjectionsView {
       }},
       { key: 'projAvg', label: 'AVG', sortKey: 'projectedStats.avg', accessor: b => {
         const avg = b.projectedStats.avg.toFixed(3);
-        const estBabip = b.estimatedRatings.babip;
-        return this.renderFlipCell(avg, estBabip.toString(), 'Est Hit Tool (BABIP) Rating');
+        const estContact = b.estimatedRatings.contact;
+        return this.renderFlipCell(avg, estContact.toString(), 'Est Contact Rating');
       }},
       { key: 'iso', label: 'ISO', sortKey: 'projectedStats.slg', accessor: b => {
         const iso = (b.projectedStats.slg - b.projectedStats.avg).toFixed(3);
@@ -493,6 +499,8 @@ export class ProjectionsView {
       // Generate year options (2000-2020)
       const yearOptions = Array.from({ length: 21 }, (_, i) => 2000 + i).reverse();
 
+      const isPitchers = this.analysisPlayerType === 'pitchers';
+
       container.innerHTML = `
         <div class="analysis-landing" style="text-align: center; padding: 40px;">
             <h3>Projection Accuracy Analysis</h3>
@@ -500,6 +508,14 @@ export class ProjectionsView {
                 This report will iterate through the selected year range, run the projection algorithm for each year based on prior data,
                 and compare it against the actual results.
             </p>
+
+            <!-- Player Type Toggle -->
+            <div class="view-toggle-container" style="margin-bottom: 20px;">
+                <div class="view-toggle">
+                    <button class="toggle-btn ${isPitchers ? 'active' : ''}" data-analysis-type="pitchers" aria-pressed="${isPitchers}">Pitchers</button>
+                    <button class="toggle-btn ${!isPitchers ? 'active' : ''}" data-analysis-type="batters" aria-pressed="${!isPitchers}">Batters</button>
+                </div>
+            </div>
 
             <div style="display: flex; gap: 20px; justify-content: center; align-items: center; margin-bottom: 20px;">
                 <div class="form-field">
@@ -516,37 +532,75 @@ export class ProjectionsView {
                 </div>
             </div>
 
-            <div style="display: flex; gap: 15px; justify-content: center; align-items: center; margin-bottom: 20px;">
-                <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
-                    <input type="checkbox" id="analysis-use-ip-filter" ${this.analysisUseIpFilter ? 'checked' : ''}>
-                    <span>Filter IP range:</span>
-                </label>
-                <input
-                    type="number"
-                    id="analysis-min-ip"
-                    min="0"
-                    max="300"
-                    value="${this.analysisMinIp}"
-                    style="width: 60px; padding: 4px 8px; text-align: center;"
-                    ${!this.analysisUseIpFilter ? 'disabled' : ''}
-                    placeholder="Min"
-                >
-                <span>to</span>
-                <input
-                    type="number"
-                    id="analysis-max-ip"
-                    min="0"
-                    max="300"
-                    value="${this.analysisMaxIp}"
-                    style="width: 60px; padding: 4px 8px; text-align: center;"
-                    ${!this.analysisUseIpFilter ? 'disabled' : ''}
-                    placeholder="Max"
-                >
-                <span>IP</span>
+            <!-- Pitcher IP Filter -->
+            <div id="pitcher-filter-section" style="display: ${isPitchers ? 'block' : 'none'};">
+                <div style="display: flex; gap: 15px; justify-content: center; align-items: center; margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="analysis-use-ip-filter" ${this.analysisUseIpFilter ? 'checked' : ''}>
+                        <span>Filter IP range:</span>
+                    </label>
+                    <input
+                        type="number"
+                        id="analysis-min-ip"
+                        min="0"
+                        max="300"
+                        value="${this.analysisMinIp}"
+                        style="width: 60px; padding: 4px 8px; text-align: center;"
+                        ${!this.analysisUseIpFilter ? 'disabled' : ''}
+                        placeholder="Min"
+                    >
+                    <span>to</span>
+                    <input
+                        type="number"
+                        id="analysis-max-ip"
+                        min="0"
+                        max="300"
+                        value="${this.analysisMaxIp}"
+                        style="width: 60px; padding: 4px 8px; text-align: center;"
+                        ${!this.analysisUseIpFilter ? 'disabled' : ''}
+                        placeholder="Max"
+                    >
+                    <span>IP</span>
+                </div>
+                <p style="margin-bottom: 10px; color: var(--color-text-secondary); font-size: 0.85em; text-align: center;">
+                    Examples: 75-999 (established pitchers), 20-75 (small samples/relievers), 0-999 (all pitchers)
+                </p>
             </div>
-            <p style="margin-bottom: 10px; color: var(--color-text-secondary); font-size: 0.85em; text-align: center;">
-                Examples: 75-999 (established pitchers), 20-75 (small samples/relievers), 0-999 (all pitchers)
-            </p>
+
+            <!-- Batter PA Filter -->
+            <div id="batter-filter-section" style="display: ${!isPitchers ? 'block' : 'none'};">
+                <div style="display: flex; gap: 15px; justify-content: center; align-items: center; margin-bottom: 20px;">
+                    <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                        <input type="checkbox" id="analysis-use-pa-filter" ${this.analysisUsePaFilter ? 'checked' : ''}>
+                        <span>Filter PA range:</span>
+                    </label>
+                    <input
+                        type="number"
+                        id="analysis-min-pa"
+                        min="0"
+                        max="700"
+                        value="${this.analysisMinPa}"
+                        style="width: 60px; padding: 4px 8px; text-align: center;"
+                        ${!this.analysisUsePaFilter ? 'disabled' : ''}
+                        placeholder="Min"
+                    >
+                    <span>to</span>
+                    <input
+                        type="number"
+                        id="analysis-max-pa"
+                        min="0"
+                        max="700"
+                        value="${this.analysisMaxPa}"
+                        style="width: 60px; padding: 4px 8px; text-align: center;"
+                        ${!this.analysisUsePaFilter ? 'disabled' : ''}
+                        placeholder="Max"
+                    >
+                    <span>PA</span>
+                </div>
+                <p style="margin-bottom: 10px; color: var(--color-text-secondary); font-size: 0.85em; text-align: center;">
+                    Examples: 400-999 (regulars), 200-400 (part-time), 100-999 (all qualified batters)
+                </p>
+            </div>
 
             <p style="margin-bottom: 20px; color: var(--color-text-secondary); font-size: 0.9em;">
                 <strong>Recommended:</strong> Use recent 5-6 years (2015-2020) for most accurate results.<br>
@@ -563,6 +617,17 @@ export class ProjectionsView {
         </div>
       `;
 
+      // Add event listeners for player type toggle
+      container.querySelectorAll('[data-analysis-type]').forEach(btn => {
+          btn.addEventListener('click', () => {
+              const type = (btn as HTMLElement).dataset.analysisType as 'pitchers' | 'batters';
+              if (type && type !== this.analysisPlayerType) {
+                  this.analysisPlayerType = type;
+                  this.renderAnalysisLanding(); // Re-render to update UI
+              }
+          });
+      });
+
       // Add event listeners for year selectors
       container.querySelector('#analysis-start-year')?.addEventListener('change', (e) => {
           this.analysisStartYear = parseInt((e.target as HTMLSelectElement).value);
@@ -571,7 +636,7 @@ export class ProjectionsView {
           this.analysisEndYear = parseInt((e.target as HTMLSelectElement).value);
       });
 
-      // Add event listeners for IP filter
+      // Add event listeners for IP filter (pitchers)
       const ipFilterCheckbox = container.querySelector<HTMLInputElement>('#analysis-use-ip-filter');
       const ipFilterMinInput = container.querySelector<HTMLInputElement>('#analysis-min-ip');
       const ipFilterMaxInput = container.querySelector<HTMLInputElement>('#analysis-max-ip');
@@ -593,6 +658,31 @@ export class ProjectionsView {
           const value = parseInt((e.target as HTMLInputElement).value);
           if (!isNaN(value) && value >= 0) {
               this.analysisMaxIp = value;
+          }
+      });
+
+      // Add event listeners for PA filter (batters)
+      const paFilterCheckbox = container.querySelector<HTMLInputElement>('#analysis-use-pa-filter');
+      const paFilterMinInput = container.querySelector<HTMLInputElement>('#analysis-min-pa');
+      const paFilterMaxInput = container.querySelector<HTMLInputElement>('#analysis-max-pa');
+
+      paFilterCheckbox?.addEventListener('change', (e) => {
+          this.analysisUsePaFilter = (e.target as HTMLInputElement).checked;
+          if (paFilterMinInput) paFilterMinInput.disabled = !this.analysisUsePaFilter;
+          if (paFilterMaxInput) paFilterMaxInput.disabled = !this.analysisUsePaFilter;
+      });
+
+      paFilterMinInput?.addEventListener('change', (e) => {
+          const value = parseInt((e.target as HTMLInputElement).value);
+          if (!isNaN(value) && value >= 0) {
+              this.analysisMinPa = value;
+          }
+      });
+
+      paFilterMaxInput?.addEventListener('change', (e) => {
+          const value = parseInt((e.target as HTMLInputElement).value);
+          if (!isNaN(value) && value >= 0) {
+              this.analysisMaxPa = value;
           }
       });
 
@@ -619,20 +709,39 @@ export class ProjectionsView {
               throw new Error(`End year cannot exceed ${maxEndYear} (last completed season)`);
           }
 
-          const minIp = this.analysisUseIpFilter ? this.analysisMinIp : 0;
-          const maxIp = this.analysisUseIpFilter ? this.analysisMaxIp : 999;
+          if (this.analysisPlayerType === 'batters') {
+              // Run batter analysis
+              const minPa = this.analysisUsePaFilter ? this.analysisMinPa : 0;
+              const maxPa = this.analysisUsePaFilter ? this.analysisMaxPa : 999;
 
-          this.analysisReport = await projectionAnalysisService.runAnalysis(
-              this.analysisStartYear,
-              this.analysisEndYear,
-              (year) => {
-                  if (indicator) indicator.textContent = year.toString();
-              },
-              minIp,
-              maxIp
-          );
+              this.batterAnalysisReport = await batterProjectionAnalysisService.runAnalysis(
+                  this.analysisStartYear,
+                  this.analysisEndYear,
+                  (year) => {
+                      if (indicator) indicator.textContent = year.toString();
+                  },
+                  minPa,
+                  maxPa
+              );
 
-          this.renderAnalysisResults();
+              this.renderBatterAnalysisResults();
+          } else {
+              // Run pitcher analysis
+              const minIp = this.analysisUseIpFilter ? this.analysisMinIp : 0;
+              const maxIp = this.analysisUseIpFilter ? this.analysisMaxIp : 999;
+
+              this.analysisReport = await projectionAnalysisService.runAnalysis(
+                  this.analysisStartYear,
+                  this.analysisEndYear,
+                  (year) => {
+                      if (indicator) indicator.textContent = year.toString();
+                  },
+                  minIp,
+                  maxIp
+              );
+
+              this.renderAnalysisResults();
+          }
       } catch (err) {
           console.error(err);
           if (progress) progress.innerHTML = `<div class="error-message">Analysis failed: ${err}</div>`;
@@ -989,6 +1098,312 @@ export class ProjectionsView {
       `;
 
       this.bindPlayerNameClicks();
+  }
+
+  private renderBatterAnalysisResults(): void {
+      if (!this.batterAnalysisReport) return;
+      const container = this.container.querySelector('#projections-table-container');
+      if (!container) return;
+
+      // Hide pagination controls in analysis mode
+      this.updatePagination(0);
+
+      const { overallMetrics, years, metricsByTeam, metricsByAge, metricsByPosition, metricsByQuartile } = this.batterAnalysisReport;
+
+      const getBiasClass = (bias: number) => {
+          if (Math.abs(bias) < 0.005) return 'text-success';
+          if (Math.abs(bias) < 0.015) return 'text-warning';
+          return 'text-danger';
+      };
+
+      const getMaeClass = (mae: number) => {
+          if (mae < 0.025) return 'text-success';
+          if (mae < 0.035) return 'text-warning';
+          return 'text-danger';
+      };
+
+      const renderMetricsCard = (m: any) => `
+          <div class="metric-box">
+              <span class="metric-label">MAE</span>
+              <span class="metric-value ${getMaeClass(m.mae)}">${m.mae.toFixed(3)}</span>
+          </div>
+          <div class="metric-box">
+              <span class="metric-label">RMSE</span>
+              <span class="metric-value">${m.rmse.toFixed(3)}</span>
+          </div>
+          <div class="metric-box">
+              <span class="metric-label">Bias</span>
+              <span class="metric-value ${getBiasClass(m.bias)}">${m.bias > 0 ? '+' : ''}${m.bias.toFixed(3)}</span>
+          </div>
+          <div class="metric-box">
+              <span class="metric-label">N</span>
+              <span class="metric-value">${m.count}</span>
+          </div>
+      `;
+
+      // Helper to render a full stat row
+      const renderStatRow = (label: string, metrics: any) => `
+          <tr>
+              <td><strong>${label}</strong></td>
+              <td class="${getMaeClass(metrics.mae)}">${metrics.mae.toFixed(3)}</td>
+              <td>${metrics.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(metrics.bias)}">${metrics.bias > 0 ? '+' : ''}${metrics.bias.toFixed(3)}</td>
+              <td>${metrics.count}</td>
+          </tr>
+      `;
+
+      // Year Table (wOBA)
+      const yearRows = years.map(y => `
+          <tr>
+              <td>${y.year}</td>
+              <td class="${getMaeClass(y.metrics.woba.mae)}">${y.metrics.woba.mae.toFixed(3)}</td>
+              <td>${y.metrics.woba.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(y.metrics.woba.bias)}">${y.metrics.woba.bias > 0 ? '+' : ''}${y.metrics.woba.bias.toFixed(3)}</td>
+              <td>${y.metrics.woba.count}</td>
+          </tr>
+      `).join('');
+
+      // Team Table (wOBA)
+      const sortedTeams = Array.from(metricsByTeam.entries()).sort((a, b) => a[1].woba.mae - b[1].woba.mae);
+      const teamRows = sortedTeams.map(([team, m]) => `
+          <tr>
+              <td>${team}</td>
+              <td class="${getMaeClass(m.woba.mae)}">${m.woba.mae.toFixed(3)}</td>
+              <td>${m.woba.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(m.woba.bias)}">${m.woba.bias > 0 ? '+' : ''}${m.woba.bias.toFixed(3)}</td>
+              <td>${m.woba.count}</td>
+          </tr>
+      `).join('');
+
+      // Age Table (wOBA)
+      const ageOrder = ['< 24', '24-26', '27-29', '30-33', '34+'];
+      const sortedAges = Array.from(metricsByAge.entries()).sort((a, b) => {
+          const aIdx = ageOrder.indexOf(a[0]);
+          const bIdx = ageOrder.indexOf(b[0]);
+          return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+      });
+      const ageRows = sortedAges.map(([age, m]) => `
+          <tr>
+              <td>${age}</td>
+              <td class="${getMaeClass(m.woba.mae)}">${m.woba.mae.toFixed(3)}</td>
+              <td>${m.woba.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(m.woba.bias)}">${m.woba.bias > 0 ? '+' : ''}${m.woba.bias.toFixed(3)}</td>
+              <td>${m.woba.count}</td>
+          </tr>
+      `).join('');
+
+      // Position Table (wOBA) - C, IF, OF, DH
+      const posOrder = ['C', '1B', 'IF', 'OF', 'DH'];
+      const sortedPositions = Array.from(metricsByPosition.entries()).sort((a, b) => {
+          const aIdx = posOrder.indexOf(a[0]);
+          const bIdx = posOrder.indexOf(b[0]);
+          return (aIdx === -1 ? 999 : aIdx) - (bIdx === -1 ? 999 : bIdx);
+      });
+      const positionRows = sortedPositions.map(([pos, m]) => `
+          <tr>
+              <td>${pos}</td>
+              <td class="${getMaeClass(m.woba.mae)}">${m.woba.mae.toFixed(3)}</td>
+              <td>${m.woba.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(m.woba.bias)}">${m.woba.bias > 0 ? '+' : ''}${m.woba.bias.toFixed(3)}</td>
+              <td>${m.woba.count}</td>
+          </tr>
+      `).join('');
+
+      // Quartile Table (wOBA)
+      const quartileOrder = ['Q1 (Elite)', 'Q2 (Good)', 'Q3 (Average)', 'Q4 (Below Avg)'];
+      const sortedQuartiles = Array.from(metricsByQuartile.entries()).sort((a, b) => {
+          const aPrefix = a[0].split(' ')[0];
+          const bPrefix = b[0].split(' ')[0];
+          const aIndex = quartileOrder.findIndex(q => q.startsWith(aPrefix));
+          const bIndex = quartileOrder.findIndex(q => q.startsWith(bPrefix));
+          return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+      });
+      const quartileRows = sortedQuartiles.map(([quartile, m]) => `
+          <tr>
+              <td>${quartile}</td>
+              <td class="${getMaeClass(m.woba.mae)}">${m.woba.mae.toFixed(3)}</td>
+              <td>${m.woba.rmse.toFixed(3)}</td>
+              <td class="${getBiasClass(m.woba.bias)}">${m.woba.bias > 0 ? '+' : ''}${m.woba.bias.toFixed(3)}</td>
+              <td>${m.woba.count}</td>
+          </tr>
+      `).join('');
+
+      // Stat Breakdown Table
+      const statRows = [
+          renderStatRow('wOBA', overallMetrics.woba),
+          renderStatRow('AVG', overallMetrics.avg),
+          renderStatRow('BB%', overallMetrics.bbPct),
+          renderStatRow('K%', overallMetrics.kPct),
+          renderStatRow('HR%', overallMetrics.hrPct),
+      ].join('');
+
+      // Top Outliers Table (biggest wOBA misses)
+      const allDetails = years.flatMap(y => y.details.map(d => ({ ...d, year: y.year })));
+      const outliers = allDetails
+          .sort((a, b) => Math.abs(b.diff.woba) - Math.abs(a.diff.woba))
+          .slice(0, 20);
+
+      const outlierRows = outliers.map(d => `
+          <tr>
+              <td>${d.year}</td>
+              <td>${d.name}</td>
+              <td>${d.teamName}</td>
+              <td>${d.age}</td>
+              <td>${d.position}</td>
+              <td>${d.projected.woba.toFixed(3)}</td>
+              <td>${d.actual.woba.toFixed(3)}</td>
+              <td class="${Math.abs(d.diff.woba) > 0.040 ? 'text-danger' : 'text-warning'}">${d.diff.woba > 0 ? '+' : ''}${d.diff.woba.toFixed(3)}</td>
+              <td>${d.pa}</td>
+          </tr>
+      `).join('');
+
+      container.innerHTML = `
+          <div class="analysis-results">
+              <div class="analysis-summary">
+                  <h4>Overall Performance (wOBA)</h4>
+                  <p style="color: var(--color-text-secondary); font-size: 0.9em; margin-bottom: 10px;">
+                      Analysis Period: ${this.analysisStartYear}-${this.analysisEndYear} (${years.length} years)
+                      ${this.analysisUsePaFilter ? `<br>PA Range: ${this.analysisMinPa}-${this.analysisMaxPa === 999 ? '∞' : this.analysisMaxPa} plate appearances` : ''}
+                  </p>
+                  <div class="metrics-grid">
+                      ${renderMetricsCard(overallMetrics.woba)}
+                  </div>
+              </div>
+
+              <div class="analysis-split" style="grid-template-columns: 1fr;">
+                  <div class="analysis-section">
+                      <h4>Component Breakdown</h4>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Stat</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${statRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-split" style="grid-template-columns: 1fr; margin-top: 20px;">
+                  <div class="analysis-section">
+                      <h4>Accuracy by Position (wOBA)</h4>
+                      <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">
+                          C = Catcher, 1B = First Base, IF = Infielders (2B/3B/SS), OF = Outfielders (LF/CF/RF), DH = Designated Hitter
+                      </p>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Position</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${positionRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-split" style="grid-template-columns: 1fr; margin-top: 20px;">
+                  <div class="analysis-section">
+                      <h4>Accuracy by Performance Quartile (wOBA)</h4>
+                      <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">
+                          Batters grouped by their actual wOBA performance. Helps identify if projections systematically under/over-estimate elite or poor performers.
+                      </p>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Quartile</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${quartileRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-section" style="margin-top: 20px;">
+                  <h4>Top Outliers (Biggest Misses)</h4>
+                  <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">These are the specific player seasons where the projection missed by the widest margin. Useful for identifying injuries or breakouts.</p>
+                  <div class="table-wrapper" style="max-height: 400px; overflow-y: auto;">
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Year</th>
+                                  <th>Player</th>
+                                  <th>Team</th>
+                                  <th>Age</th>
+                                  <th>Pos</th>
+                                  <th>Proj wOBA</th>
+                                  <th>Act wOBA</th>
+                                  <th>Diff</th>
+                                  <th>PA</th>
+                              </tr>
+                          </thead>
+                          <tbody>${outlierRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-split" style="margin-top: 20px;">
+                  <div class="analysis-section">
+                      <h4>Accuracy by Age</h4>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Age Group</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${ageRows}</tbody>
+                      </table>
+                  </div>
+
+                  <div class="analysis-section">
+                      <h4>Accuracy by Year (wOBA)</h4>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Year</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${yearRows}</tbody>
+                      </table>
+                  </div>
+              </div>
+
+              <div class="analysis-section" style="margin-top: 20px;">
+                  <h4>Accuracy by Team (wOBA)</h4>
+                  <table class="stats-table">
+                      <thead>
+                          <tr>
+                              <th>Team</th>
+                              <th>MAE</th>
+                              <th>RMSE</th>
+                              <th>Bias</th>
+                              <th>Count</th>
+                          </tr>
+                      </thead>
+                      <tbody>${teamRows}</tbody>
+                  </table>
+              </div>
+          </div>
+      `;
   }
 
   private bindTeamDropdownListeners(): void {
@@ -1433,11 +1848,11 @@ export class ProjectionsView {
                   estimatedPower: batter.estimatedRatings.power,
                   estimatedEye: batter.estimatedRatings.eye,
                   estimatedAvoidK: batter.estimatedRatings.avoidK,
-                  estimatedBabip: batter.estimatedRatings.babip,
+                  estimatedContact: batter.estimatedRatings.contact,
                   scoutPower: batter.scoutingRatings?.power,
                   scoutEye: batter.scoutingRatings?.eye,
                   scoutAvoidK: batter.scoutingRatings?.avoidK,
-                  scoutBabip: batter.scoutingRatings?.babip,
+                  scoutContact: batter.scoutingRatings?.contact,
                   // Projected stats from BatterProjectionService
                   projWoba: batter.projectedStats.woba,
                   projAvg: batter.projectedStats.avg,

@@ -24,8 +24,8 @@ export interface HitterScoutingRatings {
   eye: number;
   /** Avoid K rating (20-80): inverse correlation with K% */
   avoidK: number;
-  /** BABIP rating (20-80): correlates with batting average, hits */
-  babip: number;
+  /** Contact rating (20-80): correlates with batting average (~60% HT + ~40% AvK) */
+  contact: number;
   /** Gap power rating (20-80): correlates with doubles */
   gap: number;
   /** Speed rating (20-200): correlates with triples, SB */

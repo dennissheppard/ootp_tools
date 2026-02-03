@@ -6,7 +6,13 @@
  *
  * Process:
  * 1. Multi-year weighted average (recent years weighted more)
- * 2. Regression toward league mean based on sample size
+ * 2. TIER-AWARE REGRESSION (prevents over-projection of bad hitters):
+ *    - Elite performance (wOBA >= .380): Regress toward elite target
+ *    - Good performance (.340-.380): Regress toward above-average target
+ *    - Average performance (.300-.340): Regress toward league average
+ *    - Below average (.260-.300): Regress toward below-average target
+ *    - Poor performance (< .260): Minimal regression - trust their bad performance
+ *    - Smooth blending between tiers to avoid cliffs
  * 3. Optional blend with scouting ratings
  * 4. Calculate wOBA (weighted On-Base Average)
  * 5. Rank percentile across all hitters
@@ -64,7 +70,7 @@ export interface HitterTrueRatingResult {
   estimatedPower: number;
   estimatedEye: number;
   estimatedAvoidK: number;
-  estimatedBabip: number;
+  estimatedContact: number;
   /** wOBA (weighted On-Base Average) - lower is worse */
   woba: number;
   /** Percentile rank (0-100, higher is better) */
@@ -139,6 +145,47 @@ const DEFAULT_LEAGUE_AVERAGES: HitterLeagueAverages = {
 };
 
 /**
+ * TIER-AWARE REGRESSION SYSTEM
+ *
+ * Similar to pitcher system, uses continuous sliding scale based on wOBA.
+ * Prevents bunching by regressing elite hitters toward elite targets,
+ * and poor hitters toward poor targets.
+ *
+ * wOBA breakpoints (piecewise linear interpolation):
+ * - wOBA >= .400: targetOffset -0.040 (generational talent)
+ * - wOBA .380:    targetOffset -0.030 (elite)
+ * - wOBA .360:    targetOffset -0.020 (excellent)
+ * - wOBA .340:    targetOffset -0.010 (above average)
+ * - wOBA .320:    targetOffset  0.000 (league average)
+ * - wOBA .300:    targetOffset +0.010 (below average)
+ * - wOBA .280:    targetOffset +0.020 (poor)
+ * - wOBA < .260:  targetOffset +0.025 (minimal regression for truly bad)
+ */
+const WOBA_REGRESSION_BREAKPOINTS = [
+  { woba: 0.400, offset: -0.040 },
+  { woba: 0.380, offset: -0.030 },
+  { woba: 0.360, offset: -0.020 },
+  { woba: 0.340, offset: -0.010 },
+  { woba: 0.320, offset: 0.000 },
+  { woba: 0.300, offset: 0.010 },
+  { woba: 0.280, offset: 0.020 },
+  { woba: 0.260, offset: 0.025 },
+];
+
+/**
+ * Strength multiplier breakpoints based on wOBA
+ * Elite hitters get weaker regression (lower multiplier)
+ * Poor hitters get stronger regression toward poor targets
+ */
+const WOBA_STRENGTH_BREAKPOINTS = [
+  { woba: 0.400, multiplier: 0.6 },  // Elite: weak regression
+  { woba: 0.360, multiplier: 0.8 },  // Excellent: moderate-weak
+  { woba: 0.320, multiplier: 1.0 },  // Average: normal
+  { woba: 0.280, multiplier: 1.2 },  // Below avg: stronger
+  { woba: 0.260, multiplier: 0.8 },  // Poor: trust the bad performance
+];
+
+/**
  * Percentile thresholds for True Rating conversion
  * Based on normal distribution (bell curve) buckets
  */
@@ -204,18 +251,23 @@ class HitterTrueRatingsCalculationService {
     // Step 1: Multi-year weighted average
     const weighted = this.calculateWeightedRates(input.yearlyStats, yearWeights);
 
-    // Step 2: Regression toward league mean
-    let regressedBbPct = this.regressToMean(
-      weighted.bbPct, weighted.totalPa, leagueAverages.avgBbPct, STABILIZATION.bbPct
+    // Step 2: Tier-aware regression (based on estimated wOBA performance)
+    // First calculate raw wOBA to determine performance tier
+    const rawWoba = this.calculateWobaFromRates(
+      weighted.bbPct, weighted.kPct, weighted.iso, weighted.avg
     );
-    let regressedKPct = this.regressToMean(
-      weighted.kPct, weighted.totalPa, leagueAverages.avgKPct, STABILIZATION.kPct
+
+    let regressedBbPct = this.regressToMeanTierAware(
+      weighted.bbPct, weighted.totalPa, leagueAverages.avgBbPct, STABILIZATION.bbPct, 'bbPct', rawWoba
     );
-    let regressedIso = this.regressToMean(
-      weighted.iso, weighted.totalPa, leagueAverages.avgIso, STABILIZATION.iso
+    let regressedKPct = this.regressToMeanTierAware(
+      weighted.kPct, weighted.totalPa, leagueAverages.avgKPct, STABILIZATION.kPct, 'kPct', rawWoba
     );
-    let regressedAvg = this.regressToMean(
-      weighted.avg, weighted.totalPa, leagueAverages.avgAvg, STABILIZATION.avg
+    let regressedIso = this.regressToMeanTierAware(
+      weighted.iso, weighted.totalPa, leagueAverages.avgIso, STABILIZATION.iso, 'iso', rawWoba
+    );
+    let regressedAvg = this.regressToMeanTierAware(
+      weighted.avg, weighted.totalPa, leagueAverages.avgAvg, STABILIZATION.avg, 'avg', rawWoba
     );
 
     // Step 3: Optional scouting blend
@@ -236,7 +288,7 @@ class HitterTrueRatingsCalculationService {
     const estimatedPower = this.estimatePowerFromIso(blendedIso);
     const estimatedEye = this.estimateEyeFromBbPct(blendedBbPct);
     const estimatedAvoidK = this.estimateAvoidKFromKPct(blendedKPct);
-    const estimatedBabip = this.estimateBabipFromAvg(blendedAvg);
+    const estimatedContact = this.estimateContactFromAvg(blendedAvg);
 
     // Step 4: Calculate wOBA from blended rates
     const woba = this.calculateWobaFromRates(blendedBbPct, blendedKPct, blendedIso, blendedAvg);
@@ -251,7 +303,7 @@ class HitterTrueRatingsCalculationService {
       estimatedPower: Math.round(estimatedPower),
       estimatedEye: Math.round(estimatedEye),
       estimatedAvoidK: Math.round(estimatedAvoidK),
-      estimatedBabip: Math.round(estimatedBabip),
+      estimatedContact: Math.round(estimatedContact),
       woba: Math.round(woba * 1000) / 1000,
       percentile: 0,
       trueRating: 0,
@@ -326,7 +378,7 @@ class HitterTrueRatingsCalculationService {
   }
 
   /**
-   * Regress a rate stat toward the league mean
+   * Simple regression toward league mean (legacy method, kept for backwards compatibility)
    */
   regressToMean(
     weightedRate: number,
@@ -338,6 +390,138 @@ class HitterTrueRatingsCalculationService {
       return leagueRate;
     }
     return (weightedRate * totalPa + leagueRate * stabilizationK) / (totalPa + stabilizationK);
+  }
+
+  /**
+   * Tier-aware regression toward performance-appropriate target
+   *
+   * CONTINUOUS SLIDING SCALE REGRESSION:
+   * - Elite hitters (wOBA >= .380): Regress toward elite targets
+   * - Average hitters (.300-.340): Regress toward league average
+   * - Poor hitters (< .280): Minimal regression - trust bad performance
+   *
+   * Also includes PA-aware scaling to reduce regression for low-PA hitters.
+   */
+  regressToMeanTierAware(
+    weightedRate: number,
+    totalPa: number,
+    leagueRate: number,
+    stabilizationK: number,
+    statType: 'bbPct' | 'kPct' | 'iso' | 'avg',
+    estimatedWoba: number
+  ): number {
+    if (totalPa + stabilizationK === 0) {
+      return leagueRate;
+    }
+
+    // Calculate target offset based on wOBA performance tier
+    const targetOffset = this.calculateWobaTargetOffset(estimatedWoba);
+    const strengthMultiplier = this.calculateWobaStrengthMultiplier(estimatedWoba);
+
+    // Calculate regression target based on performance tier
+    // Offset represents deviation from league average in wOBA units
+    // Convert wOBA offset to component-specific targets
+    let regressionTarget = leagueRate;
+
+    // Different stats contribute differently to wOBA
+    // BB%: Higher is better → positive offset means regress toward HIGHER BB%
+    // K%:  Lower is better → positive offset means regress toward HIGHER K% (worse)
+    // ISO: Higher is better → positive offset means regress toward HIGHER ISO
+    // AVG: Higher is better → positive offset means regress toward HIGHER AVG
+    switch (statType) {
+      case 'bbPct':
+        // BB% correlates positively with wOBA
+        // Elite hitters (negative offset) regress toward HIGHER BB%
+        regressionTarget = leagueRate - (targetOffset * 30); // ~3% BB% shift per .010 wOBA
+        break;
+      case 'kPct':
+        // K% correlates negatively with wOBA
+        // Elite hitters (negative offset) regress toward LOWER K%
+        regressionTarget = leagueRate + (targetOffset * 50); // ~5% K% shift per .010 wOBA
+        break;
+      case 'iso':
+        // ISO correlates positively with wOBA
+        // Elite hitters (negative offset) regress toward HIGHER ISO
+        regressionTarget = leagueRate - (targetOffset * 1.5); // ~.015 ISO shift per .010 wOBA
+        break;
+      case 'avg':
+        // AVG correlates positively with wOBA
+        // Elite hitters (negative offset) regress toward HIGHER AVG
+        regressionTarget = leagueRate - (targetOffset * 0.8); // ~.008 AVG shift per .010 wOBA
+        break;
+    }
+
+    // Apply tier-specific regression strength
+    let adjustedK = stabilizationK * strengthMultiplier;
+
+    // PA-AWARE SCALING: Reduce regression strength for low-PA hitters
+    // Low PA (100): paScale = 0.60 (40% reduction in regression)
+    // Medium PA (300): paScale = 0.85 (15% reduction)
+    // High PA (500+): paScale = 1.0 (no reduction)
+    const paConfidence = Math.min(1.0, totalPa / 500);
+    const paScale = 0.5 + (paConfidence * 0.5); // 0.5 to 1.0 scale
+    adjustedK = adjustedK * paScale;
+
+    // Regression formula with tier-aware adjusted strength
+    return (weightedRate * totalPa + regressionTarget * adjustedK) / (totalPa + adjustedK);
+  }
+
+  /**
+   * Calculate continuous target offset based on wOBA
+   * Uses piecewise linear interpolation
+   */
+  private calculateWobaTargetOffset(estimatedWoba: number): number {
+    const breakpoints = WOBA_REGRESSION_BREAKPOINTS;
+
+    // Handle edge cases
+    if (estimatedWoba >= breakpoints[0].woba) {
+      return breakpoints[0].offset;
+    }
+    if (estimatedWoba <= breakpoints[breakpoints.length - 1].woba) {
+      return breakpoints[breakpoints.length - 1].offset;
+    }
+
+    // Linear interpolation between breakpoints
+    for (let i = 0; i < breakpoints.length - 1; i++) {
+      const upper = breakpoints[i];
+      const lower = breakpoints[i + 1];
+
+      if (estimatedWoba <= upper.woba && estimatedWoba >= lower.woba) {
+        const t = (estimatedWoba - lower.woba) / (upper.woba - lower.woba);
+        return lower.offset + t * (upper.offset - lower.offset);
+      }
+    }
+
+    return 0.0; // Fallback
+  }
+
+  /**
+   * Calculate regression strength multiplier based on wOBA
+   * Uses piecewise linear interpolation
+   */
+  private calculateWobaStrengthMultiplier(estimatedWoba: number): number {
+    const breakpoints = WOBA_STRENGTH_BREAKPOINTS;
+
+    // Handle edge cases
+    if (estimatedWoba >= breakpoints[0].woba) {
+      return breakpoints[0].multiplier;
+    }
+    if (estimatedWoba <= breakpoints[breakpoints.length - 1].woba) {
+      return breakpoints[breakpoints.length - 1].multiplier;
+    }
+
+    // Linear interpolation between breakpoints
+    for (let i = 0; i < breakpoints.length - 1; i++) {
+      const upper = breakpoints[i];
+      const lower = breakpoints[i + 1];
+
+      if (estimatedWoba <= upper.woba && estimatedWoba >= lower.woba) {
+        const t = (estimatedWoba - lower.woba) / (upper.woba - lower.woba);
+        return lower.multiplier + t * (upper.multiplier - lower.multiplier);
+      }
+    }
+
+    return 1.0; // Fallback
   }
 
   /**
@@ -363,11 +547,15 @@ class HitterTrueRatingsCalculationService {
     iso: number;
     avg: number;
   } {
+    // Validate required scouting fields
+    if (scouting.contact == null || Number.isNaN(scouting.contact)) {
+      throw new Error(`Missing contact rating for player ${scouting.playerId}. Please clear cached data and re-run onboarding to reload scouting data.`);
+    }
     return {
       bbPct: HitterRatingEstimatorService.expectedBbPct(scouting.eye),
       kPct: HitterRatingEstimatorService.expectedKPct(scouting.avoidK),
       iso: HitterRatingEstimatorService.expectedIso(scouting.power),
-      avg: HitterRatingEstimatorService.expectedAvg(scouting.babip),
+      avg: HitterRatingEstimatorService.expectedAvg(scouting.contact),
     };
   }
 
@@ -408,7 +596,12 @@ class HitterTrueRatingsCalculationService {
     if (results.length === 0) return;
 
     // Sort by wOBA descending (higher is better)
-    const sorted = [...results].sort((a, b) => b.woba - a.woba);
+    // Handle NaN values to prevent infinite sort loop
+    const sorted = [...results].sort((a, b) => {
+      const aWoba = Number.isNaN(a.woba) ? 0 : a.woba;
+      const bWoba = Number.isNaN(b.woba) ? 0 : b.woba;
+      return bWoba - aWoba;
+    });
 
     // Assign ranks (handle ties with average rank)
     const ranks = new Map<number, number>();
@@ -448,41 +641,68 @@ class HitterTrueRatingsCalculationService {
 
   /**
    * Estimate Power rating from ISO
+   *
+   * Uses INVERSE of HitterRatingEstimatorService.expectedIso() coefficients.
+   * Note: expectedIso uses HR% conversion with approximate ISO factor,
+   * but we estimate from ISO directly here. The coefficients should be
+   * calibrated to match the round-trip behavior.
+   *
+   * HR% = -1.30 + 0.058434 * power (from HitterRatingEstimatorService)
+   * ISO ≈ HR% * 3 + 0.05 (approximate conversion used in expectedIso)
+   *
+   * For consistency, derive power from ISO using the inverse relationship.
    */
   private estimatePowerFromIso(iso: number): number {
-    // ISO = -0.088 + 0.0036 * power
-    // power = (ISO + 0.088) / 0.0036
-    const rating = (iso + 0.088) / 0.0036;
+    // ISO ≈ HR% * 3 + 0.05, so HR% ≈ (ISO - 0.05) / 3
+    // HR% = -1.30 + 0.058434 * power
+    // power = (HR% + 1.30) / 0.058434
+    const hrPct = (iso - 0.05) / 3 * 100; // Convert ISO to HR%
+    const rating = (hrPct + 1.30) / 0.058434;
     return Math.max(20, Math.min(80, rating));
   }
 
   /**
    * Estimate Eye rating from BB%
+   *
+   * Uses INVERSE of HitterRatingEstimatorService.expectedBbPct() coefficients.
+   * BB% = 0.64 + 0.114789 * eye (from HitterRatingEstimatorService)
+   * eye = (BB% - 0.64) / 0.114789
    */
   private estimateEyeFromBbPct(bbPct: number): number {
-    // BB% = -3.18 + 0.206 * eye
-    // eye = (BB% + 3.18) / 0.206
-    const rating = (bbPct + 3.18) / 0.206;
+    // MUST match inverse of HitterRatingEstimatorService coefficients
+    // BB% = 0.64 + 0.114789 * eye
+    // eye = (BB% - 0.64) / 0.114789
+    const rating = (bbPct - 0.64) / 0.114789;
     return Math.max(20, Math.min(80, rating));
   }
 
   /**
    * Estimate AvoidK rating from K%
+   *
+   * Uses INVERSE of HitterRatingEstimatorService.expectedKPct() coefficients.
+   * K% = 25.35 - 0.200303 * avoidK (from HitterRatingEstimatorService)
+   * avoidK = (25.35 - K%) / 0.200303
    */
   private estimateAvoidKFromKPct(kPct: number): number {
-    // K% = 45.5 - 0.467 * avoidK
-    // avoidK = (45.5 - K%) / 0.467
-    const rating = (45.5 - kPct) / 0.467;
+    // MUST match inverse of HitterRatingEstimatorService coefficients
+    // K% = 25.35 + (-0.200303) * avoidK = 25.35 - 0.200303 * avoidK
+    // avoidK = (25.35 - K%) / 0.200303
+    const rating = (25.35 - kPct) / 0.200303;
     return Math.max(20, Math.min(80, rating));
   }
 
   /**
-   * Estimate BABIP rating from AVG
+   * Estimate Contact rating from AVG
+   *
+   * Uses INVERSE of HitterRatingEstimatorService.expectedAvg() coefficients.
+   * AVG = 0.0772 + 0.00316593 * contact (from HitterRatingEstimatorService)
+   * contact = (AVG - 0.0772) / 0.00316593
    */
-  private estimateBabipFromAvg(avg: number): number {
-    // AVG = 0.139 + 0.00236 * babip
-    // babip = (AVG - 0.139) / 0.00236
-    const rating = (avg - 0.139) / 0.00236;
+  private estimateContactFromAvg(avg: number): number {
+    // MUST match inverse of HitterRatingEstimatorService coefficients
+    // AVG = 0.0772 + 0.00316593 * contact
+    // contact = (AVG - 0.0772) / 0.00316593
+    const rating = (avg - 0.0772) / 0.00316593;
     return Math.max(20, Math.min(80, rating));
   }
 

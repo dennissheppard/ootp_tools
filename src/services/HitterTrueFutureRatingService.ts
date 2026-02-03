@@ -39,23 +39,25 @@ export interface HitterTrueFutureRatingResult {
   avoidKPercentile: number;
   /** Percentile rank for Power component (0-100) */
   powerPercentile: number;
-  /** Percentile rank for BABIP component (0-100) */
-  babipPercentile: number;
+  /** Percentile rank for Contact component (0-100) */
+  contactPercentile: number;
   /** Scouting-expected rates */
   scoutBbPct: number;
   scoutKPct: number;
-  scoutIso: number;
+  scoutHrPct: number;
   scoutAvg: number;
   /** Adjusted minor league rates (MLB-equivalent) */
   adjustedBbPct: number;
   adjustedKPct: number;
-  adjustedIso: number;
+  adjustedHrPct: number;
   adjustedAvg: number;
   /** Projected rates (mapped from MLB distributions) */
   projBbPct: number;
   projKPct: number;
-  projIso: number;
+  projHrPct: number;
   projAvg: number;
+  /** Projected ISO (Isolated Power) */
+  projIso: number;
   /** Projected peak wOBA */
   projWoba: number;
   /** Percentile rank among all prospects */
@@ -78,18 +80,18 @@ export interface HitterComponentBlendedResult {
   /** Scouting-expected rates */
   scoutBbPct: number;
   scoutKPct: number;
-  scoutIso: number;
+  scoutHrPct: number;
   scoutAvg: number;
   /** Adjusted minor league rates (MLB-equivalent) */
   adjustedBbPct: number;
   adjustedKPct: number;
-  adjustedIso: number;
+  adjustedHrPct: number;
   adjustedAvg: number;
   /** Blended component values (weighted scout + stats) */
   eyeValue: number;      // Blended BB%
   avoidKValue: number;   // Blended K%
-  powerValue: number;    // Blended ISO
-  babipValue: number;    // Blended AVG
+  powerValue: number;    // Blended HR%
+  contactValue: number;    // Blended AVG
   /** Total minor league PA */
   totalMinorPa: number;
   /** Total weighted PA for reliability */
@@ -104,7 +106,7 @@ export interface HitterComponentBlendedResult {
 export interface MLBHitterPercentileDistribution {
   bbPctValues: number[];  // Sorted ascending (higher is better)
   kPctValues: number[];   // Sorted ascending (lower is better)
-  isoValues: number[];    // Sorted ascending (higher is better)
+  hrPctValues: number[];  // Sorted ascending (higher is better) - HR per PA
   avgValues: number[];    // Sorted ascending (higher is better)
 }
 
@@ -119,25 +121,25 @@ export interface MLBHitterPercentileDistribution {
  * Higher levels have better pitching, so hitters see:
  * - Lower AVG, more Ks at higher levels
  * - Similar BB% (plate discipline transfers)
- * - Lower ISO (facing better pitchers)
+ * - Lower HR% (facing better pitchers who limit power)
  */
 const LEVEL_ADJUSTMENTS: Record<MinorLeagueLevel, {
   bbPct: number;
   kPct: number;
-  iso: number;
+  hrPct: number;
   avg: number;
 }> = {
-  // AAA → MLB
-  aaa: { bbPct: 0, kPct: 2.0, iso: -0.015, avg: -0.020 },
+  // AAA → MLB: Minor adjustment (AAA pitching closer to MLB)
+  aaa: { bbPct: 0, kPct: 2.0, hrPct: -0.3, avg: -0.020 },
 
-  // AA → MLB (cumulative)
-  aa: { bbPct: -0.5, kPct: 3.5, iso: -0.025, avg: -0.035 },
+  // AA → MLB (cumulative): Moderate adjustment
+  aa: { bbPct: -0.5, kPct: 3.5, hrPct: -0.6, avg: -0.035 },
 
-  // A → MLB (cumulative)
-  a: { bbPct: -1.0, kPct: 5.0, iso: -0.035, avg: -0.050 },
+  // A → MLB (cumulative): Larger adjustment (weaker pitching)
+  a: { bbPct: -1.0, kPct: 5.0, hrPct: -1.0, avg: -0.050 },
 
-  // Rookie → MLB (cumulative)
-  r: { bbPct: -1.5, kPct: 7.0, iso: -0.045, avg: -0.065 },
+  // Rookie → MLB (cumulative): Largest adjustment
+  r: { bbPct: -1.5, kPct: 7.0, hrPct: -1.5, avg: -0.065 },
 };
 
 /** Year weights for minor league stats (current year, previous year) */
@@ -178,13 +180,111 @@ const WOBA_WEIGHTS = {
   hr: 2.10,
 };
 
+/**
+ * Component-specific scouting weights based on predictive validity analysis.
+ *
+ * From MiLB→MLB transition analysis (2015-2021, n=316):
+ * - K%:  r = 0.68 (strong predictor)  → Trust stats more
+ * - HR%: r = 0.44 (moderate predictor) → Moderate trust
+ * - BB%: r = 0.05 (not predictive)    → Rely on scouting
+ * - AVG: r = 0.18 (not predictive)    → Rely on scouting
+ *
+ * Higher scouting weight = trust scouting more, stats less
+ */
+const COMPONENT_SCOUTING_WEIGHTS = {
+  /**
+   * AvoidK (K%): MiLB K% strongly predicts MLB K% (r=0.68)
+   * Can trust stats significantly - lower scouting weight
+   */
+  avoidK: {
+    minPa: 150,      // Below this, 100% scout
+    lowPa: 300,      // 150-300 PA threshold
+    highPa: 500,     // 300-500 PA threshold
+    weights: {
+      belowMin: 1.0,   // 100% scout
+      lowRange: 0.65,  // 65% scout, 35% stats
+      midRange: 0.50,  // 50% scout, 50% stats
+      highRange: 0.40, // 40% scout, 60% stats
+    },
+  },
+
+  /**
+   * Power (HR%): MiLB HR% moderately predicts MLB HR% (r=0.44)
+   * However, TFR validation showed +0.91% HR% bias - we were over-projecting.
+   * Increase scouting weight to reduce trust in inflated MiLB HR%.
+   */
+  power: {
+    minPa: 150,
+    lowPa: 300,
+    highPa: 500,
+    weights: {
+      belowMin: 1.0,   // 100% scout
+      lowRange: 0.85,  // 85% scout, 15% stats (was 75/25)
+      midRange: 0.80,  // 80% scout, 20% stats (was 65/35)
+      highRange: 0.75, // 75% scout, 25% stats (was 55/45)
+    },
+  },
+
+  /**
+   * Eye (BB%): MiLB BB% does NOT predict MLB BB% (r=0.05)
+   * Eye rating → BB% is very reliable in OOTP engine (r=0.99)
+   * Use 100% scouting - MiLB walk rate is noise
+   */
+  eye: {
+    minPa: 150,
+    lowPa: 300,
+    highPa: 500,
+    weights: {
+      belowMin: 1.0,   // 100% scout
+      lowRange: 1.0,   // 100% scout
+      midRange: 1.0,   // 100% scout
+      highRange: 1.0,  // 100% scout
+    },
+  },
+
+  /**
+   * Contact (AVG): MiLB AVG does NOT predict MLB AVG (r=0.18)
+   * Contact → AVG is strong in OOTP engine (r=0.97)
+   * Use 100% scouting - MiLB batting average is noise
+   */
+  contact: {
+    minPa: 150,
+    lowPa: 300,
+    highPa: 500,
+    weights: {
+      belowMin: 1.0,   // 100% scout
+      lowRange: 1.0,   // 100% scout
+      midRange: 1.0,   // 100% scout
+      highRange: 1.0,  // 100% scout
+    },
+  },
+};
+
 // ============================================================================
 // Service Class
 // ============================================================================
 
 class HitterTrueFutureRatingService {
   /**
+   * Calculate scouting weight for a specific component based on PA.
+   * Different components have different predictive validity from MiLB stats.
+   */
+  calculateComponentScoutingWeight(
+    component: 'eye' | 'avoidK' | 'power' | 'contact',
+    weightedPa: number
+  ): number {
+    const config = COMPONENT_SCOUTING_WEIGHTS[component];
+
+    if (weightedPa < config.minPa) return config.weights.belowMin;
+    if (weightedPa <= config.lowPa) return config.weights.lowRange;
+    if (weightedPa <= config.highPa) return config.weights.midRange;
+    return config.weights.highRange;
+  }
+
+  /**
+   * @deprecated Use calculateComponentScoutingWeight instead.
    * Calculate scouting weight based on level-weighted PA (experience).
+   * Kept for backwards compatibility.
    */
   calculateScoutingWeight(weightedPa: number): number {
     if (weightedPa < 150) return 1.0;       // 100% scout
@@ -199,15 +299,15 @@ class HitterTrueFutureRatingService {
   applyLevelAdjustments(
     bbPct: number,
     kPct: number,
-    iso: number,
+    hrPct: number,
     avg: number,
     level: MinorLeagueLevel
-  ): { bbPct: number; kPct: number; iso: number; avg: number } {
+  ): { bbPct: number; kPct: number; hrPct: number; avg: number } {
     const adj = LEVEL_ADJUSTMENTS[level];
     return {
       bbPct: bbPct + adj.bbPct,
       kPct: kPct + adj.kPct,
-      iso: iso + adj.iso,
+      hrPct: hrPct + adj.hrPct,
       avg: avg + adj.avg,
     };
   }
@@ -221,7 +321,7 @@ class HitterTrueFutureRatingService {
   ): {
     bbPct: number;
     kPct: number;
-    iso: number;
+    hrPct: number;
     avg: number;
     totalPa: number;
     weightedPa: number;
@@ -232,7 +332,7 @@ class HitterTrueFutureRatingService {
 
     let weightedBbPctSum = 0;
     let weightedKPctSum = 0;
-    let weightedIsoSum = 0;
+    let weightedHrPctSum = 0;
     let weightedAvgSum = 0;
     let totalWeight = 0;
     let totalPa = 0;
@@ -250,17 +350,18 @@ class HitterTrueFutureRatingService {
       // Calculate rate stats
       const bbPct = stat.bb_pct ?? (stat.bb / stat.pa) * 100;
       const kPct = stat.k_pct ?? (stat.k / stat.pa) * 100;
-      const isoVal = stat.iso ?? (stat.slg ?? 0) - (stat.avg ?? 0);
+      // HR% = HR per PA as percentage (need to access hr from stats)
+      const hrPct = (stat as any).hr ? ((stat as any).hr / stat.pa) * 100 : 0;
       const avgVal = stat.avg ?? (stat.h / stat.ab);
 
       // Apply level adjustments
-      const adjusted = this.applyLevelAdjustments(bbPct, kPct, isoVal, avgVal, stat.level);
+      const adjusted = this.applyLevelAdjustments(bbPct, kPct, hrPct, avgVal, stat.level);
 
       const weight = yearWeight * stat.pa;
 
       weightedBbPctSum += adjusted.bbPct * weight;
       weightedKPctSum += adjusted.kPct * weight;
-      weightedIsoSum += adjusted.iso * weight;
+      weightedHrPctSum += adjusted.hrPct * weight;
       weightedAvgSum += adjusted.avg * weight;
 
       totalWeight += weight;
@@ -278,7 +379,7 @@ class HitterTrueFutureRatingService {
     return {
       bbPct: weightedBbPctSum / totalWeight,
       kPct: weightedKPctSum / totalWeight,
-      iso: weightedIsoSum / totalWeight,
+      hrPct: weightedHrPctSum / totalWeight,
       avg: weightedAvgSum / totalWeight,
       totalPa,
       weightedPa,
@@ -291,30 +392,41 @@ class HitterTrueFutureRatingService {
   scoutingToExpectedRates(scouting: HitterScoutingRatings): {
     bbPct: number;
     kPct: number;
-    iso: number;
+    hrPct: number;
     avg: number;
   } {
     return {
       bbPct: HitterRatingEstimatorService.expectedBbPct(scouting.eye),
       kPct: HitterRatingEstimatorService.expectedKPct(scouting.avoidK),
-      iso: HitterRatingEstimatorService.expectedIso(scouting.power),
-      avg: HitterRatingEstimatorService.expectedAvg(scouting.babip),
+      hrPct: HitterRatingEstimatorService.expectedHrPct(scouting.power),
+      avg: HitterRatingEstimatorService.expectedAvg(scouting.contact),
     };
   }
 
   /**
    * Calculate wOBA from rate stats
+   *
+   * Uses HR% directly (not derived from ISO) since Power rating maps to HR rate.
+   * Doubles/triples are estimated from hits based on typical MLB distributions.
    */
-  calculateWobaFromRates(bbPct: number, _kPct: number, iso: number, avg: number): number {
-    // Note: kPct not directly used in wOBA calculation but kept for API consistency
+  calculateWobaFromRates(bbPct: number, _kPct: number, hrPct: number, avg: number): number {
+    // Convert percentages to rates per PA
     const bbRate = bbPct / 100;
-    const hitRate = avg * (1 - bbRate);
-    const isoFactor = iso / 0.140;
+    const hrRate = hrPct / 100;
 
-    const hrRate = hitRate * 0.12 * Math.max(0.5, Math.min(2.0, isoFactor));
-    const tripleRate = hitRate * 0.03;
-    const doubleRate = hitRate * 0.20;
-    const singleRate = Math.max(0, hitRate - hrRate - tripleRate - doubleRate);
+    // Hit rate (excluding walks and HRs for simplicity)
+    // In reality: PA = AB + BB + HBP + SF + SH, Hits = AVG * AB
+    // Simplify: hitRate ≈ avg * (1 - bbRate)
+    const hitRate = avg * (1 - bbRate);
+
+    // Non-HR hits (singles + doubles + triples)
+    const nonHrHitRate = Math.max(0, hitRate - hrRate);
+
+    // Distribute non-HR hits: ~65% singles, ~25% doubles, ~10% triples (rough MLB averages)
+    // These ratios can be refined with Gap/Speed ratings but we keep it simple here
+    const singleRate = nonHrHitRate * 0.65;
+    const doubleRate = nonHrHitRate * 0.27;
+    const tripleRate = nonHrHitRate * 0.08;
 
     const woba =
       WOBA_WEIGHTS.bb * bbRate +
@@ -340,7 +452,7 @@ class HitterTrueFutureRatingService {
 
   /**
    * Build MLB percentile distributions from 2015-2020 peak-age batting data.
-   * Returns sorted arrays of BB%, K%, ISO, AVG for mapping prospect percentiles.
+   * Returns sorted arrays of BB%, K%, HR%, AVG for mapping prospect percentiles.
    *
    * Uses ages 25-29 only (peak years) to build distributions.
    * This ensures we're mapping prospect peaks to actual MLB peaks.
@@ -349,7 +461,7 @@ class HitterTrueFutureRatingService {
     const years = [2015, 2016, 2017, 2018, 2019, 2020];
     const allBbPct: number[] = [];
     const allKPct: number[] = [];
-    const allIso: number[] = [];
+    const allHrPct: number[] = [];
     const allAvg: number[] = [];
 
     // Load DOB data to filter by age
@@ -375,19 +487,14 @@ class HitterTrueFutureRatingService {
           // Calculate rate stats
           const bbPct = (stat.bb / pa) * 100;
           const kPct = (stat.k / pa) * 100;
-
-          // Calculate ISO from stats
-          const singles = stat.h - stat.d - stat.t - stat.hr;
-          const totalBases = singles + 2 * stat.d + 3 * stat.t + 4 * stat.hr;
-          const slg = stat.ab > 0 ? totalBases / stat.ab : 0;
-          const iso = slg - stat.avg;
+          const hrPct = (stat.hr / pa) * 100;  // HR% = HR per PA as percentage
 
           // Validate rates are reasonable (filter extreme outliers)
           if (bbPct >= 2 && bbPct <= 25 && kPct >= 5 && kPct <= 40 &&
-              iso >= 0.02 && iso <= 0.400 && stat.avg >= 0.150 && stat.avg <= 0.400) {
+              hrPct >= 0 && hrPct <= 10 && stat.avg >= 0.150 && stat.avg <= 0.400) {
             allBbPct.push(bbPct);
             allKPct.push(kPct);
-            allIso.push(iso);
+            allHrPct.push(hrPct);
             allAvg.push(stat.avg);
           }
         }
@@ -399,7 +506,7 @@ class HitterTrueFutureRatingService {
     // Sort arrays (for percentile lookup)
     allBbPct.sort((a, b) => a - b);  // Ascending: lower values = lower percentile
     allKPct.sort((a, b) => a - b);   // Ascending: lower values = lower percentile (but lower is better)
-    allIso.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
+    allHrPct.sort((a, b) => a - b);  // Ascending: lower values = lower percentile
     allAvg.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
 
     console.log(`📊 Built MLB hitter distributions: ${allBbPct.length} peak-age hitters (ages 25-29) from 2015-2020`);
@@ -407,7 +514,7 @@ class HitterTrueFutureRatingService {
     return {
       bbPctValues: allBbPct,
       kPctValues: allKPct,
-      isoValues: allIso,
+      hrPctValues: allHrPct,
       avgValues: allAvg,
     };
   }
@@ -499,12 +606,12 @@ class HitterTrueFutureRatingService {
    * Returns a map of playerId to component percentiles.
    *
    * @param componentResults - Array of component-blended results
-   * @returns Map of playerId to { eyePercentile, avoidKPercentile, powerPercentile, babipPercentile }
+   * @returns Map of playerId to { eyePercentile, avoidKPercentile, powerPercentile, contactPercentile }
    */
   rankProspectsByComponent(
     componentResults: HitterComponentBlendedResult[]
-  ): Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; babipPercentile: number }> {
-    const percentiles = new Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; babipPercentile: number }>();
+  ): Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; contactPercentile: number }> {
+    const percentiles = new Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; contactPercentile: number }>();
 
     if (componentResults.length === 0) {
       return percentiles;
@@ -519,7 +626,7 @@ class HitterTrueFutureRatingService {
       const eyePercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
 
       if (!percentiles.has(prospect.playerId)) {
-        percentiles.set(prospect.playerId, { eyePercentile: 0, avoidKPercentile: 0, powerPercentile: 0, babipPercentile: 0 });
+        percentiles.set(prospect.playerId, { eyePercentile: 0, avoidKPercentile: 0, powerPercentile: 0, contactPercentile: 0 });
       }
       percentiles.get(prospect.playerId)!.eyePercentile = eyePercentile;
     }
@@ -542,13 +649,13 @@ class HitterTrueFutureRatingService {
       percentiles.get(prospect.playerId)!.powerPercentile = powerPercentile;
     }
 
-    // Rank by BABIP (AVG - higher is better)
-    const babipSorted = [...componentResults].sort((a, b) => b.babipValue - a.babipValue);
+    // Rank by Contact (AVG - higher is better)
+    const contactSorted = [...componentResults].sort((a, b) => b.contactValue - a.contactValue);
     for (let i = 0; i < n; i++) {
-      const prospect = babipSorted[i];
-      const babipPercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
+      const prospect = contactSorted[i];
+      const contactPercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
 
-      percentiles.get(prospect.playerId)!.babipPercentile = babipPercentile;
+      percentiles.get(prospect.playerId)!.contactPercentile = contactPercentile;
     }
 
     return percentiles;
@@ -556,7 +663,15 @@ class HitterTrueFutureRatingService {
 
   /**
    * Calculate blended component values for a single player.
-   * Returns eye/avoidK/power/babip values (before percentile ranking and MLB mapping).
+   * Returns eye/avoidK/power/contact values (before percentile ranking and MLB mapping).
+   *
+   * Uses COMPONENT-SPECIFIC scouting weights based on predictive validity
+   * (from MiLB→MLB transition analysis, n=316):
+   *
+   * - AvoidK:  MiLB K% strongly predicts MLB K% (r=0.68) → trust stats 35-60%
+   * - Power:   MiLB HR% moderately predicts MLB HR% (r=0.44) → trust stats 25-45%
+   * - Eye:     MiLB BB% does NOT predict MLB BB% (r=0.05) → 100% scouting
+   * - Contact: MiLB AVG does NOT predict MLB AVG (r=0.18) → 100% scouting
    */
   calculateComponentBlend(input: HitterTrueFutureRatingInput): HitterComponentBlendedResult {
     const { scouting, minorLeagueStats, age } = input;
@@ -570,8 +685,11 @@ class HitterTrueFutureRatingService {
     const totalMinorPa = weightedStats?.totalPa ?? 0;
     const weightedPa = weightedStats?.weightedPa ?? 0;
 
-    // Calculate scouting weight (PA-based)
-    const scoutingWeight = this.calculateScoutingWeight(weightedPa);
+    // Calculate component-specific scouting weights based on predictive validity
+    const eyeScoutWeight = this.calculateComponentScoutingWeight('eye', weightedPa);
+    const avoidKScoutWeight = this.calculateComponentScoutingWeight('avoidK', weightedPa);
+    const powerScoutWeight = this.calculateComponentScoutingWeight('power', weightedPa);
+    const contactScoutWeight = this.calculateComponentScoutingWeight('contact', weightedPa);
 
     // Calculate scouting-expected rates
     const scoutRates = this.scoutingToExpectedRates(scouting);
@@ -579,21 +697,25 @@ class HitterTrueFutureRatingService {
     // If no minor league stats, use scouting only
     let adjustedBbPct = scoutRates.bbPct;
     let adjustedKPct = scoutRates.kPct;
-    let adjustedIso = scoutRates.iso;
+    let adjustedHrPct = scoutRates.hrPct;
     let adjustedAvg = scoutRates.avg;
 
     if (weightedStats) {
       adjustedBbPct = weightedStats.bbPct;
       adjustedKPct = weightedStats.kPct;
-      adjustedIso = weightedStats.iso;
+      adjustedHrPct = weightedStats.hrPct;
       adjustedAvg = weightedStats.avg;
     }
 
-    // Blend scouting and stats SEPARATELY for each component
-    const eyeValue = scoutingWeight * scoutRates.bbPct + (1 - scoutingWeight) * adjustedBbPct;
-    const avoidKValue = scoutingWeight * scoutRates.kPct + (1 - scoutingWeight) * adjustedKPct;
-    const powerValue = scoutingWeight * scoutRates.iso + (1 - scoutingWeight) * adjustedIso;
-    const babipValue = scoutingWeight * scoutRates.avg + (1 - scoutingWeight) * adjustedAvg;
+    // Blend scouting and stats with COMPONENT-SPECIFIC weights
+    // Eye (BB%): 100% scout - MiLB BB% doesn't predict MLB BB% (r=0.05)
+    const eyeValue = eyeScoutWeight * scoutRates.bbPct + (1 - eyeScoutWeight) * adjustedBbPct;
+    // AvoidK (K%): ~40-65% scout - MiLB K% strongly predicts MLB K% (r=0.68)
+    const avoidKValue = avoidKScoutWeight * scoutRates.kPct + (1 - avoidKScoutWeight) * adjustedKPct;
+    // Power (HR%): ~55-75% scout - MiLB HR% moderately predicts MLB HR% (r=0.44)
+    const powerValue = powerScoutWeight * scoutRates.hrPct + (1 - powerScoutWeight) * adjustedHrPct;
+    // Contact (AVG): 100% scout - MiLB AVG doesn't predict MLB AVG (r=0.18)
+    const contactValue = contactScoutWeight * scoutRates.avg + (1 - contactScoutWeight) * adjustedAvg;
 
     return {
       playerId: input.playerId,
@@ -601,16 +723,16 @@ class HitterTrueFutureRatingService {
       age,
       scoutBbPct: Math.round(scoutRates.bbPct * 10) / 10,
       scoutKPct: Math.round(scoutRates.kPct * 10) / 10,
-      scoutIso: Math.round(scoutRates.iso * 1000) / 1000,
+      scoutHrPct: Math.round(scoutRates.hrPct * 100) / 100,
       scoutAvg: Math.round(scoutRates.avg * 1000) / 1000,
       adjustedBbPct: Math.round(adjustedBbPct * 10) / 10,
       adjustedKPct: Math.round(adjustedKPct * 10) / 10,
-      adjustedIso: Math.round(adjustedIso * 1000) / 1000,
+      adjustedHrPct: Math.round(adjustedHrPct * 100) / 100,
       adjustedAvg: Math.round(adjustedAvg * 1000) / 1000,
       eyeValue: Math.round(eyeValue * 100) / 100,
       avoidKValue: Math.round(avoidKValue * 100) / 100,
-      powerValue: Math.round(powerValue * 1000) / 1000,
-      babipValue: Math.round(babipValue * 1000) / 1000,
+      powerValue: Math.round(powerValue * 100) / 100,  // HR% as percentage
+      contactValue: Math.round(contactValue * 1000) / 1000,
       totalMinorPa,
       totalWeightedPa: weightedPa,
       trueRating: input.trueRating,
@@ -621,7 +743,7 @@ class HitterTrueFutureRatingService {
    * Calculate True Future Ratings for multiple hitter prospects.
    *
    * NEW ALGORITHM:
-   * 1. Blend scouting + stats separately for each component (eye/avoidK/power/babip)
+   * 1. Blend scouting + stats separately for each component (eye/avoidK/power/contact)
    * 2. Rank prospects by each component to get percentiles
    * 3. Map percentiles to MLB distributions (2015-2020)
    * 4. Calculate peak wOBA from mapped rates
@@ -650,32 +772,34 @@ class HitterTrueFutureRatingService {
       // Map percentiles to MLB distribution values
       // For eye (BB%): higher percentile = higher BB% (use percentile as-is)
       // For avoidK (K%): higher percentile = lower K% (invert percentile)
-      // For power (ISO): higher percentile = higher ISO (use percentile as-is)
-      // For babip (AVG): higher percentile = higher AVG (use percentile as-is)
+      // For power (HR%): higher percentile = higher HR% (use percentile as-is)
+      // For contact (AVG): higher percentile = higher AVG (use percentile as-is)
       let projBbPct = this.mapPercentileToMLBValue(percentiles.eyePercentile, mlbDist.bbPctValues);
       let projKPct = this.mapPercentileToMLBValue(100 - percentiles.avoidKPercentile, mlbDist.kPctValues);
-      let projIso = this.mapPercentileToMLBValue(percentiles.powerPercentile, mlbDist.isoValues);
-      let projAvg = this.mapPercentileToMLBValue(percentiles.babipPercentile, mlbDist.avgValues);
+      let projHrPct = this.mapPercentileToMLBValue(percentiles.powerPercentile, mlbDist.hrPctValues);
+      let projAvg = this.mapPercentileToMLBValue(percentiles.contactPercentile, mlbDist.avgValues);
 
       // Clamp to realistic ranges
       projBbPct = Math.max(3.0, Math.min(20.0, projBbPct));
       projKPct = Math.max(5.0, Math.min(35.0, projKPct));
-      projIso = Math.max(0.05, Math.min(0.350, projIso));
+      projHrPct = Math.max(0.5, Math.min(8.0, projHrPct));  // HR% range
       projAvg = Math.max(0.200, Math.min(0.350, projAvg));
 
       // Calculate peak wOBA from mapped rates
-      const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projIso, projAvg);
+      const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg);
 
       return {
         ...result,
         eyePercentile: Math.round(percentiles.eyePercentile * 10) / 10,
         avoidKPercentile: Math.round(percentiles.avoidKPercentile * 10) / 10,
         powerPercentile: Math.round(percentiles.powerPercentile * 10) / 10,
-        babipPercentile: Math.round(percentiles.babipPercentile * 10) / 10,
+        contactPercentile: Math.round(percentiles.contactPercentile * 10) / 10,
         projBbPct: Math.round(projBbPct * 10) / 10,
         projKPct: Math.round(projKPct * 10) / 10,
-        projIso: Math.round(projIso * 1000) / 1000,
+        projHrPct: Math.round(projHrPct * 100) / 100,
         projAvg: Math.round(projAvg * 1000) / 1000,
+        // Calculate ISO from HR%: ISO ≈ HR% * 3 (since HR = 3 extra bases) + base XBH contribution
+        projIso: Math.round(((projHrPct / 100) * 3 + 0.05) * 1000) / 1000,
         projWoba: Math.round(projWoba * 1000) / 1000,
       };
     });
@@ -696,19 +820,20 @@ class HitterTrueFutureRatingService {
         eyePercentile: result.eyePercentile,
         avoidKPercentile: result.avoidKPercentile,
         powerPercentile: result.powerPercentile,
-        babipPercentile: result.babipPercentile,
+        contactPercentile: result.contactPercentile,
         scoutBbPct: result.scoutBbPct,
         scoutKPct: result.scoutKPct,
-        scoutIso: result.scoutIso,
+        scoutHrPct: result.scoutHrPct,
         scoutAvg: result.scoutAvg,
         adjustedBbPct: result.adjustedBbPct,
         adjustedKPct: result.adjustedKPct,
-        adjustedIso: result.adjustedIso,
+        adjustedHrPct: result.adjustedHrPct,
         adjustedAvg: result.adjustedAvg,
         projBbPct: result.projBbPct,
         projKPct: result.projKPct,
-        projIso: result.projIso,
+        projHrPct: result.projHrPct,
         projAvg: result.projAvg,
+        projIso: result.projIso,
         projWoba: result.projWoba,
         percentile: Math.round(percentile * 10) / 10,
         trueFutureRating,
@@ -720,12 +845,13 @@ class HitterTrueFutureRatingService {
 
   /**
    * Calculate TFR for a single hitter prospect (simplified).
+   * Uses component-specific scouting weights based on predictive validity.
    */
   calculateTrueFutureRating(input: HitterTrueFutureRatingInput): {
     projWoba: number;
     projBbPct: number;
     projKPct: number;
-    projIso: number;
+    projHrPct: number;
     projAvg: number;
     totalMinorPa: number;
   } {
@@ -739,33 +865,39 @@ class HitterTrueFutureRatingService {
     const totalMinorPa = weightedStats?.totalPa ?? 0;
     const weightedPa = weightedStats?.weightedPa ?? 0;
 
-    const scoutingWeight = this.calculateScoutingWeight(weightedPa);
+    // Component-specific scouting weights
+    const eyeScoutWeight = this.calculateComponentScoutingWeight('eye', weightedPa);
+    const avoidKScoutWeight = this.calculateComponentScoutingWeight('avoidK', weightedPa);
+    const powerScoutWeight = this.calculateComponentScoutingWeight('power', weightedPa);
+    const contactScoutWeight = this.calculateComponentScoutingWeight('contact', weightedPa);
+
     const scoutRates = this.scoutingToExpectedRates(scouting);
 
     let adjustedBbPct = scoutRates.bbPct;
     let adjustedKPct = scoutRates.kPct;
-    let adjustedIso = scoutRates.iso;
+    let adjustedHrPct = scoutRates.hrPct;
     let adjustedAvg = scoutRates.avg;
 
     if (weightedStats) {
       adjustedBbPct = weightedStats.bbPct;
       adjustedKPct = weightedStats.kPct;
-      adjustedIso = weightedStats.iso;
+      adjustedHrPct = weightedStats.hrPct;
       adjustedAvg = weightedStats.avg;
     }
 
-    const projBbPct = scoutingWeight * scoutRates.bbPct + (1 - scoutingWeight) * adjustedBbPct;
-    const projKPct = scoutingWeight * scoutRates.kPct + (1 - scoutingWeight) * adjustedKPct;
-    const projIso = scoutingWeight * scoutRates.iso + (1 - scoutingWeight) * adjustedIso;
-    const projAvg = scoutingWeight * scoutRates.avg + (1 - scoutingWeight) * adjustedAvg;
+    // Blend with component-specific weights
+    const projBbPct = eyeScoutWeight * scoutRates.bbPct + (1 - eyeScoutWeight) * adjustedBbPct;
+    const projKPct = avoidKScoutWeight * scoutRates.kPct + (1 - avoidKScoutWeight) * adjustedKPct;
+    const projHrPct = powerScoutWeight * scoutRates.hrPct + (1 - powerScoutWeight) * adjustedHrPct;
+    const projAvg = contactScoutWeight * scoutRates.avg + (1 - contactScoutWeight) * adjustedAvg;
 
-    const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projIso, projAvg);
+    const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg);
 
     return {
       projWoba: Math.round(projWoba * 1000) / 1000,
       projBbPct: Math.round(projBbPct * 10) / 10,
       projKPct: Math.round(projKPct * 10) / 10,
-      projIso: Math.round(projIso * 1000) / 1000,
+      projHrPct: Math.round(projHrPct * 100) / 100,
       projAvg: Math.round(projAvg * 1000) / 1000,
       totalMinorPa,
     };

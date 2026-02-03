@@ -3,7 +3,7 @@ import { indexedDBService } from './IndexedDBService';
 import { ScoutingSource } from './ScoutingDataService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 
-type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'babip' | 'gap' | 'speed' | 'injuryProneness' | 'age' | 'ovr' | 'pot';
+type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'contact' | 'gap' | 'speed' | 'injuryProneness' | 'age' | 'ovr' | 'pot';
 
 const STORAGE_KEY_PREFIX = 'wbl_hitter_scouting_ratings_';
 const USE_INDEXEDDB = true;
@@ -14,7 +14,7 @@ const HEADER_ALIASES: Record<HitterScoutingHeaderKey, string[]> = {
   power: ['power', 'pow', 'pwr', 'powerp', 'pwrp', 'powp'],
   eye: ['eye', 'eyep', 'discipline', 'disc'],
   avoidK: ['avoidk', 'avoid_k', 'avk', 'avoidks', 'avoidkp', 'avoidsks', 'kav', 'kavoid', 'kp'],
-  babip: ['babip', 'babipp', 'bab', 'htp', 'ht', 'hittool'],
+  contact: ['contact', 'con', 'conp', 'cnt', 'contactp'],  // Contact = ~60% HT + ~40% AvK, predicts AVG better than HT alone
   gap: ['gap', 'gapp', 'gappower', 'gaps'],
   speed: ['speed', 'spd', 'spdp', 'run', 'running', 'steal', 'spe', 'spep'],
   injuryProneness: ['prone', 'injuryproneness', 'injury', 'inj', 'durability'],
@@ -22,7 +22,7 @@ const HEADER_ALIASES: Record<HitterScoutingHeaderKey, string[]> = {
   ovr: ['ovr', 'overall', 'cur', 'current'],
   pot: ['pot', 'potential', 'ceil', 'ceiling']
 };
-// Note: CON P (Contact) is intentionally not mapped - it's a composite of avoidK + babip
+// Note: Hit Tool (HT P) is NOT mapped - Contact is used instead for AVG prediction (r=0.97 vs r=0.82)
 
 class HitterScoutingDataService {
   parseScoutingCsv(csvText: string, source: ScoutingSource = 'my'): HitterScoutingRatings[] {
@@ -49,7 +49,7 @@ class HitterScoutingDataService {
         const power = this.getNumberFromIndex(cells, indexMap.power);
         const eye = this.getNumberFromIndex(cells, indexMap.eye);
         const avoidK = this.getNumberFromIndex(cells, indexMap.avoidK);
-        const babip = this.getNumberFromIndex(cells, indexMap.babip);
+        const contact = this.getNumberFromIndex(cells, indexMap.contact);
         const gap = this.getNumberFromIndex(cells, indexMap.gap);
         const speed = this.getNumberFromIndex(cells, indexMap.speed);
         const injuryProneness = this.getStringFromIndex(cells, indexMap.injuryProneness);
@@ -75,7 +75,7 @@ class HitterScoutingDataService {
           power,
           eye,
           avoidK,
-          babip: this.isNumber(babip) ? babip : 50, // Default to 50 if not provided
+          contact: this.isNumber(contact) ? contact : 50, // Default to 50 if not provided
           gap: this.isNumber(gap) ? gap : 50,
           speed: this.isNumber(speed) ? speed : 50,
           injuryProneness: injuryProneness || undefined,
@@ -85,7 +85,7 @@ class HitterScoutingDataService {
           source,
         });
       } else {
-        // Fallback: assume positional format (id, name, power, eye, avoidK, babip, gap, speed, ovr, pot)
+        // Fallback: assume positional format (id, name, power, eye, avoidK, contact, gap, speed, ovr, pot)
         const firstCell = this.cleanCell(cells[0] ?? '');
         const firstNumber = this.parseNumber(firstCell);
         let playerId = -1;
@@ -108,12 +108,12 @@ class HitterScoutingDataService {
           .map((cell) => this.parseNumber(cell))
           .filter((value): value is number => value !== null);
 
-        // Require at least 5 values: power, eye, avoidK, ovr, pot (babip/gap/speed can default)
+        // Require at least 5 values: power, eye, avoidK, ovr, pot (contact/gap/speed can default)
         if (numericValues.length < 5) {
           continue;
         }
 
-        const [power, eye, avoidK, babip = 50, gap = 50, speed = 50, ovr, pot] = numericValues;
+        const [power, eye, avoidK, contact = 50, gap = 50, speed = 50, ovr, pot] = numericValues;
 
         // ovr and pot are required
         if (ovr === undefined || pot === undefined) {
@@ -126,7 +126,7 @@ class HitterScoutingDataService {
           power,
           eye,
           avoidK,
-          babip,
+          contact,
           gap,
           speed,
           ovr,

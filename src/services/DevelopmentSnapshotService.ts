@@ -81,7 +81,7 @@ class DevelopmentSnapshotService {
         scoutPower: r.power,
         scoutEye: r.eye,
         scoutAvoidK: r.avoidK,
-        scoutBabip: r.babip,
+        scoutBabip: r.contact,
         scoutGap: r.gap,
         scoutSpeed: r.speed,
         scoutOvr: r.ovr,

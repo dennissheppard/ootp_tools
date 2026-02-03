@@ -2,15 +2,19 @@
  * HitterRatingEstimatorService
  *
  * Estimates hitter ratings (20-80 scale) from performance statistics.
- * Regression coefficients calibrated from ootp_hitter_data_20260201.csv.
+ * Regression coefficients calibrated from OOTP engine test data (n=225).
  *
- * Key mappings:
- * - Power (20-80) → ISO (Isolated Power)
+ * Key mappings (based on OOTP engine logic):
  * - Eye (20-80) → BB%
  * - AvoidK (20-80) → K% (inverse)
- * - BABIP (20-80) → Batting Average
+ * - Power (20-80) → HR% (HR per PA)
+ * - Contact (20-80) → AVG (batting average) - composite of Hit Tool + AvoidK
  * - Gap (20-80) → Doubles rate
  * - Speed (20-200) → Triples rate
+ *
+ * Note: Contact rating is used instead of Hit Tool for AVG prediction.
+ * Contact = ~60% Hit Tool + ~40% AvoidK, and correlates much better
+ * with AVG (r=0.97) than Hit Tool alone (r=0.82).
  */
 
 interface HitterStatInput {
@@ -36,7 +40,7 @@ interface EstimatedHitterRatings {
   power: RatingEstimate;
   eye: RatingEstimate;
   avoidK: RatingEstimate;
-  babip: RatingEstimate;
+  contact: RatingEstimate;
   gap: RatingEstimate;
   speed: RatingEstimate;
   woba?: number;
@@ -49,50 +53,62 @@ interface EstimatedHitterRatings {
 const STABILIZATION = {
   bb_pct: 120,   // BB% stabilizes relatively quickly
   k_pct: 60,     // K% stabilizes very quickly
-  iso: 160,      // ISO takes longer to stabilize
+  hr_pct: 170,   // HR% takes longer to stabilize (rare events)
   avg: 910,      // AVG (BABIP) takes a long time
   doubles: 250,  // Doubles rate
   triples: 500,  // Triples are rare, need large sample
 };
 
 /**
- * Regression coefficients calibrated from OOTP hitter data
+ * Regression coefficients calibrated from OOTP engine test data (n=225)
  *
  * Format: statValue = intercept + slope * rating
  * Inverse: rating = (statValue - intercept) / slope
  *
- * UPDATED: Fixed calibration issues:
- * - Power: Previous formula gave negative ISO at rating 20 (impossible)
- * - Eye: Previous formula gave BB% of 0.94% at rating 20 (too low, MLB avg ~8.5%)
+ * Contact is used instead of Hit Tool for AVG - it's a composite rating
+ * (~60% Hit Tool + ~40% AvoidK) that correlates much better with AVG (r=0.97).
  */
 const REGRESSION_COEFFICIENTS = {
-  // Eye (20-80) → BB% (5% to 14%)
-  // BB% = 2.0 + 0.15 * eye
-  // At 20: 2.0 + 0.15 * 20 = 5.0%
-  // At 80: 2.0 + 0.15 * 80 = 14.0%
-  eye: { intercept: 2.0, slope: 0.15 },
+  // Eye (20-80) → BB%
+  // BB% = 0.64 + 0.114789 * eye
+  // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
+  // At 20: 0.64 + 0.114789 * 20 = 2.94%
+  // At 50: 0.64 + 0.114789 * 50 = 6.38%
+  // At 80: 0.64 + 0.114789 * 80 = 9.82%
+  eye: { intercept: 0.64, slope: 0.114789 },
 
-  // AvoidK (20-80) → K% (inverse: 36% to 8%)
-  // K% = 45.5 - 0.467 * avoidK (unchanged - works well)
-  // At 20: 45.5 - 0.467 * 20 = 36.2%
-  // At 80: 45.5 - 0.467 * 80 = 8.1%
-  avoidK: { intercept: 45.5, slope: -0.467 },
+  // AvoidK (20-80) → K% (inverse)
+  // K% = 25.35 - 0.200303 * avoidK
+  // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
+  // At 20: 25.35 - 0.200303 * 20 = 21.34%
+  // At 50: 25.35 - 0.200303 * 50 = 15.33%
+  // At 80: 25.35 - 0.200303 * 80 = 9.33%
+  avoidK: { intercept: 25.35, slope: -0.200303 },
 
-  // Power (20-80) → ISO (0.08 to 0.26)
-  // ISO = 0.02 + 0.003 * power
-  // At 20: 0.02 + 0.003 * 20 = 0.08
-  // At 80: 0.02 + 0.003 * 80 = 0.26
-  power: { intercept: 0.02, slope: 0.003 },
+  // Power (20-80) → HR%
+  // HR% = -1.30 + 0.058434 * power (HR per PA as percentage)
+  // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
+  // At 20: -1.30 + 0.058434 * 20 = -0.13% (clamped to 0)
+  // At 50: -1.30 + 0.058434 * 50 = 1.62%
+  // At 80: -1.30 + 0.058434 * 80 = 3.37%
+  power: { intercept: -1.30, slope: 0.058434 },
 
-  // BABIP rating (20-80) → AVG (0.186 to 0.328)
-  // AVG = 0.139 + 0.00236 * babip (unchanged - works well)
-  // At 20: 0.139 + 0.00236 * 20 = 0.186
-  // At 80: 0.139 + 0.00236 * 80 = 0.328
-  babip: { intercept: 0.139, slope: 0.00236 },
+  // Contact (20-80) → AVG (.141 to .331)
+  // Contact = ~60% Hit Tool + ~40% AvoidK (OOTP composite rating)
+  // AVG = 0.0772 + 0.00316593 * contact
+  // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
+  // At 20: 0.0772 + 0.00316593 * 20 = 0.141
+  // At 50: 0.0772 + 0.00316593 * 50 = 0.235
+  // At 80: 0.0772 + 0.00316593 * 80 = 0.331
+  // Contact correlates with AVG at r=0.97 (vs Hit Tool alone at r=0.82)
+  contact: { intercept: 0.0772, slope: 0.00316593 },
 
-  // Gap (20-80) → Doubles/AB (0.01 to 0.05)
-  // D/AB = -0.004 + 0.00058 * gap
-  gap: { intercept: -0.004, slope: 0.00058 },
+  // Gap (20-80) → Doubles/AB (0.008 to 0.055)
+  // D/AB = -0.004 + 0.00078 * gap
+  // At 20: -0.004 + 0.00078 * 20 = 0.012
+  // At 80: -0.004 + 0.00078 * 80 = 0.058
+  // Gap determines extra-base hit type after hit is decided
+  gap: { intercept: -0.004, slope: 0.00078 },
 
   // Speed (20-200) → Triples/AB (0.002 to 0.015)
   // T/AB = 0.001 + 0.000067 * speed
@@ -161,15 +177,16 @@ class HitterRatingEstimatorService {
   }
 
   /**
-   * Estimate Power rating from ISO
-   * ISO = SLG - AVG = (TB - H) / AB
+   * Estimate Power rating from HR%
+   * HR% = HR / PA * 100
+   * Power rating specifically maps to home run rate in OOTP
    */
-  static estimatePower(iso: number, pa: number): RatingEstimate {
+  static estimatePower(hrPct: number, pa: number): RatingEstimate {
     const coef = REGRESSION_COEFFICIENTS.power;
-    const rawRating = (iso - coef.intercept) / coef.slope;
+    const rawRating = (hrPct - coef.intercept) / coef.slope;
     const rating = this.capRating(Math.round(rawRating));
 
-    const { confidence, multiplier } = this.getConfidence(pa, STABILIZATION.iso);
+    const { confidence, multiplier } = this.getConfidence(pa, STABILIZATION.hr_pct);
     const uncertainty = 8 * multiplier;
 
     return {
@@ -181,11 +198,11 @@ class HitterRatingEstimatorService {
   }
 
   /**
-   * Estimate BABIP rating from batting average
-   * Uses AVG as proxy since true BABIP calculation requires more data
+   * Estimate Contact rating from batting average
+   * Contact is a composite of Hit Tool + AvoidK that predicts AVG well (r=0.97)
    */
-  static estimateBabip(avg: number, pa: number): RatingEstimate {
-    const coef = REGRESSION_COEFFICIENTS.babip;
+  static estimateContact(avg: number, pa: number): RatingEstimate {
+    const coef = REGRESSION_COEFFICIENTS.contact;
     const rawRating = (avg - coef.intercept) / coef.slope;
     const rating = this.capRating(Math.round(rawRating));
 
@@ -267,12 +284,10 @@ class HitterRatingEstimatorService {
     const kPct = (stats.k / stats.pa) * 100;
     const avg = stats.h / stats.ab;
 
-    // Calculate ISO: (TB - H) / AB
-    const singles = stats.h - stats.d - stats.t - stats.hr;
-    const totalBases = singles + 2 * stats.d + 3 * stats.t + 4 * stats.hr;
-    const iso = (totalBases - stats.h) / stats.ab;
+    // Calculate HR% (HR per PA as percentage) - Power maps to HR rate
+    const hrPct = (stats.hr / stats.pa) * 100;
 
-    // Doubles and triples rates
+    // Doubles and triples rates (per AB)
     const doublesRate = stats.d / stats.ab;
     const triplesRate = stats.t / stats.ab;
 
@@ -280,10 +295,10 @@ class HitterRatingEstimatorService {
     const woba = this.calculateWoba(stats);
 
     return {
-      power: this.estimatePower(iso, stats.pa),
+      power: this.estimatePower(hrPct, stats.pa),
       eye: this.estimateEye(bbPct, stats.pa),
       avoidK: this.estimateAvoidK(kPct, stats.pa),
-      babip: this.estimateBabip(avg, stats.pa),
+      contact: this.estimateContact(avg, stats.pa),
       gap: this.estimateGap(doublesRate, stats.pa),
       speed: this.estimateSpeed(triplesRate, stats.pa),
       woba,
@@ -303,14 +318,30 @@ class HitterRatingEstimatorService {
     return coef.intercept + coef.slope * avoidK;
   }
 
-  static expectedIso(power: number): number {
+  /**
+   * Calculate expected HR% from Power rating
+   * Returns HR per PA as a percentage (e.g., 4.0 means 4% HR/PA)
+   */
+  static expectedHrPct(power: number): number {
     const coef = REGRESSION_COEFFICIENTS.power;
     return coef.intercept + coef.slope * power;
   }
 
-  static expectedAvg(babip: number): number {
-    const coef = REGRESSION_COEFFICIENTS.babip;
-    return coef.intercept + coef.slope * babip;
+  /**
+   * @deprecated Use expectedHrPct instead. Power maps to HR%, not ISO.
+   * ISO is affected by doubles/triples which are driven by Gap/Speed.
+   */
+  static expectedIso(power: number): number {
+    // Legacy support - estimate ISO from HR% by adding typical 2B/3B contribution
+    const hrPct = this.expectedHrPct(power);
+    // Rough conversion: ISO ≈ HR% * 3 (since HR = 3 extra bases) + base XBH contribution
+    // This is approximate - for accurate ISO, use Gap and Speed ratings too
+    return (hrPct / 100) * 3 + 0.05;
+  }
+
+  static expectedAvg(contact: number): number {
+    const coef = REGRESSION_COEFFICIENTS.contact;
+    return coef.intercept + coef.slope * contact;
   }
 
   static expectedDoublesRate(gap: number): number {

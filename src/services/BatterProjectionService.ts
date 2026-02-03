@@ -16,6 +16,7 @@ import { hitterScoutingDataService } from './HitterScoutingDataService';
 import { hitterTrueRatingsCalculationService, HitterTrueRatingInput } from './HitterTrueRatingsCalculationService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
+import { hitterAgingService } from './HitterAgingService';
 
 export interface ProjectedBatter {
   playerId: number;
@@ -50,14 +51,14 @@ export interface ProjectedBatter {
     power: number;
     eye: number;
     avoidK: number;
-    babip: number;
+    contact: number;
   };
   /** Scouting ratings if available */
   scoutingRatings?: {
     power: number;
     eye: number;
     avoidK: number;
-    babip: number;
+    contact: number;
   };
 }
 
@@ -161,15 +162,43 @@ class BatterProjectionService {
 
       const { player, teamName, scouting } = info;
 
-      // Use projected stats from True Ratings calculation
-      const projWoba = trResult.woba;
-      const projAvg = trResult.blendedAvg;
-      const projBbPct = trResult.blendedBbPct;
-      const projKPct = trResult.blendedKPct;
+      // Apply aging curve to estimated ratings for next season projection
+      const currentRatings = {
+        power: trResult.estimatedPower,
+        eye: trResult.estimatedEye,
+        avoidK: trResult.estimatedAvoidK,
+        contact: trResult.estimatedContact,
+      };
+
+      // Apply aging to get next season's projected ratings
+      const projectedRatings = hitterAgingService.applyAging(currentRatings, player.age);
+
+      // Calculate projected rate stats from aged ratings
+      const projBbPct = HitterRatingEstimatorService.expectedBbPct(projectedRatings.eye);
+      const projKPct = HitterRatingEstimatorService.expectedKPct(projectedRatings.avoidK);
+      const projAvg = HitterRatingEstimatorService.expectedAvg(projectedRatings.contact);
+      const projIso = HitterRatingEstimatorService.expectedIso(projectedRatings.power);
+
+      // Calculate wOBA from projected rate stats
+      // Simplified wOBA calculation from rate stats
+      const bbRate = projBbPct / 100;
+      const hitRate = projAvg * (1 - bbRate);
+      const isoFactor = projIso / 0.140;
+      const hrRate = hitRate * 0.12 * isoFactor;
+      const tripleRate = hitRate * 0.03;
+      const doubleRate = hitRate * 0.20;
+      const singleRate = Math.max(0, hitRate - hrRate - tripleRate - doubleRate);
+
+      const projWoba = Math.max(0.200, Math.min(0.500,
+        0.69 * bbRate +
+        0.89 * singleRate +
+        1.27 * doubleRate +
+        1.62 * tripleRate +
+        2.10 * hrRate
+      ));
 
       // Calculate OBP and SLG from components
       const projObp = Math.min(0.450, projAvg + (projBbPct / 100));
-      const projIso = HitterRatingEstimatorService.expectedIso(trResult.estimatedPower);
       const projSlg = projAvg + projIso;
       const projOps = projObp + projSlg;
 
@@ -216,16 +245,16 @@ class BatterProjectionService {
           kPct: Math.round(projKPct * 10) / 10,
         },
         estimatedRatings: {
-          power: trResult.estimatedPower,
-          eye: trResult.estimatedEye,
-          avoidK: trResult.estimatedAvoidK,
-          babip: trResult.estimatedBabip,
+          power: Math.round(projectedRatings.power),
+          eye: Math.round(projectedRatings.eye),
+          avoidK: Math.round(projectedRatings.avoidK),
+          contact: Math.round(projectedRatings.contact),
         },
         scoutingRatings: scouting ? {
           power: scouting.power,
           eye: scouting.eye,
           avoidK: scouting.avoidK,
-          babip: scouting.babip ?? 50,
+          contact: scouting.contact ?? 50,
         } : undefined,
       });
     }
