@@ -13,3 +13,4 @@ export * from './HitterRatingEstimatorService';
 export * from './HitterTrueRatingsCalculationService';
 export * from './HitterTrueFutureRatingService';
 export * from './LeagueBattingAveragesService';
+export * from './BatterProjectionService';

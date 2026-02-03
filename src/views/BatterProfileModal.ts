@@ -9,6 +9,8 @@ import { hitterScoutingDataService } from '../services/HitterScoutingDataService
 import { HitterScoutingRatings } from '../models/ScoutingData';
 import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingStatsService';
 import { dateService } from '../services/DateService';
+import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
+import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
 
 export interface BatterProfileData {
   playerId: number;
@@ -41,7 +43,7 @@ export interface BatterProfileData {
   scoutPot?: number;
   injuryProneness?: string;
 
-  // Raw stats
+  // Raw stats (historical)
   pa?: number;
   avg?: number;
   obp?: number;
@@ -50,6 +52,17 @@ export interface BatterProfileData {
   rbi?: number;
   sb?: number;
   war?: number;
+
+  // Projected stats (for next season)
+  projWoba?: number;
+  projAvg?: number;
+  projObp?: number;
+  projSlg?: number;
+  projPa?: number;
+  projHr?: number;
+  projRbi?: number;
+  projWar?: number;
+  projWrcPlus?: number;
 
   // TFR for prospects
   isProspect?: boolean;
@@ -80,6 +93,13 @@ export class BatterProfileModal {
   private dragOffset = { x: 0, y: 0 };
 
   private scoutingData: HitterScoutingRatings | null = null;
+  private scoutingIsOsa = false;
+  private hasMyScout = false;
+  private hasOsaScout = false;
+  private myScoutingData: HitterScoutingRatings | null = null;
+  private osaScoutingData: HitterScoutingRatings | null = null;
+  private projectionYear: number = new Date().getFullYear();
+  private currentData: BatterProfileData | null = null;
 
   constructor() {
     this.ensureOverlayExists();
@@ -96,9 +116,14 @@ export class BatterProfileModal {
         <div class="modal-header">
           <div class="profile-header">
             <div class="profile-title-group">
-              <h3 class="modal-title"></h3>
-              <div class="player-team-info"></div>
-              <div class="player-position-age"></div>
+              <div class="title-row">
+                <h3 class="modal-title"></h3>
+              </div>
+              <div class="team-position-row">
+                <span class="position-badge-slot"></span>
+                <span class="player-team-info"></span>
+              </div>
+              <div class="player-age-info"></div>
             </div>
             <div class="ratings-header-slot"></div>
             <div class="metadata-header-slot"></div>
@@ -106,7 +131,7 @@ export class BatterProfileModal {
           <button class="modal-close" aria-label="Close">&times;</button>
         </div>
         <div class="modal-body">
-          <div class="loading-spinner">Loading...</div>
+          ${this.renderLoadingContent()}
         </div>
       </div>
     `;
@@ -178,10 +203,18 @@ export class BatterProfileModal {
     this.ensureOverlayExists();
     if (!this.overlay) return;
 
+    // Store current data for re-rendering on toggle
+    this.currentData = data;
+
+    // Store projection year (next year)
+    const currentYear = await dateService.getCurrentYear();
+    this.projectionYear = currentYear;
+
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
     const teamEl = this.overlay.querySelector<HTMLElement>('.player-team-info');
-    const posAgeEl = this.overlay.querySelector<HTMLElement>('.player-position-age');
+    const ageEl = this.overlay.querySelector<HTMLElement>('.player-age-info');
+    const posBadgeSlot = this.overlay.querySelector<HTMLElement>('.position-badge-slot');
     const ratingsSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
     const metadataSlot = this.overlay.querySelector<HTMLElement>('.metadata-header-slot');
 
@@ -191,20 +224,17 @@ export class BatterProfileModal {
       teamEl.innerHTML = teamInfo;
       teamEl.style.display = teamInfo ? '' : 'none';
     }
-    if (posAgeEl) {
-      posAgeEl.innerHTML = this.renderPositionAge(data);
+    if (posBadgeSlot) {
+      posBadgeSlot.innerHTML = this.renderPositionBadge(data);
     }
-    if (ratingsSlot) {
-      ratingsSlot.innerHTML = this.renderRatingEmblem(data);
-    }
-    if (metadataSlot) {
-      metadataSlot.innerHTML = this.renderHeaderMetadata(data);
+    if (ageEl) {
+      ageEl.textContent = data.age ? `Age: ${data.age}` : '';
     }
 
     // Show modal with loading state
     const bodyEl = this.overlay.querySelector<HTMLElement>('.modal-body');
     if (bodyEl) {
-      bodyEl.innerHTML = '<div class="loading-spinner">Loading stats...</div>';
+      bodyEl.innerHTML = this.renderLoadingContent();
     }
 
     this.overlay.classList.add('visible');
@@ -218,15 +248,40 @@ export class BatterProfileModal {
 
     // Fetch additional data
     try {
-      // Fetch scouting data
+      // Fetch scouting data - prefer "my" over OSA
       const [myScoutingAll, osaScoutingAll] = await Promise.all([
         hitterScoutingDataService.getLatestScoutingRatings('my'),
         hitterScoutingDataService.getLatestScoutingRatings('osa')
       ]);
 
-      this.scoutingData = myScoutingAll.find(s => s.playerId === data.playerId)
-        || osaScoutingAll.find(s => s.playerId === data.playerId)
-        || null;
+      const myScouting = myScoutingAll.find(s => s.playerId === data.playerId);
+      const osaScouting = osaScoutingAll.find(s => s.playerId === data.playerId);
+
+      // Store both for dropdown toggle
+      this.myScoutingData = myScouting ?? null;
+      this.osaScoutingData = osaScouting ?? null;
+      this.hasMyScout = !!myScouting;
+      this.hasOsaScout = !!osaScouting;
+
+      // Default to 'my' if available, otherwise OSA
+      if (myScouting) {
+        this.scoutingData = myScouting;
+        this.scoutingIsOsa = false;
+      } else if (osaScouting) {
+        this.scoutingData = osaScouting;
+        this.scoutingIsOsa = true;
+      } else {
+        this.scoutingData = null;
+        this.scoutingIsOsa = false;
+      }
+
+      // Now render header slots with scouting data
+      if (ratingsSlot) {
+        ratingsSlot.innerHTML = this.renderRatingEmblem(data);
+      }
+      if (metadataSlot) {
+        metadataSlot.innerHTML = this.renderHeaderMetadata(data);
+      }
 
       // Fetch batting stats history
       const currentYear = await dateService.getCurrentYear();
@@ -247,7 +302,7 @@ export class BatterProfileModal {
           obp: s.obp,
           slg: s.slg,
           hr: s.hr,
-          rbi: 0, // Not available in minor league stats
+          rbi: 0,
           sb: s.sb,
           bb: s.bb,
           k: s.k,
@@ -257,14 +312,13 @@ export class BatterProfileModal {
         console.warn('No minor league batting stats found');
       }
 
-      // Fetch MLB batting stats (from yearly cache)
+      // Fetch MLB batting stats
       let mlbStats: BatterSeasonStats[] = [];
       try {
         for (let year = currentYear; year >= currentYear - 4; year--) {
           const yearStats = await trueRatingsService.getTrueBattingStats(year);
           const playerStat = yearStats.find(s => s.player_id === data.playerId);
           if (playerStat) {
-            // Calculate SLG from raw data: (1B + 2*2B + 3*3B + 4*HR) / AB
             const singles = playerStat.h - playerStat.d - playerStat.t - playerStat.hr;
             const slg = playerStat.ab > 0
               ? (singles + 2 * playerStat.d + 3 * playerStat.t + 4 * playerStat.hr) / playerStat.ab
@@ -301,6 +355,18 @@ export class BatterProfileModal {
       if (bodyEl) {
         bodyEl.innerHTML = this.renderBody(data, allStats);
         this.bindBodyEvents();
+
+        // Trigger shimmer animation on rating bars
+        requestAnimationFrame(() => {
+          const estimatedBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated');
+          estimatedBars.forEach(bar => bar.classList.add('shimmer-once'));
+
+          const scoutBars = bodyEl.querySelectorAll<HTMLElement>('.bar-scout');
+          scoutBars.forEach(bar => bar.classList.add('shimmer-once'));
+
+          const emblem = this.overlay?.querySelector('.rating-emblem');
+          if (emblem) emblem.classList.add('shimmer-once');
+        });
       }
     } catch (error) {
       console.error('Error loading batter profile data:', error);
@@ -321,7 +387,6 @@ export class BatterProfileModal {
       this.boundKeyHandler = null;
     }
 
-    // Reset position
     if (this.modal) {
       this.modal.classList.remove('dragging');
       this.modal.style.left = '';
@@ -337,14 +402,74 @@ export class BatterProfileModal {
     return `<span class="team-name">${team}</span>`;
   }
 
-  private renderPositionAge(data: BatterProfileData): string {
+  private renderPositionBadge(data: BatterProfileData): string {
     const posLabel = data.positionLabel || (data.position ? getPositionLabel(data.position) : 'Unknown');
     const posClass = this.getPositionClass(data.position);
-    const age = data.age ?? 'N/A';
+    return `<span class="position-badge ${posClass}">${posLabel}</span>`;
+  }
 
+  private renderLoadingContent(): string {
     return `
-      <span class="position-badge ${posClass}">${posLabel}</span>
-      <span class="age-label">Age ${age}</span>
+      <div class="player-modal-loading">
+        <div class="ratings-comparison loading-skeleton">
+          <div class="rating-row rating-row-header">
+            <span class="rating-label"></span>
+            <div class="rating-bars">
+              <span class="bar-header skeleton-line sm"></span>
+              <span class="bar-vs"></span>
+              <span class="bar-header skeleton-line sm"></span>
+              <span class="rating-diff"></span>
+            </div>
+          </div>
+          ${Array.from({ length: 4 }, () => `
+            <div class="rating-row">
+              <span class="rating-label"><span class="skeleton-line xs"></span></span>
+              <div class="rating-bars">
+                <div class="bar-container skeleton-bar"></div>
+                <span class="rating-diff"><span class="skeleton-line xs"></span></span>
+                <span class="bar-vs">vs</span>
+                <div class="bar-container skeleton-bar"></div>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+        <div class="projection-section loading-skeleton">
+          <h4 class="skeleton-line md"></h4>
+          <div class="stats-table-container">
+            <table class="stats-table skeleton-table">
+              <thead>
+                <tr>
+                  ${Array.from({ length: 8 }, () => '<th><span class="skeleton-line xs"></span></th>').join('')}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  ${Array.from({ length: 8 }, () => '<td><span class="skeleton-line xs"></span></td>').join('')}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="stats-history loading-skeleton">
+          <h4 class="section-label skeleton-line sm"></h4>
+          <div class="table-wrapper">
+            <table class="stats-table skeleton-table">
+              <thead>
+                <tr>
+                  ${Array.from({ length: 10 }, () => '<th><span class="skeleton-line xs"></span></th>').join('')}
+                </tr>
+              </thead>
+              <tbody>
+                ${Array.from({ length: 5 }, () => `
+                  <tr>
+                    ${Array.from({ length: 10 }, () => '<td><span class="skeleton-line xs"></span></td>').join('')}
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     `;
   }
 
@@ -366,67 +491,104 @@ export class BatterProfileModal {
     const ratingValue = useTfr ? data.trueFutureRating : data.trueRating;
 
     if (typeof ratingValue !== 'number') {
-      return '<div class="rating-emblem rating-none"><span class="rating-value">--</span></div>';
+      return '<div class="rating-emblem rating-none"><span class="rating-emblem-score">--</span></div>';
     }
 
     const badgeClass = this.getTrueRatingClass(ratingValue);
-    const indicator = useTfr
-      ? '<span class="badge-indicator-tfr" title="True Future Rating">F</span>'
-      : '';
     const percentile = useTfr ? data.tfrPercentile : data.percentile;
-    const percentileText = typeof percentile === 'number' ? `${percentile.toFixed(0)}th %ile` : '';
-
-    // Calculate emblem bar width (0.5 to 5.0 scale → 0% to 100%)
-    const barWidth = Math.max(0, Math.min(100, ((ratingValue - 0.5) / 4.5) * 100));
+    const percentileText = typeof percentile === 'number' ? `${this.formatPercentile(percentile)} Percentile` : '';
+    const barWidth = Math.max(10, Math.min(100, (ratingValue / 5) * 100));
+    const label = useTfr ? 'True Future Rating' : 'True Rating';
 
     return `
-      <div class="rating-emblem ${badgeClass}" title="${useTfr ? 'True Future Rating' : 'True Rating'}">
-        <div class="rating-emblem-inner">
-          <span class="rating-value">${ratingValue.toFixed(1)}${indicator}</span>
-          <span class="rating-label">${useTfr ? 'TFR' : 'TR'}</span>
+      <div class="rating-emblem ${badgeClass}">
+        <div class="rating-emblem-header">
+          <span class="rating-emblem-label">${label}</span>
         </div>
-        <div class="rating-emblem-bar">
-          <div class="rating-emblem-bar-fill" style="width: ${barWidth}%"></div>
+        <div class="rating-emblem-body">
+          <div class="rating-emblem-bar">
+            <div class="rating-emblem-bar-fill" style="width: ${barWidth}%"></div>
+          </div>
+          <div class="rating-emblem-score">${ratingValue.toFixed(1)}</div>
         </div>
-        ${percentileText ? `<span class="rating-percentile">${percentileText}</span>` : ''}
+        ${percentileText ? `<div class="rating-emblem-meta">${percentileText}</div>` : ''}
       </div>
     `;
   }
 
-  private renderHeaderMetadata(data: BatterProfileData): string {
-    const ratings = [
-      { label: 'Power', value: data.estimatedPower, scout: this.scoutingData?.power },
-      { label: 'Eye', value: data.estimatedEye, scout: this.scoutingData?.eye },
-      { label: 'AvoidK', value: data.estimatedAvoidK, scout: this.scoutingData?.avoidK },
-      { label: 'Hitting', value: data.estimatedBabip, scout: this.scoutingData?.babip },
-    ];
-
-    const bars = ratings.map(r => {
-      const value = r.value ?? r.scout ?? 50;
-      const percentage = Math.max(0, Math.min(100, ((value - 20) / 60) * 100));
-      const displayValue = Math.round(Math.max(20, Math.min(80, value)));
-      const barClass = this.getRatingBarClass(value);
-
-      return `
-        <div class="header-metadata-item">
-          <span class="header-metadata-label">${r.label}</span>
-          <div class="header-metadata-bar">
-            <div class="header-metadata-bar-fill ${barClass}" style="width: ${percentage}%"></div>
-          </div>
-          <span class="header-metadata-value">${displayValue}</span>
-        </div>
-      `;
-    }).join('');
-
-    return `<div class="header-metadata-grid">${bars}</div>`;
+  private formatPercentile(p: number): string {
+    const rounded = Math.round(p);
+    const suffix = rounded === 11 || rounded === 12 || rounded === 13 ? 'th'
+      : rounded % 10 === 1 ? 'st'
+      : rounded % 10 === 2 ? 'nd'
+      : rounded % 10 === 3 ? 'rd'
+      : 'th';
+    return `${rounded}${suffix}`;
   }
 
-  private getRatingBarClass(value: number): string {
-    if (value >= 70) return 'rating-elite';
-    if (value >= 60) return 'rating-plus';
-    if (value >= 50) return 'rating-avg';
-    if (value >= 40) return 'rating-fringe';
-    return 'rating-poor';
+  private renderHeaderMetadata(data: BatterProfileData): string {
+    const s = this.scoutingData;
+
+    // Speed rating bar
+    const speed = s?.speed ?? 50;
+    const speedWidth = Math.max(0, Math.min(100, ((speed - 20) / 180) * 100)); // 20-200 scale
+    const speedColor = speed >= 150 ? 'linear-gradient(90deg, #22c55e, #4ade80)'
+      : speed >= 100 ? 'linear-gradient(90deg, #3b82f6, #60a5fa)'
+      : speed >= 50 ? 'linear-gradient(90deg, #eab308, #facc15)'
+      : 'linear-gradient(90deg, #ef4444, #f87171)';
+
+    // Injury/durability bar
+    const injury = s?.injuryProneness || data.injuryProneness || 'Normal';
+    const injuryWidth = this.getInjuryBarWidth(injury);
+    const injuryColor = this.getInjuryBarColor(injury);
+
+    // OVR/POT stars
+    const ovr = s?.ovr ?? data.scoutOvr;
+    const pot = s?.pot ?? data.scoutPot;
+    const starsText = typeof ovr === 'number' && typeof pot === 'number'
+      ? `${ovr.toFixed(1)}★ / ${pot.toFixed(1)}★`
+      : '--';
+
+    return `
+      <div class="header-metadata">
+        <div class="metadata-row">
+          <span class="metadata-label">Speed</span>
+          <div class="metadata-bar">
+            <div class="metadata-bar-fill" style="width: ${speedWidth}%; background: ${speedColor};"></div>
+          </div>
+        </div>
+        <div class="metadata-row">
+          <span class="metadata-label">Injury</span>
+          <div class="metadata-bar">
+            <div class="metadata-bar-fill" style="width: ${injuryWidth}%; background: ${injuryColor};"></div>
+          </div>
+        </div>
+        <div class="metadata-row metadata-stars-row">
+          <span class="metadata-label"></span>
+          <div class="metadata-stars">${starsText}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  private getInjuryBarWidth(injury: string): number {
+    switch (injury) {
+      case 'Ironman': case 'Durable': return 100;
+      case 'Normal': return 70;
+      case 'Fragile': return 40;
+      case 'Wrecked': case 'Prone': return 15;
+      default: return 70;
+    }
+  }
+
+  private getInjuryBarColor(injury: string): string {
+    switch (injury) {
+      case 'Ironman': case 'Durable': return 'linear-gradient(90deg, #22c55e, #4ade80)';
+      case 'Normal': return 'linear-gradient(90deg, #eab308, #facc15)';
+      case 'Fragile': return 'linear-gradient(90deg, #f97316, #fb923c)';
+      case 'Wrecked': case 'Prone': return 'linear-gradient(90deg, #ef4444, #f87171)';
+      default: return 'linear-gradient(90deg, #eab308, #facc15)';
+    }
   }
 
   private getTrueRatingClass(value: number): string {
@@ -437,152 +599,291 @@ export class BatterProfileModal {
     return 'rating-poor';
   }
 
+  private getRatingBarClass(value: number): string {
+    if (value >= 70) return 'rating-elite';
+    if (value >= 60) return 'rating-plus';
+    if (value >= 50) return 'rating-avg';
+    if (value >= 40) return 'rating-fringe';
+    return 'rating-poor';
+  }
+
   private renderBody(data: BatterProfileData, stats: BatterSeasonStats[]): string {
-    const scoutingSection = this.renderScoutingSection();
+    const ratingsComparison = this.renderRatingsComparison(data);
+    const projectionSection = this.renderProjection(data, stats);
     const statsSection = this.renderStatsTable(stats);
-    const summarySection = this.renderSummaryStats(data);
 
     return `
-      <div class="profile-body-grid">
-        <div class="profile-main-column">
-          ${summarySection}
-          ${statsSection}
-        </div>
-        <div class="profile-side-column">
-          ${scoutingSection}
-        </div>
+      <div class="profile-body">
+        ${ratingsComparison}
+        ${projectionSection}
+        ${statsSection}
       </div>
     `;
   }
 
-  private renderSummaryStats(data: BatterProfileData): string {
-    const woba = typeof data.woba === 'number' ? data.woba.toFixed(3) : '--';
-    const avg = typeof data.avg === 'number' ? data.avg.toFixed(3) : '--';
-    const obp = typeof data.obp === 'number' ? data.obp.toFixed(3) : '--';
-    const slg = typeof data.slg === 'number' ? (data.slg).toFixed(3) : '--';
-    const war = typeof data.war === 'number' ? data.war.toFixed(1) : '--';
+  private renderProjection(data: BatterProfileData, stats: BatterSeasonStats[]): string {
+    // Get most recent year stats for comparison
+    const latestStat = stats.find(s => s.level === 'MLB');
+    const age = data.age ?? 27;
+
+    // League averages for OPS+ calculation
+    const lgObp = 0.320;
+    const lgSlg = 0.400;
+
+    // Calculate projected stats from estimated ratings if not provided
+    let projAvg = data.projAvg ?? data.avg;
+    let projObp = data.projObp ?? data.obp;
+    let projSlg = data.projSlg ?? data.slg;
+    let projBbPct = 8.5; // default BB%
+    let projKPct = 22.0; // default K%
+
+    // If we have estimated ratings but no projected stats, calculate them
+    if (!projAvg && data.estimatedPower && data.estimatedEye && data.estimatedAvoidK && data.estimatedBabip) {
+      projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
+      const kPct = HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
+      projKPct = kPct;
+      const iso = HitterRatingEstimatorService.expectedIso(data.estimatedPower);
+      const avg = HitterRatingEstimatorService.expectedAvg(data.estimatedBabip);
+
+      projAvg = avg;
+      projObp = Math.min(0.450, avg + (projBbPct / 100));
+      projSlg = avg + iso;
+    }
+
+    // Fall back to defaults if still not available
+    projAvg = projAvg ?? 0.260;
+    projObp = projObp ?? 0.330;
+    projSlg = projSlg ?? 0.420;
+
+    // Calculate projected PA based on age and injury proneness if not provided
+    const injuryProneness = this.scoutingData?.injuryProneness ?? data.injuryProneness;
+    const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+    const projHr = data.projHr ?? data.hr ?? Math.round((projSlg - projAvg) * 100); // HR estimate from ISO
+    const projSb = Math.round((this.scoutingData?.speed ?? 50) / 10); // SB estimate from speed
+
+    // Calculate OPS and OPS+
+    const projOps = projObp + projSlg;
+    const projOpsPlus = Math.round(100 * ((projObp / lgObp) + (projSlg / lgSlg) - 1));
+
+    // Calculate WAR from OPS+ (rough approximation)
+    const runsPerWin = 10;
+    const replacementRuns = (projPa / 600) * 20;
+    const runsAboveAvg = ((projOpsPlus - 100) / 10) * (projPa / 600) * 10;
+    const calculatedWar = Math.max(0, (runsAboveAvg + replacementRuns) / runsPerWin);
+    const projWar = data.projWar ?? data.war ?? Math.round(calculatedWar * 10) / 10;
+
+    const formatStat = (val: number, decimals: number = 3) => val.toFixed(decimals);
+    const formatPct = (val: number) => val.toFixed(1) + '%';
+
+    // Show comparison to actual if we have stats
+    let comparisonRow = '';
+    if (latestStat) {
+      const actualBbPct = latestStat.pa > 0 ? (latestStat.bb / latestStat.pa) * 100 : 0;
+      const actualKPct = latestStat.pa > 0 ? (latestStat.k / latestStat.pa) * 100 : 0;
+      const actualOps = latestStat.obp + latestStat.slg;
+      const actualOpsPlus = Math.round(100 * ((latestStat.obp / lgObp) + (latestStat.slg / lgSlg) - 1));
+
+      comparisonRow = `
+        <tr class="actual-row">
+          <td>Actual</td>
+          <td>${latestStat.pa}</td>
+          <td>${formatStat(latestStat.avg)}</td>
+          <td>${formatStat(latestStat.obp)}</td>
+          <td>${formatPct(actualBbPct)}</td>
+          <td>${formatPct(actualKPct)}</td>
+          <td>${latestStat.hr}</td>
+          <td>${formatStat(latestStat.slg)}</td>
+          <td>${formatStat(actualOps)}</td>
+          <td>${actualOpsPlus}</td>
+          <td>${latestStat.sb}</td>
+          <td>${typeof latestStat.war === 'number' ? formatStat(latestStat.war, 1) : '—'}</td>
+        </tr>
+      `;
+    }
+
+    // For prospects, show "Peak Projection (27yo)" instead of current year
+    const isProspect = data.isProspect === true;
+    const projectionLabel = isProspect
+        ? 'Peak Projection <span class="projection-age">(27yo)</span>'
+        : `${this.projectionYear} Projection <span class="projection-age">(${age}yo)</span>`;
 
     return `
-      <div class="summary-stats-section">
-        <h4 class="section-title">Current Season</h4>
-        <div class="summary-stats-grid">
-          <div class="summary-stat">
-            <span class="stat-value">${avg}</span>
-            <span class="stat-label">AVG</span>
-          </div>
-          <div class="summary-stat">
-            <span class="stat-value">${obp}</span>
-            <span class="stat-label">OBP</span>
-          </div>
-          <div class="summary-stat">
-            <span class="stat-value">${slg}</span>
-            <span class="stat-label">SLG</span>
-          </div>
-          <div class="summary-stat highlight">
-            <span class="stat-value">${woba}</span>
-            <span class="stat-label">wOBA</span>
-          </div>
-          <div class="summary-stat">
-            <span class="stat-value">${data.hr ?? '--'}</span>
-            <span class="stat-label">HR</span>
-          </div>
-          <div class="summary-stat">
-            <span class="stat-value">${data.rbi ?? '--'}</span>
-            <span class="stat-label">RBI</span>
-          </div>
-          <div class="summary-stat">
-            <span class="stat-value">${data.sb ?? '--'}</span>
-            <span class="stat-label">SB</span>
-          </div>
-          <div class="summary-stat">
-            <span class="stat-value">${war}</span>
-            <span class="stat-label">WAR</span>
-          </div>
+      <div class="projection-section">
+        <h4 class="section-label">${projectionLabel}</h4>
+        <div class="stats-table-scroll">
+          <table class="profile-stats-table projection-table">
+            <thead>
+              <tr>
+                <th></th>
+                <th>PA</th>
+                <th>AVG</th>
+                <th>OBP</th>
+                <th>BB%</th>
+                <th>K%</th>
+                <th>HR</th>
+                <th>SLG</th>
+                <th>OPS</th>
+                <th>OPS+</th>
+                <th>SB</th>
+                <th>WAR</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="projection-row">
+                <td><strong>Proj</strong></td>
+                <td>${projPa}</td>
+                <td><strong>${formatStat(projAvg)}</strong></td>
+                <td>${formatStat(projObp)}</td>
+                <td>${formatPct(projBbPct)}</td>
+                <td>${formatPct(projKPct)}</td>
+                <td>${projHr}</td>
+                <td>${formatStat(projSlg)}</td>
+                <td>${formatStat(projOps)}</td>
+                <td><strong>${projOpsPlus}</strong></td>
+                <td>${projSb}</td>
+                <td><strong>${formatStat(projWar, 1)}</strong></td>
+              </tr>
+              ${comparisonRow}
+            </tbody>
+          </table>
         </div>
+        <p class="projection-note">* Projection based on True Ratings. Assumes full season health.</p>
       </div>
     `;
   }
 
-  private renderScoutingSection(): string {
-    if (!this.scoutingData) {
+  private renderRatingsComparison(data: BatterProfileData): string {
+    const s = this.scoutingData;
+    const hasScout = s !== null;
+    const hasAlternative = this.hasMyScout && this.hasOsaScout;
+
+    if (!hasScout) {
       return `
-        <div class="scouting-section">
-          <h4 class="section-title">Scouting Report</h4>
-          <p class="no-data">No scouting data available</p>
+        <div class="ratings-comparison">
+          <div class="rating-row rating-row-header">
+            <span class="rating-label"></span>
+            <div class="rating-bars">
+              <span class="bar-header" title="Derived from performance data and advanced metrics" style="cursor: help;">True Ratings</span>
+            </div>
+          </div>
+          ${this.renderRatingBar('Power', data.estimatedPower)}
+          ${this.renderRatingBar('Eye', data.estimatedEye)}
+          ${this.renderRatingBar('Avoid K', data.estimatedAvoidK)}
+          ${this.renderRatingBar('Hitting', data.estimatedBabip)}
         </div>
       `;
     }
 
-    const s = this.scoutingData;
-    const ratings = [
-      { label: 'Power', value: s.power, key: 'power' },
-      { label: 'Eye', value: s.eye, key: 'eye' },
-      { label: 'Avoid K', value: s.avoidK, key: 'avoidK' },
-      { label: 'Hitting', value: s.babip ?? 50, key: 'babip' },
-      { label: 'Gap', value: s.gap ?? 50, key: 'gap' },
-      { label: 'Speed', value: s.speed ?? 50, key: 'speed' },
-    ];
-
-    const ratingBars = ratings.map(r => {
-      const value = r.value ?? 50;
-      const percentage = Math.max(0, Math.min(100, ((value - 20) / 60) * 100));
-      const barClass = this.getRatingBarClass(value);
-
-      return `
-        <div class="scouting-rating-row">
-          <span class="scouting-label">${r.label}</span>
-          <div class="scouting-bar">
-            <div class="scouting-bar-fill ${barClass}" style="width: ${percentage}%"></div>
+    // Build header with toggle (if both sources exist) or badge (if only one)
+    let headerLabel = '';
+    if (hasAlternative) {
+      const activeSource = this.scoutingIsOsa ? 'osa' : 'my';
+      headerLabel = `
+        <div class="scout-header-toggle custom-dropdown">
+          <span class="dropdown-trigger" data-player-id="${data.playerId}">${activeSource === 'my' ? 'My' : 'OSA'}</span>
+          <div class="dropdown-menu">
+            <div class="dropdown-item ${activeSource === 'my' ? 'active' : ''}" data-value="my">My</div>
+            <div class="dropdown-item ${activeSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
           </div>
-          <span class="scouting-value">${Math.round(value)}</span>
         </div>
-      `;
-    }).join('');
-
-    const ovrPot = `
-      <div class="scouting-stars">
-        <div class="star-rating">
-          <span class="star-label">OVR</span>
-          <span class="star-value">${this.renderStars(s.ovr)}</span>
-        </div>
-        <div class="star-rating">
-          <span class="star-label">POT</span>
-          <span class="star-value">${this.renderStars(s.pot)}</span>
-        </div>
-      </div>
-    `;
-
-    const injury = s.injuryProneness
-      ? `<div class="injury-status"><span class="injury-label">Durability:</span> <span class="injury-value">${s.injuryProneness}</span></div>`
-      : '';
+        Scout Opinions`;
+    } else {
+      const sourceLabel = this.scoutingIsOsa ? 'OSA' : 'My Scout';
+      const sourceBadgeClass = this.scoutingIsOsa ? 'osa' : 'my';
+      headerLabel = `<span class="source-badge ${sourceBadgeClass}">${sourceLabel}</span> Scout Opinions`;
+    }
 
     return `
-      <div class="scouting-section">
-        <h4 class="section-title">Scouting Report</h4>
-        ${ovrPot}
-        <div class="scouting-ratings">
-          ${ratingBars}
+      <div class="ratings-comparison">
+        <div class="rating-row rating-row-header">
+          <span class="rating-label"></span>
+          <div class="rating-bars">
+            <div class="rating-bars-left">
+              <span class="bar-header" title="Derived from performance data and advanced metrics" style="cursor: help;">True Ratings</span>
+            </div>
+            <div class="rating-bars-center">
+              <span class="bar-vs"></span>
+            </div>
+            <div class="rating-bars-right">
+              <span class="bar-header">${headerLabel}</span>
+            </div>
+          </div>
         </div>
-        ${injury}
+        ${this.renderRatingBarComparison('Power', data.estimatedPower, s.power)}
+        ${this.renderRatingBarComparison('Eye', data.estimatedEye, s.eye)}
+        ${this.renderRatingBarComparison('Avoid K', data.estimatedAvoidK, s.avoidK)}
+        ${this.renderRatingBarComparison('Hitting', data.estimatedBabip, s.babip ?? 50)}
       </div>
     `;
   }
 
-  private renderStars(value?: number): string {
-    if (typeof value !== 'number') return '--';
-    const fullStars = Math.floor(value);
-    const hasHalf = value % 1 >= 0.5;
-    const emptyStars = 5 - fullStars - (hasHalf ? 1 : 0);
+  private renderRatingBar(label: string, value?: number): string {
+    const val = value ?? 50;
+    const percentage = Math.max(0, Math.min(100, ((val - 20) / 60) * 100));
+    const barClass = this.getRatingBarClass(val);
+    const displayValue = Math.round(Math.max(20, Math.min(80, val)));
 
-    return '★'.repeat(fullStars) + (hasHalf ? '½' : '') + '☆'.repeat(emptyStars);
+    return `
+      <div class="rating-row">
+        <span class="rating-label">${label}</span>
+        <div class="rating-bars">
+          <div class="bar-container">
+            <div class="bar bar-estimated ${barClass}" style="width: ${percentage}%"></div>
+            <span class="bar-value">${displayValue}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderRatingBarComparison(label: string, trueValue?: number, scoutValue?: number): string {
+    const tv = trueValue ?? 50;
+    const sv = scoutValue ?? 50;
+    const truePercent = Math.max(0, Math.min(100, ((tv - 20) / 60) * 100));
+    const scoutPercent = Math.max(0, Math.min(100, ((sv - 20) / 60) * 100));
+    const trueBarClass = this.getRatingBarClass(tv);
+    const scoutBarClass = this.getRatingBarClass(sv);
+    const trueDisplay = Math.round(Math.max(20, Math.min(80, tv)));
+    const scoutDisplay = Math.round(Math.max(20, Math.min(80, sv)));
+    const diff = trueDisplay - scoutDisplay;
+    const diffText = diff > 0 ? `+${diff}` : diff === 0 ? '—' : `${diff}`;
+    const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
+
+    return `
+      <div class="rating-row">
+        <span class="rating-label">${label}</span>
+        <div class="rating-bars">
+          <div class="rating-bars-left">
+            <div class="bar-container">
+              <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%"></div>
+              <span class="bar-value">${trueDisplay}</span>
+            </div>
+          </div>
+          <div class="rating-bars-center">
+            <span class="rating-diff ${diffClass}">${diffText}</span>
+            <span class="bar-vs">vs</span>
+          </div>
+          <div class="rating-bars-right">
+            <div class="bar-container bar-container-rtl">
+              <div class="bar bar-scout ${scoutBarClass}" style="width: ${scoutPercent}%"></div>
+              <span class="bar-value">${scoutDisplay}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   private renderStatsTable(stats: BatterSeasonStats[]): string {
+    // League averages for OPS+ calculation
+    const lgObp = 0.320;
+    const lgSlg = 0.400;
+
     if (stats.length === 0) {
       return `
-        <div class="stats-history-section">
-          <h4 class="section-title">Career Stats</h4>
-          <p class="no-data">No stats history available</p>
+        <div class="stats-history">
+          <h4 class="section-label">Career Stats</h4>
+          <p class="no-stats">No batting stats found for this player.</p>
         </div>
       `;
     }
@@ -591,6 +892,14 @@ export class BatterProfileModal {
       const levelBadge = s.level === 'MLB'
         ? '<span class="level-badge level-mlb">MLB</span>'
         : `<span class="level-badge level-${s.level.toLowerCase()}">${s.level.toUpperCase()}</span>`;
+      const isMinor = s.level !== 'MLB';
+      const warCell = isMinor ? '<td class="stat-na">—</td>' : `<td>${(s.war ?? 0).toFixed(1)}</td>`;
+
+      // Calculate rate stats
+      const bbPct = s.pa > 0 ? (s.bb / s.pa) * 100 : 0;
+      const kPct = s.pa > 0 ? (s.k / s.pa) * 100 : 0;
+      const ops = s.obp + s.slg;
+      const opsPlus = Math.round(100 * ((s.obp / lgObp) + (s.slg / lgSlg) - 1));
 
       return `
         <tr>
@@ -599,22 +908,23 @@ export class BatterProfileModal {
           <td>${s.pa}</td>
           <td>${s.avg.toFixed(3)}</td>
           <td>${s.obp.toFixed(3)}</td>
-          <td>${s.slg.toFixed(3)}</td>
+          <td>${bbPct.toFixed(1)}%</td>
+          <td>${kPct.toFixed(1)}%</td>
           <td>${s.hr}</td>
-          <td>${s.rbi}</td>
+          <td>${s.slg.toFixed(3)}</td>
+          <td>${ops.toFixed(3)}</td>
+          <td>${opsPlus}</td>
           <td>${s.sb}</td>
-          <td>${s.bb}</td>
-          <td>${s.k}</td>
-          <td>${s.level === 'MLB' && typeof s.war === 'number' ? s.war.toFixed(1) : '--'}</td>
+          ${warCell}
         </tr>
       `;
     }).join('');
 
     return `
-      <div class="stats-history-section">
-        <h4 class="section-title">Career Stats</h4>
-        <div class="stats-table-wrapper">
-          <table class="stats-table profile-stats-table">
+      <div class="stats-history">
+        <h4 class="section-label">Career Stats</h4>
+        <div class="stats-table-scroll">
+          <table class="profile-stats-table">
             <thead>
               <tr>
                 <th>Year</th>
@@ -622,12 +932,13 @@ export class BatterProfileModal {
                 <th>PA</th>
                 <th>AVG</th>
                 <th>OBP</th>
-                <th>SLG</th>
+                <th>BB%</th>
+                <th>K%</th>
                 <th>HR</th>
-                <th>RBI</th>
+                <th>SLG</th>
+                <th>OPS</th>
+                <th>OPS+</th>
                 <th>SB</th>
-                <th>BB</th>
-                <th>K</th>
                 <th>WAR</th>
               </tr>
             </thead>
@@ -641,7 +952,41 @@ export class BatterProfileModal {
   }
 
   private bindBodyEvents(): void {
-    // Future: Add toggle events, chart interactions, etc.
+    this.bindScoutSourceToggle();
+  }
+
+  private bindScoutSourceToggle(): void {
+    if (!this.overlay) return;
+    const toggleContainer = this.overlay.querySelector<HTMLElement>('.scout-header-toggle.custom-dropdown');
+    if (!toggleContainer) return;
+
+    const items = toggleContainer.querySelectorAll<HTMLElement>('.dropdown-item');
+    items.forEach(item => {
+      item.addEventListener('click', (e) => {
+        const newSource = (e.target as HTMLElement).dataset.value as 'my' | 'osa';
+        if (!newSource) return;
+
+        const isCurrentlyOsa = this.scoutingIsOsa;
+        const wantsOsa = newSource === 'osa';
+        if (isCurrentlyOsa === wantsOsa) return; // No change
+
+        // Switch scouting data source
+        if (newSource === 'my' && this.myScoutingData) {
+          this.scoutingData = this.myScoutingData;
+          this.scoutingIsOsa = false;
+        } else if (newSource === 'osa' && this.osaScoutingData) {
+          this.scoutingData = this.osaScoutingData;
+          this.scoutingIsOsa = true;
+        }
+
+        // Re-render the ratings comparison section
+        const ratingsSection = this.overlay?.querySelector('.ratings-comparison');
+        if (ratingsSection && this.currentData) {
+          ratingsSection.outerHTML = this.renderRatingsComparison(this.currentData);
+          this.bindScoutSourceToggle(); // Re-bind after re-render
+        }
+      });
+    });
   }
 }
 

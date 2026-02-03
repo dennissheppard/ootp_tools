@@ -1,4 +1,5 @@
 import { projectionService, ProjectedPlayer } from '../services/ProjectionService';
+import { batterProjectionService, ProjectedBatter } from '../services/BatterProjectionService';
 import { dateService } from '../services/DateService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { playerService } from '../services/PlayerService';
@@ -27,6 +28,13 @@ interface ColumnConfig {
   accessor?: (row: ProjectedPlayerWithActuals) => any;
 }
 
+interface BatterColumnConfig {
+  key: string;
+  label: string;
+  sortKey?: string;
+  accessor?: (row: ProjectedBatter) => any;
+}
+
 export class ProjectionsView {
   private container: HTMLElement;
   private stats: ProjectedPlayerWithActuals[] = [];
@@ -36,7 +44,8 @@ export class ProjectionsView {
   private itemsPerPageSelection: '10' | '50' | '200' | 'all' = '50';
   private selectedYear = 2020;
   private selectedTeam = 'all';
-  private selectedPosition: 'all' | 'SP' | 'RP' = 'all';
+  private selectedPosition = 'all-pitchers';
+  private mode: 'pitchers' | 'batters' = 'pitchers';
   private teamOptions: string[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i);
   private isOffseason = false;
@@ -59,6 +68,12 @@ export class ProjectionsView {
   private analysisMinIp = 20; // Default minimum IP filter
   private analysisMaxIp = 999; // Default maximum IP filter (effectively unlimited)
   private analysisUseIpFilter = true; // Default to filtering enabled
+
+  // Batter-specific properties
+  private batterStats: ProjectedBatter[] = [];
+  private allBatterStats: ProjectedBatter[] = [];
+  private batterColumns: BatterColumnConfig[] = [];
+  private batterRowLookup: Map<number, ProjectedBatter> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -102,6 +117,46 @@ export class ProjectionsView {
     }
 
     this.columns = this.loadColumnPrefs(defaults);
+
+    // Initialize batter columns
+    this.batterColumns = [
+      { key: 'position', label: 'Pos', sortKey: 'position', accessor: b => this.renderBatterPositionBadge(b.position) },
+      { key: 'name', label: 'Name', accessor: b => this.renderBatterName(b) },
+      { key: 'teamName', label: 'Team' },
+      { key: 'age', label: 'Age' },
+      { key: 'currentTrueRating', label: 'TR', sortKey: 'currentTrueRating', accessor: b => this.renderBatterRatingBadge(b.currentTrueRating) },
+      { key: 'projWoba', label: 'Proj wOBA', sortKey: 'projectedStats.woba', accessor: b => b.projectedStats.woba.toFixed(3) },
+      { key: 'projWrcPlus', label: 'Proj wRC+', sortKey: 'projectedStats.wrcPlus', accessor: b => b.projectedStats.wrcPlus.toString() },
+      { key: 'projWAR', label: 'Proj WAR', sortKey: 'projectedStats.war', accessor: b => b.projectedStats.war.toFixed(1) },
+      { key: 'bbPct', label: 'BB%', sortKey: 'projectedStats.bbPct', accessor: b => {
+        const bbPct = b.projectedStats.bbPct?.toFixed(1) ?? 'N/A';
+        const estEye = b.estimatedRatings.eye;
+        return this.renderFlipCell(bbPct, estEye.toString(), 'Est Eye (Plate Discipline) Rating');
+      }},
+      { key: 'kPct', label: 'K%', sortKey: 'projectedStats.kPct', accessor: b => {
+        const kPct = b.projectedStats.kPct?.toFixed(1) ?? 'N/A';
+        const estAvoidK = b.estimatedRatings.avoidK;
+        return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
+      }},
+      { key: 'hrPct', label: 'HR%', sortKey: 'projectedStats.hr', accessor: b => {
+        const hrPct = ((b.projectedStats.hr / b.projectedStats.pa) * 100).toFixed(1);
+        const estPower = b.estimatedRatings.power;
+        return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
+      }},
+      { key: 'projAvg', label: 'AVG', sortKey: 'projectedStats.avg', accessor: b => {
+        const avg = b.projectedStats.avg.toFixed(3);
+        const estBabip = b.estimatedRatings.babip;
+        return this.renderFlipCell(avg, estBabip.toString(), 'Est Hit Tool (BABIP) Rating');
+      }},
+      { key: 'iso', label: 'ISO', sortKey: 'projectedStats.slg', accessor: b => {
+        const iso = (b.projectedStats.slg - b.projectedStats.avg).toFixed(3);
+        const estPower = b.estimatedRatings.power;
+        return this.renderFlipCell(iso, estPower.toString(), 'Est Power Rating');
+      }},
+      { key: 'projObp', label: 'OBP', sortKey: 'projectedStats.obp', accessor: b => b.projectedStats.obp.toFixed(3) },
+      { key: 'projSlg', label: 'SLG', sortKey: 'projectedStats.slg', accessor: b => b.projectedStats.slg.toFixed(3) },
+      { key: 'projPa', label: 'PA', sortKey: 'projectedStats.pa', accessor: b => b.projectedStats.pa.toString() },
+    ];
   }
 
   private renderLayout(): void {
@@ -124,12 +179,10 @@ export class ProjectionsView {
               </div>
               <div class="filter-dropdown position-filter" data-filter="position">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
-                  Position: <span id="selected-position-display">All</span> ▾
+                  Position: <span id="selected-position-display">${this.getPositionDisplayName(this.selectedPosition)}</span> ▾
                 </button>
                 <div class="filter-dropdown-menu" id="position-dropdown-menu">
-                  <div class="filter-dropdown-item selected" data-value="all">All</div>
-                  <div class="filter-dropdown-item" data-value="SP">SP</div>
-                  <div class="filter-dropdown-item" data-value="RP">RP</div>
+                  ${this.renderPositionDropdownItems()}
                 </div>
               </div>
               <div class="filter-dropdown" data-filter="year" id="proj-year-field" style="display: none;">
@@ -300,6 +353,12 @@ export class ProjectionsView {
           const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : currentYear;
           const statsBaseYear = targetYear - 1;
 
+          // Handle batter projections separately
+          if (this.mode === 'batters') {
+              await this.fetchBatterData(statsBaseYear);
+              return;
+          }
+
           // Use previous year as base for projections
           const context = await projectionService.getProjectionsWithContext(statsBaseYear, { forceRosterRefresh: true });
           let allPlayers = context.projections;
@@ -386,6 +445,38 @@ export class ProjectionsView {
       } catch (err) {
           console.error(err);
           if (container) container.innerHTML = `<div class="error-message">Error: ${err}</div>`;
+      }
+  }
+
+  private async fetchBatterData(statsBaseYear: number): Promise<void> {
+      const container = this.container.querySelector('#projections-table-container');
+
+      try {
+          const context = await batterProjectionService.getProjectionsWithContext(statsBaseYear);
+          this.allBatterStats = context.projections;
+          this.statsYearUsed = context.statsYear;
+          this.usedFallbackStats = context.usedFallbackStats;
+          this.scoutingMetadata = context.scoutingMetadata;
+
+          // Populate team filter
+          const allTeams = await teamService.getAllTeams();
+          this.teamLookup = new Map(allTeams.map(t => [t.id, t]));
+
+          const mlbTeamNames = new Set<string>();
+          for (const batter of this.allBatterStats) {
+              const parentOrgName = this.getParentOrgName(batter.teamId);
+              if (parentOrgName && parentOrgName !== 'FA') {
+                  mlbTeamNames.add(parentOrgName);
+              }
+          }
+
+          this.teamOptions = Array.from(mlbTeamNames).sort();
+          this.updateTeamFilter();
+          this.updateSubtitle();
+          this.filterAndRender();
+      } catch (err) {
+          console.error(err);
+          if (container) container.innerHTML = `<div class="error-message">Error loading batter projections: ${err}</div>`;
       }
   }
 
@@ -930,16 +1021,38 @@ export class ProjectionsView {
   private bindPositionDropdownListeners(): void {
       this.container.querySelectorAll('#position-dropdown-menu .filter-dropdown-item').forEach(item => {
           item.addEventListener('click', (e) => {
-              const value = (e.target as HTMLElement).dataset.value as 'all' | 'SP' | 'RP';
+              const value = (e.target as HTMLElement).dataset.value;
               if (!value) return;
 
               this.selectedPosition = value;
               this.currentPage = 1;
 
+              // Determine mode based on position selection
+              const pitcherPositions = ['all-pitchers', 'SP', 'RP'];
+              const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+
+              const previousMode = this.mode;
+              if (pitcherPositions.includes(value)) {
+                this.mode = 'pitchers';
+              } else if (batterPositions.includes(value)) {
+                this.mode = 'batters';
+              }
+
+              // Update sort key when switching modes
+              if (previousMode !== this.mode) {
+                  if (this.mode === 'batters') {
+                      this.sortKey = 'projectedStats.war';
+                      this.sortDirection = 'desc';
+                  } else {
+                      this.sortKey = 'projectedStats.fip';
+                      this.sortDirection = 'asc';
+                  }
+              }
+
               // Update display text
               const displaySpan = this.container.querySelector('#selected-position-display');
               if (displaySpan) {
-                  displaySpan.textContent = value === 'all' ? 'All' : value;
+                  displaySpan.textContent = this.getPositionDisplayName(value);
               }
 
               // Update selected state
@@ -949,9 +1062,43 @@ export class ProjectionsView {
               // Close dropdown
               (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
-              this.filterAndRender();
+              // If mode changed, need to fetch new data
+              if (previousMode !== this.mode) {
+                  this.showLoadingState();
+                  this.fetchData();
+              } else {
+                  this.filterAndRender();
+              }
           });
       });
+  }
+
+  private getPositionDisplayName(position: string): string {
+    if (position === 'all-pitchers') return 'All Pitchers';
+    if (position === 'all-batters') return 'All Batters';
+    return position;
+  }
+
+  private renderPositionDropdownItems(): string {
+    const positions = [
+      { value: 'all-pitchers', label: 'All Pitchers' },
+      { value: 'SP', label: 'SP' },
+      { value: 'RP', label: 'RP' },
+      { value: 'all-batters', label: 'All Batters' },
+      { value: 'C', label: 'C' },
+      { value: '1B', label: '1B' },
+      { value: '2B', label: '2B' },
+      { value: '3B', label: '3B' },
+      { value: 'SS', label: 'SS' },
+      { value: 'LF', label: 'LF' },
+      { value: 'CF', label: 'CF' },
+      { value: 'RF', label: 'RF' },
+      { value: 'DH', label: 'DH' },
+    ];
+
+    return positions.map(p =>
+      `<div class="filter-dropdown-item ${this.selectedPosition === p.value ? 'selected' : ''}" data-value="${p.value}">${p.label}</div>`
+    ).join('');
   }
 
   private bindYearDropdownListeners(): void {
@@ -1004,13 +1151,19 @@ export class ProjectionsView {
   }
 
   private filterAndRender(): void {
+      if (this.mode === 'batters') {
+          this.filterAndRenderBatters();
+          return;
+      }
+
       let filtered = [...this.allStats];
 
       if (this.selectedTeam !== 'all') {
           filtered = filtered.filter(p => this.getParentOrgName(p.teamId) === this.selectedTeam);
       }
 
-      if (this.selectedPosition !== 'all') {
+      // Filter by position
+      if (this.selectedPosition !== 'all-pitchers') {
           filtered = filtered.filter(p => {
               if (this.selectedPosition === 'SP') return p.isSp;
               if (this.selectedPosition === 'RP') return !p.isSp;
@@ -1024,6 +1177,58 @@ export class ProjectionsView {
           this.itemsPerPage = Math.max(this.stats.length, 1);
       }
       this.renderTable();
+  }
+
+  private filterAndRenderBatters(): void {
+      let filtered = [...this.allBatterStats];
+
+      if (this.selectedTeam !== 'all') {
+          filtered = filtered.filter(b => this.getParentOrgName(b.teamId) === this.selectedTeam);
+      }
+
+      // Filter by position if specific position selected
+      if (this.selectedPosition !== 'all-batters') {
+          const posMap: Record<string, number[]> = {
+              'C': [2], '1B': [3], '2B': [4], '3B': [5], 'SS': [6],
+              'LF': [7], 'CF': [8], 'RF': [9], 'DH': [10],
+              'IF': [3, 4, 5, 6], 'OF': [7, 8, 9],
+          };
+          const allowed = posMap[this.selectedPosition];
+          if (allowed) {
+              filtered = filtered.filter(b => allowed.includes(b.position));
+          }
+      }
+
+      this.batterStats = filtered;
+      this.sortBatterStats();
+      if (this.itemsPerPageSelection === 'all') {
+          this.itemsPerPage = Math.max(this.batterStats.length, 1);
+      }
+      this.renderBatterTable();
+  }
+
+  private sortBatterStats(): void {
+      if (!this.sortKey) return;
+
+      this.batterStats.sort((a, b) => {
+          let valA: any, valB: any;
+
+          if (this.sortKey.startsWith('projectedStats.')) {
+              const key = this.sortKey.replace('projectedStats.', '') as keyof ProjectedBatter['projectedStats'];
+              valA = a.projectedStats[key];
+              valB = b.projectedStats[key];
+          } else {
+              valA = (a as any)[this.sortKey];
+              valB = (b as any)[this.sortKey];
+          }
+
+          if (valA == null) valA = this.sortDirection === 'asc' ? Infinity : -Infinity;
+          if (valB == null) valB = this.sortDirection === 'asc' ? Infinity : -Infinity;
+
+          if (valA < valB) return this.sortDirection === 'asc' ? -1 : 1;
+          if (valA > valB) return this.sortDirection === 'asc' ? 1 : -1;
+          return 0;
+      });
   }
 
   /**
@@ -1118,6 +1323,195 @@ export class ProjectionsView {
       this.bindTableEvents();
   }
 
+  private renderBatterTable(): void {
+      const container = this.container.querySelector('#projections-table-container');
+      if (!container) return;
+
+      if (this.batterStats.length === 0) {
+          container.innerHTML = '<p class="no-stats">No batter projections found.</p>';
+          this.updatePagination(0);
+          return;
+      }
+
+      const start = (this.currentPage - 1) * this.itemsPerPage;
+      const end = start + this.itemsPerPage;
+      const pageData = this.batterStats.slice(start, end);
+
+      // Populate lookup for modal access
+      this.batterRowLookup = new Map(pageData.map(b => [b.playerId, b]));
+
+      const headerHtml = this.batterColumns.map(col => {
+          const sortKey = String(col.sortKey ?? col.key);
+          const isActive = this.sortKey === sortKey;
+          return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}">${col.label}</th>`;
+      }).join('');
+
+      const rowsHtml = pageData.map(b => {
+          const cells = this.batterColumns.map(col => {
+              const val = col.accessor ? col.accessor(b) : (b as any)[col.key];
+              const columnKey = String(col.key);
+
+              // Add percentile bars for key batter stats
+              if (columnKey === 'projWoba' || columnKey === 'projWrcPlus' || columnKey === 'projWAR') {
+                  const statValue = columnKey === 'projWoba' ? b.projectedStats.woba
+                      : columnKey === 'projWrcPlus' ? b.projectedStats.wrcPlus
+                      : b.projectedStats.war;
+                  const percentile = this.calculateBatterPercentile(statValue, columnKey);
+                  const barHtml = this.renderBatterPercentileBar(val, percentile, columnKey);
+                  return `<td data-col-key="${columnKey}">${barHtml}</td>`;
+              }
+
+              return `<td data-col-key="${columnKey}">${val ?? ''}</td>`;
+          }).join('');
+          return `<tr>${cells}</tr>`;
+      }).join('');
+
+      container.innerHTML = `
+        <div class="table-wrapper-outer">
+            <div class="table-wrapper">
+                <table class="stats-table true-ratings-table">
+                    <thead><tr>${headerHtml}</tr></thead>
+                    <tbody>${rowsHtml}</tbody>
+                </table>
+            </div>
+        </div>
+      `;
+
+      this.updatePagination(this.batterStats.length);
+      this.bindBatterTableEvents();
+  }
+
+  private bindBatterTableEvents(): void {
+      // Player Names
+      this.bindBatterNameClicks();
+
+      // Percentile bar animations
+      this.triggerBarAnimations();
+
+      // Sorting
+      this.container.querySelectorAll('th[data-sort]').forEach(th => {
+          th.addEventListener('click', () => {
+              const key = (th as HTMLElement).dataset.sort;
+              if (!key) return;
+
+              if (this.sortKey === key) {
+                  this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+              } else {
+                  this.sortKey = key;
+                  // WAR and wRC+ higher is better, so default to desc
+                  this.sortDirection = key.includes('war') || key.includes('wrc') || key.includes('woba') ? 'desc' : 'asc';
+              }
+              this.sortBatterStats();
+              this.renderBatterTable();
+          });
+      });
+  }
+
+  private bindBatterNameClicks(): void {
+      this.container.querySelectorAll<HTMLButtonElement>('.player-name-link').forEach(btn => {
+          btn.addEventListener('click', async () => {
+              const playerId = parseInt(btn.dataset.playerId || '0');
+              if (!playerId) return;
+
+              const batter = this.batterRowLookup.get(playerId);
+              if (!batter) return;
+
+              // Show batter modal
+              const currentYear = await dateService.getCurrentYear();
+              const BatterProfileModule = await import('./BatterProfileModal');
+
+              const batterData = {
+                  playerId: batter.playerId,
+                  playerName: batter.name,
+                  team: batter.teamName,
+                  age: batter.age,
+                  position: batter.position,
+                  positionLabel: batter.positionLabel,
+                  trueRating: batter.currentTrueRating,
+                  percentile: batter.percentile,
+                  woba: batter.projectedStats.woba,
+                  estimatedPower: batter.estimatedRatings.power,
+                  estimatedEye: batter.estimatedRatings.eye,
+                  estimatedAvoidK: batter.estimatedRatings.avoidK,
+                  estimatedBabip: batter.estimatedRatings.babip,
+                  scoutPower: batter.scoutingRatings?.power,
+                  scoutEye: batter.scoutingRatings?.eye,
+                  scoutAvoidK: batter.scoutingRatings?.avoidK,
+                  scoutBabip: batter.scoutingRatings?.babip,
+                  // Projected stats from BatterProjectionService
+                  projWoba: batter.projectedStats.woba,
+                  projAvg: batter.projectedStats.avg,
+                  projObp: batter.projectedStats.obp,
+                  projSlg: batter.projectedStats.slg,
+                  projPa: batter.projectedStats.pa,
+                  projHr: batter.projectedStats.hr,
+                  projRbi: batter.projectedStats.rbi,
+                  projWar: batter.projectedStats.war,
+                  projWrcPlus: batter.projectedStats.wrcPlus,
+              };
+
+              const batterModal = new BatterProfileModule.BatterProfileModal();
+              batterModal.show(batterData, currentYear);
+          });
+      });
+  }
+
+  private calculateBatterPercentile(value: number, statType: string): number {
+      if (this.allBatterStats.length === 0) return 50;
+
+      const values = this.allBatterStats.map(b => {
+          if (statType === 'projWoba') return b.projectedStats.woba;
+          if (statType === 'projWrcPlus') return b.projectedStats.wrcPlus;
+          return b.projectedStats.war;
+      }).filter(v => v != null && !isNaN(v));
+
+      if (values.length === 0) return 50;
+
+      // Higher is better for all batter stats
+      const sorted = [...values].sort((a, b) => a - b);
+      const rank = sorted.filter(v => v < value).length;
+      return Math.round((rank / values.length) * 100);
+  }
+
+  private renderBatterPercentileBar(displayValue: string, percentile: number, statType: string): string {
+      let barClass = 'percentile-poor';
+      if (percentile >= 80) barClass = 'percentile-elite';
+      else if (percentile >= 60) barClass = 'percentile-plus';
+      else if (percentile >= 40) barClass = 'percentile-avg';
+      else if (percentile >= 20) barClass = 'percentile-fringe';
+
+      const statLabel = statType === 'projWoba' ? 'wOBA'
+          : statType === 'projWrcPlus' ? 'wRC+'
+          : 'WAR';
+      const tooltip = `${percentile}th percentile (${statLabel})`;
+
+      return `
+        <div class="rating-with-bar">
+          <span class="rating-value">${displayValue}</span>
+          <div class="rating-bar">
+            <div class="rating-bar-fill percentile-bar ${barClass}" style="--bar-width: ${percentile}%"></div>
+          </div>
+          <div class="stat-tooltip">${tooltip}</div>
+        </div>
+      `;
+  }
+
+  private renderBatterName(b: ProjectedBatter): string {
+      return `<button class="btn-link player-name-link" data-player-id="${b.playerId}" title="Player ID: ${b.playerId}">${b.name}</button>`;
+  }
+
+  private renderBatterRatingBadge(rating: number): string {
+      let className = 'badge-below-avg';
+      if (rating >= 4.5) className = 'badge-elite';
+      else if (rating >= 4.0) className = 'badge-plus';
+      else if (rating >= 3.5) className = 'badge-above-avg';
+      else if (rating >= 3.0) className = 'badge-avg';
+      else if (rating >= 2.5) className = 'badge-below-avg';
+      else className = 'badge-poor';
+
+      return `<span class="badge ${className}">${rating.toFixed(1)}</span>`;
+  }
+
   private bindTableEvents(): void {
       // Player Names
       this.bindPlayerNameClicks();
@@ -1209,7 +1603,78 @@ export class ProjectionsView {
   }
 
   private renderPositionLabel(player: ProjectedPlayerWithActuals): string {
-    return player.isSp ? 'SP' : 'RP';
+    return this.renderPitcherPositionBadge(player.isSp);
+  }
+
+  private renderPitcherPositionBadge(isSp: boolean): string {
+    const posLabel = isSp ? 'SP' : 'RP';
+    const className = 'pos-utility';
+    const title = isSp ? 'Starting Pitcher' : 'Relief Pitcher';
+    return `<span class="badge ${className}" title="${title}">${posLabel}</span>`;
+  }
+
+  private renderBatterPositionBadge(positionNum: number): string {
+    const posLabel = this.getPositionLabel(positionNum);
+    let className: string;
+    let title: string;
+
+    // Map position to defensive group (same as FarmRankingsView)
+    switch (positionNum) {
+      case 2: // C
+        className = 'pos-catcher';
+        title = 'Catcher - Premium defensive position';
+        break;
+      case 6: // SS
+        className = 'pos-middle-infield';
+        title = 'Shortstop - Premium defensive position';
+        break;
+      case 4: // 2B
+        className = 'pos-middle-infield';
+        title = 'Second Base - Premium defensive position';
+        break;
+      case 8: // CF
+        className = 'pos-center-field';
+        title = 'Center Field - Premium outfield position';
+        break;
+      case 5: // 3B
+        className = 'pos-corner';
+        title = 'Third Base - Corner infield position';
+        break;
+      case 3: // 1B
+        className = 'pos-corner';
+        title = 'First Base - Corner infield position';
+        break;
+      case 7: // LF
+      case 9: // RF
+        className = 'pos-corner-outfield';
+        title = `${posLabel} - Corner outfield position`;
+        break;
+      case 10: // DH
+        className = 'pos-dh';
+        title = 'Designated Hitter - Offense only';
+        break;
+      default:
+        className = 'pos-utility';
+        title = posLabel;
+    }
+
+    return `<span class="badge ${className}" title="${title}">${posLabel}</span>`;
+  }
+
+  private getPositionLabel(positionNum: number): string {
+    const positions: { [key: number]: string } = {
+      1: 'P',
+      2: 'C',
+      3: '1B',
+      4: '2B',
+      5: '3B',
+      6: 'SS',
+      7: 'LF',
+      8: 'CF',
+      9: 'RF',
+      10: 'DH',
+    };
+    return positions[positionNum] || 'Unknown';
   }
 
   private renderPlayerName(player: ProjectedPlayer, year?: number): string {
@@ -1536,13 +2001,6 @@ export class ProjectionsView {
       osaScouting = osaRatings.find(s => s.playerId === playerId);
     }
 
-    const scouting = myScouting || osaScouting; // For pitches/pitch count
-
-    // Extract pitch names and ratings if available
-    const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
-    const pitchRatings = scouting?.pitches ?? {};
-    const usablePitchCount = scouting?.pitches ? Object.values(scouting.pitches).filter(rating => (rating as number) >= 45).length : 0;
-
     // Determine if we should show the year label (only for historical data)
     const isHistorical = projectionBaseYear < currentYear - 1;
 
@@ -1584,9 +2042,14 @@ export class ProjectionsView {
       hasMyScout: !!myScouting,
       hasOsaScout: !!osaScouting,
 
-      pitchCount: usablePitchCount,
-      pitches,
-      pitchRatings,
+      // My Scout pitch data
+      myPitches: myScouting?.pitches ? Object.keys(myScouting.pitches) : undefined,
+      myPitchRatings: myScouting?.pitches,
+
+      // OSA pitch data
+      osaPitches: osaScouting?.pitches ? Object.keys(osaScouting.pitches) : undefined,
+      osaPitchRatings: osaScouting?.pitches,
+
       isProspect: row.isProspect,
       year: projectionYear,
       projectionYear: projectionYear,

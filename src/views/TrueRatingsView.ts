@@ -168,8 +168,6 @@ export class TrueRatingsView {
   private pitcherColumns: PitcherColumn[] = [];
   private isDraggingColumn = false;
   private scoutingRatings: PitcherScoutingRatings[] = []; // Merged fallback (my > osa)
-  private myScoutingRatings: PitcherScoutingRatings[] = [];
-  private osaScoutingRatings: PitcherScoutingRatings[] = [];
   private scoutingMetadata: { hasMyScoutData: boolean; fromMyScout: number; fromOSA: number } | null = null;
   // Hitter scouting data
   private hitterScoutingRatings: HitterScoutingRatings[] = [];
@@ -707,8 +705,8 @@ export class TrueRatingsView {
     const undraftedBtn = this.container.querySelector<HTMLElement>('[data-player-toggle="undrafted"]');
     const prospectBtn = this.container.querySelector<HTMLElement>('[data-player-toggle="prospect"]');
 
-    // Raw Stats is only available for pitchers (batters don't have raw stats view yet)
-    if (rawStatsBtn) rawStatsBtn.style.display = this.mode === 'pitchers' ? '' : 'none';
+    // Raw Stats is available for both pitchers and batters
+    if (rawStatsBtn) rawStatsBtn.style.display = '';
 
     // True Ratings is available for both pitchers and batters
     if (trueRatingsBtn) trueRatingsBtn.style.display = '';
@@ -732,7 +730,7 @@ export class TrueRatingsView {
   private async fetchAndRenderStats(): Promise<void> {
     const tableContainer = this.container.querySelector<HTMLElement>('#true-ratings-table-container')!;
     const isPitcherTrueRatingsView = this.mode === 'pitchers' && this.showTrueRatings;
-    const isBatterTrueRatingsView = this.mode === 'batters' && this.showTrueRatings;
+    const isBatterTrueRatingsView = this.mode === 'batters' && this.showTrueRatings && !this.showRawStats;
     tableContainer.innerHTML = this.renderTableLoadingState();
 
     try {
@@ -2003,7 +2001,8 @@ export class TrueRatingsView {
       { key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' },
     ];
 
-    if (this.showTrueRatings) {
+    // Show True Ratings columns when showTrueRatings is on AND showRawStats is off
+    if (this.showTrueRatings && !this.showRawStats) {
       // True Ratings columns for hitters
       const trueRatingColumns: BatterColumn[] = [
         {
@@ -2013,16 +2012,17 @@ export class TrueRatingsView {
           accessor: (row) => this.renderHitterTrueRatingBadge(row.trueRating),
         },
         {
-          key: 'percentile',
-          label: '%',
-          sortKey: 'percentile',
-          accessor: (row) => typeof row.percentile === 'number' ? row.percentile.toFixed(1) : '',
-        },
-        {
           key: 'woba',
           label: 'wOBA',
           sortKey: 'woba',
           accessor: (row) => typeof row.woba === 'number' ? row.woba.toFixed(3) : '',
+        },
+        { key: 'war', label: 'WAR', sortKey: 'war' },
+        {
+          key: 'percentile',
+          label: '%',
+          sortKey: 'percentile',
+          accessor: (row) => typeof row.percentile === 'number' ? row.percentile.toFixed(1) : '',
         },
         { key: 'estimatedPower', label: 'True Pow', sortKey: 'estimatedPower' },
         { key: 'estimatedEye', label: 'True Eye', sortKey: 'estimatedEye' },
@@ -2033,12 +2033,42 @@ export class TrueRatingsView {
       // Add raw stats columns after True Ratings
       const rawStatColumns: BatterColumn[] = [
         { key: 'pa', label: 'PA', sortKey: 'pa' },
-        { key: 'avg', label: 'AVG', sortKey: 'avg' },
+        { key: 'bbPct', label: 'BB%', sortKey: 'bb', accessor: (row) => {
+          if (typeof row.bb === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+            const bbPct = ((row.bb / row.pa) * 100).toFixed(1);
+            const estEye = Math.max(20, Math.min(80, Math.round(row.estimatedEye || 50)));
+            return this.renderFlipCell(bbPct, estEye.toString(), 'Est Eye (Plate Discipline) Rating');
+          }
+          return '';
+        }},
+        { key: 'kPct', label: 'K%', sortKey: 'k', accessor: (row) => {
+          if (typeof row.k === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+            const kPct = ((row.k / row.pa) * 100).toFixed(1);
+            const estAvoidK = Math.max(20, Math.min(80, Math.round(row.estimatedAvoidK || 50)));
+            return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
+          }
+          return '';
+        }},
+        { key: 'hrPct', label: 'HR%', sortKey: 'hr', accessor: (row) => {
+          if (typeof row.hr === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+            const hrPct = ((row.hr / row.pa) * 100).toFixed(1);
+            const estPower = Math.max(20, Math.min(80, Math.round(row.estimatedPower || 50)));
+            return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
+          }
+          return '';
+        }},
+        { key: 'avg', label: 'AVG', sortKey: 'avg', accessor: (row) => {
+          if (typeof row.avg === 'number') {
+            const avg = row.avg.toFixed(3);
+            const estBabip = Math.max(20, Math.min(80, Math.round(row.estimatedBabip || 50)));
+            return this.renderFlipCell(avg, estBabip.toString(), 'Est Hit Tool (BABIP) Rating');
+          }
+          return '';
+        }},
         { key: 'obp', label: 'OBP', sortKey: 'obp' },
         { key: 'hr', label: 'HR', sortKey: 'hr' },
         { key: 'rbi', label: 'RBI', sortKey: 'rbi' },
         { key: 'sb', label: 'SB', sortKey: 'sb' },
-        { key: 'war', label: 'WAR', sortKey: 'war' },
       ];
 
       return [...baseColumns, ...trueRatingColumns, ...rawStatColumns];
@@ -2050,13 +2080,44 @@ export class TrueRatingsView {
       { key: 'pa', label: 'PA', sortKey: 'pa' },
       { key: 'ab', label: 'AB', sortKey: 'ab' },
       { key: 'h', label: 'H', sortKey: 'h' },
+      { key: 'bbPct', label: 'BB%', sortKey: 'bb', accessor: (row) => {
+        if (typeof row.bb === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+          const bbPct = ((row.bb / row.pa) * 100).toFixed(1);
+          const estEye = Math.max(20, Math.min(80, Math.round(row.estimatedEye || 50)));
+          return this.renderFlipCell(bbPct, estEye.toString(), 'Est Eye (Plate Discipline) Rating');
+        }
+        return '';
+      }},
+      { key: 'kPct', label: 'K%', sortKey: 'k', accessor: (row) => {
+        if (typeof row.k === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+          const kPct = ((row.k / row.pa) * 100).toFixed(1);
+          const estAvoidK = Math.max(20, Math.min(80, Math.round(row.estimatedAvoidK || 50)));
+          return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
+        }
+        return '';
+      }},
+      { key: 'hrPct', label: 'HR%', sortKey: 'hr', accessor: (row) => {
+        if (typeof row.hr === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+          const hrPct = ((row.hr / row.pa) * 100).toFixed(1);
+          const estPower = Math.max(20, Math.min(80, Math.round(row.estimatedPower || 50)));
+          return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
+        }
+        return '';
+      }},
       { key: 'hr', label: 'HR', sortKey: 'hr' },
       { key: 'rbi', label: 'RBI', sortKey: 'rbi' },
       { key: 'r', label: 'R', sortKey: 'r' },
       { key: 'bb', label: 'BB', sortKey: 'bb' },
       { key: 'k', label: 'K', sortKey: 'k' },
       { key: 'sb', label: 'SB', sortKey: 'sb' },
-      { key: 'avg', label: 'AVG', sortKey: 'avg' },
+      { key: 'avg', label: 'AVG', sortKey: 'avg', accessor: (row) => {
+        if (typeof row.avg === 'number') {
+          const avg = row.avg.toFixed(3);
+          const estBabip = Math.max(20, Math.min(80, Math.round(row.estimatedBabip || 50)));
+          return this.renderFlipCell(avg, estBabip.toString(), 'Est Hit Tool (BABIP) Rating');
+        }
+        return '';
+      }},
       { key: 'obp', label: 'OBP', sortKey: 'obp' },
       { key: 'war', label: 'WAR', sortKey: 'war' },
       { key: 'wpa', label: 'WPA', sortKey: 'wpa' },
@@ -2597,16 +2658,10 @@ export class TrueRatingsView {
     const useScouting = this.selectedYear >= currentYear;
 
     if (useScouting) {
-      // Fetch both my and OSA scouting data for current year (pitchers)
+      // Fetch merged scouting data for current year (pitchers)
       const fallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
       this.scoutingRatings = fallback.ratings;
       this.scoutingMetadata = fallback.metadata;
-
-      // Also fetch individual sources for toggle UI
-      [this.myScoutingRatings, this.osaScoutingRatings] = await Promise.all([
-        scoutingDataService.getLatestScoutingRatings('my'),
-        scoutingDataService.getLatestScoutingRatings('osa')
-      ]);
 
       // Fetch hitter scouting data
       [this.myHitterScoutingRatings, this.osaHitterScoutingRatings] = await Promise.all([
@@ -2620,8 +2675,6 @@ export class TrueRatingsView {
       );
     } else {
       this.scoutingRatings = [];
-      this.myScoutingRatings = [];
-      this.osaScoutingRatings = [];
       this.scoutingMetadata = null;
       this.hitterScoutingRatings = [];
       this.myHitterScoutingRatings = [];
@@ -2768,11 +2821,13 @@ export class TrueRatingsView {
     const row = this.playerRowLookup.get(playerId);
     if (!row) return;
 
-    // Resolve scouting from both sources for toggle UI
-    const myScoutingLookup = this.buildScoutingLookup(this.myScoutingRatings);
-    const osaScoutingLookup = this.buildScoutingLookup(this.osaScoutingRatings);
-    const myScouting = this.resolveScoutingRating(row, myScoutingLookup);
-    const osaScouting = this.resolveScoutingRating(row, osaScoutingLookup);
+    // Fetch scouting data fresh (more reliable than cached class properties)
+    const [myRatings, osaRatings] = await Promise.all([
+      scoutingDataService.getLatestScoutingRatings('my'),
+      scoutingDataService.getLatestScoutingRatings('osa')
+    ]);
+    const myScouting = myRatings.find(s => s.playerId === playerId);
+    const osaScouting = osaRatings.find(s => s.playerId === playerId);
 
     // Fetch team info
     const player = await playerService.getPlayerById(playerId);
@@ -2986,7 +3041,12 @@ export class TrueRatingsView {
 
         // If mode changed, update sort key
         if (previousMode !== this.mode) {
-          this.sortKey = this.mode === 'pitchers' ? 'ra9war' : 'war';
+          // Use True Rating as default sort for True Ratings view, WAR for Raw Stats view
+          if (this.mode === 'pitchers') {
+            this.sortKey = this.showRawStats ? 'ra9war' : 'trueRating';
+          } else {
+            this.sortKey = this.showRawStats ? 'war' : 'trueRating';
+          }
           this.sortDirection = 'desc';
         }
 

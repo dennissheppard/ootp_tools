@@ -153,8 +153,8 @@ class LeagueBattingAveragesService {
     ) / (totalAb + totalBb + totalHp + totalSf);
 
     // wOBA scale: converts wOBA to runs (wOBA / wobaScale ≈ runs per PA above average)
-    // Standard is around 1.15-1.25; we'll derive it from lgOBP relationship
-    const wobaScale = lgWoba / lgRpa * 1.15; // Approximate
+    // Standard FanGraphs value is ~1.15-1.25; using fixed value for consistency
+    const wobaScale = 1.15;
 
     // Runs per win (typically ~10 in modern baseball)
     const runsPerWin = 10;
@@ -217,24 +217,65 @@ class LeagueBattingAveragesService {
   }
 
   /**
-   * Get projected PA based on injury proneness.
+   * Get projected PA based on age and injury proneness.
+   *
+   * Age curve is based on typical MLB playing time patterns:
+   * - Ages 21-23: Ramping up (480-550 PA)
+   * - Ages 24-32: Peak years (550-600+ PA)
+   * - Ages 33-36: Gradual decline (500-550 PA)
+   * - Ages 37+: Significant decline (400-480 PA)
+   *
+   * Injury proneness adjusts from this baseline.
    */
-  getProjectedPa(injuryProneness?: string): number {
+  getProjectedPa(injuryProneness?: string, age?: number): number {
+    // Base PA by age (for "normal" injury risk)
+    let basePa = 585; // Default
+
+    if (age !== undefined) {
+      if (age <= 21) {
+        basePa = 480;
+      } else if (age <= 23) {
+        basePa = 520;
+      } else if (age <= 25) {
+        basePa = 560;
+      } else if (age <= 32) {
+        basePa = 600; // Peak years
+      } else if (age <= 34) {
+        basePa = 560;
+      } else if (age <= 36) {
+        basePa = 520;
+      } else if (age <= 38) {
+        basePa = 460;
+      } else {
+        basePa = 400;
+      }
+    }
+
+    // Injury modifier (multiplier on base PA)
     const normalized = (injuryProneness || 'Normal').toLowerCase();
+    let injuryMultiplier = 1.0;
 
     switch (normalized) {
       case 'durable':
+        injuryMultiplier = 1.08;
+        break;
       case 'wary':
-        return 650;
+        injuryMultiplier = 1.04;
+        break;
       case 'normal':
-        return 585;
+        injuryMultiplier = 1.0;
+        break;
       case 'fragile':
-        return 490;
+        injuryMultiplier = 0.85;
+        break;
       case 'prone':
-        return 390;
+        injuryMultiplier = 0.70;
+        break;
       default:
-        return 585; // Default to Normal
+        injuryMultiplier = 1.0;
     }
+
+    return Math.round(basePa * injuryMultiplier);
   }
 
   /**
