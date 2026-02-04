@@ -64,6 +64,7 @@ export interface HitterTrueRatingResult {
   /** Blended rate stats after all calculations */
   blendedBbPct: number;
   blendedKPct: number;
+  blendedHrPct: number;
   blendedIso: number;
   blendedAvg: number;
   /** Estimated ratings (from performance, 20-80 scale) */
@@ -97,6 +98,7 @@ export interface HitterLeagueAverages {
 interface WeightedRates {
   bbPct: number;
   kPct: number;
+  hrPct: number;
   iso: number;
   avg: number;
   doublesRate: number;
@@ -129,8 +131,9 @@ export function getYearWeights(stage: SeasonStage): number[] {
 const STABILIZATION = {
   bbPct: 120,
   kPct: 60,
+  hrPct: 160,
   iso: 160,
-  avg: 400,  // Using lower value for regression purposes
+  avg: 300,  // Reduced from 400 to trust elite hitters with 500+ PA more
 };
 
 /** PA threshold for scouting blend confidence */
@@ -263,6 +266,10 @@ class HitterTrueRatingsCalculationService {
     let regressedKPct = this.regressToMeanTierAware(
       weighted.kPct, weighted.totalPa, leagueAverages.avgKPct, STABILIZATION.kPct, 'kPct', rawWoba
     );
+    // Regress HR% toward a league average of ~2.5% (typical HR rate)
+    let regressedHrPct = this.regressToMeanTierAware(
+      weighted.hrPct, weighted.totalPa, 2.5, STABILIZATION.hrPct, 'iso', rawWoba
+    );
     let regressedIso = this.regressToMeanTierAware(
       weighted.iso, weighted.totalPa, leagueAverages.avgIso, STABILIZATION.iso, 'iso', rawWoba
     );
@@ -273,6 +280,7 @@ class HitterTrueRatingsCalculationService {
     // Step 3: Optional scouting blend
     let blendedBbPct = regressedBbPct;
     let blendedKPct = regressedKPct;
+    let blendedHrPct = regressedHrPct;
     let blendedIso = regressedIso;
     let blendedAvg = regressedAvg;
 
@@ -280,12 +288,13 @@ class HitterTrueRatingsCalculationService {
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings);
       blendedBbPct = this.blendWithScouting(regressedBbPct, scoutExpected.bbPct, weighted.totalPa);
       blendedKPct = this.blendWithScouting(regressedKPct, scoutExpected.kPct, weighted.totalPa);
+      blendedHrPct = this.blendWithScouting(regressedHrPct, scoutExpected.hrPct, weighted.totalPa);
       blendedIso = this.blendWithScouting(regressedIso, scoutExpected.iso, weighted.totalPa);
       blendedAvg = this.blendWithScouting(regressedAvg, scoutExpected.avg, weighted.totalPa);
     }
 
     // Estimate ratings from blended rates
-    const estimatedPower = this.estimatePowerFromIso(blendedIso);
+    const estimatedPower = this.estimatePowerFromHrPct(blendedHrPct);
     const estimatedEye = this.estimateEyeFromBbPct(blendedBbPct);
     const estimatedAvoidK = this.estimateAvoidKFromKPct(blendedKPct);
     const estimatedContact = this.estimateContactFromAvg(blendedAvg);
@@ -298,6 +307,7 @@ class HitterTrueRatingsCalculationService {
       playerName: input.playerName,
       blendedBbPct: Math.round(blendedBbPct * 10) / 10,
       blendedKPct: Math.round(blendedKPct * 10) / 10,
+      blendedHrPct: Math.round(blendedHrPct * 10) / 10,
       blendedIso: Math.round(blendedIso * 1000) / 1000,
       blendedAvg: Math.round(blendedAvg * 1000) / 1000,
       estimatedPower: Math.round(estimatedPower),
@@ -319,11 +329,12 @@ class HitterTrueRatingsCalculationService {
     yearWeights: number[] = YEAR_WEIGHTS
   ): WeightedRates {
     if (yearlyStats.length === 0) {
-      return { bbPct: 0, kPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
+      return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
     }
 
     let weightedBbPctSum = 0;
     let weightedKPctSum = 0;
+    let weightedHrPctSum = 0;
     let weightedIsoSum = 0;
     let weightedAvgSum = 0;
     let weightedDoublesSum = 0;
@@ -342,6 +353,7 @@ class HitterTrueRatingsCalculationService {
       // Calculate rate stats for this year
       const bbPct = (stats.bb / stats.pa) * 100;
       const kPct = (stats.k / stats.pa) * 100;
+      const hrPct = (stats.hr / stats.pa) * 100;
       const singles = stats.h - stats.d - stats.t - stats.hr;
       const totalBases = singles + 2 * stats.d + 3 * stats.t + 4 * stats.hr;
       const iso = stats.ab > 0 ? (totalBases - stats.h) / stats.ab : 0;
@@ -353,6 +365,7 @@ class HitterTrueRatingsCalculationService {
 
       weightedBbPctSum += bbPct * weight;
       weightedKPctSum += kPct * weight;
+      weightedHrPctSum += hrPct * weight;
       weightedIsoSum += iso * weight;
       weightedAvgSum += avg * weight;
       weightedDoublesSum += doublesRate * weight;
@@ -363,12 +376,13 @@ class HitterTrueRatingsCalculationService {
     }
 
     if (totalWeight === 0) {
-      return { bbPct: 0, kPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
+      return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
     }
 
     return {
       bbPct: weightedBbPctSum / totalWeight,
       kPct: weightedKPctSum / totalWeight,
+      hrPct: weightedHrPctSum / totalWeight,
       iso: weightedIsoSum / totalWeight,
       avg: weightedAvgSum / totalWeight,
       doublesRate: weightedDoublesSum / totalWeight,
@@ -544,6 +558,7 @@ class HitterTrueRatingsCalculationService {
   private scoutingToExpectedRates(scouting: HitterScoutingRatings): {
     bbPct: number;
     kPct: number;
+    hrPct: number;
     iso: number;
     avg: number;
   } {
@@ -554,6 +569,7 @@ class HitterTrueRatingsCalculationService {
     return {
       bbPct: HitterRatingEstimatorService.expectedBbPct(scouting.eye),
       kPct: HitterRatingEstimatorService.expectedKPct(scouting.avoidK),
+      hrPct: HitterRatingEstimatorService.expectedHrPct(scouting.power),
       iso: HitterRatingEstimatorService.expectedIso(scouting.power),
       avg: HitterRatingEstimatorService.expectedAvg(scouting.contact),
     };
@@ -640,24 +656,20 @@ class HitterTrueRatingsCalculationService {
   }
 
   /**
-   * Estimate Power rating from ISO
+   * Estimate Power rating from HR%
    *
-   * Uses INVERSE of HitterRatingEstimatorService.expectedIso() coefficients.
-   * Note: expectedIso uses HR% conversion with approximate ISO factor,
-   * but we estimate from ISO directly here. The coefficients should be
-   * calibrated to match the round-trip behavior.
+   * Uses INVERSE of HitterRatingEstimatorService.expectedHrPct() coefficients.
+   * HR% = -0.5906 + 0.058434 * power (from HitterRatingEstimatorService)
+   * power = (HR% - (-0.5906)) / 0.058434
    *
-   * HR% = -1.30 + 0.058434 * power (from HitterRatingEstimatorService)
-   * ISO ≈ HR% * 3 + 0.05 (approximate conversion used in expectedIso)
-   *
-   * For consistency, derive power from ISO using the inverse relationship.
+   * This is the correct approach for power estimation as it uses actual HR production
+   * rather than ISO, which includes doubles and triples (which was the previous approach
+   * that inflated power ratings for gap hitters).
    */
-  private estimatePowerFromIso(iso: number): number {
-    // ISO ≈ HR% * 3 + 0.05, so HR% ≈ (ISO - 0.05) / 3
-    // HR% = -1.30 + 0.058434 * power
-    // power = (HR% + 1.30) / 0.058434
-    const hrPct = (iso - 0.05) / 3 * 100; // Convert ISO to HR%
-    const rating = (hrPct + 1.30) / 0.058434;
+  private estimatePowerFromHrPct(hrPct: number): number {
+    // HR% = -0.5906 + 0.058434 * power
+    // power = (HR% - (-0.5906)) / 0.058434 = (HR% + 0.5906) / 0.058434
+    const rating = (hrPct + 0.5906) / 0.058434;
     return Math.max(20, Math.min(80, rating));
   }
 
@@ -665,14 +677,14 @@ class HitterTrueRatingsCalculationService {
    * Estimate Eye rating from BB%
    *
    * Uses INVERSE of HitterRatingEstimatorService.expectedBbPct() coefficients.
-   * BB% = 0.64 + 0.114789 * eye (from HitterRatingEstimatorService)
-   * eye = (BB% - 0.64) / 0.114789
+   * BB% = 1.6246 + 0.114789 * eye (from HitterRatingEstimatorService)
+   * eye = (BB% - 1.6246) / 0.114789
    */
   private estimateEyeFromBbPct(bbPct: number): number {
     // MUST match inverse of HitterRatingEstimatorService coefficients
-    // BB% = 0.64 + 0.114789 * eye
-    // eye = (BB% - 0.64) / 0.114789
-    const rating = (bbPct - 0.64) / 0.114789;
+    // BB% = 1.6246 + 0.114789 * eye
+    // eye = (BB% - 1.6246) / 0.114789
+    const rating = (bbPct - 1.6246) / 0.114789;
     return Math.max(20, Math.min(80, rating));
   }
 
@@ -680,14 +692,14 @@ class HitterTrueRatingsCalculationService {
    * Estimate AvoidK rating from K%
    *
    * Uses INVERSE of HitterRatingEstimatorService.expectedKPct() coefficients.
-   * K% = 25.35 - 0.200303 * avoidK (from HitterRatingEstimatorService)
-   * avoidK = (25.35 - K%) / 0.200303
+   * K% = 25.9942 - 0.200303 * avoidK (from HitterRatingEstimatorService)
+   * avoidK = (25.9942 - K%) / 0.200303
    */
   private estimateAvoidKFromKPct(kPct: number): number {
     // MUST match inverse of HitterRatingEstimatorService coefficients
-    // K% = 25.35 + (-0.200303) * avoidK = 25.35 - 0.200303 * avoidK
-    // avoidK = (25.35 - K%) / 0.200303
-    const rating = (25.35 - kPct) / 0.200303;
+    // K% = 25.9942 + (-0.200303) * avoidK = 25.9942 - 0.200303 * avoidK
+    // avoidK = (25.9942 - K%) / 0.200303
+    const rating = (25.9942 - kPct) / 0.200303;
     return Math.max(20, Math.min(80, rating));
   }
 
@@ -695,14 +707,14 @@ class HitterTrueRatingsCalculationService {
    * Estimate Contact rating from AVG
    *
    * Uses INVERSE of HitterRatingEstimatorService.expectedAvg() coefficients.
-   * AVG = 0.0772 + 0.00316593 * contact (from HitterRatingEstimatorService)
-   * contact = (AVG - 0.0772) / 0.00316593
+   * AVG = 0.035156 + 0.00395741 * contact (from HitterRatingEstimatorService)
+   * contact = (AVG - 0.035156) / 0.00395741
    */
   private estimateContactFromAvg(avg: number): number {
     // MUST match inverse of HitterRatingEstimatorService coefficients
-    // AVG = 0.0772 + 0.00316593 * contact
-    // contact = (AVG - 0.0772) / 0.00316593
-    const rating = (avg - 0.0772) / 0.00316593;
+    // AVG = 0.035156 + 0.00395741 * contact
+    // contact = (AVG - 0.035156) / 0.00395741
+    const rating = (avg - 0.035156) / 0.00395741;
     return Math.max(20, Math.min(80, rating));
   }
 

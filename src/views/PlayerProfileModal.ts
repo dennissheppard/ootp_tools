@@ -403,12 +403,15 @@ export class PlayerProfileModal {
         // Determine if this is a prospect (for peak projection) vs MLB-ready player (for current season)
         const isProspectProjection = data.isProspect === true || (!hasRecentMlb && data.forceProjection);
 
-        let showProjection = hasRecentMlb;
-        if (!showProjection && isUpperMinors && (isQualityProspect || (data.trueRating ?? 0) >= 2.0)) {
+        // Only show projections if we're viewing current year context (not historical years)
+        const isCurrentYearContext = selectedYear >= currentYear - 1;
+
+        let showProjection = isCurrentYearContext && hasRecentMlb;
+        if (!showProjection && isCurrentYearContext && isUpperMinors && (isQualityProspect || (data.trueRating ?? 0) >= 2.0)) {
              showProjection = true;
         }
-        if (ovr >= 50) showProjection = true;
-        if (data.forceProjection) showProjection = true;
+        if (isCurrentYearContext && ovr >= 50) showProjection = true;
+        if (isCurrentYearContext && data.forceProjection) showProjection = true;
 
         if (showProjection) {
             let proj = data.projectionOverride;

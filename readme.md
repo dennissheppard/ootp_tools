@@ -31,17 +31,25 @@ src/
 ## Core Features
 
 ### True Ratings (TR)
-Blends scouting grades with actual performance stats to produce a 0.5-5.0 star rating.
+Blends scouting grades with actual performance stats to produce a 0.5-5.0 star rating for current MLB players.
 
+**Algorithm:**
 ```typescript
 trueRating = (scoutingProjection × 0.5) + (statsBasedRating × 0.5)
-confidence = min(IP / 150, 1.0)
+confidence = min(IP / 150, 1.0)  // or PA for batters
 finalRating = (trueRating × confidence) + (scoutingProjection × (1 - confidence))
 ```
+
+**For Batters:**
+- Uses tier-aware regression that regresses elite hitters toward elite targets (not league average)
+- Component-specific stabilization constants (BB%: 120 PA, K%: 60 PA, HR%: 160 PA, AVG: 300 PA)
+- **HR%-based power estimation** (not ISO-based) to correctly distinguish gap hitters from power hitters
 
 ### True Future Rating (TFR)
 
 A **pure peak/ceiling projection system** that projects what a prospect's age-27 peak season would look like if everything goes right. TFR answers: *"If this prospect develops perfectly, what would that season look like?"*
+
+#### Pitcher TFR
 
 **Algorithm Flow:**
 
@@ -73,21 +81,6 @@ A **pure peak/ceiling projection system** that projects what a prospect's age-27
 
 7. **Rank by FIP** for final TFR rating (0.5-5.0 scale)
 
-**TFR Rating Scale:**
-
-| TFR | Percentile | Description |
-|-----|------------|-------------|
-| 5.0 | 99-100% | Elite (top ~10 prospects) |
-| 4.5 | 97-99% | Plus-Plus |
-| 4.0 | 93-97% | Plus |
-| 3.5 | 75-93% | Above Average |
-| 3.0 | 60-75% | Average |
-| 2.5 | 35-60% | Fringe |
-| 2.0 | 20-35% | Below Average |
-| 1.5 | 10-20% | Poor |
-| 1.0 | 5-10% | Replacement |
-| 0.5 | 0-5% | Organizational |
-
 **Peak Workload Projections:**
 
 IP projections are based on stamina and injury rating, not minor league IP:
@@ -106,18 +99,24 @@ baseIp = 50 + (stamina × 0.5)
 
 *Injury Modifiers:* Ironman (1.15×), Durable (1.10×), Normal (1.0×), Fragile (0.90×), Wrecked (0.75×)
 
-### Batter True Future Rating (TFR)
+#### Batter TFR
 
 Projects peak wOBA for hitter prospects using a 4-component model. Like pitcher TFR, this represents ceiling/peak potential ("if everything goes right").
 
 **The 4 Components:**
 
-| Component | Rating | Stat | Coefficient |
-|-----------|--------|------|-------------|
-| Eye | Eye (20-80) | BB% | -0.4196 + 0.114789 × eye |
-| AvoidK | AvoidK (20-80) | K% | 26.1423 - 0.200303 × avoidK |
-| Power | Power (20-80) | HR% | -0.9862 + 0.058434 × power |
-| Contact | Contact (20-80) | AVG | 0.074367 + 0.00316593 × contact |
+| Component | Rating | Stat | Calibrated Coefficient |
+|-----------|--------|------|------------------------|
+| Eye | Eye (20-80) | BB% | 1.6246 + 0.114789 × eye |
+| AvoidK | AvoidK (20-80) | K% | 25.9942 - 0.200303 × avoidK |
+| Power | Power (20-80) | HR% | -0.5906 + 0.058434 × power |
+| Contact | Contact (20-80) | AVG | 0.035156 + 0.00395741 × contact |
+
+**Peak Performance by Contact Rating:**
+- 80 contact → .352 AVG peak (elite top 3)
+- 75 contact → .332 AVG peak (excellent top 11)
+- 70 contact → .312 AVG peak (good)
+- 57 contact → .261 AVG peak (league average)
 
 **Critical Design Decision: Contact vs Hit Tool**
 
@@ -158,35 +157,68 @@ Different components have different predictive validity from MiLB stats:
 
 6. **Rank by wOBA** for final TFR rating (0.5-5.0 scale)
 
-**Validation Results (2017 scouting → 2018-2021 MLB):**
+**TFR Rating Scale:**
 
-| TFR | Arrival Rate | Avg WAR/yr | Actual Peak wOBA |
-|-----|--------------|------------|------------------|
-| 5.0 | 43% | 2.7 | .377 |
-| 4.5 | 25% | 2.2 | .370 |
-| 4.0 | 31% | 1.9 | .365 |
-| 3.5 | 21% | 1.2 | .333 |
-| 2.5 | 8% | 0.5 | .305 |
-| <2.0 | 2-5% | ~0 | .280-.290 |
+| TFR | Percentile | Description |
+|-----|------------|-------------|
+| 5.0 | 99-100% | Elite (top ~10 prospects) |
+| 4.5 | 97-99% | Plus-Plus |
+| 4.0 | 93-97% | Plus |
+| 3.5 | 75-93% | Above Average |
+| 3.0 | 60-75% | Average |
+| 2.5 | 35-60% | Fringe |
+| 2.0 | 20-35% | Below Average |
+| 1.5 | 10-20% | Poor |
+| 1.0 | 5-10% | Replacement |
+| 0.5 | 0-5% | Organizational |
 
-**Key Batter TFR Files:**
+### Recent Projection System Improvements
 
-| File | Purpose |
-|------|---------|
-| `HitterTrueFutureRatingService.ts` | Main TFR calculation, component blending, scouting weights |
-| `HitterRatingEstimatorService.ts` | Rating→stat coefficients, inverse estimation |
-| `HitterScoutingDataService.ts` | CSV parsing, column mapping (uses CON P not HT P) |
-| `HitterTrueRatingsCalculationService.ts` | Current True Rating for MLB batters |
-| `BatterProjectionService.ts` | Projections view integration |
+#### 1. HR%-Based Power Estimation (Fixed Gap Hitter Inflation)
 
-**Calibration Tools:**
+**Problem:** Gap hitters with high doubles/triples rates were getting inflated power ratings because the system estimated power from ISO (which includes all extra bases), not HR rate.
 
-| Tool | Purpose |
-|------|---------|
-| `tools/test_hitter_tfr.ts` | Validation test against historical outcomes |
-| `tools/calibrate_hitter_coefficients.ts` | Calibrate rating→stat from WBL MLB data |
-| `tools/calibrate_level_adjustments.ts` | Analyze MiLB→MLB predictive validity |
-| `tools/analyze_hitter_data.ts` | Analyze OOTP engine test data |
+**Solution:** Changed to HR%-based power estimation.
+
+**Impact:**
+- Gap hitters (high AVG, many 2B/3B, low HR) now get appropriate moderate power ratings
+- True power hitters (high HR%) correctly get high power ratings
+- A.E. Douglas example: Power rating 80→62 (correct), HR projection 30→15-18 (realistic)
+- HR% projection bias: -0.195 → -0.037 (81% improvement)
+
+#### 2. Contact Rating Slope Increase (Elite Projections)
+
+**Problem:** Elite scout ratings (75-80 contact) were mapping to AVGs that ranked 12th-20th in the league, not top-11 as they should.
+
+**Solution:** Increased contact slope by 25%, anchored to keep league average at .260.
+
+**Impact:**
+- 80 contact: .333 → .352 AVG (now ranks top 1-3, appropriate for elite)
+- 75 contact: .317 → .332 AVG (now ranks top 11, matches scout distribution)
+- League average maintained at .260 (57 contact rating)
+- Widens distribution at extremes without hurting overall accuracy
+
+#### 3. Reduced AVG Over-Regression
+
+**Problem:** AVG stabilization constant of 400 PA caused elite hitters with 500+ PA to still regress heavily (21 points for A.E. Douglas with 531 PA).
+
+**Solution:** Reduced stabilization constant from 400 → 300 PA.
+
+**Impact:**
+- Elite hitters with substantial PAs trusted more
+- Douglas type cases: Regression reduced from 21 pts → 17 pts
+- Still provides meaningful regression for lower PA players
+
+#### 4. Full System Recalibration
+
+After changes, ran automated calibration (`tools/calibrate_batter_coefficients.ts`) to optimize all intercepts:
+
+**Final Accuracy:**
+- AVG MAE: 0.025, Bias: -0.0002 (near perfect)
+- HR% MAE: 0.777, Bias: -0.037 (excellent)
+- BB% MAE: 1.421, Bias: -0.047
+- K% MAE: 1.946, Bias: -0.031
+- All biases near zero while maintaining elite/poor separation
 
 ### Farm System Rankings
 
@@ -211,14 +243,12 @@ Farm Score = (Elite × 10) + (Good × 5) + (Avg × 1) + Depth Bonus
 - 15-24 depth prospects: 4 pts
 - 25+ depth prospects: 5 pts
 
-Hover over any Farm Score to see the breakdown formula for that organization.
-
 ### Player Development Tracker
 Tracks scouting ratings over time to visualize player development trends.
 
 **How it works:**
 - Snapshots are automatically created when scouting data is uploaded
-- Each snapshot stores: Stuff, Control, HRA, OVR stars, POT stars
+- Each snapshot stores: Stuff, Control, HRA, OVR stars, POT stars (pitchers) or Eye, AvoidK, Power, Contact (batters)
 - View development history in the PlayerProfileModal → Development tab
 - ApexCharts visualization shows rating trends over time
 
@@ -235,8 +265,6 @@ Supported filename patterns:
 - `scouting_[source]_YYYY_MM_DD.csv` (underscores also work)
 - `[source]_YYYY-MM-DD.csv`
 - Any file containing `YYYY-MM-DD` or `YYYY_MM_DD` pattern
-
-Upload multiple files at once via Data Management → Scouting Reports. Dates are auto-detected from filenames.
 
 ### Projections
 Three-model ensemble for future performance:
@@ -259,9 +287,9 @@ Three-model ensemble for future performance:
 
 | Service | Purpose |
 |---------|---------|
-| `HitterTrueRatingsCalculationService` | Batter True Rating calculation |
+| `HitterTrueRatingsCalculationService` | Batter True Rating calculation with HR%-based power estimation |
 | `HitterTrueFutureRatingService` | Batter prospect TFR (wOBA-based peak projections) |
-| `HitterRatingEstimatorService` | Rating↔stat conversion coefficients |
+| `HitterRatingEstimatorService` | Rating↔stat conversion coefficients (calibrated) |
 | `HitterScoutingDataService` | Batter scouting CSV parsing (maps CON P, not HT P) |
 | `BatterProjectionService` | Batter projections integration |
 
@@ -274,6 +302,24 @@ Three-model ensemble for future performance:
 | `DevelopmentSnapshotService` | Historical scouting snapshot storage |
 | `MinorLeagueStatsService` | Minor league stats from API/CSV |
 | `IndexedDBService` | Persistent browser storage (v7) |
+
+## Calibration Tools
+
+Automated calibration scripts optimize coefficients to minimize projection bias:
+
+| Tool | Purpose | Usage |
+|------|---------|-------|
+| `tools/calibrate_batter_coefficients.ts` | Optimize rating→stat intercepts | `npx tsx tools/calibrate_batter_coefficients.ts` |
+| `tools/calibrate_level_adjustments.ts` | Analyze MiLB→MLB predictive validity | For tuning scouting weights |
+| `tools/test_hitter_tfr.ts` | Validation test against historical outcomes | Validate TFR accuracy |
+| `tools/analyze_hitter_data.ts` | Analyze OOTP engine test data | For coefficient research |
+
+**Calibration Process:**
+1. Simulates full projection pipeline (historical stats → ratings → projections)
+2. Validates against 2015-2021 actual results
+3. Iteratively adjusts intercepts to minimize bias
+4. Outputs recommended coefficient changes
+5. Reports MAE (mean absolute error) and bias for each stat
 
 ## IndexedDB Schema (v7)
 
@@ -298,28 +344,30 @@ FIP = ((13 × HR/9) + (3 × BB/9) - (2 × K/9)) / 9 + 3.47
 WAR = ((5.00 - FIP) / 9) × IP / 50
 ```
 
-**Level-Weighted IP (for TFR scouting weight):**
+**wOBA (Weighted On-Base Average):**
+```
+wOBA = 0.69×BB_rate + 0.89×1B_rate + 1.27×2B_rate + 1.62×3B_rate + 2.10×HR_rate
+```
+
+**Level-Weighted IP/PA (for TFR scouting weight):**
 ```
 weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 ```
 
-**TFR Rate Clamping (based on MLB peak-age extremes):**
-- K9: 3.0 to 11.0 (allows elite strikeout ceiling)
-- BB9: 0.85 to 7.0 (best observed: 0.89)
-- HR9: 0.20 to 2.5 (best observed: 0.2 in 123 IP)
-
 ## Views
 
 - **TrueRatingsView**: MLB pitcher dashboard with TR/projections
+- **BatterTrueRatingsView**: MLB batter dashboard with TR/projections
 - **FarmRankingsView**: Top 100 prospects, org rankings with Farm Score, sortable/draggable columns
+- **ProjectionsView**: Future performance projections with 3-model ensemble
 - **TradeAnalyzerView**: Side-by-side player comparisons
-- **DataManagementView**: File uploads, data refresh
+- **DataManagementView**: File uploads, data refresh, system maintenance
 - **PlayerProfileModal**: Deep-dive with Ratings + Development tabs
 
 ## Data Sources
 
 **StatsPlus API:**
-- Base: `/api/playerpitchstatsv2/`
+- Base: `/api/playerpitchstatsv2/` (pitchers), `/api/playerbatstatsv2/` (batters)
 - Params: `year`, `lid` (200=MLB, 201-204=minors), `split=1`
 
 **CSV Uploads:**
@@ -329,15 +377,13 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 *Batter Scouting Columns (from OOTP export):*
 | Column | Maps To | Notes |
 |--------|---------|-------|
-| `POW P` | power | Power rating |
+| `POW P` | power | Power rating (maps to HR%) |
 | `EYE P` | eye | Eye/plate discipline |
 | `K P` | avoidK | Avoid strikeout |
 | `CON P` | contact | **Use this, NOT HT P** |
 | `GAP P` | gap | Gap power (not used in TFR) |
 | `SPE` | speed | Speed (not used in TFR) |
 | `HT P` | — | **Not mapped** - Contact is better for AVG |
-
-*Stats:* `ID, Name, IP, HR, BB, K, HR/9, BB/9, K/9`
 
 ## Configuration
 
@@ -347,13 +393,26 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - Replacement FIP: 5.00
 
 **True Ratings:**
-- Full confidence IP threshold: 150
+- Full confidence IP threshold: 150 (pitchers)
+- Full confidence PA threshold: varies by stat (batters)
 
-**TFR Scouting Weights:**
+**Batter Stabilization Constants:**
+- BB%: 120 PA
+- K%: 60 PA
+- HR%: 160 PA
+- AVG: 300 PA
+
+**TFR Scouting Weights (Pitchers):**
 - < 75 weighted IP: 100% scout
 - 76-150 weighted IP: 80% scout
 - 151-250 weighted IP: 70% scout
 - 250+ weighted IP: 60% scout
+
+**TFR Scouting Weights (Batters, by weighted PA):**
+- Eye: 100% always (MiLB BB% is noise, r=0.05)
+- Contact: 100% always (MiLB AVG is noise, r=0.18)
+- AvoidK: 100%/65%/50%/40% at <150/300/500/500+ PA
+- Power: 100%/85%/80%/75% at <150/300/500/500+ PA
 
 **Peak Workload Projections:**
 - SP base: 30 + (stamina × 3.0), clamped 120-260 IP
@@ -364,20 +423,29 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - Peak ages: 25-29
 - Minimum IP: 50
 
-**Batter TFR Scouting Weights (by weighted PA):**
-- Eye: 100% always (MiLB BB% is noise, r=0.05)
-- Contact: 100% always (MiLB AVG is noise, r=0.18)
-- AvoidK: 100%/65%/50%/40% at <150/300/500/500+ PA
-- Power: 100%/85%/80%/75% at <150/300/500/500+ PA
-
-**Batter Rating→Stat Coefficients (Modern Era 2015-2021):**
-```typescript
-eye:     { intercept: -0.4196, slope: 0.114789 }   // BB%
-avoidK:  { intercept: 26.1423, slope: -0.200303 }  // K%
-power:   { intercept: -0.9862, slope: 0.058434 }   // HR%
-contact: { intercept: 0.074367, slope: 0.00316593 } // AVG
-```
-
 **Batter MLB Distribution Data:**
 - Source years: 2015-2021 (modern era)
 - Minimum PA: 300
+
+**Batter Rating→Stat Coefficients (Calibrated 2026-02):**
+```typescript
+eye:     { intercept: 1.6246,   slope: 0.114789 }     // BB%
+avoidK:  { intercept: 25.9942,  slope: -0.200303 }    // K%
+power:   { intercept: -0.5906,  slope: 0.058434 }     // HR%
+contact: { intercept: 0.035156, slope: 0.00395741 }   // AVG (25% slope increase)
+```
+
+## Development Notes
+
+**When modifying coefficients:**
+1. Update `HitterRatingEstimatorService.ts` (forward: rating → stat)
+2. Update `HitterTrueRatingsCalculationService.ts` (inverse: stat → rating)
+3. Run `npx tsx tools/calibrate_batter_coefficients.ts` to verify
+4. Check MAE and bias - should be near zero for good calibration
+
+**Key Design Decisions:**
+- HR%-based power (not ISO) prevents gap hitter inflation
+- Contact rating (not Hit Tool) for AVG predictions
+- 25% increased contact slope for realistic elite projections
+- Component-specific scouting weights based on MiLB→MLB correlations
+- Tier-aware regression prevents over-regressing elite talent

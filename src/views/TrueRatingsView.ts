@@ -56,6 +56,7 @@ interface HitterTrueRatingFields {
   /** Blended rate stats */
   blendedBbPct?: number;
   blendedKPct?: number;
+  blendedHrPct?: number;
   blendedIso?: number;
   blendedAvg?: number;
   /** Estimated ratings (20-80 scale) */
@@ -1428,6 +1429,7 @@ export class TrueRatingsView {
         woba: result.woba,
         blendedBbPct: result.blendedBbPct,
         blendedKPct: result.blendedKPct,
+        blendedHrPct: result.blendedHrPct,
         blendedIso: result.blendedIso,
         blendedAvg: result.blendedAvg,
         estimatedPower: result.estimatedPower,

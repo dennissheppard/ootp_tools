@@ -70,38 +70,42 @@ const STABILIZATION = {
  */
 const REGRESSION_COEFFICIENTS = {
   // Eye (20-80) → BB%
-  // BB% = 0.64 + 0.114789 * eye
+  // BB% = 1.6246 + 0.114789 * eye
   // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
-  // At 20: 0.64 + 0.114789 * 20 = 2.94%
-  // At 50: 0.64 + 0.114789 * 50 = 6.38%
-  // At 80: 0.64 + 0.114789 * 80 = 9.82%
-  eye: { intercept: 0.64, slope: 0.114789 },
+  // At 20: 1.6246 + 0.114789 * 20 = 3.92%
+  // At 50: 1.6246 + 0.114789 * 50 = 7.36%
+  // At 80: 1.6246 + 0.114789 * 80 = 10.81%
+  eye: { intercept: 1.6246, slope: 0.114789 },
 
   // AvoidK (20-80) → K% (inverse)
-  // K% = 25.35 - 0.200303 * avoidK
+  // K% = 25.9942 - 0.200303 * avoidK
   // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
-  // At 20: 25.35 - 0.200303 * 20 = 21.34%
-  // At 50: 25.35 - 0.200303 * 50 = 15.33%
-  // At 80: 25.35 - 0.200303 * 80 = 9.33%
-  avoidK: { intercept: 25.35, slope: -0.200303 },
+  // At 20: 25.9942 - 0.200303 * 20 = 21.99%
+  // At 50: 25.9942 - 0.200303 * 50 = 15.98%
+  // At 80: 25.9942 - 0.200303 * 80 = 9.97%
+  avoidK: { intercept: 25.9942, slope: -0.200303 },
 
   // Power (20-80) → HR%
-  // HR% = -1.30 + 0.058434 * power (HR per PA as percentage)
+  // HR% = -0.5906 + 0.058434 * power (HR per PA as percentage)
   // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
-  // At 20: -1.30 + 0.058434 * 20 = -0.13% (clamped to 0)
-  // At 50: -1.30 + 0.058434 * 50 = 1.62%
-  // At 80: -1.30 + 0.058434 * 80 = 3.37%
-  power: { intercept: -1.30, slope: 0.058434 },
+  // IMPORTANT: Calibrated for HR%-based power estimation (not ISO-based)
+  // At 20: -0.5906 + 0.058434 * 20 = 0.58%
+  // At 50: -0.5906 + 0.058434 * 50 = 2.33%
+  // At 80: -0.5906 + 0.058434 * 80 = 4.08%
+  power: { intercept: -0.5906, slope: 0.058434 },
 
-  // Contact (20-80) → AVG (.141 to .331)
+  // Contact (20-80) → AVG (.114 to .352)
   // Contact = ~60% Hit Tool + ~40% AvoidK (OOTP composite rating)
-  // AVG = 0.0772 + 0.00316593 * contact
-  // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
-  // At 20: 0.0772 + 0.00316593 * 20 = 0.141
-  // At 50: 0.0772 + 0.00316593 * 50 = 0.235
-  // At 80: 0.0772 + 0.00316593 * 80 = 0.331
+  // AVG = 0.035156 + 0.00395741 * contact
+  // Slope increased by 25% to better match elite/poor extremes with scout ratings
+  // Anchored so 57 contact = .260 (league average)
+  // At 20: 0.035156 + 0.00395741 * 20 = 0.114 (poor)
+  // At 50: 0.035156 + 0.00395741 * 50 = 0.233 (below avg)
+  // At 57: 0.035156 + 0.00395741 * 57 = 0.261 (league avg)
+  // At 75: 0.035156 + 0.00395741 * 75 = 0.332 (top 11)
+  // At 80: 0.035156 + 0.00395741 * 80 = 0.352 (elite top 3)
   // Contact correlates with AVG at r=0.97 (vs Hit Tool alone at r=0.82)
-  contact: { intercept: 0.0772, slope: 0.00316593 },
+  contact: { intercept: 0.035156, slope: 0.00395741 },
 
   // Gap (20-80) → Doubles/AB (0.008 to 0.055)
   // D/AB = -0.004 + 0.00078 * gap

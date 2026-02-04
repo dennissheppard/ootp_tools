@@ -144,20 +144,15 @@ export class ProjectionsView {
         const estAvoidK = b.estimatedRatings.avoidK;
         return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
       }},
-      { key: 'hrPct', label: 'HR%', sortKey: 'projectedStats.hr', accessor: b => {
-        const hrPct = ((b.projectedStats.hr / b.projectedStats.pa) * 100).toFixed(1);
+      { key: 'projHr', label: 'HR', sortKey: 'projectedStats.hr', accessor: b => {
+        const hr = b.projectedStats.hr.toString();
         const estPower = b.estimatedRatings.power;
-        return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
+        return this.renderFlipCell(hr, estPower.toString(), 'Est Power Rating');
       }},
       { key: 'projAvg', label: 'AVG', sortKey: 'projectedStats.avg', accessor: b => {
         const avg = b.projectedStats.avg.toFixed(3);
         const estContact = b.estimatedRatings.contact;
         return this.renderFlipCell(avg, estContact.toString(), 'Est Contact Rating');
-      }},
-      { key: 'iso', label: 'ISO', sortKey: 'projectedStats.slg', accessor: b => {
-        const iso = (b.projectedStats.slg - b.projectedStats.avg).toFixed(3);
-        const estPower = b.estimatedRatings.power;
-        return this.renderFlipCell(iso, estPower.toString(), 'Est Power Rating');
       }},
       { key: 'projObp', label: 'OBP', sortKey: 'projectedStats.obp', accessor: b => b.projectedStats.obp.toFixed(3) },
       { key: 'projSlg', label: 'SLG', sortKey: 'projectedStats.slg', accessor: b => b.projectedStats.slg.toFixed(3) },
@@ -1858,6 +1853,8 @@ export class ProjectionsView {
                   projAvg: batter.projectedStats.avg,
                   projObp: batter.projectedStats.obp,
                   projSlg: batter.projectedStats.slg,
+                  projBbPct: batter.projectedStats.bbPct,
+                  projKPct: batter.projectedStats.kPct,
                   projPa: batter.projectedStats.pa,
                   projHr: batter.projectedStats.hr,
                   projRbi: batter.projectedStats.rbi,

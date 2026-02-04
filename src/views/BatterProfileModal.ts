@@ -742,14 +742,14 @@ export class BatterProfileModal {
     let projAvg = data.projAvg ?? data.avg;
     let projObp = data.projObp ?? data.obp;
     let projSlg = data.projSlg ?? data.slg;
-    let projBbPct = 8.5; // default BB%
-    let projKPct = 22.0; // default K%
+    let projBbPct = data.projBbPct ?? 8.5; // Use provided or default BB%
+    let projKPct = data.projKPct ?? 22.0; // Use provided or default K%
 
     // If we have estimated ratings but no projected stats, calculate them
     if (!projAvg && data.estimatedPower && data.estimatedEye && data.estimatedAvoidK && data.estimatedContact) {
-      projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
+      projBbPct = data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
       const kPct = HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
-      projKPct = kPct;
+      projKPct = data.projKPct ?? kPct;
       const iso = HitterRatingEstimatorService.expectedIso(data.estimatedPower);
       const avg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
 
