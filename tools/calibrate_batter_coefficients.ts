@@ -22,10 +22,10 @@ interface Coefficients {
 
 // Current coefficients from HitterRatingEstimatorService
 const CURRENT_COEFFICIENTS: Coefficients = {
-  eye: { intercept: 1.3306, slope: 0.114789 },
-  avoidK: { intercept: 25.8033, slope: -0.200303 },
-  power: { intercept: -0.8066, slope: 0.058434 },
-  contact: { intercept: 0.034427, slope: 0.00395741 },
+  eye: { intercept: 1.6246, slope: 0.114789 },
+  avoidK: { intercept: 25.9942, slope: -0.200303 },
+  power: { intercept: -0.5906, slope: 0.058434 },
+  contact: { intercept: 0.035156, slope: 0.00395741 },
 };
 
 // ============================================================================

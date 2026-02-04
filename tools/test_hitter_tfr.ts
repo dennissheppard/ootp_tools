@@ -146,11 +146,12 @@ const LEVEL_ID_MAP: Record<number, 'aaa' | 'aa' | 'a' | 'r'> = {
 
 // Rating-to-stat coefficients (from HitterRatingEstimatorService - Modern Era 2015-2021)
 // Power now maps to HR% instead of ISO
+// CALIBRATED FOR TFR (prospect projections) 2026-02-03
 const REGRESSION_COEFFICIENTS = {
-  eye: { intercept: -0.4196, slope: 0.114789 },     // BB% 1.9% to 8.8% (adjusted to fix +1.9% bias)
-  avoidK: { intercept: 26.1423, slope: -0.200303 }, // K% 22.1% to 10.1%
-  power: { intercept: -0.9862, slope: 0.058434 },   // HR% 0.18% to 3.69% (adjusted to fix HR% bias)
-  contact: { intercept: 0.074367, slope: 0.00316593 }, // AVG .138 to .328 (Contact replaces Hit Tool)
+  eye: { intercept: 1.6246, slope: 0.114789 },
+  avoidK: { intercept: 25.9942, slope: -0.200303 },
+  power: { intercept: -0.729, slope: 0.058434 },  // Calibrated to eliminate TFR HR% bias
+  contact: { intercept: 0.035156, slope: 0.00395741 },
 };
 
 // Level adjustments for minor league stats (using HR% instead of ISO)
