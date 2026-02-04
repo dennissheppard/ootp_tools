@@ -43,6 +43,7 @@ finalRating = (trueRating × confidence) + (scoutingProjection × (1 - confidenc
 **For Batters:**
 - Uses tier-aware regression that regresses elite hitters toward elite targets (not league average)
 - Component-specific stabilization constants (BB%: 120 PA, K%: 60 PA, HR%: 160 PA, AVG: 300 PA)
+- **Percentile-based component ratings** - Contact, Power, Eye, and AvK ratings are calculated by ranking players within each season (not absolute thresholds). This ensures league leaders always receive elite ratings regardless of year-to-year offensive environment changes.
 - **HR%-based power estimation** (not ISO-based) to correctly distinguish gap hitters from power hitters
 
 ### True Future Rating (TFR)
@@ -113,10 +114,10 @@ Projects peak wOBA for hitter prospects using a 4-component model. Like pitcher 
 | Contact | Contact (20-80) | AVG | 0.035156 + 0.00395741 × contact |
 
 **Peak Performance by Contact Rating:**
-- 80 contact → .352 AVG peak (elite top 3)
-- 75 contact → .332 AVG peak (excellent top 11)
-- 70 contact → .312 AVG peak (good)
-- 57 contact → .261 AVG peak (league average)
+- 80 contact → .345 AVG peak (elite top 2-4)
+- 75 contact → .326 AVG peak (excellent)
+- 70 contact → .307 AVG peak (good)
+- 57 contact → .256 AVG peak (league average)
 
 **Critical Design Decision: Contact vs Hit Tool**
 
@@ -219,6 +220,77 @@ After changes, ran automated calibration (`tools/calibrate_batter_coefficients.t
 - BB% MAE: 1.421, Bias: -0.047
 - K% MAE: 1.946, Bias: -0.031
 - All biases near zero while maintaining elite/poor separation
+
+#### 5. Batter Projection Pipeline Fix (Feb 2026)
+
+**Problem:** `BatterProjectionService` was using deprecated `expectedIso()` method and rough estimation formulas instead of proper HR% coefficient, causing systematic HR% projection bias.
+
+**Solution:** Fixed projection pipeline to use proper coefficient-based calculations:
+- Changed from: `hrRate = hitRate * 0.12 * isoFactor` (hacky formula)
+- Changed to: `hrRate = projHrPct / 100` (proper coefficient)
+- Removed deprecated `expectedIso()` dependency
+- Calculate HR count as: `projHr = PA × (HR% / 100)`
+
+**Impact:**
+- HR% projection bias: **-1.867 → +0.033** (98% improvement!)
+- wOBA bias remained excellent: -0.013
+- All other stats remained stable
+
+#### 6. Internal Rating Range Expansion (Feb 2026)
+
+**Problem:** 20-80 rating caps were artificially limiting projections for extreme players. High-K guys all projected to exactly 21.1% K rate, elite low-K guys all projected to 9.1%.
+
+**Solution:** Implemented OOTP-style dual range system:
+- **Internal calculations:** 0-100 range (allows extreme projections)
+- **User display:** 20-80 range (standard OOTP/baseball convention)
+- Applied to all rating estimation and aging functions (batters & pitchers)
+
+**Impact:**
+- Extreme projections now vary realistically (high-K: 22-25%, low-K: 7.7-8.1%)
+- MAE improved: K% 1.822→1.724, HR% 0.686→0.648, BB% 1.286→1.224
+- RMSE improved by better capturing tail distributions
+- No artificial ceiling/floor effects
+
+#### 7. K% Coefficient Calibration (Feb 2026)
+
+**Problem:** K% projections had systematic overprediction bias of -0.559 (bias = actual - projected).
+
+**Solution:** Calibrated avoidK intercept from 25.9942 → 25.10 through iterative validation against 2015-2020 MLB data.
+
+**Impact:**
+- K% bias reduced: -0.559 → -0.400 (still overpredicting ~2.4 Ks per 600 PA)
+- MAE improved: 1.822 → 1.724
+- Considered acceptable given practical impact (~2 strikeouts difference per season)
+
+#### 8. Percentile-Based Component Ratings (Feb 2026)
+
+**Problem:** Component ratings (Contact, Power, Eye, AvK) used absolute performance thresholds that didn't account for year-to-year offensive environment changes. A .315 league-leader in a low-offense year would get only a 71 Contact rating, while a .380 league-leader in a high-offense year would get 80. This was unfair - being the best hitter in your season should always yield an elite rating regardless of league-wide offensive levels.
+
+**Solution:** Replaced formula-based rating calculations with **percentile-based rankings within each season**:
+- Each component (Contact, Power, Eye, AvK) ranks all players by their blended stat
+- Percentile rank (0-100) maps to rating scale (20-80): `rating = 20 + (percentile / 100) × 60`
+- League leader (100th percentile) → 80 rating
+- Median player (50th percentile) → 50 rating
+- Worst player (0th percentile) → 20 rating
+- Distribution is relative to peers in the same season
+
+**Impact:**
+- League leader in any stat always receives 80 rating, regardless of absolute value (.315 or .380)
+- Top 2-3 players receive 79-80 ratings
+- Ratings adjust automatically for offensive environment changes
+- Fair cross-era comparison: players judged against their peers
+- Consistent distribution across all four components
+- Historical comparisons remain valid (everyone rated relative to their era)
+
+**Current Validation Metrics (2015-2020, 200+ PA, n=770):**
+```
+Stat    MAE    RMSE    Bias
+wOBA    0.026  0.033   -0.014
+AVG     0.021  0.027   +0.008
+BB%     1.224  1.555   -0.252
+K%      1.724  2.214   -0.400
+HR%     0.648  0.849   -0.069
+```
 
 ### Farm System Rankings
 
@@ -427,25 +499,39 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - Source years: 2015-2021 (modern era)
 - Minimum PA: 300
 
-**Batter Rating→Stat Coefficients (Calibrated 2026-02):**
+**Batter Rating→Stat Coefficients (Used for TFR projections):**
 ```typescript
-eye:     { intercept: 1.6246,   slope: 0.114789 }     // BB%
-avoidK:  { intercept: 25.9942,  slope: -0.200303 }    // K%
-power:   { intercept: -0.5906,  slope: 0.058434 }     // HR%
-contact: { intercept: 0.035156, slope: 0.00395741 }   // AVG (25% slope increase)
+eye:     { intercept: 1.6246,  slope: 0.114789 }     // BB%
+avoidK:  { intercept: 25.10,   slope: -0.200303 }    // K% (calibrated to reduce overprediction)
+power:   { intercept: -0.5906, slope: 0.058434 }     // HR%
+contact: { intercept: 0.035156, slope: 0.003873 }    // AVG
+
+Note: True Ratings now use percentile-based component ratings instead of these formulas.
+These coefficients are still used for TFR (prospect projections) and scouting conversions.
 ```
 
 ## Development Notes
 
-**When modifying coefficients:**
+**True Ratings Component Rating System:**
+- Batter component ratings (Contact, Power, Eye, AvK) use **percentile-based ranking** within each season
+- Implementation: `HitterTrueRatingsCalculationService.calculateComponentRatingsFromPercentiles()`
+- Each player is ranked by their blended stat and assigned a rating based on percentile: `rating = 20 + (percentile / 100) × 60`
+- This ensures fair comparison across different offensive environments
+
+**When modifying batter coefficients (TFR only):**
 1. Update `HitterRatingEstimatorService.ts` (forward: rating → stat)
-2. Update `HitterTrueRatingsCalculationService.ts` (inverse: stat → rating)
-3. Run `npx tsx tools/calibrate_batter_coefficients.ts` to verify
-4. Check MAE and bias - should be near zero for good calibration
+2. Note: These are now only used for TFR projections and scouting conversions
+3. True Ratings use percentile-based rankings, not formulas
+4. Run `npx tsx tools/calibrate_batter_coefficients.ts` to verify TFR accuracy
+
+**Rating Ranges:**
+- Batter component ratings (Contact, Power, Eye, AvK) use **20-80 scale** directly via percentile mapping
+- TFR projections use **0-100 internal range** to prevent artificial capping
+- UI displays all ratings as **20-80** (standard OOTP/baseball convention)
 
 **Key Design Decisions:**
+- **Percentile-based component ratings** for True Ratings (ensures fair cross-era comparison)
 - HR%-based power (not ISO) prevents gap hitter inflation
 - Contact rating (not Hit Tool) for AVG predictions
-- 25% increased contact slope for realistic elite projections
 - Component-specific scouting weights based on MiLB→MLB correlations
 - Tier-aware regression prevents over-regressing elite talent

@@ -94,18 +94,18 @@ const REGRESSION_COEFFICIENTS = {
   // At 80: -0.5906 + 0.058434 * 80 = 4.08%
   power: { intercept: -0.5906, slope: 0.058434 },
 
-  // Contact (20-80) → AVG (.114 to .352)
+  // Contact (20-80) → AVG (.113 to .345)
   // Contact = ~60% Hit Tool + ~40% AvoidK (OOTP composite rating)
-  // AVG = 0.035156 + 0.00395741 * contact
-  // Slope increased by 25% to better match elite/poor extremes with scout ratings
+  // AVG = 0.035156 + 0.003873 * contact
+  // Slope calibrated for True Ratings to match distribution of other components
   // Anchored so 57 contact = .260 (league average)
-  // At 20: 0.035156 + 0.00395741 * 20 = 0.114 (poor)
-  // At 50: 0.035156 + 0.00395741 * 50 = 0.233 (below avg)
-  // At 57: 0.035156 + 0.00395741 * 57 = 0.261 (league avg)
-  // At 75: 0.035156 + 0.00395741 * 75 = 0.332 (top 11)
-  // At 80: 0.035156 + 0.00395741 * 80 = 0.352 (elite top 3)
+  // At 20: 0.035156 + 0.003873 * 20 = 0.113 (poor)
+  // At 50: 0.035156 + 0.003873 * 50 = 0.229 (below avg)
+  // At 57: 0.035156 + 0.003873 * 57 = 0.256 (league avg)
+  // At 75: 0.035156 + 0.003873 * 75 = 0.326 (excellent)
+  // At 80: 0.035156 + 0.003873 * 80 = 0.345 (elite, top 2-4)
   // Contact correlates with AVG at r=0.97 (vs Hit Tool alone at r=0.82)
-  contact: { intercept: 0.035156, slope: 0.00395741 },
+  contact: { intercept: 0.035156, slope: 0.003873 },
 
   // Gap (20-80) → Doubles/AB (0.008 to 0.055)
   // D/AB = -0.004 + 0.00078 * gap

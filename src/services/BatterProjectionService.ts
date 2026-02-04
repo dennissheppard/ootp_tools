@@ -43,6 +43,7 @@ export interface ProjectedBatter {
     hr: number;
     rbi: number;
     sb: number;
+    hrPct?: number;
     bbPct?: number;
     kPct?: number;
   };
@@ -209,7 +210,16 @@ class BatterProjectionService {
       // Calculate wRC+ and WAR using league averages
       let wrcPlus = 100;
       let projWar = 0;
-      const projPa = leagueBattingAveragesService.getProjectedPa(scouting?.injuryProneness, player.age);
+
+      // Get historical PA data for better projections
+      const playerHistoricalStats = multiYearStats.get(trResult.playerId) || [];
+      const historicalPaData = playerHistoricalStats.map(s => ({ year: s.year, pa: s.pa }));
+
+      const projPa = leagueBattingAveragesService.getProjectedPaWithHistory(
+        historicalPaData,
+        player.age,
+        scouting?.injuryProneness
+      );
 
       if (leagueAvg) {
         wrcPlus = leagueBattingAveragesService.calculateWrcPlus(projWoba, leagueAvg);
@@ -245,6 +255,7 @@ class BatterProjectionService {
           hr: projHr,
           rbi: projRbi,
           sb: projSb,
+          hrPct: Math.round(projHrPct * 10) / 10,
           bbPct: Math.round(projBbPct * 10) / 10,
           kPct: Math.round(projKPct * 10) / 10,
         },

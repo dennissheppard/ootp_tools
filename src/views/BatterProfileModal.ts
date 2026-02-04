@@ -65,6 +65,8 @@ export interface BatterProfileData {
   projRbi?: number;
   projWar?: number;
   projWrcPlus?: number;
+  projBbPct?: number;
+  projKPct?: number;
 
   // TFR for prospects
   isProspect?: boolean;
@@ -739,34 +741,54 @@ export class BatterProfileModal {
     const lgSlg = 0.400;
 
     // Calculate projected stats from estimated ratings if not provided
-    let projAvg = data.projAvg ?? data.avg;
-    let projObp = data.projObp ?? data.obp;
-    let projSlg = data.projSlg ?? data.slg;
-    let projBbPct = data.projBbPct ?? 8.5; // Use provided or default BB%
-    let projKPct = data.projKPct ?? 22.0; // Use provided or default K%
+    let projAvg: number;
+    let projObp: number;
+    let projSlg: number;
+    let projBbPct: number;
+    let projKPct: number;
 
-    // If we have estimated ratings but no projected stats, calculate them
-    if (!projAvg && data.estimatedPower && data.estimatedEye && data.estimatedAvoidK && data.estimatedContact) {
-      projBbPct = data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
-      const kPct = HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
-      projKPct = data.projKPct ?? kPct;
-      const iso = HitterRatingEstimatorService.expectedIso(data.estimatedPower);
-      const avg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
-
-      projAvg = avg;
-      projObp = Math.min(0.450, avg + (projBbPct / 100));
-      projSlg = avg + iso;
+    // If we have projection data, use it
+    if (data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
+      projAvg = data.projAvg;
+      projObp = data.projObp;
+      projSlg = data.projSlg;
+      projBbPct = data.projBbPct ?? 8.5;
+      projKPct = data.projKPct ?? 22.0;
     }
-
-    // Fall back to defaults if still not available
-    projAvg = projAvg ?? 0.260;
-    projObp = projObp ?? 0.330;
-    projSlg = projSlg ?? 0.420;
+    // Otherwise, if we have estimated ratings, calculate from them
+    else if (data.estimatedPower !== undefined && data.estimatedEye !== undefined &&
+             data.estimatedAvoidK !== undefined && data.estimatedContact !== undefined) {
+      projBbPct = data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
+      projKPct = data.projKPct ?? HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
+      const iso = HitterRatingEstimatorService.expectedIso(data.estimatedPower);
+      projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
+      projObp = Math.min(0.450, projAvg + (projBbPct / 100));
+      projSlg = projAvg + iso;
+    }
+    // Fall back to defaults if neither is available
+    else {
+      projAvg = 0.260;
+      projObp = 0.330;
+      projSlg = 0.420;
+      projBbPct = 8.5;
+      projKPct = 22.0;
+    }
 
     // Calculate projected PA based on age and injury proneness if not provided
     const injuryProneness = this.scoutingData?.injuryProneness ?? data.injuryProneness;
     const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
-    const projHr = data.projHr ?? data.hr ?? Math.round((projSlg - projAvg) * 100); // HR estimate from ISO
+
+    // Calculate projected HR from HR% if we have power rating, otherwise estimate from ISO
+    let projHr: number;
+    if (data.projHr !== undefined) {
+      projHr = data.projHr;
+    } else if (data.estimatedPower !== undefined) {
+      const projHrPct = HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
+      projHr = Math.round(projPa * (projHrPct / 100));
+    } else {
+      projHr = Math.round((projSlg - projAvg) * 100); // Fallback: estimate from ISO
+    }
+
     const projSb = Math.round((this.scoutingData?.speed ?? 50) / 10); // SB estimate from speed
 
     // Calculate OPS and OPS+
@@ -777,8 +799,8 @@ export class BatterProfileModal {
     const runsPerWin = 10;
     const replacementRuns = (projPa / 600) * 20;
     const runsAboveAvg = ((projOpsPlus - 100) / 10) * (projPa / 600) * 10;
-    const calculatedWar = Math.max(0, (runsAboveAvg + replacementRuns) / runsPerWin);
-    const projWar = data.projWar ?? data.war ?? Math.round(calculatedWar * 10) / 10;
+    const calculatedWar = (runsAboveAvg + replacementRuns) / runsPerWin;
+    const projWar = data.projWar ?? Math.round(calculatedWar * 10) / 10;
 
     const formatStat = (val: number, decimals: number = 3) => val.toFixed(decimals);
     const formatPct = (val: number) => val.toFixed(1) + '%';
