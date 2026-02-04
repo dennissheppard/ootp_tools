@@ -68,9 +68,10 @@ class AgingService {
     age: number
   ): { stuff: number; control: number; hra: number } {
     const mods = this.getAgingModifiers(age);
-    
-    // Clamp between 20-80
-    const clamp = (val: number) => Math.max(20, Math.min(80, val));
+
+    // Internal clamp: 0-100 (wider than display range of 20-80)
+    // This allows extreme ratings internally while preventing absurd outliers
+    const clamp = (val: number) => Math.max(0, Math.min(100, val));
 
     return {
       stuff: clamp(ratings.stuff + mods.stuff),

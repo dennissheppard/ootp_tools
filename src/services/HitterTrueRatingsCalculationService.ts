@@ -670,7 +670,8 @@ class HitterTrueRatingsCalculationService {
     // HR% = -0.5906 + 0.058434 * power
     // power = (HR% - (-0.5906)) / 0.058434 = (HR% + 0.5906) / 0.058434
     const rating = (hrPct + 0.5906) / 0.058434;
-    return Math.max(20, Math.min(80, rating));
+    // Internal range: 0-100 (wider than display range of 20-80)
+    return Math.max(0, Math.min(100, rating));
   }
 
   /**
@@ -685,7 +686,8 @@ class HitterTrueRatingsCalculationService {
     // BB% = 1.6246 + 0.114789 * eye
     // eye = (BB% - 1.6246) / 0.114789
     const rating = (bbPct - 1.6246) / 0.114789;
-    return Math.max(20, Math.min(80, rating));
+    // Internal range: 0-100 (wider than display range of 20-80)
+    return Math.max(0, Math.min(100, rating));
   }
 
   /**
@@ -697,10 +699,11 @@ class HitterTrueRatingsCalculationService {
    */
   private estimateAvoidKFromKPct(kPct: number): number {
     // MUST match inverse of HitterRatingEstimatorService coefficients
-    // K% = 25.9942 + (-0.200303) * avoidK = 25.9942 - 0.200303 * avoidK
-    // avoidK = (25.9942 - K%) / 0.200303
-    const rating = (25.9942 - kPct) / 0.200303;
-    return Math.max(20, Math.min(80, rating));
+    // K% = 25.10 + (-0.200303) * avoidK = 25.10 - 0.200303 * avoidK
+    // avoidK = (25.10 - K%) / 0.200303
+    const rating = (25.10 - kPct) / 0.200303;
+    // Internal range: 0-100 (wider than display range of 20-80)
+    return Math.max(0, Math.min(100, rating));
   }
 
   /**
@@ -715,7 +718,8 @@ class HitterTrueRatingsCalculationService {
     // AVG = 0.035156 + 0.00395741 * contact
     // contact = (AVG - 0.035156) / 0.00395741
     const rating = (avg - 0.035156) / 0.00395741;
-    return Math.max(20, Math.min(80, rating));
+    // Internal range: 0-100 (wider than display range of 20-80)
+    return Math.max(0, Math.min(100, rating));
   }
 
   /**

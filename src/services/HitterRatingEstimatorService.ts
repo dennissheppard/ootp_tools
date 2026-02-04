@@ -78,12 +78,12 @@ const REGRESSION_COEFFICIENTS = {
   eye: { intercept: 1.6246, slope: 0.114789 },
 
   // AvoidK (20-80) → K% (inverse)
-  // K% = 25.9942 - 0.200303 * avoidK
-  // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
-  // At 20: 25.9942 - 0.200303 * 20 = 21.99%
-  // At 50: 25.9942 - 0.200303 * 50 = 15.98%
-  // At 80: 25.9942 - 0.200303 * 80 = 9.97%
-  avoidK: { intercept: 25.9942, slope: -0.200303 },
+  // K% = 25.10 - 0.200303 * avoidK
+  // Intercept calibrated to minimize K% projection bias
+  // At 20: 25.10 - 0.200303 * 20 = 21.09%
+  // At 50: 25.10 - 0.200303 * 50 = 15.09%
+  // At 80: 25.10 - 0.200303 * 80 = 9.08%
+  avoidK: { intercept: 25.10, slope: -0.200303 },
 
   // Power (20-80) → HR%
   // HR% = -0.5906 + 0.058434 * power (HR per PA as percentage)
