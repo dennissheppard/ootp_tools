@@ -7,6 +7,7 @@ import { teamService } from '../services/TeamService';
 import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
 import { trueRatingsService } from '../services/TrueRatingsService';
 import { leagueStatsService } from '../services/LeagueStatsService';
+import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
 import { fipWarService } from '../services/FipWarService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { projectionAnalysisService, AggregateAnalysisReport } from '../services/ProjectionAnalysisService';
@@ -22,6 +23,25 @@ interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   };
 }
 
+interface ProjectedBatterWithActuals extends ProjectedBatter {
+  actualStats?: {
+    woba: number;
+    avg: number;
+    obp: number;
+    slg: number;
+    wrcPlus: number;
+    war: number;
+    pa: number;
+    hr: number;
+    hrPct: number;
+    bbPct: number;
+    kPct: number;
+    wobaDiff: number;
+    warDiff: number;
+    grade: string;
+  };
+}
+
 interface ColumnConfig {
   key: keyof ProjectedPlayerWithActuals | string;
   label: string;
@@ -33,7 +53,7 @@ interface BatterColumnConfig {
   key: string;
   label: string;
   sortKey?: string;
-  accessor?: (row: ProjectedBatter) => any;
+  accessor?: (row: ProjectedBatterWithActuals) => any;
 }
 
 export class ProjectionsView {
@@ -59,6 +79,7 @@ export class ProjectionsView {
   private columns: ColumnConfig[] = [];
   private isDraggingColumn = false;
   private prefKey = 'wbl-projections-prefs';
+  private batterPrefKey = 'wbl-batter-projections-prefs';
   private playerProfileModal: PlayerProfileModal;
   private playerRowLookup: Map<number, ProjectedPlayerWithActuals> = new Map();
   private hasActualStats = false;
@@ -76,10 +97,11 @@ export class ProjectionsView {
   private analysisUsePaFilter = true; // Default to filtering enabled for batters
 
   // Batter-specific properties
-  private batterStats: ProjectedBatter[] = [];
-  private allBatterStats: ProjectedBatter[] = [];
+  private batterStats: ProjectedBatterWithActuals[] = [];
+  private allBatterStats: ProjectedBatterWithActuals[] = [];
   private batterColumns: BatterColumnConfig[] = [];
-  private batterRowLookup: Map<number, ProjectedBatter> = new Map();
+  private batterRowLookup: Map<number, ProjectedBatterWithActuals> = new Map();
+  private hasBatterActualStats = false;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -124,45 +146,119 @@ export class ProjectionsView {
 
     this.columns = this.loadColumnPrefs(defaults);
 
-    // Initialize batter columns
-    this.batterColumns = [
+    // Initialize batter columns with interspersed actuals when in backcasting mode
+    const batterDefaults: BatterColumnConfig[] = [
       { key: 'position', label: 'Pos', sortKey: 'position', accessor: b => this.renderBatterPositionBadge(b.position) },
       { key: 'name', label: 'Name', accessor: b => this.renderBatterName(b) },
       { key: 'teamName', label: 'Team' },
       { key: 'age', label: 'Age' },
       { key: 'currentTrueRating', label: 'TR', sortKey: 'currentTrueRating', accessor: b => this.renderBatterRatingBadge(b.currentTrueRating) },
       { key: 'projWoba', label: 'Proj wOBA', sortKey: 'projectedStats.woba', accessor: b => b.projectedStats.woba.toFixed(3) },
-      { key: 'projWrcPlus', label: 'Proj wRC+', sortKey: 'projectedStats.wrcPlus', accessor: b => b.projectedStats.wrcPlus.toString() },
-      { key: 'projWAR', label: 'Proj WAR', sortKey: 'projectedStats.war', accessor: b => b.projectedStats.war.toFixed(1) },
-      { key: 'bbPct', label: 'BB%', sortKey: 'projectedStats.bbPct', accessor: b => {
-        const bbPct = b.projectedStats.bbPct?.toFixed(1) ?? 'N/A';
-        const estEye = b.estimatedRatings.eye;
-        return this.renderFlipCell(bbPct, estEye.toString(), 'Est Eye (Plate Discipline) Rating');
-      }},
-      { key: 'kPct', label: 'K%', sortKey: 'projectedStats.kPct', accessor: b => {
-        const kPct = b.projectedStats.kPct?.toFixed(1) ?? 'N/A';
-        const estAvoidK = b.estimatedRatings.avoidK;
-        return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
-      }},
-      { key: 'hrPct', label: 'HR%', sortKey: 'projectedStats.hr', accessor: b => {
-        const hrPct = ((b.projectedStats.hr / b.projectedStats.pa) * 100).toFixed(1);
-        const estPower = b.estimatedRatings.power;
-        return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
-      }},
-      { key: 'projAvg', label: 'AVG', sortKey: 'projectedStats.avg', accessor: b => {
+    ];
+
+    // Intersperse actual stats if we have them
+    if (this.hasBatterActualStats) {
+      batterDefaults.push(
+        { key: 'actWoba', label: 'Act wOBA', sortKey: 'actualStats.woba', accessor: b => b.actualStats ? b.actualStats.woba.toFixed(3) : '' },
+        { key: 'wobaDiff', label: 'wOBA Diff', sortKey: 'actualStats.wobaDiff', accessor: b => b.actualStats ? (b.actualStats.wobaDiff > 0 ? `+${b.actualStats.wobaDiff.toFixed(3)}` : b.actualStats.wobaDiff.toFixed(3)) : '' }
+      );
+    }
+
+    batterDefaults.push(
+      { key: 'projWAR', label: 'Proj WAR', sortKey: 'projectedStats.war', accessor: b => b.projectedStats.war.toFixed(1) }
+    );
+
+    if (this.hasBatterActualStats) {
+      batterDefaults.push(
+        { key: 'actWAR', label: 'Act WAR', sortKey: 'actualStats.war', accessor: b => b.actualStats ? b.actualStats.war.toFixed(1) : '' },
+        { key: 'warDiff', label: 'WAR Diff', sortKey: 'actualStats.warDiff', accessor: b => b.actualStats ? (b.actualStats.warDiff > 0 ? `+${b.actualStats.warDiff.toFixed(1)}` : b.actualStats.warDiff.toFixed(1)) : '' }
+      );
+    }
+
+    batterDefaults.push(
+      { key: 'projWrcPlus', label: 'Proj wRC+', sortKey: 'projectedStats.wrcPlus', accessor: b => b.projectedStats.wrcPlus.toString() }
+    );
+
+    if (this.hasBatterActualStats) {
+      batterDefaults.push(
+        { key: 'actWrcPlus', label: 'Act wRC+', sortKey: 'actualStats.wrcPlus', accessor: b => b.actualStats ? b.actualStats.wrcPlus.toString() : '' }
+      );
+    }
+
+    batterDefaults.push(
+      { key: 'projAvg', label: 'Proj AVG', sortKey: 'projectedStats.avg', accessor: b => {
         const avg = b.projectedStats.avg.toFixed(3);
         const estContact = b.estimatedRatings.contact;
         return this.renderFlipCell(avg, estContact.toString(), 'Est Contact Rating');
-      }},
-      { key: 'iso', label: 'ISO', sortKey: 'projectedStats.slg', accessor: b => {
-        const iso = (b.projectedStats.slg - b.projectedStats.avg).toFixed(3);
+      }}
+    );
+
+    if (this.hasBatterActualStats) {
+      batterDefaults.push(
+        { key: 'actAvg', label: 'Act AVG', sortKey: 'actualStats.avg', accessor: b => b.actualStats ? b.actualStats.avg.toFixed(3) : '' }
+      );
+    }
+
+    batterDefaults.push(
+      { key: 'projHrPct', label: 'Proj HR%', sortKey: 'projectedStats.hrPct', accessor: b => {
+        const hrPct = b.projectedStats.hrPct?.toFixed(1) ?? 'N/A';
         const estPower = b.estimatedRatings.power;
-        return this.renderFlipCell(iso, estPower.toString(), 'Est Power Rating');
+        return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
       }},
-      { key: 'projObp', label: 'OBP', sortKey: 'projectedStats.obp', accessor: b => b.projectedStats.obp.toFixed(3) },
-      { key: 'projSlg', label: 'SLG', sortKey: 'projectedStats.slg', accessor: b => b.projectedStats.slg.toFixed(3) },
-      { key: 'projPa', label: 'PA', sortKey: 'projectedStats.pa', accessor: b => b.projectedStats.pa.toString() },
-    ];
+      { key: 'projHr', label: 'Proj HR', sortKey: 'projectedStats.hr', accessor: b => b.projectedStats.hr.toString() }
+    );
+
+    if (this.hasBatterActualStats) {
+      batterDefaults.push(
+        { key: 'actHrPct', label: 'Act HR%', sortKey: 'actualStats.hrPct', accessor: b => b.actualStats ? b.actualStats.hrPct.toFixed(1) : '' },
+        { key: 'actHr', label: 'Act HR', sortKey: 'actualStats.hr', accessor: b => b.actualStats ? b.actualStats.hr.toString() : '' }
+      );
+    }
+
+    batterDefaults.push(
+      { key: 'bbPct', label: 'Proj BB%', sortKey: 'projectedStats.bbPct', accessor: b => {
+        const bbPct = b.projectedStats.bbPct?.toFixed(1) ?? 'N/A';
+        const estEye = b.estimatedRatings.eye;
+        return this.renderFlipCell(bbPct, estEye.toString(), 'Est Eye (Plate Discipline) Rating');
+      }}
+    );
+
+    if (this.hasBatterActualStats) {
+      batterDefaults.push(
+        { key: 'actBbPct', label: 'Act BB%', sortKey: 'actualStats.bbPct', accessor: b => b.actualStats ? b.actualStats.bbPct.toFixed(1) : '' }
+      );
+    }
+
+    batterDefaults.push(
+      { key: 'kPct', label: 'Proj K%', sortKey: 'projectedStats.kPct', accessor: b => {
+        const kPct = b.projectedStats.kPct?.toFixed(1) ?? 'N/A';
+        const estAvoidK = b.estimatedRatings.avoidK;
+        return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
+      }}
+    );
+
+    if (this.hasBatterActualStats) {
+      batterDefaults.push(
+        { key: 'actKPct', label: 'Act K%', sortKey: 'actualStats.kPct', accessor: b => b.actualStats ? b.actualStats.kPct.toFixed(1) : '' }
+      );
+    }
+
+    batterDefaults.push(
+      { key: 'projObp', label: 'Proj OBP', sortKey: 'projectedStats.obp', accessor: b => b.projectedStats.obp.toFixed(3) },
+      { key: 'projSlg', label: 'Proj SLG', sortKey: 'projectedStats.slg', accessor: b => b.projectedStats.slg.toFixed(3) },
+      { key: 'projPa', label: 'Proj PA', sortKey: 'projectedStats.pa', accessor: b => b.projectedStats.pa.toString() }
+    );
+
+    if (this.hasBatterActualStats) {
+      batterDefaults.push(
+        { key: 'actObp', label: 'Act OBP', sortKey: 'actualStats.obp', accessor: b => b.actualStats ? b.actualStats.obp.toFixed(3) : '' },
+        { key: 'actSlg', label: 'Act SLG', sortKey: 'actualStats.slg', accessor: b => b.actualStats ? b.actualStats.slg.toFixed(3) : '' },
+        { key: 'actPa', label: 'Act PA', sortKey: 'actualStats.pa', accessor: b => b.actualStats ? b.actualStats.pa.toString() : '' },
+        { key: 'grade', label: 'Grade', sortKey: 'actualStats.grade', accessor: b => this.renderBatterGrade(b) }
+      );
+    }
+
+    this.batterColumns = this.loadBatterColumnPrefs(batterDefaults);
   }
 
   private renderLayout(): void {
@@ -366,7 +462,7 @@ export class ProjectionsView {
           }
 
           // Use previous year as base for projections
-          const context = await projectionService.getProjectionsWithContext(statsBaseYear, { forceRosterRefresh: true });
+          const context = await projectionService.getProjectionsWithContext(statsBaseYear, { forceRosterRefresh: false });
           let allPlayers = context.projections;
           this.statsYearUsed = context.statsYear;
           this.usedFallbackStats = context.usedFallbackStats;
@@ -458,11 +554,100 @@ export class ProjectionsView {
       const container = this.container.querySelector('#projections-table-container');
 
       try {
+          const currentYear = await dateService.getCurrentYear();
+          const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : currentYear;
+
           const context = await batterProjectionService.getProjectionsWithContext(statsBaseYear);
-          this.allBatterStats = context.projections;
+          let combinedBatters: ProjectedBatterWithActuals[] = [...context.projections];
           this.statsYearUsed = context.statsYear;
           this.usedFallbackStats = context.usedFallbackStats;
           this.scoutingMetadata = context.scoutingMetadata;
+
+          // Backcasting: If target year (selectedYear) has happened, compare projections to actuals
+          if (targetYear < currentYear) {
+              try {
+                  const [actuals, leagueAvg] = await Promise.all([
+                      trueRatingsService.getTrueBattingStats(targetYear),
+                      leagueBattingAveragesService.getLeagueAverages(targetYear)
+                  ]);
+
+                  const actualsMap = new Map(actuals.map(a => [a.player_id, a]));
+
+                  combinedBatters.forEach(b => {
+                      const act = actualsMap.get(b.playerId);
+                      if (act && act.pa >= 50) {  // Only grade if they had meaningful PAs
+                          // Calculate actual rate stats
+                          const actualAvg = act.avg;
+                          const actualObp = act.obp;
+                          const actualSlg = (act.h + act.d + 2*act.t + 3*act.hr) / act.ab;
+                          const actualBbPct = (act.bb / act.pa) * 100;
+                          const actualKPct = (act.k / act.pa) * 100;
+                          const actualHrPct = (act.hr / act.pa) * 100;
+
+                          // Calculate actual wOBA
+                          const singles = act.h - act.d - act.t - act.hr;
+                          const actualWoba = (
+                              0.69 * act.bb +
+                              0.89 * singles +
+                              1.27 * act.d +
+                              1.62 * act.t +
+                              2.10 * act.hr
+                          ) / (act.ab + act.bb + act.hp + act.sf);
+
+                          // Calculate wRC+ and WAR (simplified)
+                          const lgWoba = leagueAvg?.lgWoba ?? 0.320;
+                          const wobaScale = 1.15;
+                          const lgRpa = leagueAvg?.lgRpa ?? 0.12;
+                          const wRaaPerPa = (actualWoba - lgWoba) / wobaScale;
+                          const actualWrcPlus = Math.round(((wRaaPerPa + lgRpa) / lgRpa) * 100);
+
+                          // Calculate actual WAR
+                          const wRAA = wRaaPerPa * act.pa;
+                          const replacementRuns = (act.pa / 600) * 20;
+                          const actualWar = (wRAA + replacementRuns) / 10;
+
+                          // Calculate differences
+                          const wobaDiff = actualWoba - b.projectedStats.woba;
+                          const warDiff = actualWar - b.projectedStats.war;
+
+                          // Grade based on wOBA accuracy
+                          let grade = 'F';
+                          const absDiff = Math.abs(wobaDiff);
+                          if (absDiff < 0.020) grade = 'A';       // Within .020 wOBA
+                          else if (absDiff < 0.040) grade = 'B';  // Within .040 wOBA
+                          else if (absDiff < 0.060) grade = 'C';  // Within .060 wOBA
+                          else if (absDiff < 0.080) grade = 'D';  // Within .080 wOBA
+
+                          b.actualStats = {
+                              woba: actualWoba,
+                              avg: actualAvg,
+                              obp: actualObp,
+                              slg: actualSlg,
+                              wrcPlus: actualWrcPlus,
+                              war: actualWar,
+                              pa: act.pa,
+                              hr: act.hr,
+                              hrPct: actualHrPct,
+                              bbPct: actualBbPct,
+                              kPct: actualKPct,
+                              wobaDiff,
+                              warDiff,
+                              grade
+                          };
+                      }
+                  });
+              } catch (e) {
+                  console.warn('Batter backcasting data unavailable', e);
+              }
+          }
+
+          this.allBatterStats = combinedBatters;
+
+          // Check if we have actual stats
+          this.hasBatterActualStats = this.allBatterStats.some(b => b.actualStats !== undefined);
+
+          // Rebuild columns based on whether we have actual stats
+          this.initColumns();
 
           // Populate team filter
           const allTeams = await teamService.getAllTeams();
@@ -1758,7 +1943,7 @@ export class ProjectionsView {
       const headerHtml = this.batterColumns.map(col => {
           const sortKey = String(col.sortKey ?? col.key);
           const isActive = this.sortKey === sortKey;
-          return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}">${col.label}</th>`;
+          return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
       }).join('');
 
       const rowsHtml = pageData.map(b => {
@@ -1806,6 +1991,7 @@ export class ProjectionsView {
       // Sorting
       this.container.querySelectorAll('th[data-sort]').forEach(th => {
           th.addEventListener('click', () => {
+              if (this.isDraggingColumn) return;
               const key = (th as HTMLElement).dataset.sort;
               if (!key) return;
 
@@ -1818,6 +2004,53 @@ export class ProjectionsView {
               }
               this.sortBatterStats();
               this.renderBatterTable();
+          });
+      });
+
+      // Drag and Drop for column reordering
+      const headers = this.container.querySelectorAll<HTMLTableCellElement>('th[draggable="true"]');
+      let draggedKey: string | null = null;
+
+      headers.forEach(header => {
+          header.addEventListener('dragstart', (e) => {
+              draggedKey = header.dataset.key || null;
+              this.isDraggingColumn = true;
+              header.classList.add('dragging');
+              if (e.dataTransfer) {
+                  e.dataTransfer.effectAllowed = 'move';
+                  e.dataTransfer.setData('text/plain', draggedKey || '');
+              }
+          });
+
+          header.addEventListener('dragover', (e) => {
+              e.preventDefault();
+              if (!draggedKey) return;
+              const targetKey = header.dataset.key;
+              if (targetKey === draggedKey) return;
+
+              // Visual indicator
+              header.style.borderLeft = '2px solid var(--color-primary)';
+          });
+
+          header.addEventListener('dragleave', () => {
+              header.style.borderLeft = '';
+          });
+
+          header.addEventListener('drop', (e) => {
+              e.preventDefault();
+              header.style.borderLeft = '';
+              const targetKey = header.dataset.key;
+
+              if (draggedKey && targetKey && draggedKey !== targetKey) {
+                  this.reorderBatterColumns(draggedKey, targetKey);
+              }
+              draggedKey = null;
+          });
+
+          header.addEventListener('dragend', () => {
+              header.classList.remove('dragging');
+              this.isDraggingColumn = false;
+              headers.forEach(h => h.style.borderLeft = '');
           });
       });
   }
@@ -1858,6 +2091,8 @@ export class ProjectionsView {
                   projAvg: batter.projectedStats.avg,
                   projObp: batter.projectedStats.obp,
                   projSlg: batter.projectedStats.slg,
+                  projBbPct: batter.projectedStats.bbPct,
+                  projKPct: batter.projectedStats.kPct,
                   projPa: batter.projectedStats.pa,
                   projHr: batter.projectedStats.hr,
                   projRbi: batter.projectedStats.rbi,
@@ -2008,12 +2243,24 @@ export class ProjectionsView {
   private reorderColumns(fromKey: string, toKey: string): void {
       const fromIdx = this.columns.findIndex(c => c.key === fromKey);
       const toIdx = this.columns.findIndex(c => c.key === toKey);
-      
+
       if (fromIdx > -1 && toIdx > -1) {
           const item = this.columns.splice(fromIdx, 1)[0];
           this.columns.splice(toIdx, 0, item);
           this.saveColumnPrefs();
           this.renderTable();
+      }
+  }
+
+  private reorderBatterColumns(fromKey: string, toKey: string): void {
+      const fromIdx = this.batterColumns.findIndex(c => c.key === fromKey);
+      const toIdx = this.batterColumns.findIndex(c => c.key === toKey);
+
+      if (fromIdx > -1 && toIdx > -1) {
+          const item = this.batterColumns.splice(fromIdx, 1)[0];
+          this.batterColumns.splice(toIdx, 0, item);
+          this.saveBatterColumnPrefs();
+          this.renderBatterTable();
       }
   }
 
@@ -2248,15 +2495,28 @@ export class ProjectionsView {
 
   private renderGrade(player: ProjectedPlayerWithActuals): string {
       if (!player.actualStats) return '<span class="grade-na" title="No actual stats found">—</span>';
-      
+
       const grade = player.actualStats.grade;
       let className = 'grade-poor'; // Default/F
       if (grade === 'A') className = 'grade-elite';
       else if (grade === 'B') className = 'grade-plus';
       else if (grade === 'C') className = 'grade-avg';
       else if (grade === 'D') className = 'grade-fringe';
-      
+
       // Use existing rating classes for colors (Elite=Blue/Green, Plus=Green, Avg=Yellow, Fringe=Orange, Poor=Red)
+      return `<span class="badge ${className}" style="min-width: 24px;">${grade}</span>`;
+  }
+
+  private renderBatterGrade(batter: ProjectedBatterWithActuals): string {
+      if (!batter.actualStats) return '<span class="grade-na" title="No actual stats found">—</span>';
+
+      const grade = batter.actualStats.grade;
+      let className = 'grade-poor'; // Default/F
+      if (grade === 'A') className = 'grade-elite';
+      else if (grade === 'B') className = 'grade-plus';
+      else if (grade === 'C') className = 'grade-avg';
+      else if (grade === 'D') className = 'grade-fringe';
+
       return `<span class="badge ${className}" style="min-width: 24px;">${grade}</span>`;
   }
 
@@ -2568,6 +2828,40 @@ export class ProjectionsView {
       try {
           const keys = this.columns.map(c => c.key);
           localStorage.setItem(this.prefKey, JSON.stringify(keys));
+      } catch {}
+  }
+
+  private loadBatterColumnPrefs(defaults: BatterColumnConfig[]): BatterColumnConfig[] {
+      try {
+          const saved = localStorage.getItem(this.batterPrefKey);
+          if (saved) {
+              const keys = JSON.parse(saved) as string[];
+
+              // Migration: Ensure 'position' is included if it was added recently
+              if (!keys.includes('position')) {
+                  keys.unshift('position');
+              }
+
+              // Reconstruct order based on keys, filtering out any that no longer exist
+              const ordered: BatterColumnConfig[] = [];
+              keys.forEach(k => {
+                  const found = defaults.find(c => c.key === k);
+                  if (found) ordered.push(found);
+              });
+              // Add any new columns that weren't in prefs
+              defaults.forEach(d => {
+                  if (!ordered.find(o => o.key === d.key)) ordered.push(d);
+              });
+              return ordered;
+          }
+      } catch {}
+      return defaults;
+  }
+
+  private saveBatterColumnPrefs(): void {
+      try {
+          const keys = this.batterColumns.map(c => c.key);
+          localStorage.setItem(this.batterPrefKey, JSON.stringify(keys));
       } catch {}
   }
 

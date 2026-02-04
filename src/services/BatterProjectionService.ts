@@ -43,6 +43,7 @@ export interface ProjectedBatter {
     hr: number;
     rbi: number;
     sb: number;
+    hrPct?: number;
     bbPct?: number;
     kPct?: number;
   };
@@ -177,17 +178,18 @@ class BatterProjectionService {
       const projBbPct = HitterRatingEstimatorService.expectedBbPct(projectedRatings.eye);
       const projKPct = HitterRatingEstimatorService.expectedKPct(projectedRatings.avoidK);
       const projAvg = HitterRatingEstimatorService.expectedAvg(projectedRatings.contact);
-      const projIso = HitterRatingEstimatorService.expectedIso(projectedRatings.power);
+      const projHrPct = HitterRatingEstimatorService.expectedHrPct(projectedRatings.power);
 
       // Calculate wOBA from projected rate stats
-      // Simplified wOBA calculation from rate stats
       const bbRate = projBbPct / 100;
       const hitRate = projAvg * (1 - bbRate);
-      const isoFactor = projIso / 0.140;
-      const hrRate = hitRate * 0.12 * isoFactor;
-      const tripleRate = hitRate * 0.03;
-      const doubleRate = hitRate * 0.20;
-      const singleRate = Math.max(0, hitRate - hrRate - tripleRate - doubleRate);
+      const hrRate = projHrPct / 100;
+
+      // Distribute remaining hits among 1B/2B/3B (non-HR hits)
+      const nonHrHitRate = Math.max(0, hitRate - hrRate);
+      const tripleRate = nonHrHitRate * 0.08;
+      const doubleRate = nonHrHitRate * 0.27;
+      const singleRate = nonHrHitRate * 0.65;
 
       const projWoba = Math.max(0.200, Math.min(0.500,
         0.69 * bbRate +
@@ -197,6 +199,9 @@ class BatterProjectionService {
         2.10 * hrRate
       ));
 
+      // Calculate ISO from HR% and hit distribution
+      const projIso = hrRate * 3 + doubleRate * 1 + tripleRate * 2;
+
       // Calculate OBP and SLG from components
       const projObp = Math.min(0.450, projAvg + (projBbPct / 100));
       const projSlg = projAvg + projIso;
@@ -205,17 +210,26 @@ class BatterProjectionService {
       // Calculate wRC+ and WAR using league averages
       let wrcPlus = 100;
       let projWar = 0;
-      const projPa = leagueBattingAveragesService.getProjectedPa(scouting?.injuryProneness, player.age);
+
+      // Get historical PA data for better projections
+      const playerHistoricalStats = multiYearStats.get(trResult.playerId) || [];
+      const historicalPaData = playerHistoricalStats.map(s => ({ year: s.year, pa: s.pa }));
+
+      const projPa = leagueBattingAveragesService.getProjectedPaWithHistory(
+        historicalPaData,
+        player.age,
+        scouting?.injuryProneness
+      );
 
       if (leagueAvg) {
         wrcPlus = leagueBattingAveragesService.calculateWrcPlus(projWoba, leagueAvg);
         projWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, leagueAvg);
       }
 
-      // Estimate counting stats from rate stats
+      // Estimate counting stats from rate stats using proper HR% coefficient
       const abPerPa = 0.88;
       const projAb = Math.round(projPa * abPerPa);
-      const projHr = Math.round(projAb * projIso * 0.4); // Rough HR estimate
+      const projHr = Math.round(projPa * (projHrPct / 100)); // Use proper HR% from power rating
       const projRbi = Math.round(projHr * 3.5 + projPa * 0.08); // Rough RBI estimate
       const projSb = Math.round(projPa * 0.02); // Conservative SB estimate
 
@@ -241,6 +255,7 @@ class BatterProjectionService {
           hr: projHr,
           rbi: projRbi,
           sb: projSb,
+          hrPct: Math.round(projHrPct * 10) / 10,
           bbPct: Math.round(projBbPct * 10) / 10,
           kPct: Math.round(projKPct * 10) / 10,
         },

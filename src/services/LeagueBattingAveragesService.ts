@@ -217,6 +217,174 @@ class LeagueBattingAveragesService {
   }
 
   /**
+   * Get projected PA based on historical stats, age, and injury proneness.
+   *
+   * Uses a sophisticated blend of:
+   * - Historical PA data (weighted by recency)
+   * - Age curve adjustments (smooth, not chunked)
+   * - Injury rating multipliers
+   *
+   * The more historical data available, the more we trust it over baseline expectations.
+   */
+  getProjectedPaWithHistory(
+    historicalStats?: Array<{ year: number; pa: number }>,
+    currentAge?: number,
+    injuryProneness?: string
+  ): number {
+    // Get baseline PA from old method for players with no history
+    if (!historicalStats || historicalStats.length === 0 || !currentAge) {
+      return this.getProjectedPa(injuryProneness, currentAge);
+    }
+
+    // Filter to last 4 years only
+    const sortedStats = [...historicalStats]
+      .sort((a, b) => b.year - a.year)
+      .slice(0, 4);
+
+    if (sortedStats.length === 0) {
+      return this.getProjectedPa(injuryProneness, currentAge);
+    }
+
+    // Calculate weighted average PA (more weight to recent years)
+    // Weights: 0.40, 0.30, 0.20, 0.10 for years 1-4 back
+    const weights = [0.40, 0.30, 0.20, 0.10];
+    let weightedPaSum = 0;
+    let totalWeight = 0;
+
+    for (let i = 0; i < sortedStats.length; i++) {
+      const weight = weights[i] || 0.10;
+      weightedPaSum += sortedStats[i].pa * weight;
+      totalWeight += weight;
+    }
+
+    const historicalAvgPa = weightedPaSum / totalWeight;
+
+    // Calculate the weighted average age during the historical period
+    // Assume most recent stats are from 1 year ago (projecting for next season)
+    let weightedAgeSum = 0;
+    for (let i = 0; i < sortedStats.length; i++) {
+      const weight = weights[i] || 0.10;
+      const yearsBack = i + 1; // 1 year back for most recent, 2 for next, etc.
+      const ageAtTime = currentAge - yearsBack;
+      weightedAgeSum += ageAtTime * weight;
+    }
+    const avgHistoricalAge = weightedAgeSum / totalWeight;
+
+    // Apply age curve adjustment (smooth curve, not buckets)
+    // Peak PA happens around age 27-28
+    // This adjusts the historical PA for the player's aging from then to now
+    const ageCurveMultiplier = this.getAgeCurveMultiplier(currentAge) /
+                               this.getAgeCurveMultiplier(avgHistoricalAge);
+
+    const ageAdjustedPa = historicalAvgPa * ageCurveMultiplier;
+
+    // Apply injury multiplier
+    const injuryMultiplier = this.getInjuryMultiplier(injuryProneness);
+    const injuryAdjustedPa = ageAdjustedPa * injuryMultiplier;
+
+    // Blend with baseline expectation based on amount of historical data
+    // More history = more trust in historical data
+    // Trust factor: 0.95 for 4 years, 0.85 for 3 years, 0.7 for 2 years, 0.5 for 1 year
+    // Higher trust factors to better respect actual playing time patterns
+    const trustFactor = Math.min(0.95, 0.35 + (sortedStats.length * 0.15));
+
+    // For players with consistent low PAs, use a lower baseline
+    // This prevents bench players from being pulled up toward starter PAs
+    const avgHistoricalPaRaw = historicalAvgPa; // Before age/injury adjustments
+    const baselinePa = avgHistoricalPaRaw < 250
+      ? Math.min(this.getBaselinePaByAge(currentAge), 350) // Cap baseline at 350 for bench players
+      : this.getBaselinePaByAge(currentAge);
+    const baselineAdjusted = baselinePa * injuryMultiplier;
+
+    const blendedPa = (injuryAdjustedPa * trustFactor) + (baselineAdjusted * (1 - trustFactor));
+
+    // Clamp to reasonable range (50-700 PA)
+    // 50 PA minimum for true bench players, no artificial 200 PA floor
+    return Math.round(Math.max(50, Math.min(700, blendedPa)));
+  }
+
+  /**
+   * Get baseline PA by age (smooth curve, not buckets).
+   * Used as fallback or for blending.
+   */
+  private getBaselinePaByAge(age: number): number {
+    // Smooth age curve using a quadratic function
+    // Peak at age 27-28 with ~600 PA
+    // Young players (21) ~480 PA
+    // Older players (39+) ~400 PA
+
+    if (age <= 21) {
+      return 480 + (age - 20) * 20; // Ramping up
+    } else if (age <= 27) {
+      // Rising to peak
+      return 480 + ((age - 21) / 6) * 120; // 480 -> 600
+    } else if (age <= 32) {
+      // Peak plateau (slight variance for realism)
+      return 600 - (age - 27) * 2; // 600 -> 590
+    } else if (age <= 37) {
+      // Decline phase
+      return 590 - ((age - 32) / 5) * 140; // 590 -> 450
+    } else {
+      // Late career
+      return Math.max(350, 450 - (age - 37) * 15);
+    }
+  }
+
+  /**
+   * Get age curve multiplier (1.0 = peak, <1.0 = decline, >1.0 = growth).
+   * Uses a smooth polynomial curve instead of buckets.
+   */
+  private getAgeCurveMultiplier(age: number): number {
+    // Peak age is 27-28 (multiplier = 1.0)
+    // Younger players are still ramping up
+    // Older players decline
+
+    const peakAge = 27.5;
+
+    if (age < 23) {
+      // Young players: 0.80-0.95 (still gaining playing time)
+      return 0.80 + (age - 20) * 0.05;
+    } else if (age < peakAge) {
+      // Approaching peak: 0.95-1.0
+      return 0.95 + ((age - 23) / (peakAge - 23)) * 0.05;
+    } else if (age <= 32) {
+      // Peak to early decline: 1.0-0.96
+      return 1.0 - ((age - peakAge) / 10) * 0.08;
+    } else if (age <= 37) {
+      // Mid decline: 0.96-0.75
+      return 0.96 - ((age - 32) / 5) * 0.21;
+    } else {
+      // Late career: 0.75-0.60
+      return Math.max(0.60, 0.75 - (age - 37) * 0.03);
+    }
+  }
+
+  /**
+   * Get injury multiplier based on injury proneness rating.
+   */
+  private getInjuryMultiplier(injuryProneness?: string): number {
+    const normalized = (injuryProneness || 'Normal').toLowerCase();
+
+    switch (normalized) {
+      case 'durable':
+        return 1.08;
+      case 'wary':
+        return 1.04;
+      case 'normal':
+        return 1.0;
+      case 'fragile':
+        return 0.90; // Less harsh than 0.85
+      case 'prone':
+        return 0.78; // Less harsh than 0.70
+      default:
+        return 1.0;
+    }
+  }
+
+  /**
+   * DEPRECATED: Old chunked PA projection method.
+   * Kept for backwards compatibility. Use getProjectedPaWithHistory instead.
+   *
    * Get projected PA based on age and injury proneness.
    *
    * Age curve is based on typical MLB playing time patterns:

@@ -5507,6 +5507,12 @@ td:hover .stat-tooltip {
   color: var(--color-text);
 }
 
+.development-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .snapshot-count {
   font-size: 0.75rem;
   color: var(--color-text-muted);

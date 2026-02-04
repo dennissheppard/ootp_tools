@@ -3,15 +3,22 @@ import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
 
 const API_BASE = '/api';
-const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
+const CACHE_DURATION_MS = 72 * 60 * 60 * 1000; // 72 hours
 
 export class PlayerService {
   private players: Player[] = [];
   private loading: Promise<Player[]> | null = null;
 
+  constructor() {
+    console.log('🏗️ PlayerService instance created');
+  }
+
   async getAllPlayers(forceRefresh = false): Promise<Player[]> {
+    console.log(`📞 getAllPlayers called (forceRefresh=${forceRefresh}, in-memory cache=${this.players.length} players)`);
+
     // Return cached if available
     if (this.players.length > 0 && !forceRefresh) {
+      console.log(`⚡ Returning ${this.players.length} players from in-memory cache`);
       return this.players;
     }
 
@@ -20,12 +27,14 @@ export class PlayerService {
       const cached = await this.loadFromCache();
       if (cached) {
         this.players = cached;
+        console.log(`📦 Loaded ${this.players.length} players into in-memory cache`);
         return this.players;
       }
     }
 
     // Deduplicate concurrent requests
     if (this.loading) {
+      console.log('⏳ Already loading players, waiting for existing request...');
       return this.loading;
     }
 
@@ -65,13 +74,16 @@ export class PlayerService {
   }
 
   private async fetchPlayers(): Promise<Player[]> {
+    console.log('🌐 Fetching players from API...');
     const response = await apiFetch(`${API_BASE}/players/`);
     if (!response.ok) {
       throw new Error(`Failed to fetch players: ${response.statusText}`);
     }
 
     const csvText = await response.text();
-    return this.parsePlayersCsv(csvText);
+    const players = this.parsePlayersCsv(csvText);
+    console.log(`✅ Fetched ${players.length} players from API`);
+    return players;
   }
 
   private parsePlayersCsv(csv: string): Player[] {
@@ -120,27 +132,37 @@ export class PlayerService {
 
   private async loadFromCache(): Promise<Player[] | null> {
     try {
+      console.log('🔍 Checking IndexedDB for players cache...');
       const cached = await indexedDBService.getPlayers();
-      if (!cached) return null;
-
-      const cacheAge = Date.now() - cached.fetchedAt;
-      if (cacheAge > CACHE_DURATION_MS) {
-        console.log(`⏰ Players cache stale (${Math.round(cacheAge / 1000 / 60 / 60)}h old), re-fetching...`);
+      if (!cached) {
+        console.log('❌ No players cache found in IndexedDB');
         return null;
       }
 
+      const cacheAge = Date.now() - cached.fetchedAt;
+      const cacheAgeHours = Math.round(cacheAge / 1000 / 60 / 60);
+      const maxAgeHours = Math.round(CACHE_DURATION_MS / 1000 / 60 / 60);
+
+      if (cacheAge > CACHE_DURATION_MS) {
+        console.log(`⏰ Players cache stale (${cacheAgeHours}h old, max ${maxAgeHours}h), re-fetching...`);
+        return null;
+      }
+
+      console.log(`✅ Using cached players (${cacheAgeHours}h old, ${cached.data.length} players)`);
       return cached.data as Player[];
     } catch (error) {
-      console.error('Error loading players from cache:', error);
+      console.error('❌ Error loading players from cache:', error);
       return null;
     }
   }
 
   private async saveToCache(players: Player[]): Promise<void> {
     try {
+      console.log(`💾 Saving ${players.length} players to IndexedDB cache...`);
       await indexedDBService.savePlayers(players);
+      console.log('✅ Players cached successfully');
     } catch (error) {
-      console.error('Failed to cache players:', error);
+      console.error('❌ Failed to cache players:', error);
     }
   }
 }

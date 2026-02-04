@@ -64,6 +64,7 @@ export interface HitterTrueRatingResult {
   /** Blended rate stats after all calculations */
   blendedBbPct: number;
   blendedKPct: number;
+  blendedHrPct: number;
   blendedIso: number;
   blendedAvg: number;
   /** Estimated ratings (from performance, 20-80 scale) */
@@ -97,6 +98,7 @@ export interface HitterLeagueAverages {
 interface WeightedRates {
   bbPct: number;
   kPct: number;
+  hrPct: number;
   iso: number;
   avg: number;
   doublesRate: number;
@@ -129,8 +131,9 @@ export function getYearWeights(stage: SeasonStage): number[] {
 const STABILIZATION = {
   bbPct: 120,
   kPct: 60,
+  hrPct: 160,
   iso: 160,
-  avg: 400,  // Using lower value for regression purposes
+  avg: 300,  // Reduced from 400 to trust elite hitters with 500+ PA more
 };
 
 /** PA threshold for scouting blend confidence */
@@ -229,7 +232,10 @@ class HitterTrueRatingsCalculationService {
       this.calculateSingleHitter(input, leagueAverages, yearWeights)
     );
 
-    // Step 5: Calculate percentiles across all hitters
+    // Step 4.5: Calculate percentile-based component ratings
+    this.calculateComponentRatingsFromPercentiles(results);
+
+    // Step 5: Calculate percentiles across all hitters (for wOBA-based True Rating)
     this.calculatePercentiles(results);
 
     // Step 6: Convert percentiles to ratings
@@ -263,6 +269,10 @@ class HitterTrueRatingsCalculationService {
     let regressedKPct = this.regressToMeanTierAware(
       weighted.kPct, weighted.totalPa, leagueAverages.avgKPct, STABILIZATION.kPct, 'kPct', rawWoba
     );
+    // Regress HR% toward a league average of ~2.5% (typical HR rate)
+    let regressedHrPct = this.regressToMeanTierAware(
+      weighted.hrPct, weighted.totalPa, 2.5, STABILIZATION.hrPct, 'iso', rawWoba
+    );
     let regressedIso = this.regressToMeanTierAware(
       weighted.iso, weighted.totalPa, leagueAverages.avgIso, STABILIZATION.iso, 'iso', rawWoba
     );
@@ -273,6 +283,7 @@ class HitterTrueRatingsCalculationService {
     // Step 3: Optional scouting blend
     let blendedBbPct = regressedBbPct;
     let blendedKPct = regressedKPct;
+    let blendedHrPct = regressedHrPct;
     let blendedIso = regressedIso;
     let blendedAvg = regressedAvg;
 
@@ -280,30 +291,30 @@ class HitterTrueRatingsCalculationService {
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings);
       blendedBbPct = this.blendWithScouting(regressedBbPct, scoutExpected.bbPct, weighted.totalPa);
       blendedKPct = this.blendWithScouting(regressedKPct, scoutExpected.kPct, weighted.totalPa);
+      blendedHrPct = this.blendWithScouting(regressedHrPct, scoutExpected.hrPct, weighted.totalPa);
       blendedIso = this.blendWithScouting(regressedIso, scoutExpected.iso, weighted.totalPa);
       blendedAvg = this.blendWithScouting(regressedAvg, scoutExpected.avg, weighted.totalPa);
     }
 
-    // Estimate ratings from blended rates
-    const estimatedPower = this.estimatePowerFromIso(blendedIso);
-    const estimatedEye = this.estimateEyeFromBbPct(blendedBbPct);
-    const estimatedAvoidK = this.estimateAvoidKFromKPct(blendedKPct);
-    const estimatedContact = this.estimateContactFromAvg(blendedAvg);
-
     // Step 4: Calculate wOBA from blended rates
     const woba = this.calculateWobaFromRates(blendedBbPct, blendedKPct, blendedIso, blendedAvg);
+
+    // Note: Component ratings (Power, Eye, AvK, Contact) will be calculated
+    // via percentile ranking in calculateComponentRatingsFromPercentiles()
+    // after all players' blended stats are determined
 
     return {
       playerId: input.playerId,
       playerName: input.playerName,
       blendedBbPct: Math.round(blendedBbPct * 10) / 10,
       blendedKPct: Math.round(blendedKPct * 10) / 10,
+      blendedHrPct: Math.round(blendedHrPct * 10) / 10,
       blendedIso: Math.round(blendedIso * 1000) / 1000,
       blendedAvg: Math.round(blendedAvg * 1000) / 1000,
-      estimatedPower: Math.round(estimatedPower),
-      estimatedEye: Math.round(estimatedEye),
-      estimatedAvoidK: Math.round(estimatedAvoidK),
-      estimatedContact: Math.round(estimatedContact),
+      estimatedPower: 0, // Calculated via percentile in next step
+      estimatedEye: 0,   // Calculated via percentile in next step
+      estimatedAvoidK: 0, // Calculated via percentile in next step
+      estimatedContact: 0, // Calculated via percentile in next step
       woba: Math.round(woba * 1000) / 1000,
       percentile: 0,
       trueRating: 0,
@@ -319,11 +330,12 @@ class HitterTrueRatingsCalculationService {
     yearWeights: number[] = YEAR_WEIGHTS
   ): WeightedRates {
     if (yearlyStats.length === 0) {
-      return { bbPct: 0, kPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
+      return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
     }
 
     let weightedBbPctSum = 0;
     let weightedKPctSum = 0;
+    let weightedHrPctSum = 0;
     let weightedIsoSum = 0;
     let weightedAvgSum = 0;
     let weightedDoublesSum = 0;
@@ -342,6 +354,7 @@ class HitterTrueRatingsCalculationService {
       // Calculate rate stats for this year
       const bbPct = (stats.bb / stats.pa) * 100;
       const kPct = (stats.k / stats.pa) * 100;
+      const hrPct = (stats.hr / stats.pa) * 100;
       const singles = stats.h - stats.d - stats.t - stats.hr;
       const totalBases = singles + 2 * stats.d + 3 * stats.t + 4 * stats.hr;
       const iso = stats.ab > 0 ? (totalBases - stats.h) / stats.ab : 0;
@@ -353,6 +366,7 @@ class HitterTrueRatingsCalculationService {
 
       weightedBbPctSum += bbPct * weight;
       weightedKPctSum += kPct * weight;
+      weightedHrPctSum += hrPct * weight;
       weightedIsoSum += iso * weight;
       weightedAvgSum += avg * weight;
       weightedDoublesSum += doublesRate * weight;
@@ -363,12 +377,13 @@ class HitterTrueRatingsCalculationService {
     }
 
     if (totalWeight === 0) {
-      return { bbPct: 0, kPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
+      return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
     }
 
     return {
       bbPct: weightedBbPctSum / totalWeight,
       kPct: weightedKPctSum / totalWeight,
+      hrPct: weightedHrPctSum / totalWeight,
       iso: weightedIsoSum / totalWeight,
       avg: weightedAvgSum / totalWeight,
       doublesRate: weightedDoublesSum / totalWeight,
@@ -544,6 +559,7 @@ class HitterTrueRatingsCalculationService {
   private scoutingToExpectedRates(scouting: HitterScoutingRatings): {
     bbPct: number;
     kPct: number;
+    hrPct: number;
     iso: number;
     avg: number;
   } {
@@ -554,6 +570,7 @@ class HitterTrueRatingsCalculationService {
     return {
       bbPct: HitterRatingEstimatorService.expectedBbPct(scouting.eye),
       kPct: HitterRatingEstimatorService.expectedKPct(scouting.avoidK),
+      hrPct: HitterRatingEstimatorService.expectedHrPct(scouting.power),
       iso: HitterRatingEstimatorService.expectedIso(scouting.power),
       avg: HitterRatingEstimatorService.expectedAvg(scouting.contact),
     };
@@ -587,6 +604,58 @@ class HitterTrueRatingsCalculationService {
       WOBA_WEIGHTS.hr * hrRate;
 
     return Math.max(0.200, Math.min(0.500, woba));
+  }
+
+  /**
+   * Calculate component ratings (Power, Eye, AvK, Contact) from percentile rankings
+   * within the season. This ensures the league leader always gets ~80 rating regardless
+   * of absolute stat values, accounting for year-to-year offensive environment changes.
+   */
+  private calculateComponentRatingsFromPercentiles(results: HitterTrueRatingResult[]): void {
+    if (results.length === 0) return;
+
+    // Helper function to calculate percentile-based rating for a stat
+    const calculateRatingFromPercentile = (
+      results: HitterTrueRatingResult[],
+      statGetter: (r: HitterTrueRatingResult) => number,
+      ascending: boolean = false // false for stats where higher is better
+    ): Map<number, number> => {
+      // Sort by stat (handle NaN values)
+      const sorted = [...results].sort((a, b) => {
+        const aVal = Number.isNaN(statGetter(a)) ? (ascending ? Infinity : -Infinity) : statGetter(a);
+        const bVal = Number.isNaN(statGetter(b)) ? (ascending ? Infinity : -Infinity) : statGetter(b);
+        return ascending ? (aVal - bVal) : (bVal - aVal);
+      });
+
+      // Calculate percentile for each player
+      const ratings = new Map<number, number>();
+      sorted.forEach((result, index) => {
+        // Percentile: 0 (worst) to 100 (best)
+        const percentile = ((sorted.length - index - 1) / (sorted.length - 1)) * 100;
+
+        // Map percentile to rating (20-80 display scale)
+        // Linear transformation: rating = 20 + (percentile / 100) * 60
+        // Top player (100%ile) → 80, Bottom player (0%ile) → 20, Median (50%ile) → 50
+        const rating = 20 + (percentile / 100) * 60;
+        ratings.set(result.playerId, Math.max(20, Math.min(80, rating)));
+      });
+
+      return ratings;
+    };
+
+    // Calculate ratings for each component
+    const powerRatings = calculateRatingFromPercentile(results, r => r.blendedHrPct, false);
+    const eyeRatings = calculateRatingFromPercentile(results, r => r.blendedBbPct, false);
+    const avoidKRatings = calculateRatingFromPercentile(results, r => r.blendedKPct, true); // Lower K% is better
+    const contactRatings = calculateRatingFromPercentile(results, r => r.blendedAvg, false);
+
+    // Assign ratings to each result
+    results.forEach(result => {
+      result.estimatedPower = Math.round(powerRatings.get(result.playerId) ?? 50);
+      result.estimatedEye = Math.round(eyeRatings.get(result.playerId) ?? 50);
+      result.estimatedAvoidK = Math.round(avoidKRatings.get(result.playerId) ?? 50);
+      result.estimatedContact = Math.round(contactRatings.get(result.playerId) ?? 50);
+    });
   }
 
   /**
@@ -640,71 +709,16 @@ class HitterTrueRatingsCalculationService {
   }
 
   /**
-   * Estimate Power rating from ISO
+   * NOTE: Component ratings (Power, Eye, AvK, Contact) are now calculated via
+   * percentile ranking in calculateComponentRatingsFromPercentiles() rather than
+   * using fixed formula-based thresholds. This ensures the league leader always
+   * gets an elite rating regardless of year-to-year offensive environment changes.
    *
-   * Uses INVERSE of HitterRatingEstimatorService.expectedIso() coefficients.
-   * Note: expectedIso uses HR% conversion with approximate ISO factor,
-   * but we estimate from ISO directly here. The coefficients should be
-   * calibrated to match the round-trip behavior.
-   *
-   * HR% = -1.30 + 0.058434 * power (from HitterRatingEstimatorService)
-   * ISO ≈ HR% * 3 + 0.05 (approximate conversion used in expectedIso)
-   *
-   * For consistency, derive power from ISO using the inverse relationship.
+   * The old formula-based estimation methods have been removed as they created
+   * unfair comparisons across different offensive environments (e.g., a .315
+   * league-leader getting only a 71 rating while a .380 league-leader from a
+   * different year got 80).
    */
-  private estimatePowerFromIso(iso: number): number {
-    // ISO ≈ HR% * 3 + 0.05, so HR% ≈ (ISO - 0.05) / 3
-    // HR% = -1.30 + 0.058434 * power
-    // power = (HR% + 1.30) / 0.058434
-    const hrPct = (iso - 0.05) / 3 * 100; // Convert ISO to HR%
-    const rating = (hrPct + 1.30) / 0.058434;
-    return Math.max(20, Math.min(80, rating));
-  }
-
-  /**
-   * Estimate Eye rating from BB%
-   *
-   * Uses INVERSE of HitterRatingEstimatorService.expectedBbPct() coefficients.
-   * BB% = 0.64 + 0.114789 * eye (from HitterRatingEstimatorService)
-   * eye = (BB% - 0.64) / 0.114789
-   */
-  private estimateEyeFromBbPct(bbPct: number): number {
-    // MUST match inverse of HitterRatingEstimatorService coefficients
-    // BB% = 0.64 + 0.114789 * eye
-    // eye = (BB% - 0.64) / 0.114789
-    const rating = (bbPct - 0.64) / 0.114789;
-    return Math.max(20, Math.min(80, rating));
-  }
-
-  /**
-   * Estimate AvoidK rating from K%
-   *
-   * Uses INVERSE of HitterRatingEstimatorService.expectedKPct() coefficients.
-   * K% = 25.35 - 0.200303 * avoidK (from HitterRatingEstimatorService)
-   * avoidK = (25.35 - K%) / 0.200303
-   */
-  private estimateAvoidKFromKPct(kPct: number): number {
-    // MUST match inverse of HitterRatingEstimatorService coefficients
-    // K% = 25.35 + (-0.200303) * avoidK = 25.35 - 0.200303 * avoidK
-    // avoidK = (25.35 - K%) / 0.200303
-    const rating = (25.35 - kPct) / 0.200303;
-    return Math.max(20, Math.min(80, rating));
-  }
-
-  /**
-   * Estimate Contact rating from AVG
-   *
-   * Uses INVERSE of HitterRatingEstimatorService.expectedAvg() coefficients.
-   * AVG = 0.0772 + 0.00316593 * contact (from HitterRatingEstimatorService)
-   * contact = (AVG - 0.0772) / 0.00316593
-   */
-  private estimateContactFromAvg(avg: number): number {
-    // MUST match inverse of HitterRatingEstimatorService coefficients
-    // AVG = 0.0772 + 0.00316593 * contact
-    // contact = (AVG - 0.0772) / 0.00316593
-    const rating = (avg - 0.0772) / 0.00316593;
-    return Math.max(20, Math.min(80, rating));
-  }
 
   /**
    * Get default league averages

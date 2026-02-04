@@ -657,7 +657,7 @@ class TeamRatingsService {
   }
 
   async getProjectedTeamRatings(baseYear: number): Promise<TeamRatingResult[]> {
-      const projections = await projectionService.getProjections(baseYear, { forceRosterRefresh: true });
+      const projections = await projectionService.getProjections(baseYear, { forceRosterRefresh: false });
       const leagueStats = await leagueStatsService.getLeagueStats(baseYear);
       
       const teamGroups = new Map<number, { rotation: RatedPlayer[], bullpen: RatedPlayer[] }>();

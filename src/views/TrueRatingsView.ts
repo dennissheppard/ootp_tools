@@ -17,6 +17,7 @@ import { MinorLeagueStatsWithLevel } from '../models/Stats';
 import { dateService } from '../services/DateService';
 import { fipWarService } from '../services/FipWarService';
 import { leagueStatsService } from '../services/LeagueStatsService';
+import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -56,6 +57,7 @@ interface HitterTrueRatingFields {
   /** Blended rate stats */
   blendedBbPct?: number;
   blendedKPct?: number;
+  blendedHrPct?: number;
   blendedIso?: number;
   blendedAvg?: number;
   /** Estimated ratings (20-80 scale) */
@@ -183,6 +185,7 @@ export class TrueRatingsView {
   private yearDefaultsInitialized = false;
   private currentGameYear: number | null = null;
   private cachedLeagueAverages: any = null; // Store for passing to modal
+  private cachedLeagueBattingAverages: LeagueBattingAverages | null = null; // For OPS+ calculation
   private hasLoadedData = false; // Track if data has been loaded (for lazy loading)
 
   constructor(container: HTMLElement) {
@@ -750,6 +753,14 @@ export class TrueRatingsView {
         this.rawBatterStats = rows;
         await this.enrichWithTeamData(this.rawBatterStats);
 
+        // Fetch league batting averages for OPS+ calculation
+        try {
+          this.cachedLeagueBattingAverages = await leagueBattingAveragesService.getLeagueAverages(this.selectedYear);
+        } catch (error) {
+          console.warn('Failed to load league batting averages:', error);
+          this.cachedLeagueBattingAverages = null;
+        }
+
         if (isBatterTrueRatingsView) {
           this.stats = await this.buildHitterTrueRatingsStats(this.rawBatterStats);
         } else {
@@ -1096,7 +1107,7 @@ export class TrueRatingsView {
     }
 
     if (pitchingStats.length === 0) {
-      const roster = await this.getActiveMlbRoster(true);
+      const roster = await this.getActiveMlbRoster(false);
       const pitchers = roster.filter(isPitcher);
       return { rows: this.buildPitcherRowsFromRoster(pitchers), hasStats: false };
     }
@@ -1113,7 +1124,7 @@ export class TrueRatingsView {
     }
 
     if (battingStats.length === 0) {
-      const roster = await this.getActiveMlbRoster(true);
+      const roster = await this.getActiveMlbRoster(false);
       const batters = roster.filter(player => !isPitcher(player));
       return { rows: this.buildBatterRowsFromRoster(batters), hasStats: false };
     }
@@ -1428,6 +1439,7 @@ export class TrueRatingsView {
         woba: result.woba,
         blendedBbPct: result.blendedBbPct,
         blendedKPct: result.blendedKPct,
+        blendedHrPct: result.blendedHrPct,
         blendedIso: result.blendedIso,
         blendedAvg: result.blendedAvg,
         estimatedPower: result.estimatedPower,
@@ -2010,119 +2022,115 @@ export class TrueRatingsView {
         {
           key: 'trueRating',
           label: 'TR',
-          sortKey: 'trueRating',
+          sortKey: 'percentile', // Sort by percentile, not TR value
           accessor: (row) => this.renderHitterTrueRatingBadge(row.trueRating),
         },
-        {
-          key: 'woba',
-          label: 'wOBA',
-          sortKey: 'woba',
-          accessor: (row) => typeof row.woba === 'number' ? row.woba.toFixed(3) : '',
-        },
-        { key: 'war', label: 'WAR', sortKey: 'war' },
-        {
-          key: 'percentile',
-          label: '%',
-          sortKey: 'percentile',
-          accessor: (row) => typeof row.percentile === 'number' ? row.percentile.toFixed(1) : '',
-        },
+        { key: 'estimatedContact', label: 'True Contact', sortKey: 'estimatedContact' },
         { key: 'estimatedPower', label: 'True Pow', sortKey: 'estimatedPower' },
         { key: 'estimatedEye', label: 'True Eye', sortKey: 'estimatedEye' },
         { key: 'estimatedAvoidK', label: 'True AvK', sortKey: 'estimatedAvoidK' },
-        { key: 'estimatedContact', label: 'True Hit', sortKey: 'estimatedContact' },
       ];
 
-      // Add raw stats columns after True Ratings
-      const rawStatColumns: BatterColumn[] = [
-        { key: 'pa', label: 'PA', sortKey: 'pa' },
-        { key: 'bbPct', label: 'BB%', sortKey: 'bb', accessor: (row) => {
-          if (typeof row.bb === 'number' && typeof row.pa === 'number' && row.pa > 0) {
-            const bbPct = ((row.bb / row.pa) * 100).toFixed(1);
-            const estEye = Math.max(20, Math.min(80, Math.round(row.estimatedEye || 50)));
-            return this.renderFlipCell(bbPct, estEye.toString(), 'Est Eye (Plate Discipline) Rating');
-          }
-          return '';
-        }},
-        { key: 'kPct', label: 'K%', sortKey: 'k', accessor: (row) => {
-          if (typeof row.k === 'number' && typeof row.pa === 'number' && row.pa > 0) {
-            const kPct = ((row.k / row.pa) * 100).toFixed(1);
-            const estAvoidK = Math.max(20, Math.min(80, Math.round(row.estimatedAvoidK || 50)));
-            return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
-          }
-          return '';
-        }},
-        { key: 'hrPct', label: 'HR%', sortKey: 'hr', accessor: (row) => {
-          if (typeof row.hr === 'number' && typeof row.pa === 'number' && row.pa > 0) {
-            const hrPct = ((row.hr / row.pa) * 100).toFixed(1);
-            const estPower = Math.max(20, Math.min(80, Math.round(row.estimatedPower || 50)));
-            return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
-          }
-          return '';
-        }},
-        { key: 'avg', label: 'AVG', sortKey: 'avg', accessor: (row) => {
-          if (typeof row.avg === 'number') {
-            const avg = row.avg.toFixed(3);
-            const estContact = Math.max(20, Math.min(80, Math.round(row.estimatedContact || 50)));
-            return this.renderFlipCell(avg, estContact.toString(), 'Est Contact Rating');
-          }
-          return '';
-        }},
-        { key: 'obp', label: 'OBP', sortKey: 'obp' },
-        { key: 'hr', label: 'HR', sortKey: 'hr' },
-        { key: 'rbi', label: 'RBI', sortKey: 'rbi' },
-        { key: 'sb', label: 'SB', sortKey: 'sb' },
-      ];
-
-      return [...baseColumns, ...trueRatingColumns, ...rawStatColumns];
+      return [...baseColumns, ...trueRatingColumns];
     }
 
     // Raw stats mode (no True Ratings)
     const rawColumns: BatterColumn[] = [
-      { key: 'g', label: 'G', sortKey: 'g' },
+      {
+        key: 'trueRating',
+        label: 'TR',
+        sortKey: 'percentile', // Sort by percentile, not TR value
+        accessor: (row) => this.renderHitterTrueRatingBadge(row.trueRating),
+      },
       { key: 'pa', label: 'PA', sortKey: 'pa' },
-      { key: 'ab', label: 'AB', sortKey: 'ab' },
-      { key: 'h', label: 'H', sortKey: 'h' },
-      { key: 'bbPct', label: 'BB%', sortKey: 'bb', accessor: (row) => {
-        if (typeof row.bb === 'number' && typeof row.pa === 'number' && row.pa > 0) {
-          const bbPct = ((row.bb / row.pa) * 100).toFixed(1);
-          const estEye = Math.max(20, Math.min(80, Math.round(row.estimatedEye || 50)));
-          return this.renderFlipCell(bbPct, estEye.toString(), 'Est Eye (Plate Discipline) Rating');
-        }
-        return '';
-      }},
-      { key: 'kPct', label: 'K%', sortKey: 'k', accessor: (row) => {
-        if (typeof row.k === 'number' && typeof row.pa === 'number' && row.pa > 0) {
-          const kPct = ((row.k / row.pa) * 100).toFixed(1);
-          const estAvoidK = Math.max(20, Math.min(80, Math.round(row.estimatedAvoidK || 50)));
-          return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
-        }
-        return '';
-      }},
-      { key: 'hrPct', label: 'HR%', sortKey: 'hr', accessor: (row) => {
-        if (typeof row.hr === 'number' && typeof row.pa === 'number' && row.pa > 0) {
-          const hrPct = ((row.hr / row.pa) * 100).toFixed(1);
-          const estPower = Math.max(20, Math.min(80, Math.round(row.estimatedPower || 50)));
-          return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
-        }
-        return '';
-      }},
+      {
+        key: 'avg',
+        label: 'AVG',
+        sortKey: 'avg',
+        accessor: (row) => typeof row.avg === 'number' ? row.avg.toFixed(3) : ''
+      },
+      {
+        key: 'obp',
+        label: 'OBP',
+        sortKey: 'obp',
+        accessor: (row) => typeof row.obp === 'number' ? row.obp.toFixed(3) : ''
+      },
       { key: 'hr', label: 'HR', sortKey: 'hr' },
-      { key: 'rbi', label: 'RBI', sortKey: 'rbi' },
-      { key: 'r', label: 'R', sortKey: 'r' },
-      { key: 'bb', label: 'BB', sortKey: 'bb' },
-      { key: 'k', label: 'K', sortKey: 'k' },
-      { key: 'sb', label: 'SB', sortKey: 'sb' },
-      { key: 'avg', label: 'AVG', sortKey: 'avg', accessor: (row) => {
-        if (typeof row.avg === 'number') {
-          const avg = row.avg.toFixed(3);
-          const estContact = Math.max(20, Math.min(80, Math.round(row.estimatedContact || 50)));
-          return this.renderFlipCell(avg, estContact.toString(), 'Est Contact Rating');
+      {
+        key: 'hrPct',
+        label: 'HR%',
+        sortKey: 'hr',
+        accessor: (row) => {
+          if (typeof row.hr === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+            return ((row.hr / row.pa) * 100).toFixed(1);
+          }
+          return '';
         }
-        return '';
-      }},
-      { key: 'obp', label: 'OBP', sortKey: 'obp' },
+      },
+      { key: 'bb', label: 'BB', sortKey: 'bb' },
+      {
+        key: 'bbPct',
+        label: 'BB%',
+        sortKey: 'bb',
+        accessor: (row) => {
+          if (typeof row.bb === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+            return ((row.bb / row.pa) * 100).toFixed(1);
+          }
+          return '';
+        }
+      },
+      { key: 'k', label: 'K', sortKey: 'k' },
+      {
+        key: 'kPct',
+        label: 'K%',
+        sortKey: 'k',
+        accessor: (row) => {
+          if (typeof row.k === 'number' && typeof row.pa === 'number' && row.pa > 0) {
+            return ((row.k / row.pa) * 100).toFixed(1);
+          }
+          return '';
+        }
+      },
+      {
+        key: 'ops',
+        label: 'OPS',
+        sortKey: 'ops',
+        accessor: (row) => {
+          if (typeof row.obp === 'number' && row.ab && row.ab > 0) {
+            const singles = (row.h ?? 0) - (row.d ?? 0) - (row.t ?? 0) - (row.hr ?? 0);
+            const slg = (singles + 2 * (row.d ?? 0) + 3 * (row.t ?? 0) + 4 * (row.hr ?? 0)) / row.ab;
+            const ops = row.obp + slg;
+            return ops.toFixed(3);
+          }
+          return '';
+        }
+      },
+      {
+        key: 'opsPlus',
+        label: 'OPS+',
+        sortKey: 'opsPlus',
+        accessor: (row) => {
+          // Calculate OPS+ = 100 × (OBP/lgOBP + SLG/lgSLG - 1)
+          if (!this.cachedLeagueBattingAverages || typeof row.obp !== 'number' || !row.ab || row.ab <= 0) {
+            return '';
+          }
+          const singles = (row.h ?? 0) - (row.d ?? 0) - (row.t ?? 0) - (row.hr ?? 0);
+          const slg = (singles + 2 * (row.d ?? 0) + 3 * (row.t ?? 0) + 4 * (row.hr ?? 0)) / row.ab;
+          const opsPlus = leagueBattingAveragesService.calculateOpsPlus(
+            row.obp,
+            slg,
+            this.cachedLeagueBattingAverages
+          );
+          return Math.round(opsPlus).toString();
+        }
+      },
+      {
+        key: 'woba',
+        label: 'wOBA',
+        sortKey: 'woba',
+        accessor: (row) => typeof row.woba === 'number' ? row.woba.toFixed(3) : '',
+      },
       { key: 'war', label: 'WAR', sortKey: 'war' },
-      { key: 'wpa', label: 'WPA', sortKey: 'wpa' },
     ];
 
     return [...baseColumns, ...rawColumns];
@@ -2785,7 +2793,7 @@ export class TrueRatingsView {
     }
 
     if (this.showTrueRatings) {
-      this.sortKey = 'trueRating';
+      this.sortKey = 'percentile';
       this.sortDirection = 'desc';
       return;
     }
@@ -3043,11 +3051,11 @@ export class TrueRatingsView {
 
         // If mode changed, update sort key
         if (previousMode !== this.mode) {
-          // Use True Rating as default sort for True Ratings view, WAR for Raw Stats view
+          // Use Percentile as default sort for True Ratings view, WAR for Raw Stats view
           if (this.mode === 'pitchers') {
-            this.sortKey = this.showRawStats ? 'ra9war' : 'trueRating';
+            this.sortKey = this.showRawStats ? 'ra9war' : 'percentile';
           } else {
-            this.sortKey = this.showRawStats ? 'war' : 'trueRating';
+            this.sortKey = this.showRawStats ? 'war' : 'percentile';
           }
           this.sortDirection = 'desc';
         }

@@ -799,7 +799,8 @@ class TrueRatingsCalculationService {
    */
   private estimateStuffFromK9(k9: number): number {
     const rating = (k9 - 2.07) / 0.074;
-    return Math.max(20, Math.min(80, rating));
+    // Internal range: 0-100 (wider than display range of 20-80)
+    return Math.max(0, Math.min(100, rating));
   }
 
   /**
@@ -809,7 +810,8 @@ class TrueRatingsCalculationService {
    */
   private estimateControlFromBb9(bb9: number): number {
     const rating = (5.22 - bb9) / 0.052;
-    return Math.max(20, Math.min(80, rating));
+    // Internal range: 0-100 (wider than display range of 20-80)
+    return Math.max(0, Math.min(100, rating));
   }
 
   /**
@@ -819,7 +821,8 @@ class TrueRatingsCalculationService {
    */
   private estimateHraFromHr9(hr9: number): number {
     const rating = (2.08 - hr9) / 0.024;
-    return Math.max(20, Math.min(80, rating));
+    // Internal range: 0-100 (wider than display range of 20-80)
+    return Math.max(0, Math.min(100, rating));
   }
 
   /**
