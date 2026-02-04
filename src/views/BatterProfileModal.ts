@@ -896,10 +896,10 @@ export class BatterProfileModal {
               <span class="bar-header" title="Derived from performance data and advanced metrics" style="cursor: help;">True Ratings</span>
             </div>
           </div>
+          ${this.renderRatingBar('Contact', data.estimatedContact)}
           ${this.renderRatingBar('Power', data.estimatedPower)}
           ${this.renderRatingBar('Eye', data.estimatedEye)}
           ${this.renderRatingBar('Avoid K', data.estimatedAvoidK)}
-          ${this.renderRatingBar('Hitting', data.estimatedContact)}
         </div>
       `;
     }
@@ -939,10 +939,10 @@ export class BatterProfileModal {
             </div>
           </div>
         </div>
+        ${this.renderRatingBarComparison('Contact', data.estimatedContact, s.contact ?? 50)}
         ${this.renderRatingBarComparison('Power', data.estimatedPower, s.power)}
         ${this.renderRatingBarComparison('Eye', data.estimatedEye, s.eye)}
         ${this.renderRatingBarComparison('Avoid K', data.estimatedAvoidK, s.avoidK)}
-        ${this.renderRatingBarComparison('Contact', data.estimatedContact, s.contact ?? 50)}
       </div>
     `;
   }

@@ -369,31 +369,49 @@ export class ProjectionsView {
       this.container.querySelector('#items-per-page')?.addEventListener('change', (e) => {
           const value = (e.target as HTMLSelectElement).value as '10' | '50' | '200' | 'all';
           this.itemsPerPageSelection = value;
-          this.itemsPerPage = value === 'all' ? this.stats.length : parseInt(value, 10);
+          const currentStatsLength = this.mode === 'batters' ? this.batterStats.length : this.stats.length;
+          this.itemsPerPage = value === 'all' ? currentStatsLength : parseInt(value, 10);
           this.currentPage = 1;
-          this.renderTable();
+          if (this.mode === 'batters') {
+              this.renderBatterTable();
+          } else {
+              this.renderTable();
+          }
       });
 
       this.container.querySelector('#page-jump-select')?.addEventListener('change', (e) => {
           const nextPage = parseInt((e.target as HTMLSelectElement).value, 10);
           if (!Number.isNaN(nextPage) && nextPage !== this.currentPage) {
               this.currentPage = nextPage;
-              this.renderTable();
+              if (this.mode === 'batters') {
+                  this.renderBatterTable();
+              } else {
+                  this.renderTable();
+              }
           }
       });
 
       this.container.querySelector('#prev-page')?.addEventListener('click', () => {
           if (this.currentPage > 1) {
               this.currentPage--;
-              this.renderTable();
+              if (this.mode === 'batters') {
+                  this.renderBatterTable();
+              } else {
+                  this.renderTable();
+              }
           }
       });
 
       this.container.querySelector('#next-page')?.addEventListener('click', () => {
-          const totalPages = Math.ceil(this.stats.length / this.itemsPerPage);
+          const currentStatsLength = this.mode === 'batters' ? this.batterStats.length : this.stats.length;
+          const totalPages = Math.ceil(currentStatsLength / this.itemsPerPage);
           if (this.currentPage < totalPages) {
               this.currentPage++;
-              this.renderTable();
+              if (this.mode === 'batters') {
+                  this.renderBatterTable();
+              } else {
+                  this.renderTable();
+              }
           }
       });
 
