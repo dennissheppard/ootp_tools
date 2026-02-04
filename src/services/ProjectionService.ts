@@ -124,7 +124,8 @@ class ProjectionService {
       : currentYearStats;
     this.buildLeagueIpDistribution(distributionStats, scoutingRatings, distributionYear);
 
-    const multiYearEndYear = usedFallbackStats ? statsYear : year;
+    // Always use prior season for multi-year stats to avoid partial season contamination
+    const multiYearEndYear = year - 1;
     const [leagueAverages, leagueStats, multiYearStats] = await Promise.all([
       this.getLeagueAveragesSafe(statsYear),
       this.getLeagueStatsSafe(statsYear),

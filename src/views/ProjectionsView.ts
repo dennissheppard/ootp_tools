@@ -1515,6 +1515,27 @@ export class ProjectionsView {
                   </div>
               </div>
 
+              <div class="analysis-split" style="grid-template-columns: 1fr; margin-top: 20px;">
+                  <div class="analysis-section">
+                      <h4>HR% Accuracy by Projected Power Rating Quartile</h4>
+                      <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">
+                          Batters grouped by their projected power rating. Helps diagnose range compression: are we under-predicting elite power (negative bias in Q1) and over-predicting weak power (positive bias in Q4)?
+                      </p>
+                      <table class="stats-table">
+                          <thead>
+                              <tr>
+                                  <th>Quartile</th>
+                                  <th>MAE</th>
+                                  <th>RMSE</th>
+                                  <th>Bias</th>
+                                  <th>Count</th>
+                              </tr>
+                          </thead>
+                          <tbody>${this.renderPowerQuartileRows(this.batterAnalysisReport)}</tbody>
+                      </table>
+                  </div>
+              </div>
+
               <div class="analysis-section" style="margin-top: 20px;">
                   <h4>Top Outliers (Biggest Misses)</h4>
                   <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">These are the specific player seasons where the projection missed by the widest margin. Useful for identifying injuries or breakouts.</p>
@@ -1817,6 +1838,10 @@ export class ProjectionsView {
               const key = this.sortKey.replace('projectedStats.', '') as keyof ProjectedBatter['projectedStats'];
               valA = a.projectedStats[key];
               valB = b.projectedStats[key];
+          } else if (this.sortKey.startsWith('actualStats.')) {
+              const key = this.sortKey.replace('actualStats.', '');
+              valA = a.actualStats?.[key as keyof typeof a.actualStats];
+              valB = b.actualStats?.[key as keyof typeof b.actualStats];
           } else {
               valA = (a as any)[this.sortKey];
               valB = (b as any)[this.sortKey];
@@ -3037,5 +3062,43 @@ export class ProjectionsView {
     }
     
     this.updateScoutingBanner();
+  }
+
+  private renderPowerQuartileRows(report: any): string {
+    if (!report || !report.metricsByPowerQuartile) {
+      return '<tr><td colspan="5">No power quartile data available</td></tr>';
+    }
+
+    const getBiasClass = (bias: number) => {
+      if (bias > 0.5) return 'text-danger';
+      if (bias < -0.5) return 'text-success';
+      return '';
+    };
+
+    const getMaeClass = (mae: number) => {
+      if (mae > 1.5) return 'text-danger';
+      if (mae < 0.7) return 'text-success';
+      return '';
+    };
+
+    // Sort quartiles in order: Q1, Q2, Q3, Q4
+    const quartileOrder = ['Q1 (Elite Power)', 'Q2 (Good Power)', 'Q3 (Avg Power)', 'Q4 (Weak Power)'];
+    const sortedQuartiles = Array.from(report.metricsByPowerQuartile.entries()).sort((a: any, b: any) => {
+      const aPrefix = a[0].split(' ')[0];
+      const bPrefix = b[0].split(' ')[0];
+      const aIndex = quartileOrder.findIndex(q => q.startsWith(aPrefix));
+      const bIndex = quartileOrder.findIndex(q => q.startsWith(bPrefix));
+      return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+    }) as Array<[string, any]>;
+
+    return sortedQuartiles.map(([quartile, m]) => `
+      <tr>
+        <td>${quartile}</td>
+        <td class="${getMaeClass(m.hrPct.mae)}">${m.hrPct.mae.toFixed(3)}</td>
+        <td>${m.hrPct.rmse.toFixed(3)}</td>
+        <td class="${getBiasClass(m.hrPct.bias)}">${m.hrPct.bias > 0 ? '+' : ''}${m.hrPct.bias.toFixed(3)}</td>
+        <td>${m.hrPct.count}</td>
+      </tr>
+    `).join('');
   }
 }

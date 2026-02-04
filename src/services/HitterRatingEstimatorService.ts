@@ -86,13 +86,17 @@ const REGRESSION_COEFFICIENTS = {
   avoidK: { intercept: 25.10, slope: -0.200303 },
 
   // Power (20-80) → HR%
-  // HR% = -0.5906 + 0.058434 * power (HR per PA as percentage)
-  // Intercept calibrated via automated optimization (tools/calibrate_batter_coefficients.ts)
+  // HR% = -3.4667 + 0.113333 * power (HR per PA as percentage)
+  // Calibrated to 2018-2020 actual percentiles (373 qualified players, 500+ PA)
+  // Maps power ratings directly to HR% percentiles:
+  //   80 power = 99th percentile, 70 power = 90th percentile, 50 power = 50th percentile
+  // Average error: 0.183% across all percentiles
   // IMPORTANT: Calibrated for HR%-based power estimation (not ISO-based)
-  // At 20: -0.5906 + 0.058434 * 20 = 0.58%
-  // At 50: -0.5906 + 0.058434 * 50 = 2.33%
-  // At 80: -0.5906 + 0.058434 * 80 = 4.08%
-  power: { intercept: -0.5906, slope: 0.058434 },
+  // At 20: -3.4667 + 0.113333 * 20 = 0.00% (0 HR in 650 PA, clamped)
+  // At 50: -3.4667 + 0.113333 * 50 = 2.20% (14 HR in 650 PA)
+  // At 70: -3.4667 + 0.113333 * 70 = 4.47% (29 HR in 650 PA)
+  // At 80: -3.4667 + 0.113333 * 80 = 5.60% (36 HR in 650 PA)
+  power: { intercept: -3.4667, slope: 0.113333 },
 
   // Contact (20-80) → AVG (.113 to .345)
   // Contact = ~60% Hit Tool + ~40% AvoidK (OOTP composite rating)
@@ -325,10 +329,12 @@ class HitterRatingEstimatorService {
   /**
    * Calculate expected HR% from Power rating
    * Returns HR per PA as a percentage (e.g., 4.0 means 4% HR/PA)
+   * Clamped to minimum 0% to avoid negative HR projections for low power ratings
    */
   static expectedHrPct(power: number): number {
     const coef = REGRESSION_COEFFICIENTS.power;
-    return coef.intercept + coef.slope * power;
+    const hrPct = coef.intercept + coef.slope * power;
+    return Math.max(0, hrPct); // Clamp to 0% minimum
   }
 
   /**

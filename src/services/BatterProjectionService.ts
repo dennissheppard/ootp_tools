@@ -100,7 +100,8 @@ class BatterProjectionService {
     }
 
     // Get multi-year batting stats for True Ratings calculation
-    const multiYearStats = await trueRatingsService.getMultiYearBattingStats(year);
+    // Use prior season to avoid contamination from partial current season data
+    const multiYearStats = await trueRatingsService.getMultiYearBattingStats(year - 1);
 
     // Build team lookup
     const teamMap = new Map<number, Team>(allTeams.map(t => [t.id, t]));
@@ -227,8 +228,8 @@ class BatterProjectionService {
       }
 
       // Estimate counting stats from rate stats using proper HR% coefficient
-      const abPerPa = 0.88;
-      const projAb = Math.round(projPa * abPerPa);
+      // const abPerPa = 0.88;
+      // const projAb = Math.round(projPa * abPerPa);
       const projHr = Math.round(projPa * (projHrPct / 100)); // Use proper HR% from power rating
       const projRbi = Math.round(projHr * 3.5 + projPa * 0.08); // Rough RBI estimate
       const projSb = Math.round(projPa * 0.02); // Conservative SB estimate

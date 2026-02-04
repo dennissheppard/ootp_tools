@@ -64,6 +64,7 @@ export interface BatterYearAnalysisResult {
   metricsByAge: Map<string, BatterStatMetrics>;
   metricsByPosition: Map<string, BatterStatMetrics>; // C, IF, OF, DH
   metricsByQuartile: Map<string, BatterStatMetrics>; // Quartile by actual wOBA
+  metricsByPowerQuartile: Map<string, BatterStatMetrics>; // Quartile by projected power rating
   top10Comparison: BatterTop10Comparison[];
   details: {
     playerId: number;
@@ -73,6 +74,7 @@ export interface BatterYearAnalysisResult {
     position: string;
     trueRating: number;
     percentile: number;
+    projectedPowerRating: number; // Add projected power rating for quartile analysis
     projected: { woba: number; bbPct: number; kPct: number; hrPct: number; avg: number; war: number; pa: number };
     actual: { woba: number; bbPct: number; kPct: number; hrPct: number; avg: number; war: number };
     diff: BatterStatDiffs;
@@ -87,6 +89,7 @@ export interface BatterAggregateAnalysisReport {
   metricsByAge: Map<string, BatterStatMetrics>;
   metricsByPosition: Map<string, BatterStatMetrics>;
   metricsByQuartile: Map<string, BatterStatMetrics>;
+  metricsByPowerQuartile: Map<string, BatterStatMetrics>;
   top10Comparison: BatterTop10Comparison[];
 }
 
@@ -214,6 +217,7 @@ class BatterProjectionAnalysisService {
         position: posGroup,
         trueRating: proj.currentTrueRating,
         percentile: proj.percentile || 0,
+        projectedPowerRating: proj.estimatedRatings?.power ?? 50,
         projected: {
           woba: projWoba,
           bbPct: projBbPct,
@@ -300,6 +304,27 @@ class BatterProjectionAnalysisService {
     const metricsByQuartile = new Map<string, BatterStatMetrics>();
     quartileGroups.forEach((diffs, key) => metricsByQuartile.set(key, this.calculateStatMetrics(diffs)));
 
+    // Group by Projected Power Rating Quartile
+    const sortedByPower = [...details].sort((a, b) => b.projectedPowerRating - a.projectedPowerRating);
+    const powerQuartileSize = Math.floor(sortedByPower.length / 4);
+    const powerQuartileRanges = [
+      { label: 'Q1 (Elite Power)', start: 0, end: powerQuartileSize },
+      { label: 'Q2 (Good Power)', start: powerQuartileSize, end: powerQuartileSize * 2 },
+      { label: 'Q3 (Avg Power)', start: powerQuartileSize * 2, end: powerQuartileSize * 3 },
+      { label: 'Q4 (Weak Power)', start: powerQuartileSize * 3, end: sortedByPower.length },
+    ];
+
+    const powerQuartileGroups = new Map<string, BatterStatDiffs[]>();
+    powerQuartileRanges.forEach(q => {
+      const detailsInRange = sortedByPower.slice(q.start, q.end);
+      const maxPower = detailsInRange[0]?.projectedPowerRating ?? 0;
+      const minPower = detailsInRange[detailsInRange.length - 1]?.projectedPowerRating ?? 0;
+      const label = `${q.label} (${Math.round(minPower)}-${Math.round(maxPower)} rating)`;
+      powerQuartileGroups.set(label, detailsInRange.map(d => d.diff));
+    });
+    const metricsByPowerQuartile = new Map<string, BatterStatMetrics>();
+    powerQuartileGroups.forEach((diffs, key) => metricsByPowerQuartile.set(key, this.calculateStatMetrics(diffs)));
+
     // Top 10 Comparison: Find actual top 10 WAR leaders
     const top10Actual = [...details]
       .sort((a, b) => b.actual.war - a.actual.war)
@@ -323,6 +348,7 @@ class BatterProjectionAnalysisService {
       metricsByAge,
       metricsByPosition,
       metricsByQuartile,
+      metricsByPowerQuartile,
       top10Comparison,
       details,
     };
@@ -384,6 +410,27 @@ class BatterProjectionAnalysisService {
     const metricsByQuartile = new Map<string, BatterStatMetrics>();
     aggregateQuartileGroups.forEach((diffs, key) => metricsByQuartile.set(key, this.calculateStatMetrics(diffs)));
 
+    // Aggregate by Projected Power Rating Quartile
+    const sortedByPower = [...allDetails].sort((a, b) => b.projectedPowerRating - a.projectedPowerRating);
+    const powerQuartileSize = Math.floor(sortedByPower.length / 4);
+    const powerQuartileRanges = [
+      { label: 'Q1 (Elite Power)', start: 0, end: powerQuartileSize },
+      { label: 'Q2 (Good Power)', start: powerQuartileSize, end: powerQuartileSize * 2 },
+      { label: 'Q3 (Avg Power)', start: powerQuartileSize * 2, end: powerQuartileSize * 3 },
+      { label: 'Q4 (Weak Power)', start: powerQuartileSize * 3, end: sortedByPower.length },
+    ];
+
+    const aggregatePowerQuartileGroups = new Map<string, BatterStatDiffs[]>();
+    powerQuartileRanges.forEach(q => {
+      const detailsInRange = sortedByPower.slice(q.start, q.end);
+      const maxPower = detailsInRange[0]?.projectedPowerRating ?? 0;
+      const minPower = detailsInRange[detailsInRange.length - 1]?.projectedPowerRating ?? 0;
+      const label = `${q.label} (${Math.round(minPower)}-${Math.round(maxPower)} rating)`;
+      aggregatePowerQuartileGroups.set(label, detailsInRange.map(d => d.diff));
+    });
+    const metricsByPowerQuartile = new Map<string, BatterStatMetrics>();
+    aggregatePowerQuartileGroups.forEach((diffs, key) => metricsByPowerQuartile.set(key, this.calculateStatMetrics(diffs)));
+
     // Aggregate top 10 comparison
     const top10Comparison: BatterTop10Comparison[] = years.flatMap(y => y.top10Comparison);
 
@@ -394,6 +441,7 @@ class BatterProjectionAnalysisService {
       metricsByAge,
       metricsByPosition,
       metricsByQuartile,
+      metricsByPowerQuartile,
       top10Comparison,
     };
   }
@@ -482,6 +530,14 @@ class BatterProjectionAnalysisService {
     lines.push('-'.repeat(80));
     report.metricsByQuartile.forEach((metrics, label) => {
       lines.push(`${label}\t${metrics.woba.mae.toFixed(3)}\t${metrics.woba.rmse.toFixed(3)}\t${this.formatBias(metrics.woba.bias)}\t${metrics.woba.count}`);
+    });
+
+    // By Power Quartile - HR% focus
+    lines.push('\n--- BY PROJECTED POWER RATING QUARTILE (HR% Bias) ---\n');
+    lines.push('Quartile\t\t\tHR% MAE\tHR% RMSE\tHR% Bias\tCount');
+    lines.push('-'.repeat(80));
+    report.metricsByPowerQuartile.forEach((metrics, label) => {
+      lines.push(`${label}\t${metrics.hrPct.mae.toFixed(3)}\t${metrics.hrPct.rmse.toFixed(3)}\t${this.formatBias(metrics.hrPct.bias)}\t${metrics.hrPct.count}`);
     });
 
     // Top 10 summary

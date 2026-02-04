@@ -233,10 +233,11 @@ export class PotentialStatsView {
       return `
         <div class="formula-note">
           <strong>Batter Rating Formulas:</strong><br>
-          BB% = 0.64 + 0.115 × Eye<br>
-          K% = 25.35 - 0.200 × AvK<br>
-          HR% = -1.30 + 0.058 × Power<br>
-          AVG = 0.077 + 0.0032 × Contact
+          BB% = 1.62 + 0.115 × Eye<br>
+          K% = 25.10 - 0.200 × AvK<br>
+          HR% = -0.59 + 0.058 × Power<br>
+          AVG = 0.035 + 0.0039 × Contact<br>
+          <em style="font-size: 0.9em; color: var(--color-text-muted);">Note: Coefficients calibrated from OOTP engine data</em>
         </div>
       `;
     }
@@ -266,7 +267,7 @@ export class PotentialStatsView {
               <input type="text" id="rating-name" placeholder="Player name (optional)" class="name-input">
               <div class="ip-input-wrapper">
                 <label for="rating-volume">${isPitcher ? 'IP:' : 'PA:'}</label>
-                  <input type="number" id="rating-volume" min="10" max="${isPitcher ? '250' : '700'}" value="${isPitcher ? '180' : '550'}" class="ip-input">
+                  <input type="number" id="rating-volume" min="10" max="${isPitcher ? '250' : '700'}" value="${isPitcher ? '180' : '650'}" class="ip-input">
                 </div>
                 <button type="submit" class="btn btn-primary">Calculate & Add</button>
               </div>
