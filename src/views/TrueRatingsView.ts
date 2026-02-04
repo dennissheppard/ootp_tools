@@ -1096,7 +1096,7 @@ export class TrueRatingsView {
     }
 
     if (pitchingStats.length === 0) {
-      const roster = await this.getActiveMlbRoster(true);
+      const roster = await this.getActiveMlbRoster(false);
       const pitchers = roster.filter(isPitcher);
       return { rows: this.buildPitcherRowsFromRoster(pitchers), hasStats: false };
     }
@@ -1113,7 +1113,7 @@ export class TrueRatingsView {
     }
 
     if (battingStats.length === 0) {
-      const roster = await this.getActiveMlbRoster(true);
+      const roster = await this.getActiveMlbRoster(false);
       const batters = roster.filter(player => !isPitcher(player));
       return { rows: this.buildBatterRowsFromRoster(batters), hasStats: false };
     }
@@ -2785,7 +2785,7 @@ export class TrueRatingsView {
     }
 
     if (this.showTrueRatings) {
-      this.sortKey = 'trueRating';
+      this.sortKey = 'percentile';
       this.sortDirection = 'desc';
       return;
     }
@@ -3043,11 +3043,11 @@ export class TrueRatingsView {
 
         // If mode changed, update sort key
         if (previousMode !== this.mode) {
-          // Use True Rating as default sort for True Ratings view, WAR for Raw Stats view
+          // Use Percentile as default sort for True Ratings view, WAR for Raw Stats view
           if (this.mode === 'pitchers') {
-            this.sortKey = this.showRawStats ? 'ra9war' : 'trueRating';
+            this.sortKey = this.showRawStats ? 'ra9war' : 'percentile';
           } else {
-            this.sortKey = this.showRawStats ? 'war' : 'trueRating';
+            this.sortKey = this.showRawStats ? 'war' : 'percentile';
           }
           this.sortDirection = 'desc';
         }

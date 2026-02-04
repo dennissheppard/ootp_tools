@@ -37,6 +37,7 @@ export class PlayerProfileModal {
   // Development chart state
   private developmentChart: DevelopmentChart | null = null;
   private activeDevMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra'];
+  private activeDevScoutSource: 'my' | 'osa' = 'my'; // Track which scout source is active for development tab
 
   // League configuration
   private readonly LEAGUE_START_YEAR = 2000;
@@ -591,7 +592,16 @@ export class PlayerProfileModal {
       <div class="development-section">
         <div class="development-header">
           <h4>Development History</h4>
-          <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
+          <div class="development-controls">
+            <div class="dev-scout-toggle custom-dropdown" id="dev-scout-toggle">
+              <span class="dropdown-trigger">${this.activeDevScoutSource === 'my' ? 'My' : 'OSA'}</span>
+              <div class="dropdown-menu">
+                <div class="dropdown-item ${this.activeDevScoutSource === 'my' ? 'active' : ''}" data-value="my">My</div>
+                <div class="dropdown-item ${this.activeDevScoutSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
+              </div>
+            </div>
+            <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
+          </div>
         </div>
         ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
         <div class="development-chart-container" id="development-chart-${playerId}"></div>
@@ -606,13 +616,33 @@ export class PlayerProfileModal {
       this.developmentChart = null;
     }
 
-    // Fetch snapshots
-    const snapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+    // Fetch all snapshots
+    const allSnapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+
+    // Determine which sources have data
+    const hasMySnapshots = allSnapshots.some(s => s.source === 'my');
+    const hasOsaSnapshots = allSnapshots.some(s => s.source === 'osa');
+
+    // Set default source if current selection has no data
+    if (this.activeDevScoutSource === 'my' && !hasMySnapshots && hasOsaSnapshots) {
+      this.activeDevScoutSource = 'osa';
+    } else if (this.activeDevScoutSource === 'osa' && !hasOsaSnapshots && hasMySnapshots) {
+      this.activeDevScoutSource = 'my';
+    }
+
+    // Filter snapshots by active source (never mix my and osa)
+    const snapshots = allSnapshots.filter(s => s.source === this.activeDevScoutSource);
 
     // Update snapshot count
     const countEl = this.overlay?.querySelector('#dev-snapshot-count');
     if (countEl) {
       countEl.textContent = `${snapshots.length} snapshot${snapshots.length !== 1 ? 's' : ''}`;
+    }
+
+    // Show/hide toggle based on whether both sources have data
+    const toggleEl = this.overlay?.querySelector<HTMLElement>('#dev-scout-toggle');
+    if (toggleEl) {
+      toggleEl.style.display = (hasMySnapshots && hasOsaSnapshots) ? '' : 'none';
     }
 
     // Create and render chart
@@ -623,6 +653,9 @@ export class PlayerProfileModal {
       height: 280,
     });
     this.developmentChart.render();
+
+    // Bind scout source toggle
+    this.bindDevScoutSourceToggle(playerId);
 
     // Bind metric toggle handlers
     const container = this.overlay?.querySelector('.development-section');
@@ -918,6 +951,37 @@ export class PlayerProfileModal {
       e.preventDefault();
       const tabId = link.dataset.tabTarget ?? 'tab-data-management';
       window.dispatchEvent(new CustomEvent('wbl:navigate-tab', { detail: { tabId } }));
+    });
+  }
+
+  private bindDevScoutSourceToggle(playerId: number): void {
+    if (!this.overlay) return;
+    const toggleContainer = this.overlay.querySelector<HTMLElement>('#dev-scout-toggle.custom-dropdown');
+    if (!toggleContainer) return;
+
+    const items = toggleContainer.querySelectorAll<HTMLElement>('.dropdown-item');
+    items.forEach(item => {
+      item.addEventListener('click', async (e) => {
+        const newSource = (e.target as HTMLElement).dataset.value as 'my' | 'osa';
+        if (!newSource || newSource === this.activeDevScoutSource) return;
+
+        // Update active source
+        this.activeDevScoutSource = newSource;
+
+        // Update dropdown display
+        const trigger = toggleContainer.querySelector('.dropdown-trigger');
+        if (trigger) {
+          trigger.textContent = newSource === 'my' ? 'My' : 'OSA';
+        }
+
+        // Update active state on menu items
+        items.forEach(i => {
+          i.classList.toggle('active', i.dataset.value === newSource);
+        });
+
+        // Re-initialize chart with new source
+        await this.initDevelopmentChart(playerId);
+      });
     });
   }
 

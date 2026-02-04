@@ -366,7 +366,7 @@ export class ProjectionsView {
           }
 
           // Use previous year as base for projections
-          const context = await projectionService.getProjectionsWithContext(statsBaseYear, { forceRosterRefresh: true });
+          const context = await projectionService.getProjectionsWithContext(statsBaseYear, { forceRosterRefresh: false });
           let allPlayers = context.projections;
           this.statsYearUsed = context.statsYear;
           this.usedFallbackStats = context.usedFallbackStats;
