@@ -5,25 +5,65 @@ import {
   LeagueContext,
 } from '../services/PotentialStatsService';
 import { leagueStatsService } from '../services/LeagueStatsService';
+import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
 
-type ResultRow = { name: string } & PotentialPitchingStats & PitcherRatings;
+type PlayerType = 'batters' | 'pitchers';
+
+interface BatterRatings {
+  contact: number;
+  power: number;
+  eye: number;
+  avoidK: number;
+}
+
+interface PotentialBattingStats {
+  pa: number;
+  ab: number;
+  h: number;
+  d: number;
+  t: number;
+  hr: number;
+  bb: number;
+  k: number;
+  avg: number;
+  obp: number;
+  slg: number;
+  ops: number;
+  woba: number;
+  bbPct: number;
+  kPct: number;
+  hrPct: number;
+}
+
+type PitcherResultRow = { name: string } & PotentialPitchingStats & PitcherRatings;
+type BatterResultRow = { name: string } & PotentialBattingStats & BatterRatings;
+type ResultRow = PitcherResultRow | BatterResultRow;
 
 // Available years for league stats (most recent first)
 const AVAILABLE_YEARS = [2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010];
 
 export class PotentialStatsView {
   private container: HTMLElement;
+  private playerType: PlayerType;
   private results: ResultRow[] = [];
   private leagueContext: LeagueContext | undefined;
   private selectedYear: number = 2020;
   private leagueEra: number | undefined;
   private hasLoadedLeagueStats = false; // Track if stats have been loaded
 
-  constructor(container: HTMLElement) {
+  constructor(container: HTMLElement, playerType: PlayerType = 'pitchers') {
     this.container = container;
+    this.playerType = playerType;
     this.render();
     // Defer league stats loading until first user interaction
     // This prevents loading data during app initialization
+  }
+
+  setPlayerType(playerType: PlayerType): void {
+    if (this.playerType === playerType) return;
+    this.playerType = playerType;
+    this.results = []; // Clear results when switching player type
+    this.render();
   }
 
   private async ensureLeagueStatsLoaded(): Promise<void> {
@@ -52,8 +92,10 @@ export class PotentialStatsView {
   }
 
   private recalculateResults(): void {
-    // Recalculate all results with the new league context
-    this.results = this.results.map(r => {
+    // Recalculate all results with the new league context (only applies to pitchers)
+    if (this.playerType !== 'pitchers') return;
+
+    this.results = (this.results as PitcherResultRow[]).map(r => {
       const ratings: PitcherRatings = {
         stuff: r.stuff,
         control: r.control,
@@ -74,11 +116,143 @@ export class PotentialStatsView {
     }
   }
 
+  private calculateBatterStats(ratings: BatterRatings, pa: number): PotentialBattingStats {
+    // Get expected rate stats from ratings using HitterRatingEstimatorService
+    const bbPct = HitterRatingEstimatorService.expectedBbPct(ratings.eye);
+    const kPct = HitterRatingEstimatorService.expectedKPct(ratings.avoidK);
+    const hrPct = HitterRatingEstimatorService.expectedHrPct(ratings.power);
+    const avg = HitterRatingEstimatorService.expectedAvg(ratings.contact);
+
+    // Calculate counting stats from rates
+    const bb = Math.round((bbPct / 100) * pa);
+    const k = Math.round((kPct / 100) * pa);
+    const hr = Math.max(0, Math.round((hrPct / 100) * pa)); // HR% can be negative for low power
+
+    // AB = PA - BB - HBP - SF - SH (we'll approximate as PA - BB for simplicity)
+    const ab = pa - bb;
+    const h = Math.round(avg * ab);
+
+    // Estimate doubles and triples (simplified - could use Gap/Speed if available)
+    // Rough approximation: 20% of non-HR hits are doubles, 2% are triples
+    const nonHrHits = Math.max(0, h - hr);
+    const d = Math.round(nonHrHits * 0.20);
+    const t = Math.round(nonHrHits * 0.02);
+    const singles = Math.max(0, h - d - t - hr);
+
+    // Calculate slashline stats
+    const obp = ab > 0 ? (h + bb) / pa : 0;
+    const totalBases = singles + (d * 2) + (t * 3) + (hr * 4);
+    const slg = ab > 0 ? totalBases / ab : 0;
+    const ops = obp + slg;
+
+    // Calculate wOBA (weighted on-base average)
+    // wOBA = (0.69×BB + 0.89×1B + 1.27×2B + 1.62×3B + 2.10×HR) / PA
+    const woba = pa > 0 ? (
+      0.69 * bb +
+      0.89 * singles +
+      1.27 * d +
+      1.62 * t +
+      2.10 * hr
+    ) / pa : 0;
+
+    return {
+      pa,
+      ab,
+      h,
+      d,
+      t,
+      hr,
+      bb,
+      k,
+      avg,
+      obp,
+      slg,
+      ops,
+      woba,
+      bbPct,
+      kPct,
+      hrPct: Math.max(0, hrPct), // Display as 0 if negative
+    };
+  }
+
+  private renderRatingInputs(): string {
+    if (this.playerType === 'pitchers') {
+      return `
+        <div class="rating-field">
+          <label for="rating-stuff">Stuff</label>
+          <input type="number" id="rating-stuff" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-control">Control</label>
+          <input type="number" id="rating-control" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-hra">HRA</label>
+          <input type="number" id="rating-hra" min="20" max="80" value="50" required>
+        </div>
+      `;
+    } else {
+      return `
+        <div class="rating-field">
+          <label for="rating-contact">Contact</label>
+          <input type="number" id="rating-contact" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-power">Power</label>
+          <input type="number" id="rating-power" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-eye">Eye</label>
+          <input type="number" id="rating-eye" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-avoidk">AvK</label>
+          <input type="number" id="rating-avoidk" min="20" max="80" value="50" required>
+        </div>
+      `;
+    }
+  }
+
+  private getCSVFormat(): string {
+    return this.playerType === 'pitchers'
+      ? 'Format: name, stuff, control, hra [, ip]'
+      : 'Format: name, contact, power, eye, avoidk [, pa]';
+  }
+
+  private renderFormulas(): string {
+    if (this.playerType === 'pitchers') {
+      return `
+        <div class="formula-note">
+          <strong>WBL "Three True Outcomes":</strong><br>
+          K/9 = 2.07 + 0.074 × Stuff<br>
+          BB/9 = 5.22 - 0.052 × Control<br>
+          HR/9 = 2.08 - 0.024 × HRA (WBL = 0.64× neutral)
+        </div>
+      `;
+    } else {
+      return `
+        <div class="formula-note">
+          <strong>Batter Rating Formulas:</strong><br>
+          BB% = 0.64 + 0.115 × Eye<br>
+          K% = 25.35 - 0.200 × AvK<br>
+          HR% = -1.30 + 0.058 × Power<br>
+          AVG = 0.077 + 0.0032 × Contact
+        </div>
+      `;
+    }
+  }
+
   private render(): void {
+    const isPitcher = this.playerType === 'pitchers';
+    const title = isPitcher ? 'WBL Potential Stats Calculator' : 'WBL Batter Stats Calculator';
+    const subtitle = isPitcher
+      ? 'Enter pitcher ratings to calculate projected WBL stats'
+      : 'Enter batter ratings to calculate projected WBL stats';
+
     this.container.innerHTML = `
       <div class="potential-stats-section">
-        <h2 class="section-title">WBL Potential Stats Calculator</h2>
-        <p class="section-subtitle">Enter pitcher ratings to calculate projected WBL stats</p>
+        <h2 class="section-title">${title}</h2>
+        <p class="section-subtitle">${subtitle}</p>
 
         <div class="potential-stats-content">
           <!-- Manual Entry Form -->
@@ -86,24 +260,13 @@ export class PotentialStatsView {
             <h3 class="form-title">Enter Ratings (20-80 scale)</h3>
             <form id="rating-form" class="rating-form">
               <div class="rating-inputs">
-                <div class="rating-field">
-                  <label for="rating-stuff">Stuff</label>
-                  <input type="number" id="rating-stuff" min="20" max="80" value="50" required>
-                </div>
-              <div class="rating-field">
-                <label for="rating-control">Control</label>
-                <input type="number" id="rating-control" min="20" max="80" value="50" required>
-              </div>
-              <div class="rating-field">
-                <label for="rating-hra">HRA</label>
-                <input type="number" id="rating-hra" min="20" max="80" value="50" required>
-              </div>
+                ${this.renderRatingInputs()}
             </div>
             <div class="form-actions">
               <input type="text" id="rating-name" placeholder="Player name (optional)" class="name-input">
               <div class="ip-input-wrapper">
-                <label for="rating-ip">IP:</label>
-                  <input type="number" id="rating-ip" min="10" max="250" value="180" class="ip-input">
+                <label for="rating-volume">${isPitcher ? 'IP:' : 'PA:'}</label>
+                  <input type="number" id="rating-volume" min="10" max="${isPitcher ? '250' : '700'}" value="${isPitcher ? '180' : '550'}" class="ip-input">
                 </div>
                 <button type="submit" class="btn btn-primary">Calculate & Add</button>
               </div>
@@ -113,17 +276,12 @@ export class PotentialStatsView {
           <!-- CSV Upload -->
           <div class="csv-upload-container">
             <h3 class="form-title">Or Upload CSV</h3>
-            <p class="csv-format">Format: name, stuff, control, hra [, ip]</p>
+            <p class="csv-format">${this.getCSVFormat()}</p>
             <div class="csv-upload-area" id="csv-drop-zone">
               <input type="file" id="csv-file-input" accept=".csv" hidden>
               <p>Drop CSV file here or <button type="button" class="btn-link" id="csv-browse-btn">browse</button></p>
             </div>
-            <div class="formula-note">
-              <strong>WBL "Three True Outcomes":</strong><br>
-              K/9 = 2.07 + 0.074 × Stuff<br>
-              BB/9 = 5.22 - 0.052 × Control<br>
-              HR/9 = 2.08 - 0.024 × HRA (WBL = 0.64× neutral)
-            </div>
+            ${this.renderFormulas()}
           </div>
         </div>
 
@@ -133,8 +291,9 @@ export class PotentialStatsView {
             <h3 class="form-title">Projected WBL Stats</h3>
             <button type="button" class="btn btn-secondary" id="clear-results-btn" style="display: none;">Clear All</button>
           </div>
+          ${isPitcher ? `
           <div class="league-context-info">
-            <p id="league-info" class="league-info-text">Loading league data...</p>
+            <p id="league-info" class="league-info-text">League data will load when you calculate stats</p>
             <div class="year-selector">
               <label for="league-year">FIP/WAR based on:</label>
               <select id="league-year">
@@ -142,6 +301,7 @@ export class PotentialStatsView {
               </select>
             </div>
           </div>
+          ` : ''}
           <div id="results-table-wrapper"></div>
         </div>
       </div>
@@ -209,32 +369,62 @@ export class PotentialStatsView {
     };
 
     const nameInput = this.container.querySelector<HTMLInputElement>('#rating-name');
-    const name = nameInput?.value.trim() || `Pitcher ${this.results.length + 1}`;
 
-    const defaultSecondary = 50;
-    const ratings: PitcherRatings = {
-      stuff: getValue('rating-stuff'),
-      control: getValue('rating-control'),
-      hra: getValue('rating-hra'),
-      movement: defaultSecondary,
-      babip: defaultSecondary,
-    };
+    if (this.playerType === 'pitchers') {
+      const name = nameInput?.value.trim() || `Pitcher ${this.results.length + 1}`;
 
-    const ip = getValue('rating-ip');
+      const defaultSecondary = 50;
+      const ratings: PitcherRatings = {
+        stuff: getValue('rating-stuff'),
+        control: getValue('rating-control'),
+        hra: getValue('rating-hra'),
+        movement: defaultSecondary,
+        babip: defaultSecondary,
+      };
 
-    const errors = PotentialStatsService.validateRatings(ratings);
-    if (errors.length > 0) {
-      alert(errors.join('\n'));
-      return;
+      const ip = getValue('rating-volume');
+
+      const errors = PotentialStatsService.validateRatings(ratings);
+      if (errors.length > 0) {
+        alert(errors.join('\n'));
+        return;
+      }
+
+      const stats = PotentialStatsService.calculatePitchingStats(ratings, ip, this.leagueContext);
+
+      this.results.push({
+        name,
+        ...ratings,
+        ...stats,
+      });
+    } else {
+      // Batter calculations
+      const name = nameInput?.value.trim() || `Batter ${this.results.length + 1}`;
+
+      const ratings: BatterRatings = {
+        contact: getValue('rating-contact'),
+        power: getValue('rating-power'),
+        eye: getValue('rating-eye'),
+        avoidK: getValue('rating-avoidk'),
+      };
+
+      const pa = getValue('rating-volume');
+
+      // Validate ratings
+      const allRatingsValid = Object.values(ratings).every(r => r >= 20 && r <= 80);
+      if (!allRatingsValid) {
+        alert('All ratings must be between 20 and 80');
+        return;
+      }
+
+      const stats = this.calculateBatterStats(ratings, pa);
+
+      this.results.push({
+        name,
+        ...ratings,
+        ...stats,
+      } as BatterResultRow);
     }
-
-    const stats = PotentialStatsService.calculatePitchingStats(ratings, ip, this.leagueContext);
-
-    this.results.push({
-      name,
-      ...ratings,
-      ...stats,
-    });
 
     if (nameInput) nameInput.value = '';
 
@@ -280,7 +470,15 @@ export class PotentialStatsView {
 
     if (clearBtn) clearBtn.style.display = 'block';
 
-    const rows = this.results.map((r, index) => `
+    if (this.playerType === 'pitchers') {
+      this.renderPitcherResults(wrapper);
+    } else {
+      this.renderBatterResults(wrapper);
+    }
+  }
+
+  private renderPitcherResults(wrapper: HTMLDivElement): void {
+    const rows = (this.results as PitcherResultRow[]).map((r, index) => `
       <tr>
         <td class="name-cell">
           ${this.escapeHtml(r.name)}
@@ -325,6 +523,78 @@ export class PotentialStatsView {
               <th class="divider"></th>
               <th>FIP</th>
               <th>WAR</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+
+    wrapper.querySelectorAll('.btn-remove').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const index = Number((e.target as HTMLElement).dataset.index);
+        this.results.splice(index, 1);
+        this.renderResults();
+      });
+    });
+  }
+
+  private renderBatterResults(wrapper: HTMLDivElement): void {
+    const rows = (this.results as BatterResultRow[]).map((r, index) => `
+      <tr>
+        <td class="name-cell">
+          ${this.escapeHtml(r.name)}
+          <button type="button" class="btn-remove" data-index="${index}" title="Remove">x</button>
+        </td>
+        <td>${r.contact}</td>
+        <td>${r.power}</td>
+        <td>${r.eye}</td>
+        <td>${r.avoidK}</td>
+        <td class="divider"></td>
+        <td>${r.pa}</td>
+        <td>${r.h}</td>
+        <td>${r.bb}</td>
+        <td>${r.k}</td>
+        <td>${r.hr}</td>
+        <td class="divider"></td>
+        <td>${r.avg.toFixed(3)}</td>
+        <td>${r.obp.toFixed(3)}</td>
+        <td>${r.slg.toFixed(3)}</td>
+        <td>${r.ops.toFixed(3)}</td>
+        <td class="divider"></td>
+        <td>${r.woba.toFixed(3)}</td>
+        <td>${r.bbPct.toFixed(1)}%</td>
+        <td>${r.kPct.toFixed(1)}%</td>
+      </tr>
+    `).join('');
+
+    wrapper.innerHTML = `
+      <div class="table-wrapper">
+        <table class="stats-table potential-stats-table">
+          <thead>
+            <tr>
+              <th class="name-col">Name</th>
+              <th title="Contact">CON</th>
+              <th title="Power">PWR</th>
+              <th title="Eye">EYE</th>
+              <th title="Avoid K">AvK</th>
+              <th class="divider"></th>
+              <th>PA</th>
+              <th>H</th>
+              <th>BB</th>
+              <th>K</th>
+              <th>HR</th>
+              <th class="divider"></th>
+              <th>AVG</th>
+              <th>OBP</th>
+              <th>SLG</th>
+              <th>OPS</th>
+              <th class="divider"></th>
+              <th>wOBA</th>
+              <th>BB%</th>
+              <th>K%</th>
             </tr>
           </thead>
           <tbody>

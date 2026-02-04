@@ -1,6 +1,9 @@
 import { RatingEstimatorService, StatInput, EstimatedRatings } from '../services/RatingEstimatorService';
+import { HitterRatingEstimatorService, HitterStatInput, EstimatedHitterRatings } from '../services/HitterRatingEstimatorService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { LeagueConstants } from '../services/FipWarService';
+
+type PlayerType = 'batters' | 'pitchers';
 
 type ComparisonInputs = {
     stuff: { scout?: number; osa?: number };
@@ -8,88 +11,59 @@ type ComparisonInputs = {
     hra: { scout?: number; osa?: number };
 };
 
+type BatterComparisonInputs = {
+    contact: { scout?: number; osa?: number };
+    power: { scout?: number; osa?: number };
+    eye: { scout?: number; osa?: number };
+    avoidK: { scout?: number; osa?: number };
+};
+
 const AVAILABLE_YEARS = [2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010];
 
 export class RatingEstimatorView {
     private container: HTMLElement;
+    private playerType: PlayerType;
     private selectedYear: number = 2020;
     private loadedLeagueYear: number | null = null;
     private leagueConstants: Partial<LeagueConstants> = {};
     private lastStats: StatInput | null = null;
     private lastComparison: ComparisonInputs | null = null;
+    private lastBatterStats: HitterStatInput | null = null;
+    private lastBatterComparison: BatterComparisonInputs | null = null;
 
-    constructor(container: HTMLElement) {
+    constructor(container: HTMLElement, playerType: PlayerType = 'pitchers') {
         this.container = container;
+        this.playerType = playerType;
         this.render();
         // Defer league stats loading until first user interaction
         // This prevents loading data during app initialization
     }
 
+    setPlayerType(playerType: PlayerType): void {
+        if (this.playerType === playerType) return;
+        this.playerType = playerType;
+        // Clear last results when switching player type
+        this.lastStats = null;
+        this.lastComparison = null;
+        this.lastBatterStats = null;
+        this.lastBatterComparison = null;
+        this.render();
+    }
+
     private render(): void {
+        const isPitcher = this.playerType === 'pitchers';
+
         this.container.innerHTML = `
             <div class="rating-estimator-section">
                 <h2 class="section-title">Rating Estimator</h2>
                 <p class="section-subtitle">"How Accurate Is Your Scout?"</p>
 
-                <div class="league-context-info">
-                    <p id="estimator-league-info" class="league-info-text">Loading league data...</p>
-                    <div class="year-selector">
-                        <label for="estimator-league-year">FIP/WAR based on:</label>
-                        <select id="estimator-league-year">
-                            ${AVAILABLE_YEARS.map(y => `<option value="${y}" ${y === this.selectedYear ? 'selected' : ''}>${y}</option>`).join('')}
-                        </select>
-                    </div>
-                </div>
+                ${isPitcher ? this.renderLeagueContextInfo() : ''}
 
                 <form id="estimator-form" class="estimator-form">
                     <div class="rating-estimator-content">
-                        <div class="estimator-input-container">
-                            <h3 class="form-title">Player Stats</h3>
-                            <div class="stat-inputs">
-                                <div class="stat-field">
-                                    <label for="stat-ip">IP</label>
-                                    <input type="number" id="stat-ip" step="any" min="0" value="180">
-                                </div>
-                                <div class="stat-field">
-                                    <label for="stat-k9">K/9</label>
-                                    <input type="number" id="stat-k9" step="any" min="0" value="7.2">
-                                </div>
-                                <div class="stat-field">
-                                    <label for="stat-bb9">BB/9</label>
-                                    <input type="number" id="stat-bb9" step="any" min="0" value="2.5">
-                                </div>
-                                <div class="stat-field">
-                                    <label for="stat-hr9">HR/9</label>
-                                    <input type="number" id="stat-hr9" step="any" min="0" value="0.8">
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="estimator-comparison-container">
-                            <h3 class="form-title">Comparison (optional)</h3>
-                            <div class="comparison-inputs">
-                                <div class="comparison-header">
-                                    <span></span>
-                                    <span>Scout</span>
-                                    <span>OSA</span>
-                                </div>
-                                <div class="comparison-field">
-                                    <label for="comp-stuff">Stuff</label>
-                                    <input type="number" id="comp-stuff-scout" min="20" max="80" placeholder="--" />
-                                    <input type="number" id="comp-stuff-osa" min="20" max="80" placeholder="--" />
-                                </div>
-                                <div class="comparison-field">
-                                    <label for="comp-control">Control</label>
-                                    <input type="number" id="comp-control-scout" min="20" max="80" placeholder="--" />
-                                    <input type="number" id="comp-control-osa" min="20" max="80" placeholder="--" />
-                                </div>
-                                <div class="comparison-field">
-                                    <label for="comp-hra">HRA</label>
-                                    <input type="number" id="comp-hra-scout" min="20" max="80" placeholder="--" />
-                                    <input type="number" id="comp-hra-osa" min="20" max="80" placeholder="--" />
-                                </div>
-                            </div>
-                        </div>
+                        ${isPitcher ? this.renderPitcherInputs() : this.renderBatterInputs()}
+                        ${isPitcher ? this.renderPitcherComparison() : this.renderBatterComparison()}
                     </div>
                     <div class="form-actions">
                         <button type="submit" class="btn btn-primary">Estimate Ratings</button>
@@ -107,6 +81,153 @@ export class RatingEstimatorView {
         this.bindEvents();
     }
 
+    private renderLeagueContextInfo(): string {
+        return `
+            <div class="league-context-info">
+                <p id="estimator-league-info" class="league-info-text">Loading league data...</p>
+                <div class="year-selector">
+                    <label for="estimator-league-year">FIP/WAR based on:</label>
+                    <select id="estimator-league-year">
+                        ${AVAILABLE_YEARS.map(y => `<option value="${y}" ${y === this.selectedYear ? 'selected' : ''}>${y}</option>`).join('')}
+                    </select>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderPitcherInputs(): string {
+        return `
+            <div class="estimator-input-container">
+                <h3 class="form-title">Player Stats</h3>
+                <div class="stat-inputs">
+                    <div class="stat-field">
+                        <label for="stat-ip">IP</label>
+                        <input type="number" id="stat-ip" step="any" min="0" value="180">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-k9">K/9</label>
+                        <input type="number" id="stat-k9" step="any" min="0" value="7.2">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-bb9">BB/9</label>
+                        <input type="number" id="stat-bb9" step="any" min="0" value="2.5">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-hr9">HR/9</label>
+                        <input type="number" id="stat-hr9" step="any" min="0" value="0.8">
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderBatterInputs(): string {
+        return `
+            <div class="estimator-input-container">
+                <h3 class="form-title">Player Stats</h3>
+                <div class="stat-inputs">
+                    <div class="stat-field">
+                        <label for="stat-pa">PA</label>
+                        <input type="number" id="stat-pa" step="1" min="0" value="550">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-ab">AB</label>
+                        <input type="number" id="stat-ab" step="1" min="0" value="500">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-h">H</label>
+                        <input type="number" id="stat-h" step="1" min="0" value="135">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-d">2B</label>
+                        <input type="number" id="stat-d" step="1" min="0" value="27">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-t">3B</label>
+                        <input type="number" id="stat-t" step="1" min="0" value="3">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-hr">HR</label>
+                        <input type="number" id="stat-hr" step="1" min="0" value="20">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-bb">BB</label>
+                        <input type="number" id="stat-bb" step="1" min="0" value="45">
+                    </div>
+                    <div class="stat-field">
+                        <label for="stat-k">K</label>
+                        <input type="number" id="stat-k" step="1" min="0" value="100">
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderPitcherComparison(): string {
+        return `
+            <div class="estimator-comparison-container">
+                <h3 class="form-title">Comparison (optional)</h3>
+                <div class="comparison-inputs">
+                    <div class="comparison-header">
+                        <span></span>
+                        <span>Scout</span>
+                        <span>OSA</span>
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-stuff">Stuff</label>
+                        <input type="number" id="comp-stuff-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-stuff-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-control">Control</label>
+                        <input type="number" id="comp-control-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-control-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-hra">HRA</label>
+                        <input type="number" id="comp-hra-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-hra-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
+    private renderBatterComparison(): string {
+        return `
+            <div class="estimator-comparison-container">
+                <h3 class="form-title">Comparison (optional)</h3>
+                <div class="comparison-inputs">
+                    <div class="comparison-header">
+                        <span></span>
+                        <span>Scout</span>
+                        <span>OSA</span>
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-contact">Contact</label>
+                        <input type="number" id="comp-contact-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-contact-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-power">Power</label>
+                        <input type="number" id="comp-power-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-power-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-eye">Eye</label>
+                        <input type="number" id="comp-eye-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-eye-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-avoidk">AvoidK</label>
+                        <input type="number" id="comp-avoidk-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-avoidk-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                </div>
+            </div>
+        `;
+    }
+
     private bindEvents(): void {
         const form = this.container.querySelector<HTMLFormElement>('#estimator-form');
         form?.addEventListener('submit', (e) => {
@@ -122,6 +243,14 @@ export class RatingEstimatorView {
     }
 
     private async handleEstimate(): Promise<void> {
+        if (this.playerType === 'pitchers') {
+            await this.handlePitcherEstimate();
+        } else {
+            await this.handleBatterEstimate();
+        }
+    }
+
+    private async handlePitcherEstimate(): Promise<void> {
         // Ensure league stats are loaded before calculating
         if (this.loadedLeagueYear !== this.selectedYear) {
             await this.loadLeagueStats(this.selectedYear);
@@ -154,10 +283,46 @@ export class RatingEstimatorView {
         this.lastComparison = comparison;
 
         const estimatedRatings = RatingEstimatorService.estimateAll(stats, this.leagueConstants);
-        this.renderResults(estimatedRatings, comparison);
+        this.renderPitcherResults(estimatedRatings, comparison);
     }
 
-    private renderResults(ratings: EstimatedRatings, comparison: ComparisonInputs): void {
+    private async handleBatterEstimate(): Promise<void> {
+        const getStatValue = (id: string): number => {
+            const input = this.container.querySelector<HTMLInputElement>(`#${id}`);
+            return Number(input?.value) || 0;
+        };
+
+        const getCompValue = (id: string): number | undefined => {
+            const input = this.container.querySelector<HTMLInputElement>(`#${id}`);
+            return input?.value ? Number(input.value) : undefined;
+        };
+
+        const stats: HitterStatInput = {
+            pa: getStatValue('stat-pa'),
+            ab: getStatValue('stat-ab'),
+            h: getStatValue('stat-h'),
+            d: getStatValue('stat-d'),
+            t: getStatValue('stat-t'),
+            hr: getStatValue('stat-hr'),
+            bb: getStatValue('stat-bb'),
+            k: getStatValue('stat-k'),
+        };
+
+        const comparison: BatterComparisonInputs = {
+            contact: { scout: getCompValue('comp-contact-scout'), osa: getCompValue('comp-contact-osa') },
+            power: { scout: getCompValue('comp-power-scout'), osa: getCompValue('comp-power-osa') },
+            eye: { scout: getCompValue('comp-eye-scout'), osa: getCompValue('comp-eye-osa') },
+            avoidK: { scout: getCompValue('comp-avoidk-scout'), osa: getCompValue('comp-avoidk-osa') },
+        };
+
+        this.lastBatterStats = stats;
+        this.lastBatterComparison = comparison;
+
+        const estimatedRatings = HitterRatingEstimatorService.estimateAll(stats);
+        this.renderBatterResults(estimatedRatings, comparison);
+    }
+
+    private renderPitcherResults(ratings: EstimatedRatings, comparison: ComparisonInputs): void {
         const resultsContainer = this.container.querySelector<HTMLDivElement>('#estimator-results');
         if (!resultsContainer) return;
 
@@ -211,6 +376,63 @@ export class RatingEstimatorView {
         `;
     }
 
+    private renderBatterResults(ratings: EstimatedHitterRatings, comparison: BatterComparisonInputs): void {
+        const resultsContainer = this.container.querySelector<HTMLDivElement>('#estimator-results');
+        if (!resultsContainer) return;
+
+        const renderComparison = (stat: 'contact' | 'power' | 'eye' | 'avoidK') => {
+            const scout = comparison[stat].scout;
+            const osa = comparison[stat].osa;
+            const estimated = ratings[stat];
+            const verdict = scout ? HitterRatingEstimatorService.compareToScout(estimated, scout) : '';
+
+            return `
+                <td>${scout ?? '--'}</td>
+                <td>${osa ?? '--'}</td>
+                <td class="verdict">${verdict}</td>
+            `;
+        }
+
+        resultsContainer.innerHTML = `
+            <table class="stats-table estimator-results-table">
+                <thead>
+                    <tr>
+                        <th>Rating</th>
+                        <th>Rating</th>
+                        <th>Scout</th>
+                        <th>OSA</th>
+                        <th>Verdict</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Contact</td>
+                        <td>${ratings.contact.rating}</td>
+                        ${renderComparison('contact')}
+                    </tr>
+                    <tr>
+                        <td>Power</td>
+                        <td>${ratings.power.rating}</td>
+                        ${renderComparison('power')}
+                    </tr>
+                    <tr>
+                        <td>Eye</td>
+                        <td>${ratings.eye.rating}</td>
+                        ${renderComparison('eye')}
+                    </tr>
+                    <tr>
+                        <td>AvoidK</td>
+                        <td>${ratings.avoidK.rating}</td>
+                        ${renderComparison('avoidK')}
+                    </tr>
+                </tbody>
+            </table>
+            <div class="derived-stats-grid">
+                ${ratings.woba !== undefined ? `<div><label>wOBA</label><div class="value">${ratings.woba.toFixed(3)}</div></div>` : ''}
+            </div>
+        `;
+    }
+
     private async loadLeagueStats(year: number): Promise<void> {
         this.selectedYear = year;
         this.updateLeagueInfo('Loading league data...');
@@ -249,9 +471,15 @@ export class RatingEstimatorView {
     }
 
     private recomputeIfPossible(): void {
-        if (!this.lastStats || !this.lastComparison) return;
-        const estimatedRatings = RatingEstimatorService.estimateAll(this.lastStats, this.leagueConstants);
-        this.renderResults(estimatedRatings, this.lastComparison);
+        if (this.playerType === 'pitchers') {
+            if (!this.lastStats || !this.lastComparison) return;
+            const estimatedRatings = RatingEstimatorService.estimateAll(this.lastStats, this.leagueConstants);
+            this.renderPitcherResults(estimatedRatings, this.lastComparison);
+        } else {
+            if (!this.lastBatterStats || !this.lastBatterComparison) return;
+            const estimatedRatings = HitterRatingEstimatorService.estimateAll(this.lastBatterStats);
+            this.renderBatterResults(estimatedRatings, this.lastBatterComparison);
+        }
     }
 
     public async prefillAndEstimate(payload: { ip: number; k9: number; bb9: number; hr9: number; year: number }): Promise<void> {
@@ -285,7 +513,7 @@ export class RatingEstimatorView {
         }
 
         const estimatedRatings = RatingEstimatorService.estimateAll(stats, this.leagueConstants);
-        this.renderResults(estimatedRatings, comparison);
+        this.renderPitcherResults(estimatedRatings, comparison);
     }
 
     private setYearSelection(year: number): void {
