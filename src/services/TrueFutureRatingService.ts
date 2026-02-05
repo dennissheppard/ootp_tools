@@ -734,6 +734,9 @@ class TrueFutureRatingService {
     const mlbTrueRatings = trueRatingsCalculationService.calculateTrueRatings(mlbInputs, leagueAverages);
     const mlbTrMap = new Map(mlbTrueRatings.map(tr => [tr.playerId, tr.trueRating]));
 
+    // Fetch career MLB IP to exclude veterans (>50 IP)
+    const careerIpMap = await this.getCareerMlbIpMap(year);
+
     // Build prospect inputs
     const prospectInputs: TrueFutureRatingInput[] = [];
 
@@ -747,6 +750,10 @@ class TrueFutureRatingService {
     for (const scouting of scoutingRatings) {
       // Skip if no valid ID or ratings
       if (scouting.playerId <= 0) continue;
+
+      // Exclude players with significant MLB experience (> 50 IP)
+      const careerIp = careerIpMap.get(scouting.playerId) ?? 0;
+      if (careerIp > 50) continue;
 
       // Look up this player's stats from the bulk-fetched data
       const minorStats = allMinorLeagueStats.get(scouting.playerId) ?? [];
@@ -772,6 +779,28 @@ class TrueFutureRatingService {
 
     // Calculate TFR for all prospects using new percentile-based algorithm
     return await this.calculateTrueFutureRatings(prospectInputs);
+  }
+
+  /**
+   * Get career MLB IP for all players (last 10 years).
+   */
+  private async getCareerMlbIpMap(currentYear: number): Promise<Map<number, number>> {
+      const startYear = Math.max(2000, currentYear - 10);
+      const promises = [];
+      for (let y = startYear; y <= currentYear; y++) {
+          promises.push(trueRatingsService.getTruePitchingStats(y));
+      }
+      
+      const results = await Promise.all(promises);
+      const map = new Map<number, number>();
+      
+      results.flat().forEach(stat => {
+          const ip = trueRatingsService.parseIp(stat.ip);
+          const current = map.get(stat.player_id) || 0;
+          map.set(stat.player_id, current + ip);
+      });
+      
+      return map;
   }
 
   /**

@@ -436,10 +436,11 @@ class TeamRatingsService {
    */
   async getHitterFarmData(year: number): Promise<HitterFarmData> {
       // Fetch hitter scouting data and league averages in parallel
-      const [myScoutingRatings, osaScoutingRatings, leagueAvg] = await Promise.all([
+      const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerAbMap] = await Promise.all([
           hitterScoutingDataService.getLatestScoutingRatings('my'),
           hitterScoutingDataService.getLatestScoutingRatings('osa'),
-          leagueBattingAveragesService.getLeagueAverages(year)
+          leagueBattingAveragesService.getLeagueAverages(year),
+          this.getCareerMlbAbMap(year)
       ]);
 
       // Merge scouting data (my takes priority)
@@ -487,7 +488,15 @@ class TeamRatingsService {
           const team = teamMap.get(player.teamId);
           if (!team || team.parentTeamId === 0) return; // Skip MLB players
 
+          // Exclude veterans with significant MLB experience (> 130 AB)
+          const careerAb = careerAbMap.get(playerId) ?? 0;
+          if (careerAb > 130) return;
+
           const minorStats = allMinorStats.get(playerId) ?? [];
+
+          // Skip players with no minor league experience in this period
+          const totalPa = minorStats.reduce((sum, s) => sum + s.pa, 0);
+          if (totalPa === 0) return;
 
           tfrInputs.push({
               playerId,
@@ -636,6 +645,25 @@ class TeamRatingsService {
           systems: systems.sort((a, b) => b.totalScore - a.totalScore),
           prospects: sortedProspects,
       };
+  }
+
+  private async getCareerMlbAbMap(currentYear: number): Promise<Map<number, number>> {
+      const startYear = Math.max(2000, currentYear - 10);
+      const promises = [];
+      for (let y = startYear; y <= currentYear; y++) {
+          promises.push(trueRatingsService.getTrueBattingStats(y));
+      }
+      
+      const results = await Promise.all(promises);
+      const map = new Map<number, number>();
+      
+      results.flat().forEach(stat => {
+          const ab = stat.ab;
+          const current = map.get(stat.player_id) || 0;
+          map.set(stat.player_id, current + ab);
+      });
+      
+      return map;
   }
 
   private getLevelLabel(level: number): string {

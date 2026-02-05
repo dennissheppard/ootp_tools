@@ -167,12 +167,14 @@ export class FarmRankingsView {
               </div>
               -->
 
-              <button class="toggle-btn active" data-prospect-type="pitchers" aria-pressed="true">Pitchers</button>
-              <button class="toggle-btn active" data-prospect-type="hitters" aria-pressed="true">Hitters</button>
-              <span class="filter-separator"></span>
-
               <button class="toggle-btn active" data-view-mode="top-systems" aria-pressed="true">Top Systems</button>
               <button class="toggle-btn" data-view-mode="top-100" aria-pressed="false">Top 100</button>
+              
+              <span id="prospect-type-toggles" style="display: none;">
+                <span class="filter-separator"></span>
+                <button class="toggle-btn active" data-prospect-type="pitchers" aria-pressed="true">Pitchers</button>
+                <button class="toggle-btn active" data-prospect-type="hitters" aria-pressed="true">Hitters</button>
+              </span>
               
               <div class="filter-dropdown" data-filter="team" style="display: none;">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
@@ -419,9 +421,12 @@ export class FarmRankingsView {
   private async loadData(): Promise<void> {
     try {
         // Load data based on which toggles are active
+        const shouldLoadPitchers = this.showPitchers;
+        const shouldLoadHitters = this.showHitters;
+
         const loadPromises: Promise<void>[] = [];
 
-        if (this.showPitchers) {
+        if (shouldLoadPitchers) {
             loadPromises.push(
                 teamRatingsService.getFarmData(this.selectedYear).then(data => {
                     this.data = data;
@@ -433,7 +438,7 @@ export class FarmRankingsView {
             this.top100Prospects = [];
         }
 
-        if (this.showHitters) {
+        if (shouldLoadHitters) {
             loadPromises.push(
                 teamRatingsService.getHitterFarmData(this.selectedYear).then(data => {
                     this.hitterData = data;
@@ -456,9 +461,14 @@ export class FarmRankingsView {
   }
 
   private renderView(): void {
-      const hasPitcherData = this.showPitchers && this.data !== null;
-      const hasHitterData = this.showHitters && this.hitterData !== null;
-      if (!hasPitcherData && !hasHitterData) return;
+      // Check if we have data to render based on selection
+      if (this.showPitchers && !this.data) return;
+      if (this.showHitters && !this.hitterData) return;
+      if (!this.showPitchers && !this.showHitters) {
+          const content = this.container.querySelector('#farm-content-area');
+          if (content) content.innerHTML = '<p class="no-stats">Select Pitchers or Hitters to view rankings.</p>';
+          return;
+      }
 
       const content = this.container.querySelector('#farm-content-area');
       if (!content) return;
@@ -470,6 +480,13 @@ export class FarmRankingsView {
           teamFilter.style.display = this.viewMode === 'top-100' ? 'inline-block' : 'none';
       }
 
+      // Show/Hide Prospect Type Toggles
+      const prospectToggles = this.container.querySelector<HTMLElement>('#prospect-type-toggles');
+      if (prospectToggles) {
+          // Show in both top-systems and top-100 modes
+          prospectToggles.style.display = (this.viewMode === 'top-systems' || this.viewMode === 'top-100') ? 'inline' : 'none';
+      }
+
       // Show reports button - now supports both pitchers and hitters
       const reportsBtn = this.container.querySelector<HTMLElement>('[data-view-mode="reports"]');
       if (reportsBtn) {
@@ -478,7 +495,14 @@ export class FarmRankingsView {
 
       switch (this.viewMode) {
           case 'top-systems':
-              content.innerHTML = this.renderCombinedTopSystems();
+              if (this.showPitchers && this.showHitters) {
+                  content.innerHTML = this.renderCombinedTopSystems();
+              } else if (this.showPitchers) {
+                  content.innerHTML = this.renderSingleSystem(true);
+              } else {
+                  content.innerHTML = this.renderSingleSystem(false);
+              }
+              this.bindSystemToggles(); // Explicitly bind events after rendering
               break;
           case 'top-100':
               content.innerHTML = this.renderCombinedTopProspects();
@@ -493,6 +517,95 @@ export class FarmRankingsView {
       this.bindSortHeaders();
       this.bindColumnDragAndDrop();
       this.bindFlipCards();
+  }
+
+  private renderSingleSystem(isPitchers: boolean): string {
+      const systems = isPitchers ? this.data!.systems : this.hitterData!.systems;
+      const title = isPitchers ? 'Pitching Farm Rankings' : 'Hitting Farm Rankings';
+      
+      const headerRow = this.systemsColumns.map(col => {
+          const isSorted = this.systemsSortKey === col.sortKey;
+          const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
+          const activeClass = isSorted ? 'sort-active' : '';
+          const style = col.key === 'rank' ? 'width: 40px;' : (col.key === 'teamName' ? 'text-align: left;' : 'text-align: center;');
+          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+          const titleAttr = col.title ? `title="${col.title}"` : '';
+          
+          return `<th ${sortAttr} ${titleAttr} class="${activeClass}" style="${style}" draggable="true" data-col-key="${col.key}">${col.label}${sortIcon}</th>`;
+      }).join('');
+
+      const rows = systems.map((sys, idx) => {
+          const systemKey = `sys-${isPitchers ? 'p' : 'h'}-${sys.teamId}`;
+          const score = isPitchers ? (sys as FarmSystemOverview).totalWar : (sys as HitterFarmSystemOverview).totalScore;
+          
+          let scoreTooltip = '';
+          if (isPitchers) {
+             const pSys = sys as FarmSystemOverview;
+             scoreTooltip = `Farm Score = (Elite × 10) + (Good × 5) + (Avg × 1) + Depth Bonus\n\n` +
+             `Elite (${pSys.tierCounts.elite}) × 10 = ${pSys.tierCounts.elite * 10}\n` +
+             `Good (${pSys.tierCounts.aboveAvg}) × 5 = ${pSys.tierCounts.aboveAvg * 5}\n` +
+             `Avg (${pSys.tierCounts.average}) × 1 = ${pSys.tierCounts.average}\n` +
+             `Depth Bonus (${pSys.tierCounts.fringe} prospects) = ${(pSys.totalWar - (pSys.tierCounts.elite * 10 + pSys.tierCounts.aboveAvg * 5 + pSys.tierCounts.average)).toFixed(0)}`;
+          } else {
+             const hSys = sys as HitterFarmSystemOverview;
+             scoreTooltip = `Farm Score = (Elite × 10) + (Good × 5) + (Avg × 1)\n\n` +
+             `Elite (${hSys.tierCounts.elite}) × 10 = ${hSys.tierCounts.elite * 10}\n` +
+             `Good (${hSys.tierCounts.aboveAvg}) × 5 = ${hSys.tierCounts.aboveAvg * 5}\n` +
+             `Avg (${hSys.tierCounts.average}) × 1 = ${hSys.tierCounts.average}`;
+          }
+
+          const cells = this.systemsColumns.map(col => {
+              switch (col.key) {
+                  case 'rank':
+                      return `<td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
+                  case 'teamName':
+                      return `
+                        <td style="font-weight: 600; text-align: left;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
+                                ${sys.teamName}
+                            </div>
+                        </td>`;
+                  case 'totalWar':
+                       return `<td style="text-align: center;" title="${scoreTooltip}"><span class="badge ${this.getScoreClass(score)}">${score.toFixed(0)}</span></td>`;
+                  case 'topProspectName':
+                      return `<td style="text-align: left;">${sys.topProspectName}</td>`;
+                  case 'elite':
+                      return `<td style="text-align: center;">${sys.tierCounts.elite}</td>`;
+                  case 'aboveAvg':
+                      return `<td style="text-align: center;">${sys.tierCounts.aboveAvg}</td>`;
+                  case 'average':
+                      return `<td style="text-align: center;">${sys.tierCounts.average}</td>`;
+                  case 'fringe':
+                      return `<td style="text-align: center;">${sys.tierCounts.fringe}</td>`;
+                  default:
+                      return `<td></td>`;
+              }
+          }).join('');
+
+          return `
+            <tr class="system-row" data-system-key="${systemKey}" style="cursor: pointer;">
+                ${cells}
+            </tr>
+            <tr id="details-${systemKey}" style="display: none; background-color: var(--color-surface-hover);">
+                <td colspan="${this.systemsColumns.length}" style="padding: 1rem;">
+                    <div style="max-height: 400px; overflow-y: auto;">
+                        ${this.renderUnifiedSystemDetails(sys.teamId)} 
+                    </div>
+                </td>
+            </tr>
+          `;
+      }).join('');
+
+      return `
+        <div class="stats-table-container">
+            <h3 class="section-title">${title} <span class="note-text">(Score based on weighted prospect quality)</span></h3>
+            <table class="stats-table" style="width: 100%;">
+                <thead><tr>${headerRow}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+      `;
   }
 
   private sortData(): void {
@@ -622,20 +735,187 @@ export class FarmRankingsView {
 
   // --- COMBINED VIEWS ---
   private renderCombinedTopSystems(): string {
-      const sections: string[] = [];
+      // 1. Merge Data
+      const pitcherSystems = this.data ? this.data.systems : [];
+      const hitterSystems = this.hitterData ? this.hitterData.systems : [];
+      
+      const teamMap = new Map<number, {
+          teamId: number;
+          teamName: string;
+          pitchingDetails?: FarmSystemOverview;
+          hittingDetails?: HitterFarmSystemOverview;
+      }>();
 
-      if (this.showPitchers && this.data && this.data.systems.length > 0) {
-          sections.push(this.renderTopSystems());
-      }
-      if (this.showHitters && this.hitterData && this.hitterData.systems.length > 0) {
-          sections.push(this.renderHitterTopSystems());
-      }
+      // Helper to get or create
+      const getOrCreate = (id: number, name: string) => {
+          if (!teamMap.has(id)) {
+              teamMap.set(id, { teamId: id, teamName: name });
+          }
+          return teamMap.get(id)!;
+      };
 
-      if (sections.length === 0) {
-          return '<p class="no-stats">No system data available.</p>';
-      }
+      pitcherSystems.forEach(s => {
+          const t = getOrCreate(s.teamId, s.teamName);
+          t.pitchingDetails = s;
+      });
 
-      return sections.join('');
+      hitterSystems.forEach(s => {
+          const t = getOrCreate(s.teamId, s.teamName);
+          t.hittingDetails = s;
+      });
+
+      // 2. Calculate Combined Score
+      const unifiedSystems = Array.from(teamMap.values()).map(t => {
+          const pScore = t.pitchingDetails?.totalWar ?? 0;
+          const hScore = t.hittingDetails?.totalScore ?? 0;
+          const totalScore = pScore + hScore;
+          
+          return {
+              ...t,
+              pScore,
+              hScore,
+              totalScore
+          };
+      });
+
+      // 3. Sort
+      unifiedSystems.sort((a, b) => {
+           let compare = 0;
+           if (this.systemsSortKey === 'teamName') {
+               compare = a.teamName.localeCompare(b.teamName);
+           } else if (this.systemsSortKey === 'pitchingScore') {
+               compare = a.pScore - b.pScore;
+           } else if (this.systemsSortKey === 'hittingScore') {
+                compare = a.hScore - b.hScore;
+           } else {
+               // Default totalScore
+               compare = a.totalScore - b.totalScore;
+           }
+           return this.systemsSortDirection === 'asc' ? compare : -compare;
+      });
+
+      // 4. Render Table
+      const columns = [
+          { key: 'rank', label: '#', width: '40px' },
+          { key: 'teamName', label: 'Organization', sortKey: 'teamName', width: '25%', align: 'left' },
+          { key: 'pitchingScore', label: 'Pitching', sortKey: 'pitchingScore', align: 'center' },
+          { key: 'hittingScore', label: 'Hitting', sortKey: 'hittingScore', align: 'center' },
+          { key: 'totalScore', label: 'Total', sortKey: 'totalScore', align: 'center' }
+      ];
+
+      const headerRow = columns.map(col => {
+          const isSorted = this.systemsSortKey === col.sortKey || (col.key === 'totalScore' && this.systemsSortKey === 'totalWar');
+          const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
+          const activeClass = isSorted ? 'sort-active' : '';
+          const align = col.align || 'center';
+          const style = `text-align: ${align}; ${col.width ? `width: ${col.width};` : ''}`;
+          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+          return `<th ${sortAttr} class="${activeClass}" style="${style}">${col.label}${sortIcon}</th>`;
+      }).join('');
+
+      const rows = unifiedSystems.map((sys, idx) => {
+          const systemKey = `sys-unified-${sys.teamId}`;
+          const pCount = sys.pitchingDetails ? 
+              (sys.pitchingDetails.tierCounts.elite + sys.pitchingDetails.tierCounts.aboveAvg + sys.pitchingDetails.tierCounts.average + sys.pitchingDetails.tierCounts.fringe) 
+              : 0;
+          const hCount = sys.hittingDetails ? sys.hittingDetails.prospectCount : 0;
+
+          return `
+            <tr class="system-row" data-system-key="${systemKey}" style="cursor: pointer;">
+                <td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>
+                <td style="font-weight: 600; text-align: left;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem;">
+                        <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
+                        ${sys.teamName}
+                    </div>
+                </td>
+                <td style="text-align: center;">${this.renderSimpleScore(sys.pScore, pCount)}</td>
+                <td style="text-align: center;">${this.renderSimpleScore(sys.hScore, hCount)}</td>
+                <td style="text-align: center;"><span class="badge ${this.getScoreClass(sys.totalScore)}" style="font-size: 1.1em;">${sys.totalScore.toFixed(1)}</span></td>
+            </tr>
+            <tr id="details-${systemKey}" style="display: none; background-color: var(--color-surface-hover);">
+                <td colspan="${columns.length}" style="padding: 1rem;">
+                    <div style="max-height: 400px; overflow-y: auto;">
+                        ${this.renderUnifiedSystemDetails(sys.teamId)}
+                    </div>
+                </td>
+            </tr>
+          `;
+      }).join('');
+
+      return `
+        <div class="stats-table-container">
+            <h3 class="section-title">Organizational Rankings <span class="note-text">(Pitching + Hitting)</span></h3>
+            <table class="stats-table" style="width: 100%;">
+                <thead><tr>${headerRow}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+      `;
+  }
+
+  private renderSimpleScore(score: number, count?: number): string {
+      return `
+        <div class="flip-cell" style="width: auto; height: auto; min-width: 50px;">
+            <div class="flip-cell-inner">
+                <div class="flip-cell-front">
+                    <span class="badge ${this.getScoreClass(score)}">${score.toFixed(1)}</span>
+                </div>
+                <div class="flip-cell-back" style="background-color: var(--color-surface); padding: 2px 4px; border-radius: 4px; box-shadow: 0 0 4px rgba(0,0,0,0.5); left: 50%; translate: -50%;">
+                    <span class="badge rating-avg">${count || 0}</span>
+                </div>
+            </div>
+        </div>
+      `;
+  }
+
+  private renderUnifiedSystemDetails(teamId: number): string {
+      // Get top prospects from both
+      const pitcherReport = this.data?.reports.find(r => r.teamId === teamId);
+      const hitterReport = this.hitterData?.reports.find(r => r.teamId === teamId);
+      
+      const pitchers = pitcherReport ? pitcherReport.allProspects : [];
+      const hitters = hitterReport ? hitterReport.allProspects : [];
+      
+      // Combine and sort by TFR/WAR
+      const all = [
+          ...pitchers.map(p => ({ ...p, type: 'P', displayPos: 'P', war: p.peakWar })),
+          ...hitters.map(h => ({ ...h, type: 'H', displayPos: getPositionLabel(h.position), war: h.projWar }))
+      ].sort((a, b) => b.trueFutureRating - a.trueFutureRating);
+      
+      if (all.length === 0) return '<p class="no-stats">No prospects found.</p>';
+
+      const columns = [
+          { key: 'name', label: 'Name' },
+          { key: 'displayPos', label: 'Pos' },
+          { key: 'trueFutureRating', label: 'TFR' },
+          { key: 'level', label: 'Lvl' },
+          { key: 'age', label: 'Age' },
+          { key: 'war', label: 'Peak WAR' }
+      ];
+
+      const headerRow = columns.map(col => {
+          const align = col.key === 'name' ? 'left' : 'center';
+          return `<th style="text-align: ${align}; position: sticky; top: 0; background-color: var(--color-surface); z-index: 10;">${col.label}</th>`;
+      }).join('');
+
+      const rows = all.map(p => `
+          <tr>
+              <td style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>
+              <td style="text-align: center;">${p.displayPos}</td>
+              <td style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>
+              <td style="text-align: center;"><span class="level-badge level-${p.level.toLowerCase()}">${p.level}</span></td>
+              <td style="text-align: center;">${p.age}</td>
+              <td style="text-align: center;"><span class="badge ${this.getWarClass(p.war)}">${p.war.toFixed(1)}</span></td>
+          </tr>
+      `).join('');
+
+      return `
+        <table class="stats-table nested-system-table" style="width: 100%; font-size: 0.9em; border-collapse: separate; border-spacing: 0;">
+            <thead><tr>${headerRow}</tr></thead>
+            <tbody>${rows}</tbody>
+        </table>
+      `;
   }
 
   private renderCombinedTopProspects(): string {
@@ -971,129 +1251,9 @@ export class FarmRankingsView {
   }
 
   // --- TOP SYSTEMS VIEW ---
-  private renderTopSystems(): string {
-      if (!this.data || this.data.systems.length === 0) return '<p class="no-stats">No system data available.</p>';
 
-      const rows = this.data.systems.map((sys, idx) => {
-        // Find corresponding report data for full prospect list
-        const report = this.data?.reports.find(r => r.teamId === sys.teamId);
-        const allProspects = report ? report.allProspects : [];
-        const systemKey = `sys-${sys.teamId}`;
 
-        const cells = this.systemsColumns.map(col => {
-            switch (col.key) {
-                case 'rank':
-                    return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
-                case 'teamName':
-                    return `
-                        <td data-col-key="teamName" style="font-weight: 600; text-align: left;">
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
-                                ${sys.teamName}
-                            </div>
-                        </td>`;
-                case 'totalWar':
-                    return `<td data-col-key="totalWar" style="text-align: center; padding-right: 100px;">${this.renderFarmScoreFlip(sys)}</td>`;
-                case 'topProspectName':
-                    return `<td data-col-key="topProspectName" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${sys.topProspectId}">${sys.topProspectName}</button></td>`;
-                case 'elite':
-                    return `<td data-col-key="elite" style="text-align: center;">${sys.tierCounts.elite > 0 ? `<span class="badge rating-elite">${sys.tierCounts.elite}</span>` : '-'}</td>`;
-                case 'aboveAvg':
-                    return `<td data-col-key="aboveAvg" style="text-align: center;">${sys.tierCounts.aboveAvg > 0 ? `<span class="badge rating-plus">${sys.tierCounts.aboveAvg}</span>` : '-'}</td>`;
-                case 'average':
-                    return `<td data-col-key="average" style="text-align: center;">${sys.tierCounts.average > 0 ? `<span class="badge rating-avg">${sys.tierCounts.average}</span>` : '-'}</td>`;
-                case 'fringe':
-                    return `<td data-col-key="fringe" style="text-align: center;">${sys.tierCounts.fringe > 0 ? `<span class="badge rating-fringe">${sys.tierCounts.fringe}</span>` : '-'}</td>`;
-                default:
-                    return `<td></td>`;
-            }
-        }).join('');
 
-        return `
-        <tr class="system-row" data-system-key="${systemKey}" style="cursor: pointer;">
-            ${cells}
-        </tr>
-        <tr id="details-${systemKey}" style="display: none; background-color: var(--color-surface-hover);">
-            <td colspan="${this.systemsColumns.length}" style="padding: 1rem;">
-                <div style="max-height: 400px; overflow-y: auto;">
-                    ${this.renderSystemDetails(allProspects)}
-                </div>
-            </td>
-        </tr>
-      `}).join('');
-
-      // Add a script/handler call to bind these new toggles
-      setTimeout(() => this.bindSystemToggles(), 0);
-
-      const headerRow = this.systemsColumns.map(col => {
-          const isSorted = this.systemsSortKey === col.sortKey;
-          const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
-          const activeClass = isSorted ? 'sort-active' : '';
-          const style = col.key === 'teamName' || col.key === 'topProspectName' ? 'text-align: left;' : 'text-align: center;';
-          let width = '';
-          let padding = '';
-          if (col.key === 'rank') width = 'width: 40px;';
-          else if (col.key === 'teamName') width = 'width: 18%;';
-          else if (col.key === 'totalWar') {width = 'width: 12%;', padding = 'padding-right: 100px;'};
-          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
-          const titleAttr = col.title ? `title="${col.title}"` : '';
-
-          return `<th ${sortAttr} ${titleAttr} data-col-key="${col.key}" class="${activeClass}" style="${style} ${width} ${padding}" draggable="true">${col.label}${sortIcon}</th>`;
-      }).join('');
-
-      return `
-        <div class="stats-table-container">
-            <h3 class="section-title">Organizational Rankings <span class="note-text">(by True Farm Rating)</span></h3>
-            <table class="stats-table" style="width: 100%;">
-                <thead>
-                    <tr>
-                        ${headerRow}
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rows}
-                </tbody>
-            </table>
-        </div>
-      `;
-  }
-
-  private renderSystemDetails(prospects: RatedProspect[]): string {
-    if (prospects.length === 0) return '<p class="no-stats">No prospects found.</p>';
-
-    const columns: FarmColumn[] = [
-        { key: 'name', label: 'Name', sortKey: 'name' },
-        { key: 'trueFutureRating', label: 'TFR', sortKey: 'trueFutureRating' },
-        { key: 'level', label: 'Lvl', sortKey: 'level' },
-        { key: 'age', label: 'Age', sortKey: 'age' },
-        { key: 'peakFip', label: 'Peak FIP', sortKey: 'peakFip' },
-        { key: 'peakWar', label: 'Peak WAR', sortKey: 'peakWar' }
-    ];
-
-    const headerRow = columns.map(col => {
-      const style = col.key === 'name' ? 'text-align: left;' : 'text-align: center;';
-      return `<th data-col-key="${col.key}" data-sort-key="${col.sortKey}" style="${style} position: sticky; top: 0; background-color: var(--color-surface); z-index: 10; box-shadow: inset 0 -1px 0 var(--color-border);" draggable="true">${col.label}</th>`;
-    }).join('');
-
-    const rows = prospects.map(player => {
-      const cells = columns.map(col => {
-        const style = col.key === 'name' ? 'style="text-align: left;"' : '';
-        return `<td ${style} data-col-key="${col.key}">${this.renderCell(player, col)}</td>`;
-      }).join('');
-      return `<tr>${cells}</tr>`;
-    }).join('');
-
-    return `
-      <table class="stats-table team-ratings-table nested-system-table" style="width: 100%; font-size: 0.9em; border-collapse: separate; border-spacing: 0;">
-        <thead>
-          <tr>${headerRow}</tr>
-        </thead>
-        <tbody>
-          ${rows}
-        </tbody>
-      </table>
-    `;
-  }
 
   private bindSystemToggles(): void {
       this.container.querySelectorAll('.system-row').forEach(row => {
@@ -1351,145 +1511,11 @@ export class FarmRankingsView {
       `;
   }
 
-  // --- HITTER TOP SYSTEMS VIEW ---
-  private renderHitterTopSystems(): string {
-      if (!this.hitterData || this.hitterData.systems.length === 0) return '<p class="no-stats">No hitter system data available.</p>';
 
-      const rows = this.hitterData.systems.map((sys, idx) => {
-        const report = this.hitterData?.reports.find(r => r.teamId === sys.teamId);
-        const allProspects = report ? report.allProspects : [];
-        const systemKey = `sys-hitter-${sys.teamId}`;
 
-        const cells = this.systemsColumns.map(col => {
-            switch (col.key) {
-                case 'rank':
-                    return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
-                case 'teamName':
-                    return `
-                        <td data-col-key="teamName" style="font-weight: 600; text-align: left;">
-                            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                                <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
-                                ${sys.teamName}
-                            </div>
-                        </td>`;
-                case 'totalWar':
-                    return `<td data-col-key="totalWar" style="text-align: center; padding-right: 100px;">${this.renderHitterFarmScoreFlip(sys)}</td>`;
-                case 'topProspectName':
-                    return `<td data-col-key="topProspectName" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${sys.topProspectId}">${sys.topProspectName}</button></td>`;
-                case 'elite':
-                    return `<td data-col-key="elite" style="text-align: center;">${sys.tierCounts.elite > 0 ? `<span class="badge rating-elite">${sys.tierCounts.elite}</span>` : '-'}</td>`;
-                case 'aboveAvg':
-                    return `<td data-col-key="aboveAvg" style="text-align: center;">${sys.tierCounts.aboveAvg > 0 ? `<span class="badge rating-plus">${sys.tierCounts.aboveAvg}</span>` : '-'}</td>`;
-                case 'average':
-                    return `<td data-col-key="average" style="text-align: center;">${sys.tierCounts.average > 0 ? `<span class="badge rating-avg">${sys.tierCounts.average}</span>` : '-'}</td>`;
-                case 'fringe':
-                    return `<td data-col-key="fringe" style="text-align: center;">${sys.tierCounts.fringe > 0 ? `<span class="badge rating-fringe">${sys.tierCounts.fringe}</span>` : '-'}</td>`;
-                default:
-                    return `<td></td>`;
-            }
-        }).join('');
 
-        return `
-        <tr class="system-row" data-system-key="${systemKey}" style="cursor: pointer;">
-            ${cells}
-        </tr>
-        <tr id="details-${systemKey}" style="display: none; background-color: var(--color-surface-hover);">
-            <td colspan="${this.systemsColumns.length}" style="padding: 1rem;">
-                <div style="max-height: 400px; overflow-y: auto;">
-                    ${this.renderHitterSystemDetails(allProspects)}
-                </div>
-            </td>
-        </tr>
-      `}).join('');
 
-      setTimeout(() => this.bindSystemToggles(), 0);
 
-      const headerRow = this.systemsColumns.map(col => {
-          const isSorted = this.systemsSortKey === col.sortKey;
-          const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
-          const activeClass = isSorted ? 'sort-active' : '';
-          const style = col.key === 'teamName' || col.key === 'topProspectName' ? 'text-align: left;' : 'text-align: center;';
-          let width = '';
-          let padding = '';
-          if (col.key === 'rank') width = 'width: 40px;';
-          else if (col.key === 'teamName') width = 'width: 18%;';
-          else if (col.key === 'totalWar') {width = 'width: 12%;', padding = 'padding-right: 100px;'};
-          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
-          const titleAttr = col.title ? `title="${col.title}"` : '';
-
-          return `<th ${sortAttr} ${titleAttr} data-col-key="${col.key}" class="${activeClass}" style="${style} ${width} ${padding}" draggable="true">${col.label}${sortIcon}</th>`;
-      }).join('');
-
-      return `
-        <div class="stats-table-container">
-            <h3 class="section-title">Hitter Farm Rankings <span class="note-text">(by True Farm Rating)</span></h3>
-            <table class="stats-table" style="width: 100%;">
-                <thead>
-                    <tr>
-                        ${headerRow}
-                    </tr>
-                </thead>
-                <tbody>
-                    ${rows}
-                </tbody>
-            </table>
-        </div>
-      `;
-  }
-
-  private renderHitterFarmScoreFlip(sys: HitterFarmSystemOverview): string {
-      return `
-        <div class="flip-cell" style="width: auto; height: auto; min-width: 50px;">
-            <div class="flip-cell-inner">
-                <div class="flip-cell-front">
-                    <span class="badge ${this.getScoreClass(sys.totalScore)}">${sys.totalScore}</span>
-                </div>
-                <div class="flip-cell-back" style="background-color: var(--color-surface); padding: 2px 4px; border-radius: 4px; box-shadow: 0 0 4px rgba(0,0,0,0.5); left: 50%; translate: -50%;">
-                    <span class="badge rating-avg">${sys.prospectCount} prospects</span>
-                </div>
-            </div>
-        </div>
-      `;
-  }
-
-  private renderHitterSystemDetails(prospects: RatedHitterProspect[]): string {
-      if (prospects.length === 0) return '<p class="no-stats">No hitter prospects.</p>';
-
-      const rows = prospects.map((p, idx) => `
-        <tr>
-            <td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>
-            <td style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>
-            <td style="text-align: center;">${getPositionLabel(p.position)}</td>
-            <td style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>
-            <td style="text-align: center;"><span class="badge ${this.getWrcPlusClass(p.wrcPlus)}">${Math.round(p.wrcPlus)}</span></td>
-            <td style="text-align: center;"><span class="badge ${this.getWarClass(p.projWar)}">${p.projWar.toFixed(1)}</span></td>
-            <td style="text-align: center;">${p.projWoba.toFixed(3)}</td>
-            <td style="text-align: center;">${p.age}</td>
-            <td style="text-align: center;"><span class="level-badge level-${p.level.toLowerCase()}">${p.level}</span></td>
-        </tr>
-      `).join('');
-
-      return `
-        <table class="stats-table nested-system-table" style="width: 100%;">
-            <thead>
-                <tr>
-                    <th style="width: 30px;">#</th>
-                    <th style="text-align: left;">Name</th>
-                    <th style="text-align: center;">Pos</th>
-                    <th style="text-align: center;">TFR</th>
-                    <th style="text-align: center;" title="Weighted Runs Created Plus (100 = league average)">wRC+</th>
-                    <th style="text-align: center;" title="Projected Batting WAR">WAR</th>
-                    <th style="text-align: center;" title="Projected weighted On-Base Average">wOBA</th>
-                    <th style="text-align: center;">Age</th>
-                    <th style="text-align: center;">Level</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rows}
-            </tbody>
-        </table>
-      `;
-  }
 
   // --- HITTER TOP 100 PROSPECTS VIEW ---
   private renderHitterTopProspects(): string {
@@ -2122,47 +2148,7 @@ export class FarmRankingsView {
     return `<span class="badge ${className}" title="${title}">${posLabel}</span>`;
   }
 
-  private renderFarmScoreFlip(sys: FarmSystemOverview): string {
-      const front = `<span class="badge ${this.getWarClass(sys.totalWar)}">${sys.totalWar.toFixed(1)}</span>`;
 
-      // Build breakdown text
-      const { elite, aboveAvg, average, fringe } = sys.tierCounts;
-      const eliteScore = elite * 10;
-      const goodScore = aboveAvg * 5;
-      const avgScore = average * 1;
-
-      let depthScore = 0;
-      if (fringe >= 25) depthScore = 5;
-      else if (fringe >= 15) depthScore = 4;
-      else if (fringe >= 10) depthScore = 2;
-
-      // Format breakdown as single line with all components in parentheses
-      const parts = [];
-
-      if (elite > 0) parts.push(`${elite}E (${eliteScore}pts)`);
-      if (aboveAvg > 0) parts.push(`${aboveAvg}G (${goodScore}pts)`);
-      if (average > 0) parts.push(`${average}A (${avgScore}pts)`);
-      parts.push(`Depth: ${fringe} (${depthScore}pts)`);
-
-      const formula = parts.join(' ');
-
-      const back = `
-        <div style="font-size: 0.75rem; line-height: 1.2; text-align: center; padding: 2px; white-space: nowrap;">
-          ${formula || '-'}
-        </div>
-      `;
-
-      return `
-          <div class="flip-cell" style="width: auto; height: auto; min-width: 50px;">
-            <div class="flip-cell-inner">
-              <div class="flip-cell-front">${front}</div>
-              <div class="flip-cell-back" style="background-color: var(--color-surface); padding: 2px 4px; min-width: 90px; border-radius: 4px; box-shadow: 0 0 4px rgba(0,0,0,0.5); left: 50%; translate: -50%;">
-                ${back}
-              </div>
-            </div>
-          </div>
-      `;
-  }
 
   private bindToggleEvents(): void {
       this.container.querySelectorAll('.team-header').forEach(header => {

@@ -1,11 +1,14 @@
-import { Player, getFullName, getPositionLabel } from '../models/Player';
+import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Player';
 import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
+import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { OnboardingView } from './OnboardingView';
 import { playerService } from '../services/PlayerService';
 import { dateService } from '../services/DateService';
-import { trueRatingsService, TruePlayerStats } from '../services/TrueRatingsService';
+import { trueRatingsService, TruePlayerStats, TruePlayerBattingStats } from '../services/TrueRatingsService';
 import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
+import { hitterTrueRatingsCalculationService } from '../services/HitterTrueRatingsCalculationService';
 import { scoutingDataService } from '../services/ScoutingDataService';
+import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { teamService } from '../services/TeamService';
@@ -26,6 +29,7 @@ export class GlobalSearchBar {
   private selectedIndex = -1;
   private debounceTimer?: number;
   private playerProfileModal: PlayerProfileModal;
+  private batterProfileModal: BatterProfileModal;
   private onboardingView: OnboardingView;
 
   constructor(container: HTMLElement, options: GlobalSearchBarOptions) {
@@ -33,6 +37,7 @@ export class GlobalSearchBar {
     this.onSearch = options.onSearch;
     this.onLoading = options.onLoading;
     this.playerProfileModal = new PlayerProfileModal();
+    this.batterProfileModal = new BatterProfileModal();
     this.onboardingView = new OnboardingView();
     this.render();
     this.attachEventListeners();
@@ -228,14 +233,24 @@ export class GlobalSearchBar {
     // Fetch the player's ratings data and show modal
     try {
       const currentYear = await dateService.getCurrentYear();
-      const ratingsData = await this.fetchPlayerRatingsData(player.id, currentYear);
 
-      if (ratingsData) {
-        await this.playerProfileModal.show(ratingsData, currentYear);
+      // Check if player is a pitcher or batter
+      if (isPitcher(player)) {
+        const ratingsData = await this.fetchPlayerRatingsData(player.id, currentYear);
+        if (ratingsData) {
+          await this.playerProfileModal.show(ratingsData, currentYear);
+        } else {
+          console.error('Failed to build ratings data for player', player.id);
+          alert(`Unable to load profile for ${player.firstName} ${player.lastName}. Please try again.`);
+        }
       } else {
-        console.error('Failed to build ratings data for player', player.id);
-        // Show a user-friendly error
-        alert(`Unable to load profile for ${player.firstName} ${player.lastName}. Please try again.`);
+        const batterData = await this.fetchBatterRatingsData(player.id, currentYear);
+        if (batterData) {
+          await this.batterProfileModal.show(batterData, currentYear);
+        } else {
+          console.error('Failed to build batter data for player', player.id);
+          alert(`Unable to load profile for ${player.firstName} ${player.lastName}. Please try again.`);
+        }
       }
     } catch (error) {
       console.error('Failed to load player profile:', error);
@@ -458,6 +473,209 @@ export class GlobalSearchBar {
       console.error('Error fetching player ratings:', error);
       return null;
     }
+  }
+
+  private async fetchBatterRatingsData(playerId: number, year: number): Promise<BatterProfileData | null> {
+    try {
+      // Get player info
+      const player = await playerService.getPlayerById(playerId);
+      if (!player) {
+        return null;
+      }
+
+      const playerName = getFullName(player);
+
+      // Get team info
+      let teamLabel: string | undefined;
+      let parentLabel: string | undefined;
+
+      if (player.teamId) {
+        const team = await teamService.getTeamById(player.teamId);
+        if (team) {
+          const currentTeamLabel = `${team.name} ${team.nickname}`;
+
+          if (team.parentTeamId !== 0) {
+            const parent = await teamService.getTeamById(team.parentTeamId);
+            if (parent) {
+              teamLabel = parent.nickname;
+              parentLabel = currentTeamLabel;
+            } else {
+              teamLabel = currentTeamLabel;
+            }
+          } else {
+            teamLabel = currentTeamLabel;
+          }
+        }
+      }
+
+      // Get batting stats
+      let allBatters: TruePlayerBattingStats[] = [];
+      try {
+        allBatters = await trueRatingsService.getTrueBattingStats(year);
+      } catch (error) {
+        console.warn('No MLB batting stats available for year:', year, error);
+      }
+      const batterStats = allBatters.find(b => b.player_id === playerId);
+
+      let trueRating: number | undefined;
+      let percentile: number | undefined;
+      let woba: number | undefined;
+      let estimatedPower: number | undefined;
+      let estimatedEye: number | undefined;
+      let estimatedAvoidK: number | undefined;
+      let estimatedContact: number | undefined;
+      let isProspect = false;
+
+      // Calculate True Ratings if we have stats
+      if (batterStats && batterStats.pa && batterStats.pa >= 50) {
+        const [multiYearStats] = await Promise.all([
+          trueRatingsService.getMultiYearBattingStats(year),
+        ]);
+
+        const batterYearlyStats = multiYearStats.get(playerId) ?? [];
+
+        if (batterYearlyStats.length > 0) {
+          // Get hitter scouting data
+          const [myHitterScoutingRatings, osaHitterScoutingRatings] = await Promise.all([
+            hitterScoutingDataService.getLatestScoutingRatings('my'),
+            hitterScoutingDataService.getLatestScoutingRatings('osa')
+          ]);
+
+          const myHitterLookup = this.buildHitterScoutingLookup(myHitterScoutingRatings);
+          const osaHitterLookup = this.buildHitterScoutingLookup(osaHitterScoutingRatings);
+
+          // Calculate True Rating with all batters for percentile ranking
+          const leagueAverages = hitterTrueRatingsCalculationService.getDefaultLeagueAverages();
+          const allInputs = allBatters
+            .map(b => {
+              const yearlyStats = multiYearStats.get(b.player_id) ?? [];
+              if (yearlyStats.length === 0) return null;
+
+              const totalPa = yearlyStats.reduce((sum, stat) => sum + stat.pa, 0);
+              if (totalPa < 100) return null;
+
+              const scouting = this.resolveHitterScoutingFromLookup(b.player_id, b.playerName, myHitterLookup) ||
+                               this.resolveHitterScoutingFromLookup(b.player_id, b.playerName, osaHitterLookup);
+
+              return {
+                playerId: b.player_id,
+                playerName: b.playerName,
+                yearlyStats,
+                scoutingRatings: scouting ? {
+                  playerId: b.player_id,
+                  playerName: b.playerName,
+                  power: scouting.power,
+                  contact: scouting.contact,
+                  eye: scouting.eye,
+                  avoidK: scouting.avoidK,
+                  gap: scouting.gap,
+                  speed: scouting.speed,
+                  ovr: scouting.ovr ?? 0,
+                  pot: scouting.pot ?? 0,
+                } : undefined,
+              };
+            })
+            .filter((input): input is NonNullable<typeof input> => input !== null);
+
+          const results = hitterTrueRatingsCalculationService.calculateTrueRatings(allInputs, leagueAverages);
+          const batterResult = results.find(r => r.playerId === playerId);
+
+          if (batterResult) {
+            trueRating = batterResult.trueRating;
+            percentile = batterResult.percentile;
+            woba = batterResult.woba;
+            estimatedPower = batterResult.estimatedPower;
+            estimatedEye = batterResult.estimatedEye;
+            estimatedAvoidK = batterResult.estimatedAvoidK;
+            estimatedContact = batterResult.estimatedContact;
+          }
+        }
+      } else {
+        isProspect = true;
+      }
+
+      // Calculate SLG from raw data if available
+      let slg: number | undefined;
+      if (batterStats && batterStats.ab && batterStats.ab > 0) {
+        const singles = (batterStats.h ?? 0) - (batterStats.d ?? 0) - (batterStats.t ?? 0) - (batterStats.hr ?? 0);
+        slg = (singles + 2 * (batterStats.d ?? 0) + 3 * (batterStats.t ?? 0) + 4 * (batterStats.hr ?? 0)) / batterStats.ab;
+      }
+
+      return {
+        playerId,
+        playerName,
+        team: teamLabel,
+        parentTeam: parentLabel,
+        age: player.age,
+        position: player.position,
+        positionLabel: getPositionLabel(player.position),
+        trueRating,
+        percentile,
+        woba,
+        estimatedPower,
+        estimatedEye,
+        estimatedAvoidK,
+        estimatedContact,
+        pa: batterStats?.pa,
+        avg: batterStats?.avg,
+        obp: batterStats?.obp,
+        slg: slg ? Math.round(slg * 1000) / 1000 : undefined,
+        hr: batterStats?.hr,
+        rbi: batterStats?.rbi,
+        sb: batterStats?.sb,
+        war: batterStats?.war,
+        isProspect,
+      };
+    } catch (error) {
+      console.error('Error fetching batter ratings:', error);
+      return null;
+    }
+  }
+
+  private buildHitterScoutingLookup(
+    scoutingData: Array<{ playerId: number; playerName?: string; power: number; contact: number; eye: number; avoidK: number; gap: number; speed: number }>
+  ): { byId: Map<number, typeof scoutingData[0]>; byName: Map<string, typeof scoutingData[0][]> } {
+    const byId = new Map<number, typeof scoutingData[0]>();
+    const byName = new Map<string, typeof scoutingData[0][]>();
+
+    for (const rating of scoutingData) {
+      if (rating.playerId > 0) {
+        byId.set(rating.playerId, rating);
+      }
+      if (rating.playerName) {
+        const normalized = this.normalizeName(rating.playerName);
+        if (normalized) {
+          const list = byName.get(normalized) ?? [];
+          list.push(rating);
+          byName.set(normalized, list);
+        }
+      }
+    }
+
+    return { byId, byName };
+  }
+
+  private resolveHitterScoutingFromLookup(
+    playerId: number,
+    playerName: string,
+    lookup: { byId: Map<number, any>; byName: Map<string, any[]> }
+  ): any | null {
+    // Try ID lookup first
+    if (playerId > 0) {
+      const match = lookup.byId.get(playerId);
+      if (match) return match;
+    }
+
+    // Try name lookup
+    const normalized = this.normalizeName(playerName);
+    if (normalized) {
+      const matches = lookup.byName.get(normalized);
+      if (matches && matches.length > 0) {
+        return matches[0];
+      }
+    }
+
+    return null;
   }
 
   private buildScoutingLookup(

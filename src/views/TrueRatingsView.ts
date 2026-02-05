@@ -732,8 +732,6 @@ export class TrueRatingsView {
 
   private async fetchAndRenderStats(): Promise<void> {
     const tableContainer = this.container.querySelector<HTMLElement>('#true-ratings-table-container')!;
-    const isPitcherTrueRatingsView = this.mode === 'pitchers' && this.showTrueRatings;
-    const isBatterTrueRatingsView = this.mode === 'batters' && this.showTrueRatings && !this.showRawStats;
     tableContainer.innerHTML = this.renderTableLoadingState();
 
     try {
@@ -743,11 +741,10 @@ export class TrueRatingsView {
 
         await this.enrichWithTeamData(this.rawPitcherStats);
 
-        if (isPitcherTrueRatingsView || this.showProspects) {
-          this.stats = await this.buildTrueRatingsStats(this.rawPitcherStats);
-        } else {
-          this.stats = this.rawPitcherStats;
-        }
+        // Always calculate True Ratings (needed for both table display and modal)
+        // The enriched stats contain BOTH True Ratings AND raw stats
+        this.stats = await this.buildTrueRatingsStats(this.rawPitcherStats);
+        // Note: Column visibility is controlled by getPitcherColumnsForView() based on toggles
       } else {
         const { rows } = await this.getBatterStatsWithRosterFallback();
         this.rawBatterStats = rows;
@@ -761,11 +758,10 @@ export class TrueRatingsView {
           this.cachedLeagueBattingAverages = null;
         }
 
-        if (isBatterTrueRatingsView) {
-          this.stats = await this.buildHitterTrueRatingsStats(this.rawBatterStats);
-        } else {
-          this.stats = this.rawBatterStats;
-        }
+        // Always calculate True Ratings (needed for both table display and modal)
+        // The enriched stats contain BOTH True Ratings AND raw stats
+        this.stats = await this.buildHitterTrueRatingsStats(this.rawBatterStats);
+        // Note: Column visibility is controlled by getBatterColumnsForView() based on toggles
       }
       this.allStats = [...this.stats];
       this.updateTeamOptions();
