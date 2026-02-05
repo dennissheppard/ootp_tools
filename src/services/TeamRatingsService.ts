@@ -57,6 +57,12 @@ export interface RatedProspect {
     stuffPercentile?: number;
     controlPercentile?: number;
     hraPercentile?: number;
+    /** True ratings - normalized from percentiles across all prospects (20-80 scale) */
+    trueRatings?: {
+        stuff: number;
+        control: number;
+        hra: number;
+    };
     potentialRatings: {
         stuff: number;
         control: number;
@@ -655,6 +661,11 @@ class TeamRatingsService {
               stuffPercentile: tfr.stuffPercentile,
               controlPercentile: tfr.controlPercentile,
               hraPercentile: tfr.hraPercentile,
+              trueRatings: {
+                  stuff: tfr.trueStuff,
+                  control: tfr.trueControl,
+                  hra: tfr.trueHra,
+              },
               age: tfr.age,
               level: this.getLevelLabel(player.level),
               teamId: player.teamId,
@@ -696,6 +707,23 @@ class TeamRatingsService {
           } else {
               group.bullpen.push(prospect);
           }
+      });
+
+      // IMPORTANT: Sort and assign percentileRank BEFORE generating reports/systems
+      // (tierCounts depend on percentileRank being set)
+      const sortedProspects = allProspects.sort((a, b) => {
+          if (b.percentile !== undefined && a.percentile !== undefined && b.percentile !== a.percentile) {
+              return b.percentile - a.percentile;
+          }
+          if (b.trueFutureRating !== a.trueFutureRating) {
+              return b.trueFutureRating - a.trueFutureRating;
+          }
+          return b.peakWar - a.peakWar;
+      });
+
+      // Assign percentile ranks (1-based) after sorting
+      sortedProspects.forEach((prospect, index) => {
+          prospect.percentileRank = index + 1;
       });
 
       // Generate Reports (Rotation/Bullpen top 5s)
@@ -754,8 +782,8 @@ class TeamRatingsService {
           // Calculate Farm Score based on tier counts
           // Elite: 10 pts each, Good: 5 pts each, Avg: 1 pt each
           // No points for depth/fringe
-          const totalWar = (tierCounts.elite * 10) + 
-                           (tierCounts.aboveAvg * 5) + 
+          const totalWar = (tierCounts.elite * 10) +
+                           (tierCounts.aboveAvg * 5) +
                            (tierCounts.average * 1);
 
           systems.push({
@@ -767,22 +795,6 @@ class TeamRatingsService {
               topProspectId: topProspect.playerId,
               tierCounts
           });
-      });
-
-      // Sort Top 100 Prospects by Percentile (Precision TFR) desc
-      const sortedProspects = allProspects.sort((a, b) => {
-          if (b.percentile !== undefined && a.percentile !== undefined && b.percentile !== a.percentile) {
-              return b.percentile - a.percentile;
-          }
-          if (b.trueFutureRating !== a.trueFutureRating) {
-              return b.trueFutureRating - a.trueFutureRating;
-          }
-          return b.peakWar - a.peakWar;
-      });
-
-      // Assign percentile ranks (1-based) after sorting
-      sortedProspects.forEach((prospect, index) => {
-          prospect.percentileRank = index + 1;
       });
 
       return {

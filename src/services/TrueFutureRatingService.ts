@@ -67,6 +67,10 @@ export interface TrueFutureRatingResult {
   controlPercentile: number;
   /** Percentile rank for HRA component (0-100) */
   hraPercentile: number;
+  /** True ratings - normalized from percentiles (20-80 scale) */
+  trueStuff: number;
+  trueControl: number;
+  trueHra: number;
   /** Scouting-expected rates */
   scoutK9: number;
   scoutBb9: number;
@@ -689,8 +693,17 @@ class TrueFutureRatingService {
       const percentile = ((n - index - 1) / (n - 1)) * 100;
       const trueFutureRating = this.percentileToRating(percentile);
 
+      // Calculate true ratings from percentiles: rating = 20 + (percentile / 100) * 60
+      // This normalizes across all prospects - 50th percentile = 50 rating
+      const trueStuff = Math.round(20 + (result.stuffPercentile / 100) * 60);
+      const trueControl = Math.round(20 + (result.controlPercentile / 100) * 60);
+      const trueHra = Math.round(20 + (result.hraPercentile / 100) * 60);
+
       return {
         ...result,
+        trueStuff,
+        trueControl,
+        trueHra,
         percentile: Math.round(percentile * 10) / 10,
         trueFutureRating,
       };

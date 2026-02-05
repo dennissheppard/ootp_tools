@@ -2323,10 +2323,12 @@ export class FarmRankingsView {
           // True Ratings (Current) - prospects usually don't have valid ones, handled by modal
           trueRating: undefined,
 
-          // Estimated Ratings (from TFR if available) - Convert stats to ratings
-          estimatedStuff: prospect ? Math.round((prospect.potentialRatings.stuff - 2.07) / 0.074) : undefined,
-          estimatedControl: prospect ? Math.round((5.22 - prospect.potentialRatings.control) / 0.052) : undefined,
-          estimatedHra: prospect ? Math.round((2.08 - prospect.potentialRatings.hra) / 0.024) : undefined,
+          // Use True Ratings - these are normalized from percentile rankings across all prospects
+          // They answer: "Where does this prospect rank among all prospects?" (20-80 scale)
+          // Scout might say 60 Stuff, but if that's only 35th percentile among prospects, True Stuff = 41
+          estimatedStuff: prospect?.trueRatings?.stuff,
+          estimatedControl: prospect?.trueRatings?.control,
+          estimatedHra: prospect?.trueRatings?.hra,
 
           // Pass TFR peak projection to modal (prevents recalculation)
           projectionOverride: projectionOverride,
