@@ -793,8 +793,6 @@ export class BatterProfileModal {
       projHr = Math.round((projSlg - projAvg) * 100); // Fallback: rough estimate from SLG-AVG
     }
 
-    const projSb = Math.round((this.scoutingData?.speed ?? 50) / 10); // SB estimate from speed
-
     // Calculate OPS and OPS+
     const projOps = projObp + projSlg;
     const projOpsPlus = Math.round(100 * ((projObp / lgObp) + (projSlg / lgSlg) - 1));
@@ -809,11 +807,26 @@ export class BatterProfileModal {
     const formatStat = (val: number, decimals: number = 3) => val.toFixed(decimals);
     const formatPct = (val: number) => val.toFixed(1) + '%';
 
+    // Calculate derived HR% for display
+    const projHrPct = projPa > 0 ? (projHr / projPa) * 100 : 0;
+
+    // Prepare Flip Cards
+    const contactRating = this.clampRatingForDisplay(data.estimatedContact ?? 50);
+    const eyeRating = this.clampRatingForDisplay(data.estimatedEye ?? 50);
+    const avoidKRating = this.clampRatingForDisplay(data.estimatedAvoidK ?? 50);
+    const powerRating = this.clampRatingForDisplay(data.estimatedPower ?? 50);
+
+    const avgFlip = this.renderFlipCell(formatStat(projAvg), contactRating.toString(), 'Estimated Contact');
+    const bbPctFlip = this.renderFlipCell(formatPct(projBbPct), eyeRating.toString(), 'Estimated Eye');
+    const kPctFlip = this.renderFlipCell(formatPct(projKPct), avoidKRating.toString(), 'Estimated Avoid K');
+    const hrPctFlip = this.renderFlipCell(formatPct(projHrPct), powerRating.toString(), 'Estimated Power');
+
     // Show comparison to actual if we have stats
     let comparisonRow = '';
     if (latestStat) {
       const actualBbPct = latestStat.pa > 0 ? (latestStat.bb / latestStat.pa) * 100 : 0;
       const actualKPct = latestStat.pa > 0 ? (latestStat.k / latestStat.pa) * 100 : 0;
+      const actualHrPct = latestStat.pa > 0 ? (latestStat.hr / latestStat.pa) * 100 : 0;
       const actualOps = latestStat.obp + latestStat.slg;
       const actualOpsPlus = Math.round(100 * ((latestStat.obp / lgObp) + (latestStat.slg / lgSlg) - 1));
 
@@ -825,11 +838,11 @@ export class BatterProfileModal {
           <td>${formatStat(latestStat.obp)}</td>
           <td>${formatPct(actualBbPct)}</td>
           <td>${formatPct(actualKPct)}</td>
+          <td>${formatPct(actualHrPct)}</td>
           <td>${latestStat.hr}</td>
           <td>${formatStat(latestStat.slg)}</td>
           <td>${formatStat(actualOps)}</td>
           <td>${actualOpsPlus}</td>
-          <td>${latestStat.sb}</td>
           <td>${typeof latestStat.war === 'number' ? formatStat(latestStat.war, 1) : '—'}</td>
         </tr>
       `;
@@ -845,36 +858,36 @@ export class BatterProfileModal {
       <div class="projection-section">
         <h4 class="section-label">${projectionLabel}</h4>
         <div class="stats-table-scroll">
-          <table class="profile-stats-table projection-table">
+          <table class="profile-stats-table projection-table" style="table-layout: fixed;">
             <thead>
               <tr>
-                <th></th>
-                <th>PA</th>
-                <th>AVG</th>
-                <th>OBP</th>
-                <th>BB%</th>
-                <th>K%</th>
-                <th>HR</th>
-                <th>SLG</th>
-                <th>OPS</th>
-                <th>OPS+</th>
-                <th>SB</th>
-                <th>WAR</th>
+                <th style="width: 80px;"></th>
+                <th style="width: 50px;">PA</th>
+                <th style="width: 60px;">AVG</th>
+                <th style="width: 60px;">OBP</th>
+                <th style="width: 60px;">BB%</th>
+                <th style="width: 60px;">K%</th>
+                <th style="width: 60px;">HR%</th>
+                <th style="width: 50px;">HR</th>
+                <th style="width: 60px;">SLG</th>
+                <th style="width: 60px;">OPS</th>
+                <th style="width: 50px;">OPS+</th>
+                <th style="width: 50px;">WAR</th>
               </tr>
             </thead>
             <tbody>
               <tr class="projection-row">
                 <td><strong>Proj</strong></td>
                 <td>${projPa}</td>
-                <td><strong>${formatStat(projAvg)}</strong></td>
+                <td>${avgFlip}</td>
                 <td>${formatStat(projObp)}</td>
-                <td>${formatPct(projBbPct)}</td>
-                <td>${formatPct(projKPct)}</td>
+                <td>${bbPctFlip}</td>
+                <td>${kPctFlip}</td>
+                <td>${hrPctFlip}</td>
                 <td>${projHr}</td>
                 <td>${formatStat(projSlg)}</td>
                 <td>${formatStat(projOps)}</td>
                 <td><strong>${projOpsPlus}</strong></td>
-                <td>${projSb}</td>
                 <td><strong>${formatStat(projWar, 1)}</strong></td>
               </tr>
               ${comparisonRow}
@@ -1069,28 +1082,41 @@ export class BatterProfileModal {
         ? '<span class="level-badge level-mlb">MLB</span>'
         : `<span class="level-badge level-${s.level.toLowerCase()}">${s.level.toUpperCase()}</span>`;
       const isMinor = s.level !== 'MLB';
-      const warCell = isMinor ? '<td class="stat-na">—</td>' : `<td>${(s.war ?? 0).toFixed(1)}</td>`;
+      const warCell = isMinor ? '<td class="stat-na">—</td>' : `<td style="text-align: center;">${(s.war ?? 0).toFixed(1)}</td>`;
 
       // Calculate rate stats
       const bbPct = s.pa > 0 ? (s.bb / s.pa) * 100 : 0;
       const kPct = s.pa > 0 ? (s.k / s.pa) * 100 : 0;
+      const hrPct = s.pa > 0 ? (s.hr / s.pa) * 100 : 0;
       const ops = s.obp + s.slg;
       const opsPlus = Math.round(100 * ((s.obp / lgObp) + (s.slg / lgSlg) - 1));
 
+      // Estimate ratings
+      const estContact = HitterRatingEstimatorService.estimateContact(s.avg, s.pa).rating;
+      const estEye = HitterRatingEstimatorService.estimateEye(bbPct, s.pa).rating;
+      const estAvoidK = HitterRatingEstimatorService.estimateAvoidK(kPct, s.pa).rating;
+      const estPower = HitterRatingEstimatorService.estimatePower(hrPct, s.pa).rating;
+
+      // Flip cells
+      const avgFlip = this.renderFlipCell(s.avg.toFixed(3), this.clampRatingForDisplay(estContact).toString(), `Estimated Contact (${s.year})`);
+      const bbPctFlip = this.renderFlipCell(bbPct.toFixed(1) + '%', this.clampRatingForDisplay(estEye).toString(), `Estimated Eye (${s.year})`);
+      const kPctFlip = this.renderFlipCell(kPct.toFixed(1) + '%', this.clampRatingForDisplay(estAvoidK).toString(), `Estimated Avoid K (${s.year})`);
+      const hrPctFlip = this.renderFlipCell(hrPct.toFixed(1) + '%', this.clampRatingForDisplay(estPower).toString(), `Estimated Power (${s.year})`);
+
       return `
         <tr>
-          <td>${s.year}</td>
-          <td>${levelBadge}</td>
-          <td>${s.pa}</td>
-          <td>${s.avg.toFixed(3)}</td>
-          <td>${s.obp.toFixed(3)}</td>
-          <td>${bbPct.toFixed(1)}%</td>
-          <td>${kPct.toFixed(1)}%</td>
-          <td>${s.hr}</td>
-          <td>${s.slg.toFixed(3)}</td>
-          <td>${ops.toFixed(3)}</td>
-          <td>${opsPlus}</td>
-          <td>${s.sb}</td>
+          <td style="text-align: center;">${s.year}</td>
+          <td style="text-align: center;">${levelBadge}</td>
+          <td style="text-align: center;">${s.pa}</td>
+          <td style="text-align: center;">${avgFlip}</td>
+          <td style="text-align: center;">${s.obp.toFixed(3)}</td>
+          <td style="text-align: center;">${bbPctFlip}</td>
+          <td style="text-align: center;">${kPctFlip}</td>
+          <td style="text-align: center;">${hrPctFlip}</td>
+          <td style="text-align: center;">${s.hr}</td>
+          <td style="text-align: center;">${s.slg.toFixed(3)}</td>
+          <td style="text-align: center;">${ops.toFixed(3)}</td>
+          <td style="text-align: center;">${opsPlus}</td>
           ${warCell}
         </tr>
       `;
@@ -1100,22 +1126,22 @@ export class BatterProfileModal {
       <div class="stats-history">
         <h4 class="section-label">Career Stats</h4>
         <div class="stats-table-scroll">
-          <table class="profile-stats-table">
+          <table class="profile-stats-table" style="table-layout: fixed;">
             <thead>
               <tr>
-                <th>Year</th>
-                <th>Level</th>
-                <th>PA</th>
-                <th>AVG</th>
-                <th>OBP</th>
-                <th>BB%</th>
-                <th>K%</th>
-                <th>HR</th>
-                <th>SLG</th>
-                <th>OPS</th>
-                <th>OPS+</th>
-                <th>SB</th>
-                <th>WAR</th>
+                <th style="width: 45px; text-align: center;">Year</th>
+                <th style="width: 45px; text-align: center;">Level</th>
+                <th style="width: 50px; text-align: center;">PA</th>
+                <th style="width: 60px; text-align: center;">AVG</th>
+                <th style="width: 60px; text-align: center;">OBP</th>
+                <th style="width: 60px; text-align: center;">BB%</th>
+                <th style="width: 60px; text-align: center;">K%</th>
+                <th style="width: 60px; text-align: center;">HR%</th>
+                <th style="width: 50px; text-align: center;">HR</th>
+                <th style="width: 60px; text-align: center;">SLG</th>
+                <th style="width: 60px; text-align: center;">OPS</th>
+                <th style="width: 50px; text-align: center;">OPS+</th>
+                <th style="width: 50px; text-align: center;">WAR</th>
               </tr>
             </thead>
             <tbody>
@@ -1125,6 +1151,24 @@ export class BatterProfileModal {
         </div>
       </div>
     `;
+  }
+
+  private renderFlipCell(front: string, back: string, title: string): string {
+    return `
+      <div class="flip-cell" style="margin: 0 auto; width: 100%;">
+        <div class="flip-cell-inner">
+          <div class="flip-cell-front" style="justify-content: center;">${front}</div>
+          <div class="flip-cell-back">
+            ${back}
+            <span class="flip-tooltip">${title}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private clampRatingForDisplay(rating: number): number {
+    return Math.max(20, Math.min(80, Math.round(rating)));
   }
 
   private bindBodyEvents(): void {

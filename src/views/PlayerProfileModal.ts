@@ -913,7 +913,7 @@ export class PlayerProfileModal {
 
   private renderFlipCell(front: string, back: string, title: string): string {
     return `
-      <div class="flip-cell" style="margin: 0 auto;">
+      <div class="flip-cell" style="margin: 0 auto; width: 100%;">
         <div class="flip-cell-inner">
           <div class="flip-cell-front" style="justify-content: center;">${front}</div>
           <div class="flip-cell-back">
