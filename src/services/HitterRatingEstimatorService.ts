@@ -86,17 +86,26 @@ const REGRESSION_COEFFICIENTS = {
   avoidK: { intercept: 25.10, slope: -0.200303 },
 
   // Power (20-80) → HR%
-  // HR% = -3.4667 + 0.113333 * power (HR per PA as percentage)
-  // Calibrated to 2018-2020 actual percentiles (373 qualified players, 500+ PA)
-  // Maps power ratings directly to HR% percentiles:
-  //   80 power = 99th percentile, 70 power = 90th percentile, 50 power = 50th percentile
-  // Average error: 0.183% across all percentiles
-  // IMPORTANT: Calibrated for HR%-based power estimation (not ISO-based)
-  // At 20: -3.4667 + 0.113333 * 20 = 0.00% (0 HR in 650 PA, clamped)
-  // At 50: -3.4667 + 0.113333 * 50 = 2.20% (14 HR in 650 PA)
-  // At 70: -3.4667 + 0.113333 * 70 = 4.47% (29 HR in 650 PA)
-  // At 80: -3.4667 + 0.113333 * 80 = 5.60% (36 HR in 650 PA)
-  power: { intercept: -3.4667, slope: 0.113333 },
+  // PIECEWISE LINEAR: Different slopes for low vs high power
+  // Calibrated to 2018-2020 backcasting (bias near 0 for all quartiles)
+  //
+  // The relationship between power and HR% is non-linear:
+  // - Low power (20-50): flatter slope (weak hitters cluster together)
+  // - High power (50-80): moderate slope (elite power separates)
+  //
+  // Segment 1 (power <= 50): HR% = -1.034 + 0.0637 * power
+  //   At 20: 0.24% (2 HR in 650 PA)
+  //   At 50: 2.15% (14 HR in 650 PA)
+  //
+  // Segment 2 (power > 50): HR% = -2.75 + 0.098 * power
+  //   At 50: 2.15% (14 HR in 650 PA) - continuous with low segment
+  //   At 80: 5.09% (33 HR in 650 PA)
+  //
+  // See expectedHrPct() for the piecewise implementation.
+  power: {
+    low: { intercept: -1.034, slope: 0.0637 },   // power 20-50
+    high: { intercept: -2.75, slope: 0.098 },    // power 50-80
+  },
 
   // Contact (20-80) → AVG (.113 to .345)
   // Contact = ~60% Hit Tool + ~40% AvoidK (OOTP composite rating)
@@ -188,10 +197,26 @@ class HitterRatingEstimatorService {
    * Estimate Power rating from HR%
    * HR% = HR / PA * 100
    * Power rating specifically maps to home run rate in OOTP
+   *
+   * Uses PIECEWISE LINEAR inverse (matching expectedHrPct):
+   * - HR% <= 2.15 (50th percentile): use low segment
+   * - HR% > 2.15: use high segment
    */
   static estimatePower(hrPct: number, pa: number): RatingEstimate {
     const coef = REGRESSION_COEFFICIENTS.power;
-    const rawRating = (hrPct - coef.intercept) / coef.slope;
+
+    // Breakpoint: 50 power = 2.15% HR (50th percentile)
+    const breakpointHrPct = 2.15;
+    let rawRating: number;
+
+    if (hrPct <= breakpointHrPct) {
+      // Low power segment
+      rawRating = (hrPct - coef.low.intercept) / coef.low.slope;
+    } else {
+      // High power segment
+      rawRating = (hrPct - coef.high.intercept) / coef.high.slope;
+    }
+
     const rating = this.capRating(Math.round(rawRating));
 
     const { confidence, multiplier } = this.getConfidence(pa, STABILIZATION.hr_pct);
@@ -329,12 +354,29 @@ class HitterRatingEstimatorService {
   /**
    * Calculate expected HR% from Power rating
    * Returns HR per PA as a percentage (e.g., 4.0 means 4% HR/PA)
-   * Clamped to minimum 0% to avoid negative HR projections for low power ratings
+   *
+   * Uses PIECEWISE LINEAR function calibrated to 2018-2020 actual percentiles:
+   * - Power 20-50: flatter slope (weak hitters cluster together)
+   * - Power 50-80: moderate slope (elite power separates more)
+   *
+   * This ensures:
+   * - 20 power → 0.24% → 2 HR (1st percentile, not 0!)
+   * - 50 power → 2.15% → 14 HR (50th percentile)
+   * - 80 power → 5.09% → 33 HR (elite performers)
    */
   static expectedHrPct(power: number): number {
     const coef = REGRESSION_COEFFICIENTS.power;
-    const hrPct = coef.intercept + coef.slope * power;
-    return Math.max(0, hrPct); // Clamp to 0% minimum
+    let hrPct: number;
+
+    if (power <= 50) {
+      // Low power segment: flatter slope
+      hrPct = coef.low.intercept + coef.low.slope * power;
+    } else {
+      // High power segment: steeper slope
+      hrPct = coef.high.intercept + coef.high.slope * power;
+    }
+
+    return Math.max(0, hrPct); // Clamp to 0% minimum (safety)
   }
 
   /**

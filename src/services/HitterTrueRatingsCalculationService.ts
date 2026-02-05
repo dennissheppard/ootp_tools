@@ -6,13 +6,14 @@
  *
  * Process:
  * 1. Multi-year weighted average (recent years weighted more)
- * 2. TIER-AWARE REGRESSION (prevents over-projection of bad hitters):
+ * 2. TIER-AWARE REGRESSION for BB%, K%, ISO, AVG (prevents over-projection of bad hitters):
  *    - Elite performance (wOBA >= .380): Regress toward elite target
  *    - Good performance (.340-.380): Regress toward above-average target
  *    - Average performance (.300-.340): Regress toward league average
  *    - Below average (.260-.300): Regress toward below-average target
  *    - Poor performance (< .260): Minimal regression - trust their bad performance
  *    - Smooth blending between tiers to avoid cliffs
+ *    - NOTE: HR% is NOT regressed here - the projection coefficient handles it
  * 3. Optional blend with scouting ratings
  * 4. Calculate wOBA (weighted On-Base Average)
  * 5. Rank percentile across all hitters
@@ -269,10 +270,11 @@ class HitterTrueRatingsCalculationService {
     let regressedKPct = this.regressToMeanTierAware(
       weighted.kPct, weighted.totalPa, leagueAverages.avgKPct, STABILIZATION.kPct, 'kPct', rawWoba
     );
-    // Regress HR% toward a league average of ~2.5% (typical HR rate)
-    let regressedHrPct = this.regressToMeanTierAware(
-      weighted.hrPct, weighted.totalPa, 2.5, STABILIZATION.hrPct, 'iso', rawWoba
-    );
+    // DON'T regress HR% - the projection coefficient already handles regression
+    // implicitly (it's calibrated to actual historical outcomes). Multi-year
+    // weighting already provides natural smoothing. Regressing here causes
+    // "double regression" and under-projects elite power hitters by ~1% HR rate.
+    let regressedHrPct = weighted.hrPct;
     let regressedIso = this.regressToMeanTierAware(
       weighted.iso, weighted.totalPa, leagueAverages.avgIso, STABILIZATION.iso, 'iso', rawWoba
     );

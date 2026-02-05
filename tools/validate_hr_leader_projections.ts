@@ -23,9 +23,9 @@ import { dirname } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Current power coefficient from HitterRatingEstimatorService
-const POWER_INTERCEPT = -3.4667;
-const POWER_SLOPE = 0.113333;
+// Piecewise power coefficients from HitterRatingEstimatorService
+const POWER_LOW = { intercept: -1.034, slope: 0.0637 };   // power 20-50
+const POWER_HIGH = { intercept: -2.75, slope: 0.098 };    // power 50-80
 
 interface BattingStats {
   player_id: number;
@@ -58,9 +58,13 @@ interface PlayerYearData {
   errorPct: number;
 }
 
-// Calculate HR% from power rating
+// Calculate HR% from power rating (piecewise linear)
 function hrPctFromPower(powerRating: number): number {
-  return Math.max(0, POWER_INTERCEPT + POWER_SLOPE * powerRating);
+  if (powerRating <= 50) {
+    return Math.max(0, POWER_LOW.intercept + POWER_LOW.slope * powerRating);
+  } else {
+    return Math.max(0, POWER_HIGH.intercept + POWER_HIGH.slope * powerRating);
+  }
 }
 
 // Read batting stats from CSV
@@ -151,10 +155,12 @@ async function validateHRLeaderProjections() {
   console.log('This script tests whether we accurately project the ACTUAL HR leaders.');
   console.log('Unlike quartile analysis, this focuses on the players who matter most.');
   console.log('');
-  console.log(`Current coefficient: HR% = ${POWER_INTERCEPT} + ${POWER_SLOPE} × Power`);
-  console.log(`  80 power → ${hrPctFromPower(80).toFixed(2)}% HR → ${Math.round(650 * hrPctFromPower(80) / 100)} HR in 650 PA`);
-  console.log(`  70 power → ${hrPctFromPower(70).toFixed(2)}% HR → ${Math.round(650 * hrPctFromPower(70) / 100)} HR in 650 PA`);
+  console.log('Piecewise coefficient:');
+  console.log(`  Power 20-50: HR% = ${POWER_LOW.intercept} + ${POWER_LOW.slope} × Power`);
+  console.log(`  Power 50-80: HR% = ${POWER_HIGH.intercept} + ${POWER_HIGH.slope} × Power`);
+  console.log(`  20 power → ${hrPctFromPower(20).toFixed(2)}% HR → ${Math.round(650 * hrPctFromPower(20) / 100)} HR in 650 PA`);
   console.log(`  50 power → ${hrPctFromPower(50).toFixed(2)}% HR → ${Math.round(650 * hrPctFromPower(50) / 100)} HR in 650 PA`);
+  console.log(`  80 power → ${hrPctFromPower(80).toFixed(2)}% HR → ${Math.round(650 * hrPctFromPower(80) / 100)} HR in 650 PA`);
   console.log('');
 
   const playerNames = loadPlayerNames();
