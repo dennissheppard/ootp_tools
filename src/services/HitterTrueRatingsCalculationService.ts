@@ -137,7 +137,29 @@ const STABILIZATION = {
   avg: 300,  // Reduced from 400 to trust elite hitters with 500+ PA more
 };
 
-/** PA threshold for scouting blend confidence */
+/**
+ * Component-specific PA thresholds for scouting blend confidence.
+ *
+ * At the threshold PA, blend is 50/50 stats/scouting.
+ * At 2x threshold, blend is 67/33.
+ * At 3x threshold, blend is 75/25.
+ *
+ * Rationale:
+ * - K%: Lower threshold (120 PA) - K% stabilizes quickly (60 PA), stats are predictive
+ * - BB%: Medium threshold (200 PA) - Stabilizes at 120 PA, scouts can see plate discipline
+ * - HR%/ISO: Higher threshold (350 PA) - Power is volatile, scouts see bat speed/exit velo
+ *            that may not show up immediately in MLB results
+ * - AVG: Higher threshold (350 PA) - Stabilizes at 300 PA, scouts can evaluate contact skills
+ */
+const SCOUTING_BLEND_THRESHOLDS = {
+  kPct: 120,    // K% stabilizes at 60 PA - trust stats sooner
+  bbPct: 200,   // BB% stabilizes at 120 PA - medium trust
+  hrPct: 350,   // HR% stabilizes at 160 PA but volatile - trust scouts longer
+  iso: 350,     // ISO tied to power - same as HR%
+  avg: 350,     // AVG stabilizes at 300 PA - trust scouts longer
+};
+
+/** Default threshold for backwards compatibility */
 const SCOUTING_BLEND_CONFIDENCE_PA = 200;
 
 /** Default league averages (WBL calibrated) */
@@ -291,11 +313,12 @@ class HitterTrueRatingsCalculationService {
 
     if (input.scoutingRatings) {
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings);
-      blendedBbPct = this.blendWithScouting(regressedBbPct, scoutExpected.bbPct, weighted.totalPa);
-      blendedKPct = this.blendWithScouting(regressedKPct, scoutExpected.kPct, weighted.totalPa);
-      blendedHrPct = this.blendWithScouting(regressedHrPct, scoutExpected.hrPct, weighted.totalPa);
-      blendedIso = this.blendWithScouting(regressedIso, scoutExpected.iso, weighted.totalPa);
-      blendedAvg = this.blendWithScouting(regressedAvg, scoutExpected.avg, weighted.totalPa);
+      // Use component-specific blend thresholds
+      blendedBbPct = this.blendWithScouting(regressedBbPct, scoutExpected.bbPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.bbPct);
+      blendedKPct = this.blendWithScouting(regressedKPct, scoutExpected.kPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.kPct);
+      blendedHrPct = this.blendWithScouting(regressedHrPct, scoutExpected.hrPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.hrPct);
+      blendedIso = this.blendWithScouting(regressedIso, scoutExpected.iso, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.iso);
+      blendedAvg = this.blendWithScouting(regressedAvg, scoutExpected.avg, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.avg);
     }
 
     // Step 4: Calculate wOBA from blended rates
