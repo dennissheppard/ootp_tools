@@ -18,7 +18,6 @@ import { hitterScoutingDataService } from '../services/HitterScoutingDataService
 import { trueRatingsService } from '../services/TrueRatingsService';
 import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
 import { getPositionLabel, getFullName, isPitcher } from '../models/Player';
-import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 
 interface FarmColumn {
@@ -53,10 +52,10 @@ export class FarmRankingsView {
     { key: 'teamName', label: 'Organization', sortKey: 'teamName' },
     { key: 'totalWar', label: 'Farm Score', sortKey: 'totalWar' },
     { key: 'topProspectName', label: 'Top Prospect', sortKey: 'topProspectName' },
-    { key: 'elite', label: 'Elite', sortKey: 'elite', title: 'Elite (4.5+ TFR)' },
-    { key: 'aboveAvg', label: 'Good', sortKey: 'aboveAvg', title: 'Above Average (3.5-4.0 TFR)' },
-    { key: 'average', label: 'Avg', sortKey: 'average', title: 'Average (2.5-3.0 TFR)' },
-    { key: 'fringe', label: 'Depth', sortKey: 'fringe', title: 'Fringe (< 2.5 TFR)' }
+    { key: 'elite', label: 'Elite', sortKey: 'elite', title: 'Elite (Ranks 1-100)' },
+    { key: 'aboveAvg', label: 'Gold', sortKey: 'aboveAvg', title: 'Gold (Ranks 101-300)' },
+    { key: 'average', label: 'Silver', sortKey: 'average', title: 'Silver (Ranks 301-500)' },
+    { key: 'fringe', label: 'Depth', sortKey: 'fringe', title: 'Depth (Ranks 501+)' }
   ];
 
   private prospectsColumns: FarmColumn[] = [
@@ -523,6 +522,15 @@ export class FarmRankingsView {
       const systems = isPitchers ? this.data!.systems : this.hitterData!.systems;
       const title = isPitchers ? 'Pitching Farm Rankings' : 'Hitting Farm Rankings';
       
+      // Calculate dynamic thresholds based on current dataset
+      const eliteCounts = systems.map(s => s.tierCounts.elite);
+      const aboveAvgCounts = systems.map(s => s.tierCounts.aboveAvg);
+      const averageCounts = systems.map(s => s.tierCounts.average);
+
+      const eliteThresh = this.getDynamicThresholds(eliteCounts);
+      const aboveAvgThresh = this.getDynamicThresholds(aboveAvgCounts);
+      const averageThresh = this.getDynamicThresholds(averageCounts);
+
       const headerRow = this.systemsColumns.map(col => {
           const isSorted = this.systemsSortKey === col.sortKey;
           const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
@@ -537,22 +545,12 @@ export class FarmRankingsView {
       const rows = systems.map((sys, idx) => {
           const systemKey = `sys-${isPitchers ? 'p' : 'h'}-${sys.teamId}`;
           const score = isPitchers ? (sys as FarmSystemOverview).totalWar : (sys as HitterFarmSystemOverview).totalScore;
+          const tierCounts = sys.tierCounts;
           
-          let scoreTooltip = '';
-          if (isPitchers) {
-             const pSys = sys as FarmSystemOverview;
-             scoreTooltip = `Farm Score = (Elite × 10) + (Good × 5) + (Avg × 1) + Depth Bonus\n\n` +
-             `Elite (${pSys.tierCounts.elite}) × 10 = ${pSys.tierCounts.elite * 10}\n` +
-             `Good (${pSys.tierCounts.aboveAvg}) × 5 = ${pSys.tierCounts.aboveAvg * 5}\n` +
-             `Avg (${pSys.tierCounts.average}) × 1 = ${pSys.tierCounts.average}\n` +
-             `Depth Bonus (${pSys.tierCounts.fringe} prospects) = ${(pSys.totalWar - (pSys.tierCounts.elite * 10 + pSys.tierCounts.aboveAvg * 5 + pSys.tierCounts.average)).toFixed(0)}`;
-          } else {
-             const hSys = sys as HitterFarmSystemOverview;
-             scoreTooltip = `Farm Score = (Elite × 10) + (Good × 5) + (Avg × 1)\n\n` +
-             `Elite (${hSys.tierCounts.elite}) × 10 = ${hSys.tierCounts.elite * 10}\n` +
-             `Good (${hSys.tierCounts.aboveAvg}) × 5 = ${hSys.tierCounts.aboveAvg * 5}\n` +
-             `Avg (${hSys.tierCounts.average}) × 1 = ${hSys.tierCounts.average}`;
-          }
+          const scoreTooltip = `Farm Score = (Elite × 10) + (Gold × 5) + (Silver × 1)\n\n` +
+             `Elite (${tierCounts.elite}) × 10 = ${tierCounts.elite * 10}\n` +
+             `Gold (${tierCounts.aboveAvg}) × 5 = ${tierCounts.aboveAvg * 5}\n` +
+             `Silver (${tierCounts.average}) × 1 = ${tierCounts.average}`;
 
           const cells = this.systemsColumns.map(col => {
               switch (col.key) {
@@ -571,13 +569,13 @@ export class FarmRankingsView {
                   case 'topProspectName':
                       return `<td style="text-align: left;">${sys.topProspectName}</td>`;
                   case 'elite':
-                      return `<td style="text-align: center;">${sys.tierCounts.elite}</td>`;
+                      return `<td style="text-align: center;">${this.renderTierCountBadge(sys.tierCounts.elite, eliteThresh)}</td>`;
                   case 'aboveAvg':
-                      return `<td style="text-align: center;">${sys.tierCounts.aboveAvg}</td>`;
+                      return `<td style="text-align: center;">${this.renderTierCountBadge(sys.tierCounts.aboveAvg, aboveAvgThresh)}</td>`;
                   case 'average':
-                      return `<td style="text-align: center;">${sys.tierCounts.average}</td>`;
+                      return `<td style="text-align: center;">${this.renderTierCountBadge(sys.tierCounts.average, averageThresh)}</td>`;
                   case 'fringe':
-                      return `<td style="text-align: center;">${sys.tierCounts.fringe}</td>`;
+                      return `<td style="text-align: center; color: var(--color-text-muted);">${sys.tierCounts.fringe}</td>`;
                   default:
                       return `<td></td>`;
               }
@@ -764,77 +762,139 @@ export class FarmRankingsView {
           t.hittingDetails = s;
       });
 
-      // 2. Calculate Combined Score
+      // 2. Calculate Combined Stats
       const unifiedSystems = Array.from(teamMap.values()).map(t => {
           const pScore = t.pitchingDetails?.totalWar ?? 0;
           const hScore = t.hittingDetails?.totalScore ?? 0;
           const totalScore = pScore + hScore;
+
+          // Sum Tiers
+          const elite = (t.pitchingDetails?.tierCounts.elite ?? 0) + (t.hittingDetails?.tierCounts.elite ?? 0);
+          const aboveAvg = (t.pitchingDetails?.tierCounts.aboveAvg ?? 0) + (t.hittingDetails?.tierCounts.aboveAvg ?? 0);
+          const average = (t.pitchingDetails?.tierCounts.average ?? 0) + (t.hittingDetails?.tierCounts.average ?? 0);
+          const fringe = (t.pitchingDetails?.tierCounts.fringe ?? 0) + (t.hittingDetails?.tierCounts.fringe ?? 0);
+
+          // Determine Top Prospect
+          let topProspectName = 'N/A';
+          const pId = t.pitchingDetails?.topProspectId;
+          const hId = t.hittingDetails?.topProspectId;
           
+          if (pId && !hId) {
+              topProspectName = t.pitchingDetails!.topProspectName;
+          } else if (!pId && hId) {
+              topProspectName = t.hittingDetails!.topProspectName;
+          } else if (pId && hId) {
+              const pPercentile = this.getProspectPercentile(pId, true);
+              const hPercentile = this.getProspectPercentile(hId, false);
+              
+              // Tie goes to pitcher
+              if (pPercentile >= hPercentile) {
+                  topProspectName = t.pitchingDetails!.topProspectName;
+              } else {
+                  topProspectName = t.hittingDetails!.topProspectName;
+              }
+          }
+
           return {
               ...t,
               pScore,
               hScore,
-              totalScore
+              totalScore,
+              tierCounts: { elite, aboveAvg, average, fringe },
+              topProspectName
           };
       });
 
+      // Calculate dynamic thresholds based on current dataset
+      const eliteCounts = unifiedSystems.map(s => s.tierCounts.elite);
+      const aboveAvgCounts = unifiedSystems.map(s => s.tierCounts.aboveAvg);
+      const averageCounts = unifiedSystems.map(s => s.tierCounts.average);
+
+      const eliteThresh = this.getDynamicThresholds(eliteCounts);
+      const aboveAvgThresh = this.getDynamicThresholds(aboveAvgCounts);
+      const averageThresh = this.getDynamicThresholds(averageCounts);
+
       // 3. Sort
       unifiedSystems.sort((a, b) => {
-           let compare = 0;
-           if (this.systemsSortKey === 'teamName') {
-               compare = a.teamName.localeCompare(b.teamName);
-           } else if (this.systemsSortKey === 'pitchingScore') {
-               compare = a.pScore - b.pScore;
-           } else if (this.systemsSortKey === 'hittingScore') {
-                compare = a.hScore - b.hScore;
+           let aVal: any;
+           let bVal: any;
+
+           if (['elite', 'aboveAvg', 'average', 'fringe'].includes(this.systemsSortKey)) {
+             aVal = (a.tierCounts as any)[this.systemsSortKey];
+             bVal = (b.tierCounts as any)[this.systemsSortKey];
+           } else if (this.systemsSortKey === 'topProspectName') {
+             aVal = a.topProspectName;
+             bVal = b.topProspectName;
+           } else if (this.systemsSortKey === 'teamName') {
+             aVal = a.teamName;
+             bVal = b.teamName;
            } else {
-               // Default totalScore
-               compare = a.totalScore - b.totalScore;
+             // Default to totalScore if sorting by totalWar or unknown
+             aVal = a.totalScore;
+             bVal = b.totalScore;
+           }
+
+           let compare = 0;
+           if (typeof aVal === 'number' && typeof bVal === 'number') {
+             compare = aVal - bVal;
+           } else {
+             compare = String(aVal).localeCompare(String(bVal));
            }
            return this.systemsSortDirection === 'asc' ? compare : -compare;
       });
 
       // 4. Render Table
-      const columns = [
-          { key: 'rank', label: '#', width: '40px' },
-          { key: 'teamName', label: 'Organization', sortKey: 'teamName', width: '25%', align: 'left' },
-          { key: 'pitchingScore', label: 'Pitching', sortKey: 'pitchingScore', align: 'center' },
-          { key: 'hittingScore', label: 'Hitting', sortKey: 'hittingScore', align: 'center' },
-          { key: 'totalScore', label: 'Total', sortKey: 'totalScore', align: 'center' }
-      ];
-
-      const headerRow = columns.map(col => {
-          const isSorted = this.systemsSortKey === col.sortKey || (col.key === 'totalScore' && this.systemsSortKey === 'totalWar');
+      // Use the same columns as Single System view
+      const headerRow = this.systemsColumns.map(col => {
+          const isSorted = this.systemsSortKey === col.sortKey || (col.key === 'totalWar' && this.systemsSortKey === 'totalScore');
           const sortIcon = isSorted ? (this.systemsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
           const activeClass = isSorted ? 'sort-active' : '';
-          const align = col.align || 'center';
-          const style = `text-align: ${align}; ${col.width ? `width: ${col.width};` : ''}`;
+          const style = col.key === 'rank' ? 'width: 40px;' : (col.key === 'teamName' ? 'text-align: left;' : 'text-align: center;');
           const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
-          return `<th ${sortAttr} class="${activeClass}" style="${style}">${col.label}${sortIcon}</th>`;
+          const titleAttr = col.title ? `title="${col.title}"` : '';
+          
+          return `<th ${sortAttr} ${titleAttr} class="${activeClass}" style="${style}" draggable="true" data-col-key="${col.key}">${col.label}${sortIcon}</th>`;
       }).join('');
 
       const rows = unifiedSystems.map((sys, idx) => {
           const systemKey = `sys-unified-${sys.teamId}`;
-          const pCount = sys.pitchingDetails ? 
-              (sys.pitchingDetails.tierCounts.elite + sys.pitchingDetails.tierCounts.aboveAvg + sys.pitchingDetails.tierCounts.average + sys.pitchingDetails.tierCounts.fringe) 
-              : 0;
-          const hCount = sys.hittingDetails ? sys.hittingDetails.prospectCount : 0;
+          const scoreTooltip = `Pitching Score: ${sys.pScore.toFixed(0)}\nHitting Score: ${sys.hScore.toFixed(0)}`;
+
+          const cells = this.systemsColumns.map(col => {
+              switch (col.key) {
+                  case 'rank':
+                      return `<td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
+                  case 'teamName':
+                      return `
+                        <td style="font-weight: 600; text-align: left;">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
+                                ${sys.teamName}
+                            </div>
+                        </td>`;
+                  case 'totalWar':
+                       return `<td style="text-align: center;" title="${scoreTooltip}"><span class="badge ${this.getScoreClass(sys.totalScore)}">${sys.totalScore.toFixed(0)}</span></td>`;
+                  case 'topProspectName':
+                      return `<td style="text-align: left;">${sys.topProspectName}</td>`;
+                  case 'elite':
+                      return `<td style="text-align: center;">${this.renderTierCountBadge(sys.tierCounts.elite, eliteThresh)}</td>`;
+                  case 'aboveAvg':
+                      return `<td style="text-align: center;">${this.renderTierCountBadge(sys.tierCounts.aboveAvg, aboveAvgThresh)}</td>`;
+                  case 'average':
+                      return `<td style="text-align: center;">${this.renderTierCountBadge(sys.tierCounts.average, averageThresh)}</td>`;
+                  case 'fringe':
+                      return `<td style="text-align: center; color: var(--color-text-muted);">${sys.tierCounts.fringe}</td>`;
+                  default:
+                      return `<td></td>`;
+              }
+          }).join('');
 
           return `
             <tr class="system-row" data-system-key="${systemKey}" style="cursor: pointer;">
-                <td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>
-                <td style="font-weight: 600; text-align: left;">
-                    <div style="display: flex; align-items: center; gap: 0.5rem;">
-                        <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
-                        ${sys.teamName}
-                    </div>
-                </td>
-                <td style="text-align: center;">${this.renderSimpleScore(sys.pScore, pCount)}</td>
-                <td style="text-align: center;">${this.renderSimpleScore(sys.hScore, hCount)}</td>
-                <td style="text-align: center;"><span class="badge ${this.getScoreClass(sys.totalScore)}" style="font-size: 1.1em;">${sys.totalScore.toFixed(1)}</span></td>
+                ${cells}
             </tr>
             <tr id="details-${systemKey}" style="display: none; background-color: var(--color-surface-hover);">
-                <td colspan="${columns.length}" style="padding: 1rem;">
+                <td colspan="${this.systemsColumns.length}" style="padding: 1rem;">
                     <div style="max-height: 400px; overflow-y: auto;">
                         ${this.renderUnifiedSystemDetails(sys.teamId)}
                     </div>
@@ -850,21 +910,6 @@ export class FarmRankingsView {
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>
             </table>
-        </div>
-      `;
-  }
-
-  private renderSimpleScore(score: number, count?: number): string {
-      return `
-        <div class="flip-cell" style="width: auto; height: auto; min-width: 50px;">
-            <div class="flip-cell-inner">
-                <div class="flip-cell-front">
-                    <span class="badge ${this.getScoreClass(score)}">${score.toFixed(1)}</span>
-                </div>
-                <div class="flip-cell-back" style="background-color: var(--color-surface); padding: 2px 4px; border-radius: 4px; box-shadow: 0 0 4px rgba(0,0,0,0.5); left: 50%; translate: -50%;">
-                    <span class="badge rating-avg">${count || 0}</span>
-                </div>
-            </div>
         </div>
       `;
   }
@@ -2347,22 +2392,13 @@ export class FarmRankingsView {
       // Find hitter prospect data from our loaded data
       const hitterProspect = this.hitterData?.prospects.find(p => p.playerId === playerId);
 
-      // Estimate "True Ratings" from projected stats (what the projection system expects)
-      // These are derived from the projected stats, not the raw scouting ratings
-      const projPa = hitterProspect?.projPa ?? 500;
-      const estimatedPower = hitterProspect?.projIso
-          ? HitterRatingEstimatorService.estimatePower(hitterProspect.projIso, projPa).rating
-          : undefined;
-      const estimatedEye = hitterProspect?.projBbPct
-          ? HitterRatingEstimatorService.estimateEye(hitterProspect.projBbPct, projPa).rating
-          : undefined;
-      const estimatedAvoidK = hitterProspect?.projKPct
-          ? HitterRatingEstimatorService.estimateAvoidK(hitterProspect.projKPct, projPa).rating
-          : undefined;
-      // For Contact, estimate from AVG (Contact → AVG has r=0.97)
-      const estimatedContact = hitterProspect?.projAvg
-          ? HitterRatingEstimatorService.estimateContact(hitterProspect.projAvg, projPa).rating
-          : undefined;
+      // Use True Ratings - these are normalized from percentile rankings across all prospects
+      // They answer: "Where does this prospect rank among all prospects?" (20-80 scale)
+      // Scout might say 60 Power, but if that's only 35th percentile among prospects, True Power = 41
+      const estimatedPower = hitterProspect?.trueRatings.power;
+      const estimatedEye = hitterProspect?.trueRatings.eye;
+      const estimatedAvoidK = hitterProspect?.trueRatings.avoidK;
+      const estimatedContact = hitterProspect?.trueRatings.contact;
 
       // Build batter profile data
       const batterData: BatterProfileData = {
@@ -2403,6 +2439,9 @@ export class FarmRankingsView {
           projPa: hitterProspect?.projPa,
           projWar: hitterProspect?.projWar,
           projWrcPlus: hitterProspect?.wrcPlus,
+          projBbPct: hitterProspect?.projBbPct,
+          projKPct: hitterProspect?.projKPct,
+          projHrPct: hitterProspect?.projHrPct,
 
           // Mark as prospect for peak projection display
           isProspect: true,
@@ -2463,6 +2502,61 @@ export class FarmRankingsView {
           if (sys) return sys.teamName;
       }
       return 'Org';
+  }
+
+  private getProspectPercentile(playerId: number, isPitcher: boolean): number {
+    if (isPitcher && this.data) {
+      const p = this.data.prospects.find(p => p.playerId === playerId);
+      return p?.percentile ?? 0;
+    } else if (!isPitcher && this.hitterData) {
+      const p = this.hitterData.prospects.find(p => p.playerId === playerId);
+      return p?.percentile ?? 0;
+    }
+    return 0;
+  }
+
+  private getDynamicThresholds(values: number[]): { high: number; mid: number; low: number } {
+    if (values.length === 0) return { high: 0, mid: 0, low: 0 };
+    
+    // Sort ascending
+    const sorted = [...values].sort((a, b) => a - b);
+    
+    const getPercentileValue = (percentile: number) => {
+        if (percentile <= 0) return sorted[0];
+        if (percentile >= 1) return sorted[sorted.length - 1];
+        
+        const index = (sorted.length - 1) * percentile;
+        const lower = Math.floor(index);
+        const upper = Math.ceil(index);
+        const weight = index - lower;
+        
+        if (lower === upper) return sorted[lower];
+        return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+    };
+
+    // Thresholds:
+    // High (Elite Color): Top 15% (85th percentile)
+    // Mid (Good Color): Top 40% (60th percentile)
+    // Low (Avg Color): Top 75% (25th percentile)
+    // Below Low -> Fringe/Poor Color
+    
+    return {
+        high: Math.ceil(getPercentileValue(0.85)), 
+        mid: Math.ceil(getPercentileValue(0.60)),
+        low: Math.ceil(getPercentileValue(0.25))
+    };
+  }
+
+  private renderTierCountBadge(count: number, thresholds: { high: number; mid: number; low: number }): string {
+      if (count === 0) return `<span class="badge" style="background-color: transparent; color: var(--color-text-muted); box-shadow: none;">0</span>`;
+      
+      let className = 'rating-fringe'; // Default for bottom tier
+      
+      if (count >= thresholds.high) className = 'rating-elite';
+      else if (count >= thresholds.mid) className = 'rating-plus';
+      else if (count >= thresholds.low) className = 'rating-avg';
+      
+      return `<span class="badge ${className}">${count}</span>`;
   }
 
   /**

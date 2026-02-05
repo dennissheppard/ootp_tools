@@ -41,6 +41,11 @@ export interface HitterTrueFutureRatingResult {
   powerPercentile: number;
   /** Percentile rank for Contact component (0-100) */
   contactPercentile: number;
+  /** True ratings - normalized from percentiles (20-80 scale) */
+  trueEye: number;
+  trueAvoidK: number;
+  truePower: number;
+  trueContact: number;
   /** Scouting-expected rates */
   scoutBbPct: number;
   scoutKPct: number;
@@ -813,6 +818,13 @@ class HitterTrueFutureRatingService {
       const percentile = n > 1 ? ((n - index - 1) / (n - 1)) * 100 : 50;
       const trueFutureRating = this.percentileToRating(percentile);
 
+      // Calculate true ratings from percentiles: rating = 20 + (percentile / 100) * 60
+      // This normalizes across all prospects - 50th percentile = 50 rating
+      const trueEye = Math.round(20 + (result.eyePercentile / 100) * 60);
+      const trueAvoidK = Math.round(20 + (result.avoidKPercentile / 100) * 60);
+      const truePower = Math.round(20 + (result.powerPercentile / 100) * 60);
+      const trueContact = Math.round(20 + (result.contactPercentile / 100) * 60);
+
       return {
         playerId: result.playerId,
         playerName: result.playerName,
@@ -821,6 +833,10 @@ class HitterTrueFutureRatingService {
         avoidKPercentile: result.avoidKPercentile,
         powerPercentile: result.powerPercentile,
         contactPercentile: result.contactPercentile,
+        trueEye,
+        trueAvoidK,
+        truePower,
+        trueContact,
         scoutBbPct: result.scoutBbPct,
         scoutKPct: result.scoutKPct,
         scoutHrPct: result.scoutHrPct,

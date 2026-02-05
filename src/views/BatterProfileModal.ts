@@ -67,6 +67,7 @@ export interface BatterProfileData {
   projWrcPlus?: number;
   projBbPct?: number;
   projKPct?: number;
+  projHrPct?: number;
 
   // TFR for prospects
   isProspect?: boolean;
@@ -778,15 +779,18 @@ export class BatterProfileModal {
     const injuryProneness = this.scoutingData?.injuryProneness ?? data.injuryProneness;
     const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
 
-    // Calculate projected HR from HR% if we have power rating, otherwise estimate from ISO
+    // Calculate projected HR from HR%
     let projHr: number;
     if (data.projHr !== undefined) {
       projHr = data.projHr;
+    } else if (data.projHrPct !== undefined) {
+      // Use projected HR% directly (most accurate for prospects)
+      projHr = Math.round(projPa * (data.projHrPct / 100));
     } else if (data.estimatedPower !== undefined) {
-      const projHrPct = HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
-      projHr = Math.round(projPa * (projHrPct / 100));
+      const derivedHrPct = HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
+      projHr = Math.round(projPa * (derivedHrPct / 100));
     } else {
-      projHr = Math.round((projSlg - projAvg) * 100); // Fallback: estimate from ISO
+      projHr = Math.round((projSlg - projAvg) * 100); // Fallback: rough estimate from SLG-AVG
     }
 
     const projSb = Math.round((this.scoutingData?.speed ?? 50) / 10); // SB estimate from speed
@@ -887,6 +891,48 @@ export class BatterProfileModal {
     const hasScout = s !== null;
     const hasAlternative = this.hasMyScout && this.hasOsaScout;
 
+    // Check if we have any estimated ratings (performance-derived)
+    const hasEstimatedRatings = data.estimatedContact !== undefined ||
+                                 data.estimatedPower !== undefined ||
+                                 data.estimatedEye !== undefined ||
+                                 data.estimatedAvoidK !== undefined;
+
+    // For prospects without estimated ratings, just show scout opinions
+    if (hasScout && !hasEstimatedRatings) {
+      let headerLabel = '';
+      if (hasAlternative) {
+        const activeSource = this.scoutingIsOsa ? 'osa' : 'my';
+        headerLabel = `
+          <div class="scout-header-toggle custom-dropdown">
+            <span class="dropdown-trigger" data-player-id="${data.playerId}">${activeSource === 'my' ? 'My' : 'OSA'}</span>
+            <div class="dropdown-menu">
+              <div class="dropdown-item ${activeSource === 'my' ? 'active' : ''}" data-value="my">My</div>
+              <div class="dropdown-item ${activeSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
+            </div>
+          </div>
+          Scout Ratings`;
+      } else {
+        const sourceLabel = this.scoutingIsOsa ? 'OSA' : 'My Scout';
+        const sourceBadgeClass = this.scoutingIsOsa ? 'osa' : 'my';
+        headerLabel = `<span class="source-badge ${sourceBadgeClass}">${sourceLabel}</span> Scout Ratings`;
+      }
+
+      return `
+        <div class="ratings-comparison">
+          <div class="rating-row rating-row-header">
+            <span class="rating-label"></span>
+            <div class="rating-bars">
+              <span class="bar-header">${headerLabel}</span>
+            </div>
+          </div>
+          ${this.renderRatingBar('Contact', s.contact ?? 50)}
+          ${this.renderRatingBar('Power', s.power)}
+          ${this.renderRatingBar('Eye', s.eye)}
+          ${this.renderRatingBar('Avoid K', s.avoidK)}
+        </div>
+      `;
+    }
+
     if (!hasScout) {
       return `
         <div class="ratings-comparison">
@@ -929,7 +975,7 @@ export class BatterProfileModal {
           <span class="rating-label"></span>
           <div class="rating-bars">
             <div class="rating-bars-left">
-              <span class="bar-header" title="Derived from performance data and advanced metrics" style="cursor: help;">True Ratings</span>
+              <span class="bar-header" title="Normalized ratings based on percentile rank among all prospects/players" style="cursor: help;">True Ratings</span>
             </div>
             <div class="rating-bars-center">
               <span class="bar-vs"></span>

@@ -51,6 +51,7 @@ export interface RatedProspect {
     projBb9?: number;
     projHr9?: number;
     percentile?: number;
+    percentileRank?: number;
     stuffPercentile?: number;
     controlPercentile?: number;
     hraPercentile?: number;
@@ -122,9 +123,12 @@ export interface RatedHitterProspect {
     projWoba: number;
     /** Percentile rank among hitter prospects */
     percentile: number;
+    /** Global rank among hitter prospects (1-based) */
+    percentileRank?: number;
     /** Projected rate stats */
     projBbPct: number;
     projKPct: number;
+    projHrPct: number;
     projIso: number;
     projAvg: number;
     /** Derived rate stats */
@@ -151,6 +155,13 @@ export interface RatedHitterProspect {
         speed: number;
         ovr: number;
         pot: number;
+    };
+    /** True ratings - normalized from percentiles across all prospects (20-80 scale) */
+    trueRatings: {
+        power: number;
+        eye: number;
+        avoidK: number;
+        contact: number;
     };
     /** Position */
     position: number;
@@ -371,35 +382,28 @@ class TeamRatingsService {
               return prev;
           });
 
-          // Tiers - bucket prospects by True Future Rating
+          // Tiers - bucket prospects by global rank
           const tierCounts = {
-              elite: 0,       // TFR >= 4.5
-              aboveAvg: 0,    // TFR 3.5-4.4
-              average: 0,     // TFR 2.5-3.4
-              fringe: 0       // TFR < 2.5 (Depth)
+              elite: 0,       // Top 100 (ranks 1-100)
+              aboveAvg: 0,    // Next 200 (ranks 101-300)
+              average: 0,     // Next 200 (ranks 301-500)
+              fringe: 0       // Rest (ranks 501+)
           };
 
           allOrgProspects.forEach(p => {
-              if (p.trueFutureRating >= 4.5) tierCounts.elite++;
-              else if (p.trueFutureRating >= 3.5) tierCounts.aboveAvg++;
-              else if (p.trueFutureRating >= 2.5) tierCounts.average++;
+              const rank = p.percentileRank || 9999;
+              if (rank <= 100) tierCounts.elite++;
+              else if (rank <= 300) tierCounts.aboveAvg++;
+              else if (rank <= 500) tierCounts.average++;
               else tierCounts.fringe++;
           });
 
-          // Calculate Farm Score based on tier counts (out of 100)
+          // Calculate Farm Score based on tier counts
           // Elite: 10 pts each, Good: 5 pts each, Avg: 1 pt each
-          // Depth (Fringe): scaled based on count
-          const eliteScore = tierCounts.elite * 10;
-          const goodScore = tierCounts.aboveAvg * 5;
-          const avgScore = tierCounts.average * 1;
-
-          let depthScore = 0;
-          if (tierCounts.fringe < 10) depthScore = 0;
-          else if (tierCounts.fringe < 15) depthScore = 2;
-          else if (tierCounts.fringe < 25) depthScore = 4;
-          else depthScore = 5;
-
-          const totalWar = eliteScore + goodScore + avgScore + depthScore;
+          // No points for depth/fringe
+          const totalWar = (tierCounts.elite * 10) + 
+                           (tierCounts.aboveAvg * 5) + 
+                           (tierCounts.average * 1);
 
           systems.push({
               teamId: orgId,
@@ -421,6 +425,11 @@ class TeamRatingsService {
               return b.trueFutureRating - a.trueFutureRating;
           }
           return b.peakWar - a.peakWar;
+      });
+
+      // Assign percentile ranks (1-based) after sorting
+      sortedProspects.forEach((prospect, index) => {
+          prospect.percentileRank = index + 1;
       });
 
       return {
@@ -553,6 +562,7 @@ class TeamRatingsService {
               projWoba: tfr.projWoba,
               projBbPct: tfr.projBbPct,
               projKPct: tfr.projKPct,
+              projHrPct: tfr.projHrPct,
               projIso: tfr.projIso,
               projAvg: tfr.projAvg,
               projObp: Math.round(projObp * 1000) / 1000,
@@ -573,6 +583,12 @@ class TeamRatingsService {
                   ovr: scouting.ovr,
                   pot: scouting.pot,
               },
+              trueRatings: {
+                  power: tfr.truePower,
+                  eye: tfr.trueEye,
+                  avoidK: tfr.trueAvoidK,
+                  contact: tfr.trueContact,
+              },
               position: player.position,
           };
 
@@ -582,6 +598,16 @@ class TeamRatingsService {
               orgGroups.set(orgId, []);
           }
           orgGroups.get(orgId)!.push(prospect);
+      });
+
+      // Sort all prospects by percentile and assign global ranks
+      allProspects.sort((a, b) => {
+          if (b.percentile !== a.percentile) return b.percentile - a.percentile;
+          return b.trueFutureRating - a.trueFutureRating;
+      });
+
+      allProspects.forEach((prospect, index) => {
+          prospect.percentileRank = index + 1;
       });
 
       // Generate reports and system overviews
@@ -598,18 +624,19 @@ class TeamRatingsService {
               return b.trueFutureRating - a.trueFutureRating;
           });
 
-          // Calculate score (similar to pitcher farm score)
+          // Calculate score using global rank buckets
           const tierCounts = {
-              elite: 0,
-              aboveAvg: 0,
-              average: 0,
-              fringe: 0
+              elite: 0,       // Top 100 (ranks 1-100)
+              aboveAvg: 0,    // Next 200 (ranks 101-300)
+              average: 0,     // Next 200 (ranks 301-500)
+              fringe: 0       // Rest (ranks 501+)
           };
 
           prospects.forEach(p => {
-              if (p.trueFutureRating >= 4.5) tierCounts.elite++;
-              else if (p.trueFutureRating >= 3.5) tierCounts.aboveAvg++;
-              else if (p.trueFutureRating >= 2.5) tierCounts.average++;
+              const rank = p.percentileRank || 9999;
+              if (rank <= 100) tierCounts.elite++;
+              else if (rank <= 300) tierCounts.aboveAvg++;
+              else if (rank <= 500) tierCounts.average++;
               else tierCounts.fringe++;
           });
 
@@ -634,16 +661,11 @@ class TeamRatingsService {
           });
       });
 
-      // Sort prospects by percentile
-      const sortedProspects = allProspects.sort((a, b) => {
-          if (b.percentile !== a.percentile) return b.percentile - a.percentile;
-          return b.trueFutureRating - a.trueFutureRating;
-      });
-
+      // allProspects already sorted and ranked above
       return {
           reports: reports.sort((a, b) => b.totalScore - a.totalScore),
           systems: systems.sort((a, b) => b.totalScore - a.totalScore),
-          prospects: sortedProspects,
+          prospects: allProspects,
       };
   }
 
