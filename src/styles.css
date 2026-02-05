@@ -2484,7 +2484,7 @@ td:hover .stat-tooltip {
 
 /* Player Profile Modal */
 .modal-lg {
-  width: min(735px, 95vw);
+  width: min(775px, 95vw);
 }
 
 /* Draggable modal */
@@ -5704,7 +5704,8 @@ td:hover .stat-tooltip {
    ============================================================================= */
 
 .batter-profile-modal .modal-lg {
-  max-width: 880px;
+  width: min(920px, 95vw);
+  max-width: 920px;
 }
 
 .batter-profile-modal .profile-header {
