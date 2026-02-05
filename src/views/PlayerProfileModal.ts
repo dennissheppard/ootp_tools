@@ -819,63 +819,55 @@ export class PlayerProfileModal {
         : `${yearDisplay} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>${confidenceWarning}`;
       const note = isProspect
         ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance.'
-        : '* Projection based on prior year True Ratings. Delta = Projected - Actual. Hover cells to show ratings.';
-
-      const formatDelta = (projVal: number, actVal: number) => {
-          const delta = projVal - actVal;
-          const sign = delta > 0 ? '+' : '';
-          if (Math.abs(delta) < 0.01) return `<span class="stat-delta">(0.00)</span>`;
-
-          const percentDiff = projVal !== 0 ? Math.abs(delta / projVal) * 100 : 0;
-          let className = 'diff-positive';
-          if (percentDiff > 15) {
-              className = 'diff-negative';
-          } else if (percentDiff > 10) {
-              className = 'diff-neutral';
-          }
-          return `<span class="stat-delta ${className}">(${sign}${delta.toFixed(2)})</span>`;
-      };
-
-      const k9Delta = comparison ? formatDelta(s.k9, comparison.k9) : '';
-      const bb9Delta = comparison ? formatDelta(s.bb9, comparison.bb9) : '';
-      const hr9Delta = comparison ? formatDelta(s.hr9, comparison.hr9) : '';
-      const ipDelta = comparison ? formatDelta(s.ip, comparison.ip) : '';
+        : '* Projection based on prior year True Ratings. Hover cells to show ratings.';
 
       const k9ProjFlip = this.renderFlipCell(s.k9.toFixed(2), this.clampRatingForDisplay(r.stuff).toString(), 'Projected True Stuff');
       const bb9ProjFlip = this.renderFlipCell(s.bb9.toFixed(2), this.clampRatingForDisplay(r.control).toString(), 'Projected True Control');
       const hr9ProjFlip = this.renderFlipCell(s.hr9.toFixed(2), this.clampRatingForDisplay(r.hra).toString(), 'Projected True HRA');
 
-      let comparisonHtml = '';
+      // Actual Stats Row (Target Year)
+      let actualStatsHtml = '';
+      const actualStatRow = this.currentMlbStats.find(s => s.year === projectedYear);
+      
+      if (actualStatRow) {
+          const k9 = actualStatRow.k9.toFixed(2);
+          const bb9 = actualStatRow.bb9.toFixed(2);
+          const hr9 = actualStatRow.hr9.toFixed(2);
+          const fip = actualStatRow.fip.toFixed(2);
+          const war = actualStatRow.war.toFixed(1);
+          const ip = actualStatRow.ip.toFixed(0);
+
+          const actStuff = RatingEstimatorService.estimateStuff(actualStatRow.k9, actualStatRow.ip).rating;
+          const actControl = RatingEstimatorService.estimateControl(actualStatRow.bb9, actualStatRow.ip).rating;
+          const actHra = RatingEstimatorService.estimateHRA(actualStatRow.hr9, actualStatRow.ip).rating;
+
+          const k9ActFlip = this.renderFlipCell(k9, this.clampRatingForDisplay(actStuff).toString(), 'Estimated Stuff (Actual)');
+          const bb9ActFlip = this.renderFlipCell(bb9, this.clampRatingForDisplay(actControl).toString(), 'Estimated Control (Actual)');
+          const hr9ActFlip = this.renderFlipCell(hr9, this.clampRatingForDisplay(actHra).toString(), 'Estimated HRA (Actual)');
+
+          actualStatsHtml = `
+            <tr style="border-top: 1px solid var(--color-border);">
+                <td style="font-weight: bold; color: var(--color-text-muted); padding: 0.625rem 0.15rem;">Actual (${projectedYear})</td>
+                <td style="text-align: center; padding: 0.625rem 0.15rem;">${ip}</td>
+                <td style="text-align: center; padding: 0.625rem 0.15rem;">${fip}</td>
+                <td style="text-align: center; padding: 0.625rem 0.15rem;">${k9ActFlip}</td>
+                <td style="text-align: center; padding: 0.625rem 0.15rem;">${bb9ActFlip}</td>
+                <td style="text-align: center; padding: 0.625rem 0.15rem;">${hr9ActFlip}</td>
+                <td style="text-align: center; padding: 0.625rem 0.15rem;">${war}</td>
+            </tr>
+          `;
+      }
+
+      let accuracyHtml = '';
       if (comparison) {
           const gradeClass = comparison.grade === 'A' ? 'rating-elite' : comparison.grade === 'B' ? 'rating-plus' : comparison.grade === 'C' ? 'rating-avg' : comparison.grade === 'D' ? 'rating-fringe' : 'rating-poor';
           const diffText = comparison.diff > 0 ? `+${comparison.diff.toFixed(2)}` : comparison.diff.toFixed(2);
           
-          const actStuff = RatingEstimatorService.estimateStuff(comparison.k9, comparison.ip).rating;
-          const actControl = RatingEstimatorService.estimateControl(comparison.bb9, comparison.ip).rating;
-          const actHra = RatingEstimatorService.estimateHRA(comparison.hr9, comparison.ip).rating;
-
-          const k9ActFlip = this.renderFlipCell(comparison.k9.toFixed(2), this.clampRatingForDisplay(actStuff).toString(), 'Estimated Stuff (Snapshot)');
-          const bb9ActFlip = this.renderFlipCell(comparison.bb9.toFixed(2), this.clampRatingForDisplay(actControl).toString(), 'Estimated Control (Snapshot)');
-          const hr9ActFlip = this.renderFlipCell(comparison.hr9.toFixed(2), this.clampRatingForDisplay(actHra).toString(), 'Estimated HRA (Snapshot)');
-
-          comparisonHtml = `
-            <tr style="border-top: 1px solid var(--color-border);">
-                <td style="font-weight: bold; color: var(--color-text-muted); padding: 0.625rem 0.15rem;">Actual (${projectedYear})</td>
-                <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${comparison.ip.toFixed(0)}</td>
-                <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
-                <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem; width: 60px;">${comparison.fip.toFixed(2)}</td>
-                <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${k9ActFlip}</td>
-                <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
-                <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${bb9ActFlip}</td>
-                <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
-                <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${hr9ActFlip}</td>
-                <td style="padding: 0.625rem 0.15rem; width: 55px;"></td>
-                <td style="text-align: center; padding: 0.625rem 0.15rem; width: 50px;">${comparison.war.toFixed(1)}</td>
-            </tr>
+          accuracyHtml = `
             <tr>
-                <td colspan="3" style="text-align: right; color: var(--color-text-muted); font-size: 0.85em; padding-right: 1rem;">Projection Accuracy:</td>
-                <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem;">${diffText} <span style="font-size: 0.8em; font-weight: normal; color: var(--color-text-muted);">(&Delta;FIP)</span></td>
-                <td colspan="6"></td>
+                <td style="text-align: right; color: var(--color-text-muted); font-size: 0.85em; padding-right: 1rem;">Accuracy:</td>
+                <td colspan="2" style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem;">${diffText} <span style="font-size: 0.8em; font-weight: normal; color: var(--color-text-muted);">(&Delta;FIP)</span></td>
+                <td colspan="3"></td>
                 <td style="text-align: center; padding: 0.625rem 0.15rem;"><span class="badge ${gradeClass}" style="min-width: 24px;">${comparison.grade}</span></td>
             </tr>
           `;
@@ -885,33 +877,30 @@ export class PlayerProfileModal {
         <div class="projection-section" style="margin-top: 1.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
             <h4 style="margin-bottom: 0.5rem; color: var(--color-text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">${title}</h4>
             <div class="stats-table-container">
-                <table class="stats-table">
+                <table class="stats-table" style="table-layout: fixed;">
                     <thead>
                         <tr>
-                            <th style="text-align: left; padding: 0.625rem 0.15rem;"></th>
-                            <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">IP</th>
-                            <th style="text-align: center; padding: 0.625rem 0.15rem;">FIP</th>
-                            <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">K/9</th>
-                            <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">BB/9</th>
-                            <th colspan="2" style="text-align: center; padding: 0.625rem 0.15rem;">HR/9</th>
-                            <th style="text-align: center; padding: 0.625rem 0.15rem;">WAR</th>
+                            <th style="text-align: left; padding: 0.625rem 0.15rem; width: 100px;"></th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem; width: 60px;">IP</th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem; width: 60px;">FIP</th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem; width: 60px;">K/9</th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem; width: 60px;">BB/9</th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem; width: 60px;">HR/9</th>
+                            <th style="text-align: center; padding: 0.625rem 0.15rem; width: 60px;">WAR</th>
                         </tr>
                     </thead>
                     <tbody>
                         <tr style="background-color: rgba(var(--color-primary-rgb), 0.1);">
-                            <td style="font-weight: bold; color: var(--color-primary); padding: 0.625rem 0.15rem; width: 100px;">Proj</td>
-                            <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${s.ip.toFixed(0)}</td>
-                            <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${ipDelta}</td>
-                            <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem; width: 60px;">${s.fip.toFixed(2)}</td>
-                            <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${k9ProjFlip}</td>
-                            <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${k9Delta}</td>
-                            <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${bb9ProjFlip}</td>
-                            <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${bb9Delta}</td>
-                            <td style="text-align: right; padding: 0.625rem 0.15rem; width: 45px;">${hr9ProjFlip}</td>
-                            <td style="text-align: left; padding: 0.625rem 0.15rem; font-size: 0.85em; width: 55px;">${hr9Delta}</td>
-                            <td style="text-align: center; padding: 0.625rem 0.15rem; width: 50px;">${s.war.toFixed(1)}</td>
+                            <td style="font-weight: bold; color: var(--color-primary); padding: 0.625rem 0.15rem;">Proj</td>
+                            <td style="text-align: center; padding: 0.625rem 0.15rem;">${s.ip.toFixed(0)}</td>
+                            <td style="font-weight: bold; text-align: center; padding: 0.625rem 0.15rem;">${s.fip.toFixed(2)}</td>
+                            <td style="text-align: center; padding: 0.625rem 0.15rem;">${k9ProjFlip}</td>
+                            <td style="text-align: center; padding: 0.625rem 0.15rem;">${bb9ProjFlip}</td>
+                            <td style="text-align: center; padding: 0.625rem 0.15rem;">${hr9ProjFlip}</td>
+                            <td style="text-align: center; padding: 0.625rem 0.15rem;">${s.war.toFixed(1)}</td>
                         </tr>
-                        ${comparisonHtml}
+                        ${actualStatsHtml}
+                        ${accuracyHtml}
                     </tbody>
                 </table>
                 <div style="font-size: 0.8em; color: var(--color-text-muted); margin-top: 0.5rem;">
@@ -924,9 +913,9 @@ export class PlayerProfileModal {
 
   private renderFlipCell(front: string, back: string, title: string): string {
     return `
-      <div class="flip-cell">
+      <div class="flip-cell" style="margin: 0 auto;">
         <div class="flip-cell-inner">
-          <div class="flip-cell-front">${front}</div>
+          <div class="flip-cell-front" style="justify-content: center;">${front}</div>
           <div class="flip-cell-back">
             ${back}
             <span class="flip-tooltip">${title}</span>
