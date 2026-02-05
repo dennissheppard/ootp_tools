@@ -32,8 +32,7 @@ interface ImprovementRow {
 export class TeamRatingsView {
   private container: HTMLElement;
   private selectedYear: number = 2020;
-  private viewMode: 'projected' | 'all-time' | 'year' | 'power-rankings' = 'power-rankings';
-  private displayMode: 'table' | 'dashboard' = 'dashboard';
+  private viewMode: 'projected' | 'power-rankings' = 'power-rankings';
   private results: TeamRatingResult[] = [];
   private powerRankings: TeamPowerRanking[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
@@ -45,16 +44,44 @@ export class TeamRatingsView {
   private isDraggingColumn = false;
   private teamColumnOrder: Record<'rotation' | 'bullpen', string[]> = { rotation: [], bullpen: [] };
   private teamSortState: Map<string, { key: string; direction: 'asc' | 'desc' }> = new Map();
-  private lastSelectedYear = this.selectedYear;
-  private allTimeResults: TeamRatingResult[] | null = null;
   private projectedBaselineResults: TeamRatingResult[] | null = null;
+  private projectionsSortKey: string = 'total';
+  private projectionsSortDirection: 'asc' | 'desc' = 'desc';
+  private projectionsColumns: Array<{ key: string; label: string; sortKey?: string; title?: string }> = [
+    { key: 'rank', label: '#' },
+    { key: 'teamName', label: 'Team' },
+    { key: 'total', label: 'Total', sortKey: 'total', title: 'Weighted Total: 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench' },
+    { key: 'rotation', label: 'Rotation', sortKey: 'rotation' },
+    { key: 'lineup', label: 'Lineup', sortKey: 'lineup' },
+    { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen' },
+    { key: 'bench', label: 'Bench', sortKey: 'bench' }
+  ];
+  private powerRankingsSortKey: string = 'teamRating';
+  private powerRankingsSortDirection: 'asc' | 'desc' = 'desc';
+  private powerRankingsColumns: Array<{ key: string; label: string; sortKey?: string; title?: string }> = [
+    { key: 'rank', label: '#' },
+    { key: 'teamName', label: 'Team' },
+    { key: 'teamRating', label: 'Team Rating', sortKey: 'teamRating', title: '30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench' },
+    { key: 'rotation', label: 'Rotation', sortKey: 'rotation' },
+    { key: 'lineup', label: 'Lineup', sortKey: 'lineup' },
+    { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen' },
+    { key: 'bench', label: 'Bench', sortKey: 'bench' }
+  ];
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.playerProfileModal = new PlayerProfileModal();
     this.batterProfileModal = new BatterProfileModal();
+    this.init();
+  }
+
+  private async init(): Promise<void> {
+    // Load current game year first so we can default to it
+    await this.loadCurrentGameYear();
+    if (this.currentGameYear !== null) {
+      this.selectedYear = this.currentGameYear;
+    }
     this.renderLayout();
-    this.loadCurrentGameYear();
     this.loadData();
   }
 
@@ -64,39 +91,42 @@ export class TeamRatingsView {
         <h2 class="view-title">Team Ratings</h2>
 
         <div class="true-ratings-controls">
-          <div class="form-field">
-            <label>Mode:</label>
-            <div class="toggle-group" role="group" aria-label="View mode">
-              <button class="toggle-btn active" data-view-mode="power-rankings" aria-pressed="true">Power Rankings</button>
-              <button class="toggle-btn" data-view-mode="projected" aria-pressed="false">Projections</button>
-              <button class="toggle-btn" data-view-mode="year" aria-pressed="false">By Year</button>
-            </div>
-          </div>
-          <div class="form-field" id="display-mode-field">
-            <label>View:</label>
-            <div class="toggle-group" role="group" aria-label="Display mode">
-              <button class="toggle-btn" data-display-mode="table" aria-pressed="false">Table</button>
-              <button class="toggle-btn active" data-display-mode="dashboard" aria-pressed="true">Dashboard</button>
-            </div>
-          </div>
-          <div class="form-field" id="year-selector-field">
-            <label for="team-ratings-year">Year:</label>
-            <select id="team-ratings-year">
-              ${this.yearOptions.map(year => `<option value="${year}" ${year === this.selectedYear ? 'selected' : ''}>${year}</option>`).join('')}
-            </select>
-          </div>
-        </div>
+          <div class="filter-bar">
+            <label>Filters:</label>
+            <div class="filter-group" role="group" aria-label="Team ratings filters">
+              <!-- Year Dropdown -->
+              <div class="filter-dropdown" data-filter="year">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Year: <span id="selected-year-display">${this.selectedYear}</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="year-dropdown-menu">
+                  ${this.yearOptions.map(year => `
+                    <div class="filter-dropdown-item ${year === this.selectedYear ? 'selected' : ''}"
+                         data-value="${year}">${year}</div>
+                  `).join('')}
+                </div>
+              </div>
 
-        <div id="view-notice" style="display: none; margin-bottom: 1rem; padding: 0.5rem; background: rgba(var(--color-primary-rgb), 0.1); border-radius: 4px; border: 1px solid rgba(var(--color-primary-rgb), 0.2);">
-            <strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'By Year' to show current team ratings.
+              <!-- Mode Toggle Buttons -->
+              <button class="toggle-btn ${this.viewMode === 'power-rankings' ? 'active' : ''}"
+                      data-view-mode="power-rankings"
+                      aria-pressed="${this.viewMode === 'power-rankings'}">
+                Power Rankings
+              </button>
+              <button class="toggle-btn ${this.viewMode === 'projected' ? 'active' : ''}"
+                      data-view-mode="projected"
+                      aria-pressed="${this.viewMode === 'projected'}">
+                Projections
+              </button>
+            </div>
+          </div>
         </div>
 
         <div class="team-ratings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
             <div id="rotation-rankings">
-                ${this.renderTeamLoadingState('Top Rotations')}
+                ${this.renderTableLoadingState()}
             </div>
             <div id="bullpen-rankings">
-                ${this.renderTeamLoadingState('Top Bullpens')}
             </div>
         </div>
 
@@ -108,80 +138,105 @@ export class TeamRatingsView {
   }
 
   private bindEvents(): void {
-    this.container.querySelector('#team-ratings-year')?.addEventListener('change', (e) => {
-      this.selectedYear = parseInt((e.target as HTMLSelectElement).value, 10);
-      this.lastSelectedYear = this.selectedYear;
-      this.updateViewNotice();
-      this.showLoadingState();
-      this.loadData();
+    // Year dropdown toggle (open/close)
+    this.container.querySelectorAll('.filter-dropdown-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dropdown = btn.closest('.filter-dropdown');
+
+        // Close other dropdowns
+        this.container.querySelectorAll('.filter-dropdown').forEach(d => {
+          if (d !== dropdown) {
+            d.classList.remove('open');
+          }
+        });
+
+        // Toggle this dropdown
+        dropdown?.classList.toggle('open');
+      });
     });
 
+    // Close dropdowns when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('.filter-dropdown')) {
+        this.container.querySelectorAll('.filter-dropdown').forEach(d => {
+          d.classList.remove('open');
+        });
+      }
+    });
+
+    // Year dropdown item selection
+    this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const year = (e.target as HTMLElement).dataset.value;
+        if (!year) return;
+
+        this.selectedYear = parseInt(year, 10);
+
+        // Update display
+        const displaySpan = this.container.querySelector('#selected-year-display');
+        if (displaySpan) {
+          displaySpan.textContent = year;
+        }
+
+        // Update selected state
+        this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(i =>
+          i.classList.remove('selected')
+        );
+        (e.target as HTMLElement).classList.add('selected');
+
+        // Close dropdown
+        (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+        // Reload data
+        this.showLoadingState();
+        this.loadData();
+      });
+    });
+
+    // Mode toggle buttons
     this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const mode = (e.target as HTMLElement).dataset.viewMode as 'projected' | 'all-time' | 'year' | 'power-rankings';
-            if (mode === this.viewMode) return;
+      btn.addEventListener('click', (e) => {
+        const mode = (e.target as HTMLElement).dataset.viewMode as 'projected' | 'power-rankings';
+        if (mode === this.viewMode) return;
 
-            this.viewMode = mode;
-            this.teamSortState.clear();
+        this.viewMode = mode;
+        this.teamSortState.clear();
 
-            // If switching to projections, force latest year (2020)
-            if (this.viewMode === 'projected') {
-                this.selectedYear = 2020;
-                const yearSelect = this.container.querySelector<HTMLSelectElement>('#team-ratings-year');
-                if (yearSelect) yearSelect.value = '2020';
-            }
+        // If switching to projections, force current game year
+        if (this.viewMode === 'projected' && this.currentGameYear !== null) {
+          this.selectedYear = this.currentGameYear;
+          const displaySpan = this.container.querySelector('#selected-year-display');
+          if (displaySpan) displaySpan.textContent = String(this.currentGameYear);
+        }
 
-            if (this.viewMode === 'year' || this.viewMode === 'power-rankings') {
-                this.selectedYear = this.lastSelectedYear;
-                const yearSelect = this.container.querySelector<HTMLSelectElement>('#team-ratings-year');
-                if (yearSelect) yearSelect.value = String(this.selectedYear);
-            }
-
-            this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
-                const b = btn as HTMLElement;
-                const isActive = b.dataset.viewMode === mode;
-                b.classList.toggle('active', isActive);
-                b.setAttribute('aria-pressed', String(isActive));
-            });
-
-            this.updateViewNotice();
-            this.showLoadingState();
-            this.loadData();
+        // Update button active states
+        this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
+          const b = btn as HTMLElement;
+          const isActive = b.dataset.viewMode === mode;
+          b.classList.toggle('active', isActive);
+          b.setAttribute('aria-pressed', String(isActive));
         });
-    });
 
-    // Display mode toggle (Table vs Dashboard)
-    this.container.querySelectorAll('[data-display-mode]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-            const mode = (e.target as HTMLElement).dataset.displayMode as 'table' | 'dashboard';
-            if (mode === this.displayMode) return;
-
-            this.displayMode = mode;
-
-            this.container.querySelectorAll('[data-display-mode]').forEach(btn => {
-                const b = btn as HTMLElement;
-                const isActive = b.dataset.displayMode === mode;
-                b.classList.toggle('active', isActive);
-                b.setAttribute('aria-pressed', String(isActive));
-            });
-
-            // Re-render with new display mode
-            this.renderLists();
-        });
+        this.showLoadingState();
+        this.loadData();
+      });
     });
   }
 
   private showLoadingState(): void {
-      const rotContainer = this.container.querySelector('#rotation-rankings');
+      const rotContainer = this.container.querySelector<HTMLElement>('#rotation-rankings');
       const penContainer = this.container.querySelector('#bullpen-rankings');
       const improvements = this.container.querySelector<HTMLElement>('#projected-improvements');
 
       if (rotContainer) {
-          rotContainer.innerHTML = this.renderTeamLoadingState('Top Rotations');
+          // Make container span full width of grid
+          rotContainer.style.gridColumn = '1 / -1';
+          rotContainer.innerHTML = this.renderTableLoadingState();
       }
 
       if (penContainer) {
-          penContainer.innerHTML = this.renderTeamLoadingState('Top Bullpens');
+          penContainer.innerHTML = '';
       }
 
       if (improvements) {
@@ -195,31 +250,31 @@ export class TeamRatingsView {
       }
   }
 
-  private renderTeamLoadingState(title: string): string {
-      const note = this.getTeamSectionNote();
+  private renderTableLoadingState(): string {
+      const title = this.viewMode === 'power-rankings' ? 'Team Power Rankings' : 'Team Projections';
+      const columnCount = this.viewMode === 'power-rankings'
+          ? this.powerRankingsColumns.length
+          : this.projectionsColumns.length;
+
       return `
-        <div class="team-collapsible loading-skeleton">
-          <div class="team-collapsible-summary">
-            <div>
-              <h3 class="section-title">${title} <span class="note-text">${note}</span></h3>
-              <div class="team-preview-list">
-                ${this.renderTeamPreviewSkeletonRows(3)}
-              </div>
-            </div>
-            <span class="team-collapsible-label"><span class="skeleton-line sm"></span></span>
-          </div>
+        <div class="stats-table-container loading-skeleton">
+          <h3 class="section-title">${title} <span class="note-text">Loading...</span></h3>
+          <table class="stats-table" style="width: 100%;">
+            <thead>
+              <tr>
+                ${Array.from({ length: columnCount }, () => '<th><span class="skeleton-line md"></span></th>').join('')}
+              </tr>
+            </thead>
+            <tbody>
+              ${Array.from({ length: 5 }, () => `
+                <tr>
+                  ${Array.from({ length: columnCount }, () => '<td><span class="skeleton-line sm"></span></td>').join('')}
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
         </div>
       `;
-  }
-
-  private renderTeamPreviewSkeletonRows(count: number): string {
-      return Array.from({ length: count }, () => `
-        <div class="team-preview-row">
-          <span class="team-preview-rank"><span class="skeleton-line xs"></span></span>
-          <span class="team-preview-name"><span class="skeleton-line md"></span></span>
-          <span class="team-preview-score"><span class="skeleton-line sm"></span></span>
-        </div>
-      `).join('');
   }
 
   private renderImprovementsLoadingState(): string {
@@ -251,61 +306,13 @@ export class TeamRatingsView {
       `).join('');
   }
 
-  private getTeamSectionNote(): string {
-      return this.viewMode === 'all-time'
-        ? '(All-time top 10, ranked by WAR)'
-        : '(Ranked by WAR)';
-  }
-
-  private updateViewNotice(): void {
-      const notice = this.container.querySelector<HTMLElement>('#view-notice');
-      const yearField = this.container.querySelector<HTMLElement>('#year-selector-field');
-      const displayField = this.container.querySelector<HTMLElement>('#display-mode-field');
-
-      if (notice) {
-          if (this.viewMode === 'power-rankings') {
-              notice.style.display = 'block';
-              notice.innerHTML = `<strong>Power Rankings:</strong> Current team ability snapshot using True Ratings from 26-man MLB rosters. Team Rating = 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench.`;
-          } else if (this.viewMode === 'projected') {
-              notice.style.display = 'block';
-              notice.innerHTML = `<strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'By Year' to show current team ratings.`;
-          } else if (this.viewMode === 'all-time') {
-              notice.style.display = 'block';
-              notice.innerHTML = `<strong>All Time:</strong> Top 10 rotations and bullpens across all years, ranked by WAR for that season.`;
-          } else {
-              notice.style.display = 'none';
-          }
-      }
-
-      if (yearField) {
-          yearField.style.display = (this.viewMode === 'year' || this.viewMode === 'power-rankings') ? 'block' : 'none';
-      }
-
-      if (displayField) {
-          displayField.style.display = (this.viewMode === 'power-rankings' || this.viewMode === 'projected') ? 'block' : 'none';
-      }
-  }
-
   private async loadData(): Promise<void> {
     try {
         if (this.viewMode === 'power-rankings') {
             this.powerRankings = await teamRatingsService.getPowerRankings(this.selectedYear);
             this.results = [];
             this.projectedBaselineResults = null;
-        } else if (this.viewMode === 'year') {
-            this.results = await teamRatingsService.getTeamRatings(this.selectedYear);
-            this.powerRankings = [];
-            this.projectedBaselineResults = null;
-        } else if (this.viewMode === 'all-time') {
-            if (this.allTimeResults) {
-                this.results = this.allTimeResults;
-            } else {
-                this.results = await teamRatingsService.getAllTimeTeamRatings(this.yearOptions);
-                this.allTimeResults = this.results;
-            }
-            this.powerRankings = [];
-            this.projectedBaselineResults = null;
-        } else {
+        } else if (this.viewMode === 'projected') {
             console.log('Fetching projections...', teamRatingsService);
             if (typeof teamRatingsService.getProjectedTeamRatings !== 'function') {
                 console.error('getProjectedTeamRatings is missing on teamRatingsService!', teamRatingsService);
@@ -320,14 +327,17 @@ export class TeamRatingsView {
                 this.projectedBaselineResults = null;
             }
         }
+
+        // Check for no data
         if (this.viewMode === 'power-rankings' && this.powerRankings.length === 0) {
             await this.renderNoData();
             return;
         }
-        if (this.viewMode !== 'power-rankings' && this.results.length === 0) {
+        if (this.viewMode === 'projected' && this.results.length === 0) {
             await this.renderNoData();
             return;
         }
+
         this.renderLists();
     } catch (err) {
         console.error(err);
@@ -341,25 +351,25 @@ export class TeamRatingsView {
 
       if (!rotContainer || !penContainer) return;
 
-      // Power Rankings mode
+      // Power Rankings mode - always table view
       if (this.viewMode === 'power-rankings') {
-        if (this.displayMode === 'dashboard') {
-          this.renderPowerRankingsDashboard(rotContainer, penContainer);
-        } else {
-          this.renderPowerRankingsTable(rotContainer, penContainer);
-        }
-        this.bindToggleEvents();
+        this.renderPowerRankingsTable(rotContainer, penContainer);
         this.bindPlayerNameClicks();
         return;
       }
 
-      // Projections mode with dashboard
-      if (this.viewMode === 'projected' && this.displayMode === 'dashboard') {
-        this.renderProjectionsDashboard(rotContainer, penContainer);
-        this.bindToggleEvents();
+      // Projections mode - render component-based collapsibles
+      if (this.viewMode === 'projected') {
+        this.renderProjectionsTable(rotContainer, penContainer);
+        this.bindPlayerNameClicks();
         this.renderProjectedImprovements();
         return;
       }
+  }
+
+  private renderProjectionsTable(rotContainer: Element, penContainer: Element): void {
+      // Sort results based on current sort state
+      this.sortProjectionsData();
 
       // Build player lookup for modal access
       this.playerRowLookup = new Map();
@@ -377,32 +387,392 @@ export class TeamRatingsView {
         ));
       });
 
-      // Render Rotation List
-      const rotSorted = [...this.results].sort((a, b) => b.rotationWar - a.rotationWar);
-      const rotDisplay = this.viewMode === 'all-time' ? rotSorted.slice(0, 10) : rotSorted;
-      rotContainer.innerHTML = this.renderTeamCollapsible({
-        title: 'Top Rotations',
-        note: this.viewMode === 'all-time' ? '(All-time top 10, ranked by WAR)' : '(Ranked by WAR)',
-        type: 'rotation',
-        teams: rotDisplay
+      // Render column headers
+      const headerRow = this.projectionsColumns.map(col => {
+          const isSorted = this.projectionsSortKey === col.sortKey;
+          const sortIcon = isSorted ? (this.projectionsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
+          const activeClass = isSorted ? 'sort-active' : '';
+          const style = col.key === 'rank' ? 'width: 40px;' : (col.key === 'teamName' ? 'text-align: left;' : 'text-align: center;');
+          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+          const titleAttr = col.title ? `title="${col.title}"` : '';
+
+          return `<th ${sortAttr} ${titleAttr} class="${activeClass}" style="${style}" draggable="${col.sortKey ? 'true' : 'false'}" data-col-key="${col.key}">${col.label}${sortIcon}</th>`;
+      }).join('');
+
+      // Render team rows
+      const rows = this.results.map((team, idx) => {
+          const teamKey = this.buildTeamKey(team);
+          const totalWar = this.calculateProjectionsTotalWar(team);
+
+          const cells = this.projectionsColumns.map(col => {
+              switch (col.key) {
+                  case 'rank':
+                      return `<td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
+                  case 'teamName':
+                      return `
+                        <td style="font-weight: 600; text-align: left;" data-col-key="${col.key}">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
+                                ${team.teamName}
+                            </div>
+                        </td>`;
+                  case 'total':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(totalWar, 'rotation')}" style="font-weight: 600;">${totalWar.toFixed(1)}</span></td>`;
+                  case 'rotation':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(team.rotationWar, 'rotation')}">${team.rotationWar.toFixed(1)}</span></td>`;
+                  case 'lineup':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(team.lineupWar ?? 0, 'rotation')}">${(team.lineupWar ?? 0).toFixed(1)}</span></td>`;
+                  case 'bullpen':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(team.bullpenWar, 'bullpen')}">${team.bullpenWar.toFixed(1)}</span></td>`;
+                  case 'bench':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(team.benchWar ?? 0, 'bullpen')}">${(team.benchWar ?? 0).toFixed(1)}</span></td>`;
+                  default:
+                      return `<td data-col-key="${col.key}"></td>`;
+              }
+          }).join('');
+
+          return `
+            <tr class="team-row" data-team-key="${teamKey}" style="cursor: pointer;">
+                ${cells}
+            </tr>
+            <tr id="details-${teamKey}" style="display: none; background-color: var(--color-surface-hover);">
+                <td colspan="${this.projectionsColumns.length}" style="padding: 1rem;">
+                    ${this.renderProjectionsDetails(team)}
+                </td>
+            </tr>
+          `;
+      }).join('');
+
+      // Render full table spanning both grid columns
+      const tableHtml = `
+        <div class="stats-table-container">
+            <h3 class="section-title">Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3>
+            <table class="stats-table projections-table" style="width: 100%;">
+                <thead><tr>${headerRow}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+      `;
+
+      // Make container span full width of grid
+      (rotContainer as HTMLElement).style.gridColumn = '1 / -1';
+      rotContainer.innerHTML = tableHtml;
+      penContainer.innerHTML = '';
+
+      // Bind events specific to projections table
+      this.bindProjectionsTableEvents();
+  }
+
+  private calculateProjectionsTotalWar(team: TeamRatingResult): number {
+      // Same weighting as Power Rankings: 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench
+      return (team.rotationWar * 0.30) +
+             ((team.lineupWar ?? 0) * 0.45) +
+             (team.bullpenWar * 0.20) +
+             ((team.benchWar ?? 0) * 0.05);
+  }
+
+  private sortProjectionsData(): void {
+      this.results.sort((a, b) => {
+          let aVal: number;
+          let bVal: number;
+
+          switch (this.projectionsSortKey) {
+              case 'total':
+                  aVal = this.calculateProjectionsTotalWar(a);
+                  bVal = this.calculateProjectionsTotalWar(b);
+                  break;
+              case 'rotation':
+                  aVal = a.rotationWar;
+                  bVal = b.rotationWar;
+                  break;
+              case 'lineup':
+                  aVal = a.lineupWar ?? 0;
+                  bVal = b.lineupWar ?? 0;
+                  break;
+              case 'bullpen':
+                  aVal = a.bullpenWar;
+                  bVal = b.bullpenWar;
+                  break;
+              case 'bench':
+                  aVal = a.benchWar ?? 0;
+                  bVal = b.benchWar ?? 0;
+                  break;
+              default:
+                  return 0;
+          }
+
+          const compare = aVal - bVal;
+          return this.projectionsSortDirection === 'asc' ? compare : -compare;
+      });
+  }
+
+  private getProjectionsSortLabel(): string {
+      const labels: Record<string, string> = {
+          total: 'Total WAR',
+          rotation: 'Rotation WAR',
+          lineup: 'Lineup WAR',
+          bullpen: 'Bullpen WAR',
+          bench: 'Bench WAR'
+      };
+      return labels[this.projectionsSortKey] || 'WAR';
+  }
+
+  private renderProjectionsDetails(team: TeamRatingResult): string {
+      const rotationTop5 = team.rotation.slice(0, 5);
+      const bullpenTop5 = team.bullpen.slice(0, 5);
+      const lineupTop5 = team.lineup ? team.lineup.slice(0, 5) : [];
+      const benchTop5 = team.bench ? team.bench.slice(0, 5) : [];
+
+      return `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+            <div>
+                <h4 class="section-title" style="margin-bottom: 0.5rem;">Rotation <span class="note-text">(Top 5, Avg TR: ${this.calculateAvgTR(team.rotation)})</span></h4>
+                ${this.renderProjectionsPitcherList(rotationTop5, team, 'rotation')}
+            </div>
+            <div>
+                <h4 class="section-title" style="margin-bottom: 0.5rem;">Bullpen <span class="note-text">(Top 5, Avg TR: ${this.calculateAvgTR(team.bullpen)})</span></h4>
+                ${this.renderProjectionsPitcherList(bullpenTop5, team, 'bullpen')}
+            </div>
+            <div>
+                <h4 class="section-title" style="margin-bottom: 0.5rem;">Lineup <span class="note-text">(Top 5${team.lineup ? `, Avg TR: ${this.calculateAvgBatterTR(team.lineup)}` : ''})</span></h4>
+                ${lineupTop5.length > 0 ? this.renderProjectionsBatterList(lineupTop5) : '<p class="no-stats">No lineup data available</p>'}
+            </div>
+            <div>
+                <h4 class="section-title" style="margin-bottom: 0.5rem;">Bench <span class="note-text">(Top 5${team.bench ? `, Avg TR: ${this.calculateAvgBatterTR(team.bench)}` : ''})</span></h4>
+                ${benchTop5.length > 0 ? this.renderProjectionsBatterList(benchTop5) : '<p class="no-stats">No bench data available</p>'}
+            </div>
+        </div>
+      `;
+  }
+
+  private calculateAvgTR(players: any[]): string {
+      if (players.length === 0) return 'N/A';
+      const sum = players.reduce((acc, p) => acc + (p.trueRating || 0), 0);
+      return (sum / players.length).toFixed(2);
+  }
+
+  private calculateAvgBatterTR(batters: any[]): string {
+      if (batters.length === 0) return 'N/A';
+      const sum = batters.reduce((acc, b) => acc + (b.trueRating || 0), 0);
+      return (sum / batters.length).toFixed(2);
+  }
+
+  private renderProjectionsPitcherList(players: RatedPlayer[], team: TeamRatingResult, type: 'rotation' | 'bullpen'): string {
+      if (players.length === 0) {
+          return '<p class="no-stats">No players</p>';
+      }
+
+      const teamKey = this.buildTeamKey(team);
+
+      const rows = players.map((player, idx) => {
+          return `
+            <tr>
+                <td style="color: var(--color-text-muted); width: 30px;">${idx + 1}</td>
+                <td><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type, player.playerId)}" data-player-id="${player.playerId}">${player.name}</button></td>
+                <td style="text-align: center;"><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(1)}</span></td>
+                <td style="text-align: center;">${player.stats.ip.toFixed(1)}</td>
+                <td style="text-align: center;">${(player.stats.war ?? 0).toFixed(1)}</td>
+            </tr>
+          `;
+      }).join('');
+
+      return `
+        <table class="stats-table" style="width: 100%; font-size: 0.9em;">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th style="text-align: center;">TR</th>
+                    <th style="text-align: center;">IP</th>
+                    <th style="text-align: center;">WAR</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+      `;
+  }
+
+  private renderProjectionsBatterList(batters: any[]): string {
+      if (batters.length === 0) {
+          return '<p class="no-stats">No batters</p>';
+      }
+
+      const rows = batters.map((batter: any, idx: number) => {
+          return `
+            <tr>
+                <td style="color: var(--color-text-muted); width: 30px;">${idx + 1}</td>
+                <td><button class="btn-link player-name-link" data-player-id="${batter.playerId}">${batter.name}</button></td>
+                <td style="text-align: center;">${batter.positionLabel || '-'}</td>
+                <td style="text-align: center;"><span class="badge ${this.getRatingClass(batter.trueRating)}">${batter.trueRating.toFixed(1)}</span></td>
+                <td style="text-align: center;">${batter.stats?.pa ?? '-'}</td>
+                <td style="text-align: center;">${batter.stats?.war ? batter.stats.war.toFixed(1) : '-'}</td>
+            </tr>
+          `;
+      }).join('');
+
+      return `
+        <table class="stats-table" style="width: 100%; font-size: 0.9em;">
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Name</th>
+                    <th style="text-align: center;">Pos</th>
+                    <th style="text-align: center;">TR</th>
+                    <th style="text-align: center;">PA</th>
+                    <th style="text-align: center;">WAR</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+      `;
+  }
+
+
+  private bindProjectionsTableEvents(): void {
+      // Bind row toggle events
+      this.container.querySelectorAll('.team-row').forEach(row => {
+          row.addEventListener('click', (e) => {
+              // Don't toggle if clicking on a player name link
+              if ((e.target as HTMLElement).closest('.player-name-link')) return;
+
+              const teamKey = (row as HTMLElement).dataset.teamKey;
+              const detailsRow = this.container.querySelector(`#details-${teamKey}`) as HTMLElement;
+              const icon = row.querySelector('.toggle-icon');
+
+              if (detailsRow && icon) {
+                  const isHidden = detailsRow.style.display === 'none';
+                  detailsRow.style.display = isHidden ? 'table-row' : 'none';
+                  icon.textContent = isHidden ? '▼' : '▶';
+              }
+          });
       });
 
-      // Render Bullpen List
-      const penSorted = [...this.results].sort((a, b) => b.bullpenWar - a.bullpenWar);
-      const penDisplay = this.viewMode === 'all-time' ? penSorted.slice(0, 10) : penSorted;
-      penContainer.innerHTML = this.renderTeamCollapsible({
-        title: 'Top Bullpens',
-        note: this.viewMode === 'all-time' ? '(All-time top 10, ranked by WAR)' : '(Ranked by WAR)',
-        type: 'bullpen',
-        teams: penDisplay
+      // Bind sort headers
+      this.container.querySelectorAll('.projections-table th[data-sort-key]').forEach(header => {
+          header.addEventListener('click', () => {
+              if (this.isDraggingColumn) return;
+
+              const key = (header as HTMLElement).dataset.sortKey;
+              if (!key) return;
+
+              if (this.projectionsSortKey === key) {
+                  this.projectionsSortDirection = this.projectionsSortDirection === 'asc' ? 'desc' : 'asc';
+              } else {
+                  this.projectionsSortKey = key;
+                  this.projectionsSortDirection = 'desc';
+              }
+
+              this.renderLists();
+          });
       });
 
-      this.bindToggleEvents();
-      this.bindFlipCardLocking();
-      this.bindPlayerNameClicks();
-      this.bindTeamTableSortHeaders();
-      this.bindTeamColumnDragAndDrop();
-      this.renderProjectedImprovements();
+      // Bind column drag and drop
+      this.bindProjectionsColumnDragAndDrop();
+  }
+
+  private bindProjectionsColumnDragAndDrop(): void {
+      const headers = this.container.querySelectorAll<HTMLTableCellElement>('.projections-table th[data-col-key]');
+      let draggedKey: string | null = null;
+
+      headers.forEach(header => {
+          header.addEventListener('dragstart', (e) => {
+              draggedKey = header.dataset.colKey ?? null;
+              // Don't allow dragging rank or teamName columns
+              if (draggedKey === 'rank' || draggedKey === 'teamName') {
+                  e.preventDefault();
+                  return;
+              }
+              this.isDraggingColumn = true;
+              header.classList.add('dragging');
+              this.applyProjectionsColumnClass(draggedKey!, 'dragging-col', true);
+              e.dataTransfer?.setData('text/plain', draggedKey!);
+          });
+
+          header.addEventListener('dragover', (e) => {
+              if (!draggedKey) return;
+              const targetKey = header.dataset.colKey;
+              // Don't allow dropping on rank or teamName
+              if (targetKey === 'rank' || targetKey === 'teamName') return;
+              if (!targetKey || targetKey === draggedKey) {
+                  this.clearProjectionsDropIndicators();
+                  return;
+              }
+              e.preventDefault();
+              const rect = header.getBoundingClientRect();
+              const isBefore = e.clientX < rect.left + rect.width / 2;
+              this.updateProjectionsDropIndicator(targetKey, isBefore ? 'before' : 'after');
+          });
+
+          header.addEventListener('drop', (e) => {
+              e.preventDefault();
+              if (!draggedKey) return;
+              const targetKey = header.dataset.colKey;
+              const position = header.dataset.dropPosition as 'before' | 'after' | undefined;
+              if (!targetKey || draggedKey === targetKey) {
+                  draggedKey = null;
+                  this.clearProjectionsDropIndicators();
+                  return;
+              }
+              this.reorderProjectionsColumns(draggedKey, targetKey, position ?? 'before');
+              draggedKey = null;
+              this.clearProjectionsDropIndicators();
+          });
+
+          header.addEventListener('dragend', () => {
+              if (draggedKey) {
+                  this.applyProjectionsColumnClass(draggedKey, 'dragging-col', false);
+              }
+              header.classList.remove('dragging');
+              draggedKey = null;
+              this.clearProjectionsDropIndicators();
+              setTimeout(() => {
+                  this.isDraggingColumn = false;
+              }, 0);
+          });
+      });
+  }
+
+  private reorderProjectionsColumns(draggedKey: string, targetKey: string, position: 'before' | 'after'): void {
+      const currentOrder = [...this.projectionsColumns];
+      const fromIndex = currentOrder.findIndex(col => col.key === draggedKey);
+      const toIndex = currentOrder.findIndex(col => col.key === targetKey);
+
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+
+      const [moved] = currentOrder.splice(fromIndex, 1);
+      let insertIndex = position === 'after' ? toIndex + 1 : toIndex;
+      if (fromIndex < insertIndex) {
+          insertIndex -= 1;
+      }
+      currentOrder.splice(insertIndex, 0, moved);
+      this.projectionsColumns = currentOrder;
+      this.renderLists();
+  }
+
+  private updateProjectionsDropIndicator(targetKey: string, position: 'before' | 'after'): void {
+      this.clearProjectionsDropIndicators();
+      const cells = this.container.querySelectorAll<HTMLElement>('.projections-table [data-col-key="' + targetKey + '"]');
+      cells.forEach(cell => {
+          cell.dataset.dropPosition = position;
+          cell.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
+      });
+  }
+
+  private clearProjectionsDropIndicators(): void {
+      const cells = this.container.querySelectorAll<HTMLElement>('.projections-table .drop-before, .projections-table .drop-after');
+      cells.forEach(cell => {
+          cell.classList.remove('drop-before', 'drop-after');
+          delete cell.dataset.dropPosition;
+      });
+  }
+
+  private applyProjectionsColumnClass(columnKey: string, className: string, add: boolean): void {
+      const cells = this.container.querySelectorAll<HTMLElement>('.projections-table [data-col-key="' + columnKey + '"]');
+      cells.forEach(cell => cell.classList.toggle(className, add));
   }
 
   private renderProjectedImprovements(): void {
@@ -537,255 +907,277 @@ export class TeamRatingsView {
       `;
   }
 
-  private renderTeamCollapsible(params: {
-    title: string;
-    note: string;
-    type: 'rotation' | 'bullpen';
-    teams: TeamRatingResult[];
-  }): string {
-    const previewTeams = params.teams.slice(0, 3);
-    const preview = previewTeams.length
-      ? previewTeams.map((team, idx) => this.renderTeamPreviewRow(team, idx + 1, params.type)).join('')
-      : '<p class="no-stats">No data available.</p>';
 
-    const fullList = params.teams.length
-      ? params.teams.map((team, idx) => this.renderTeamRow(team, idx + 1, params.type)).join('')
-      : '<p class="no-stats">No data available.</p>';
 
-    return `
-      <details class="team-collapsible">
-        <summary class="team-collapsible-summary">
-          <div>
-            <h3 class="section-title">${params.title} <span class="note-text">${params.note}</span></h3>
-            <div class="team-preview-list">
-              ${preview}
-            </div>
-          </div>
-          <span class="team-collapsible-label">
-            <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
-            <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
-            <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
-            <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
-          </span>
-        </summary>
-        <div class="team-list">
-          ${fullList}
-        </div>
-      </details>
-    `;
-  }
 
-  private renderProjectionsDashboard(rotContainer: Element, penContainer: Element): void {
-      // Calculate rankings for each component
-      const rotationRanked = [...this.results].sort((a, b) => b.rotationWar - a.rotationWar);
-      const bullpenRanked = [...this.results].sort((a, b) => b.bullpenWar - a.bullpenWar);
-      const lineupRanked = [...this.results]
-        .filter(r => r.lineupWar !== undefined)
-        .sort((a, b) => (b.lineupWar ?? 0) - (a.lineupWar ?? 0));
-      const benchRanked = [...this.results]
-        .filter(r => r.benchWar !== undefined)
-        .sort((a, b) => (b.benchWar ?? 0) - (a.benchWar ?? 0));
 
-      // Render in 2x2 grid
-      rotContainer.innerHTML = `
-        ${this.renderProjectionComponent('Top Rotations', rotationRanked, 'rotation')}
-        ${lineupRanked.length > 0 ? this.renderProjectionComponent('Top Lineups', lineupRanked, 'lineup') : ''}
-      `;
-
-      penContainer.innerHTML = `
-        ${this.renderProjectionComponent('Top Bullpens', bullpenRanked, 'bullpen')}
-        ${benchRanked.length > 0 ? this.renderProjectionComponent('Top Benches', benchRanked, 'bench') : ''}
-      `;
-  }
-
-  private renderProjectionComponent(
-    title: string,
-    teams: TeamRatingResult[],
-    component: 'rotation' | 'bullpen' | 'lineup' | 'bench'
-  ): string {
-      const getWar = (team: TeamRatingResult) => {
-        switch (component) {
-          case 'rotation': return team.rotationWar;
-          case 'bullpen': return team.bullpenWar;
-          case 'lineup': return team.lineupWar ?? 0;
-          case 'bench': return team.benchWar ?? 0;
-        }
-      };
-
-      const preview = teams.slice(0, 3).map((team, idx) => {
-          const war = getWar(team);
-          const scoreClass = this.getWarClass(war, component === 'rotation' || component === 'lineup' ? 'rotation' : 'bullpen');
-          const yearLabel = this.viewMode === 'all-time' && team.seasonYear
-            ? ` <span class="note-text">(${team.seasonYear})</span>`
-            : '';
-          return `
-            <div class="team-preview-row">
-              <span class="team-preview-rank">#${idx + 1}</span>
-              <span class="team-preview-name">${team.teamName}${yearLabel}</span>
-              <span class="badge ${scoreClass} team-preview-score">${war.toFixed(1)}</span>
-            </div>
-          `;
-      }).join('');
-
-      const fullList = teams.map((team, idx) => {
-          const war = getWar(team);
-          const scoreClass = this.getWarClass(war, component === 'rotation' || component === 'lineup' ? 'rotation' : 'bullpen');
-          const yearLabel = this.viewMode === 'all-time' && team.seasonYear
-            ? ` <span class="note-text">(${team.seasonYear})</span>`
-            : '';
-          return `
-            <div class="improvement-row">
-              <span class="improvement-rank">#${idx + 1}</span>
-              <span class="improvement-team">${team.teamName}${yearLabel}</span>
-              <span class="badge ${scoreClass}">${war.toFixed(1)}</span>
-            </div>
-          `;
-      }).join('');
-
-      return `
-        <details class="team-collapsible" style="margin-bottom: 1rem;">
-          <summary class="team-collapsible-summary">
-            <div>
-              <h3 class="section-title">${title} <span class="note-text">(Ranked by WAR)</span></h3>
-              <div class="team-preview-list">
-                ${preview}
-              </div>
-            </div>
-            <span class="team-collapsible-label">
-              <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
-              <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
-              <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
-              <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
-            </span>
-          </summary>
-          <div class="improvement-list">
-            ${fullList}
-          </div>
-        </details>
-      `;
-  }
-
-  private renderPowerRankingsDashboard(rotContainer: Element, penContainer: Element): void {
-      // Calculate rankings for each component
-      const rotationRanked = [...this.powerRankings].sort((a, b) => b.rotationRating - a.rotationRating);
-      const bullpenRanked = [...this.powerRankings].sort((a, b) => b.bullpenRating - a.bullpenRating);
-      const lineupRanked = [...this.powerRankings].sort((a, b) => b.lineupRating - a.lineupRating);
-      const benchRanked = [...this.powerRankings].sort((a, b) => b.benchRating - a.benchRating);
-
-      // Render in 2x2 grid
-      rotContainer.innerHTML = `
-        ${this.renderPowerRankingComponent('Top Rotations', rotationRanked, 'rotation', 'rotationRating')}
-        ${this.renderPowerRankingComponent('Top Lineups', lineupRanked, 'lineup', 'lineupRating')}
-      `;
-
-      penContainer.innerHTML = `
-        ${this.renderPowerRankingComponent('Top Bullpens', bullpenRanked, 'bullpen', 'bullpenRating')}
-        ${this.renderPowerRankingComponent('Top Benches', benchRanked, 'bench', 'benchRating')}
-      `;
-  }
-
-  private renderPowerRankingComponent(
-    title: string,
-    teams: TeamPowerRanking[],
-    _component: 'rotation' | 'bullpen' | 'lineup' | 'bench',
-    ratingKey: keyof TeamPowerRanking
-  ): string {
-      const preview = teams.slice(0, 3).map((team, idx) => {
-          const rating = team[ratingKey] as number;
-          const scoreClass = this.getRatingClass(rating);
-          return `
-            <div class="team-preview-row">
-              <span class="team-preview-rank">#${idx + 1}</span>
-              <span class="team-preview-name">${team.teamName}</span>
-              <span class="badge ${scoreClass} team-preview-score">${rating.toFixed(2)}</span>
-            </div>
-          `;
-      }).join('');
-
-      const fullList = teams.map((team, idx) => {
-          const rating = team[ratingKey] as number;
-          const scoreClass = this.getRatingClass(rating);
-          return `
-            <div class="improvement-row">
-              <span class="improvement-rank">#${idx + 1}</span>
-              <span class="improvement-team">${team.teamName}</span>
-              <span class="badge ${scoreClass}">${rating.toFixed(2)}</span>
-            </div>
-          `;
-      }).join('');
-
-      return `
-        <details class="team-collapsible" style="margin-bottom: 1rem;">
-          <summary class="team-collapsible-summary">
-            <div>
-              <h3 class="section-title">${title} <span class="note-text">(Ranked by Avg TR)</span></h3>
-              <div class="team-preview-list">
-                ${preview}
-              </div>
-            </div>
-            <span class="team-collapsible-label">
-              <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
-              <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
-              <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
-              <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
-            </span>
-          </summary>
-          <div class="improvement-list">
-            ${fullList}
-          </div>
-        </details>
-      `;
-  }
 
   private renderPowerRankingsTable(rotContainer: Element, penContainer: Element): void {
-      const sorted = [...this.powerRankings].sort((a, b) => b.teamRating - a.teamRating);
+      // Sort power rankings based on current sort state
+      this.sortPowerRankingsData();
 
+      // Render column headers
+      const headerRow = this.powerRankingsColumns.map(col => {
+          const isSorted = this.powerRankingsSortKey === col.sortKey;
+          const sortIcon = isSorted ? (this.powerRankingsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
+          const activeClass = isSorted ? 'sort-active' : '';
+          const style = col.key === 'rank' ? 'width: 40px;' : (col.key === 'teamName' ? 'text-align: left;' : 'text-align: center;');
+          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+          const titleAttr = col.title ? `title="${col.title}"` : '';
+
+          return `<th ${sortAttr} ${titleAttr} class="${activeClass}" style="${style}" draggable="${col.sortKey ? 'true' : 'false'}" data-col-key="${col.key}">${col.label}${sortIcon}</th>`;
+      }).join('');
+
+      // Render team rows
+      const rows = this.powerRankings.map((team, idx) => {
+          const teamKey = `pr-${team.teamId}`;
+
+          const cells = this.powerRankingsColumns.map(col => {
+              switch (col.key) {
+                  case 'rank':
+                      return `<td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
+                  case 'teamName':
+                      return `
+                        <td style="font-weight: 600; text-align: left;" data-col-key="${col.key}">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
+                                ${team.teamName}
+                            </div>
+                        </td>`;
+                  case 'teamRating':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.teamRating)}" style="font-weight: 600;">${team.teamRating.toFixed(2)}</span></td>`;
+                  case 'rotation':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.rotationRating)}">${team.rotationRating.toFixed(2)}</span></td>`;
+                  case 'lineup':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.lineupRating)}">${team.lineupRating.toFixed(2)}</span></td>`;
+                  case 'bullpen':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.bullpenRating)}">${team.bullpenRating.toFixed(2)}</span></td>`;
+                  case 'bench':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.benchRating)}">${team.benchRating.toFixed(2)}</span></td>`;
+                  default:
+                      return `<td data-col-key="${col.key}"></td>`;
+              }
+          }).join('');
+
+          return `
+            <tr class="team-row" data-team-key="${teamKey}" style="cursor: pointer;">
+                ${cells}
+            </tr>
+            <tr id="details-${teamKey}" style="display: none; background-color: var(--color-surface-hover);">
+                <td colspan="${this.powerRankingsColumns.length}" style="padding: 1rem;">
+                    ${this.renderPowerRankingDetails(team)}
+                </td>
+            </tr>
+          `;
+      }).join('');
+
+      // Render full table spanning both grid columns
       const tableHtml = `
-        <div style="grid-column: 1 / -1;">
-          <h3 class="section-title">Team Power Rankings <span class="note-text">(Ranked by Team Rating)</span></h3>
-          ${sorted.map((team, idx) => this.renderPowerRankingRow(team, idx + 1)).join('')}
+        <div class="stats-table-container">
+            <h3 class="section-title">Team Power Rankings <span class="note-text">(Ranked by ${this.getPowerRankingsSortLabel()})</span></h3>
+            <table class="stats-table power-rankings-table" style="width: 100%;">
+                <thead><tr>${headerRow}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
         </div>
       `;
 
+      // Make container span full width of grid
+      (rotContainer as HTMLElement).style.gridColumn = '1 / -1';
       rotContainer.innerHTML = tableHtml;
       penContainer.innerHTML = '';
+
+      // Bind events specific to power rankings table
+      this.bindPowerRankingsTableEvents();
   }
 
-  private renderPowerRankingRow(team: TeamPowerRanking, rank: number): string {
-      const teamKey = `pr-${team.teamId}`;
-      return `
-        <div class="team-card" style="margin-bottom: 1rem;">
-          <div class="team-header" data-team-key="${teamKey}" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px;">
-            <div style="display: flex; align-items: center; gap: 1rem;">
-              <span style="font-weight: bold; color: var(--color-text-muted); width: 20px;">#${rank}</span>
-              <span style="font-weight: 600;">${team.teamName}</span>
-            </div>
-            <div style="display: flex; align-items: center; gap: 1rem;">
-              <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <span style="font-size: 0.85em; color: var(--color-text-muted);">Rotation:</span>
-                <span class="badge ${this.getRatingClass(team.rotationRating)}">${team.rotationRating.toFixed(2)}</span>
-              </div>
-              <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <span style="font-size: 0.85em; color: var(--color-text-muted);">Lineup:</span>
-                <span class="badge ${this.getRatingClass(team.lineupRating)}">${team.lineupRating.toFixed(2)}</span>
-              </div>
-              <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <span style="font-size: 0.85em; color: var(--color-text-muted);">Bullpen:</span>
-                <span class="badge ${this.getRatingClass(team.bullpenRating)}">${team.bullpenRating.toFixed(2)}</span>
-              </div>
-              <div style="display: flex; gap: 0.5rem; align-items: center;">
-                <span style="font-size: 0.85em; color: var(--color-text-muted);">Bench:</span>
-                <span class="badge ${this.getRatingClass(team.benchRating)}">${team.benchRating.toFixed(2)}</span>
-              </div>
-              <span class="badge ${this.getRatingClass(team.teamRating)}" style="font-size: 1.1em; min-width: 50px;">${team.teamRating.toFixed(2)}</span>
-              <span class="toggle-icon">▼</span>
-            </div>
-          </div>
-          <div class="team-details" id="details-${teamKey}" style="display: none; padding: 1rem; background: var(--color-surface-hover); border: 1px solid var(--color-border); border-top: none; border-radius: 0 0 4px 4px;">
-            ${this.renderPowerRankingDetails(team)}
-          </div>
-        </div>
-      `;
+  private sortPowerRankingsData(): void {
+      this.powerRankings.sort((a, b) => {
+          let aVal: number;
+          let bVal: number;
+
+          switch (this.powerRankingsSortKey) {
+              case 'teamRating':
+                  aVal = a.teamRating;
+                  bVal = b.teamRating;
+                  break;
+              case 'rotation':
+                  aVal = a.rotationRating;
+                  bVal = b.rotationRating;
+                  break;
+              case 'lineup':
+                  aVal = a.lineupRating;
+                  bVal = b.lineupRating;
+                  break;
+              case 'bullpen':
+                  aVal = a.bullpenRating;
+                  bVal = b.bullpenRating;
+                  break;
+              case 'bench':
+                  aVal = a.benchRating;
+                  bVal = b.benchRating;
+                  break;
+              default:
+                  return 0;
+          }
+
+          const compare = aVal - bVal;
+          return this.powerRankingsSortDirection === 'asc' ? compare : -compare;
+      });
+  }
+
+  private getPowerRankingsSortLabel(): string {
+      const labels: Record<string, string> = {
+          teamRating: 'Team Rating',
+          rotation: 'Rotation Rating',
+          lineup: 'Lineup Rating',
+          bullpen: 'Bullpen Rating',
+          bench: 'Bench Rating'
+      };
+      return labels[this.powerRankingsSortKey] || 'Team Rating';
+  }
+
+  private bindPowerRankingsTableEvents(): void {
+      // Bind row toggle events
+      this.container.querySelectorAll('.team-row').forEach(row => {
+          row.addEventListener('click', (e) => {
+              // Don't toggle if clicking on a player name link
+              if ((e.target as HTMLElement).closest('.player-name-link')) return;
+
+              const teamKey = (row as HTMLElement).dataset.teamKey;
+              const detailsRow = this.container.querySelector(`#details-${teamKey}`) as HTMLElement;
+              const icon = row.querySelector('.toggle-icon');
+
+              if (detailsRow && icon) {
+                  const isHidden = detailsRow.style.display === 'none';
+                  detailsRow.style.display = isHidden ? 'table-row' : 'none';
+                  icon.textContent = isHidden ? '▼' : '▶';
+              }
+          });
+      });
+
+      // Bind sort headers
+      this.container.querySelectorAll('.power-rankings-table th[data-sort-key]').forEach(header => {
+          header.addEventListener('click', () => {
+              if (this.isDraggingColumn) return;
+
+              const key = (header as HTMLElement).dataset.sortKey;
+              if (!key) return;
+
+              if (this.powerRankingsSortKey === key) {
+                  this.powerRankingsSortDirection = this.powerRankingsSortDirection === 'asc' ? 'desc' : 'asc';
+              } else {
+                  this.powerRankingsSortKey = key;
+                  this.powerRankingsSortDirection = 'desc';
+              }
+
+              this.renderLists();
+          });
+      });
+
+      // Bind column drag and drop
+      this.bindPowerRankingsColumnDragAndDrop();
+  }
+
+  private bindPowerRankingsColumnDragAndDrop(): void {
+      const headers = this.container.querySelectorAll<HTMLTableCellElement>('.power-rankings-table th[data-col-key]');
+      let draggedKey: string | null = null;
+
+      headers.forEach(header => {
+          header.addEventListener('dragstart', (e) => {
+              draggedKey = header.dataset.colKey ?? null;
+              // Don't allow dragging rank or teamName columns
+              if (draggedKey === 'rank' || draggedKey === 'teamName') {
+                  e.preventDefault();
+                  return;
+              }
+              this.isDraggingColumn = true;
+              header.classList.add('dragging');
+              this.applyPowerRankingsColumnClass(draggedKey!, 'dragging-col', true);
+              e.dataTransfer?.setData('text/plain', draggedKey!);
+          });
+
+          header.addEventListener('dragover', (e) => {
+              if (!draggedKey) return;
+              const targetKey = header.dataset.colKey;
+              // Don't allow dropping on rank or teamName
+              if (targetKey === 'rank' || targetKey === 'teamName') return;
+              if (!targetKey || targetKey === draggedKey) {
+                  this.clearPowerRankingsDropIndicators();
+                  return;
+              }
+              e.preventDefault();
+              const rect = header.getBoundingClientRect();
+              const isBefore = e.clientX < rect.left + rect.width / 2;
+              this.updatePowerRankingsDropIndicator(targetKey, isBefore ? 'before' : 'after');
+          });
+
+          header.addEventListener('drop', (e) => {
+              e.preventDefault();
+              if (!draggedKey) return;
+              const targetKey = header.dataset.colKey;
+              const position = header.dataset.dropPosition as 'before' | 'after' | undefined;
+              if (!targetKey || draggedKey === targetKey) {
+                  draggedKey = null;
+                  this.clearPowerRankingsDropIndicators();
+                  return;
+              }
+              this.reorderPowerRankingsColumns(draggedKey, targetKey, position ?? 'before');
+              draggedKey = null;
+              this.clearPowerRankingsDropIndicators();
+          });
+
+          header.addEventListener('dragend', () => {
+              if (draggedKey) {
+                  this.applyPowerRankingsColumnClass(draggedKey, 'dragging-col', false);
+              }
+              header.classList.remove('dragging');
+              draggedKey = null;
+              this.clearPowerRankingsDropIndicators();
+              setTimeout(() => {
+                  this.isDraggingColumn = false;
+              }, 0);
+          });
+      });
+  }
+
+  private reorderPowerRankingsColumns(draggedKey: string, targetKey: string, position: 'before' | 'after'): void {
+      const currentOrder = [...this.powerRankingsColumns];
+      const fromIndex = currentOrder.findIndex(col => col.key === draggedKey);
+      const toIndex = currentOrder.findIndex(col => col.key === targetKey);
+
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+
+      const [moved] = currentOrder.splice(fromIndex, 1);
+      let insertIndex = position === 'after' ? toIndex + 1 : toIndex;
+      if (fromIndex < insertIndex) {
+          insertIndex -= 1;
+      }
+      currentOrder.splice(insertIndex, 0, moved);
+      this.powerRankingsColumns = currentOrder;
+      this.renderLists();
+  }
+
+  private updatePowerRankingsDropIndicator(targetKey: string, position: 'before' | 'after'): void {
+      this.clearPowerRankingsDropIndicators();
+      const cells = this.container.querySelectorAll<HTMLElement>('.power-rankings-table [data-col-key="' + targetKey + '"]');
+      cells.forEach(cell => {
+          cell.dataset.dropPosition = position;
+          cell.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
+      });
+  }
+
+  private clearPowerRankingsDropIndicators(): void {
+      const cells = this.container.querySelectorAll<HTMLElement>('.power-rankings-table .drop-before, .power-rankings-table .drop-after');
+      cells.forEach(cell => {
+          cell.classList.remove('drop-before', 'drop-after');
+          delete cell.dataset.dropPosition;
+      });
+  }
+
+  private applyPowerRankingsColumnClass(columnKey: string, className: string, add: boolean): void {
+      const cells = this.container.querySelectorAll<HTMLElement>('.power-rankings-table [data-col-key="' + columnKey + '"]');
+      cells.forEach(cell => cell.classList.toggle(className, add));
   }
 
   private renderPowerRankingDetails(team: TeamPowerRanking): string {
@@ -874,52 +1266,6 @@ export class TeamRatingsView {
       return 'rating-poor';
   }
 
-  private renderTeamPreviewRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
-      const war = type === 'rotation' ? team.rotationWar : team.bullpenWar;
-      const scoreClass = this.getWarClass(war, type);
-      const yearLabel = this.viewMode === 'all-time' && team.seasonYear
-        ? ` <span class="note-text">(${team.seasonYear})</span>`
-        : '';
-
-      return `
-        <div class="team-preview-row">
-          <span class="team-preview-rank">#${rank}</span>
-          <span class="team-preview-name">${team.teamName}${yearLabel}</span>
-          <span class="badge ${scoreClass} team-preview-score">${this.formatWar(war)}</span>
-        </div>
-      `;
-  }
-
-  private renderTeamRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
-      const war = type === 'rotation' ? team.rotationWar : team.bullpenWar;
-      const runsAllowed = type === 'rotation' ? team.rotationRunsAllowed : team.bullpenRunsAllowed;
-      const leagueAvgRuns = type === 'rotation' ? team.rotationLeagueAvgRuns : team.bullpenLeagueAvgRuns;
-      
-      const scoreClass = this.getWarClass(war, type);
-      const badgeTitle = `Total WAR: ${war.toFixed(1)} (Runs Allowed: ${this.formatRunsValue(runsAllowed)} vs Avg ${this.formatRunsValue(leagueAvgRuns)})`;
-      const yearLabel = this.viewMode === 'all-time' && team.seasonYear
-        ? ` <span class="note-text">(${team.seasonYear})</span>`
-        : '';
-      const teamKey = this.buildTeamKey(team);
-      
-      return `
-        <div class="team-card">
-            <div class="team-header" data-team-key="${teamKey}" data-type="${type}" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 0.5rem;">
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                    <span style="font-weight: bold; color: var(--color-text-muted); width: 20px;">#${rank}</span>
-                    <span style="font-weight: 600;">${team.teamName}${yearLabel}</span>
-                </div>
-                <div style="display: flex; align-items: center; gap: 1rem;">
-                     <span class="badge ${scoreClass}" style="font-size: 1.1em;" title="${badgeTitle}">${this.formatWar(war)}</span>
-                     <span class="toggle-icon">▼</span>
-                </div>
-            </div>
-            <div class="team-details" id="details-${type}-${teamKey}" data-team-key="${teamKey}" data-type="${type}" style="display: none; padding: 0.5rem; background: var(--color-surface-hover); margin-bottom: 1rem; border-radius: 4px;">
-                ${this.renderTeamDetailsTable(team, type)}
-            </div>
-        </div>
-      `;
-  }
 
   private renderRatingBadge(player: RatedPlayer): string {
     if (typeof player.trueRating !== 'number') {
@@ -981,10 +1327,6 @@ export class TeamRatingsView {
   private formatWarDelta(value: number): string {
     const sign = value > 0 ? '+' : '';
     return `${sign}${value.toFixed(1)}`;
-  }
-
-  private formatRunsValue(value: number): string {
-    return Math.round(value).toString();
   }
 
   private buildTeamKey(team: TeamRatingResult): string {
@@ -1156,32 +1498,6 @@ export class TeamRatingsView {
     }
   }
 
-  private bindToggleEvents(): void {
-      this.container.querySelectorAll('.team-header').forEach(header => {
-          header.addEventListener('click', () => {
-              const teamKey = (header as HTMLElement).dataset.teamKey;
-              const type = (header as HTMLElement).dataset.type;
-
-              // Handle different detail ID patterns
-              let details: Element | null = null;
-              if (type) {
-                  // Old pattern for projections: details-{type}-{teamKey}
-                  details = this.container.querySelector(`#details-${type}-${teamKey}`);
-              } else {
-                  // New pattern for power rankings: details-{teamKey}
-                  details = this.container.querySelector(`#details-${teamKey}`);
-              }
-
-              const icon = header.querySelector('.toggle-icon');
-
-              if (details && icon) {
-                  const isHidden = (details as HTMLElement).style.display === 'none';
-                  (details as HTMLElement).style.display = isHidden ? 'block' : 'none';
-                  icon.textContent = isHidden ? '▲' : '▼';
-              }
-          });
-      });
-  }
 
   private bindFlipCardLocking(): void {
     const cells = this.container.querySelectorAll<HTMLElement>('.flip-cell');
@@ -1665,7 +1981,7 @@ export class TeamRatingsView {
       pitchRatings,
       isProspect: false,
       year: seasonYear,
-      showYearLabel: isHistorical || this.viewMode === 'all-time',
+      showYearLabel: isHistorical,
       projectionYear: seasonYear,
       projectionBaseYear: Math.max(2000, seasonYear - 1),
       forceProjection: this.viewMode === 'projected',
@@ -1711,9 +2027,7 @@ export class TeamRatingsView {
 
       const message = this.viewMode === 'projected'
           ? `Unable to load projections for ${year}.`
-          : this.viewMode === 'all-time'
-            ? 'No all-time team ratings available.'
-            : baseMessage;
+          : baseMessage;
 
       const rotContainer = this.container.querySelector('#rotation-rankings');
       const penContainer = this.container.querySelector('#bullpen-rankings');

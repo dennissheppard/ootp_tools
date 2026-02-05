@@ -61,11 +61,13 @@ export class TeamService {
 
     return dataLines.map((line) => {
       const values = this.parseCsvLine(line);
+      const leagueId = parseInt(values[4], 10);
       return {
         id: parseInt(values[0], 10),
         name: values[1],
         nickname: values[2],
         parentTeamId: parseInt(values[3], 10),
+        leagueId: isNaN(leagueId) ? undefined : leagueId,
       };
     });
   }

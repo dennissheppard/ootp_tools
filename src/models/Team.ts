@@ -3,4 +3,5 @@ export interface Team {
   name: string;
   nickname: string;
   parentTeamId: number;
+  leagueId?: number;
 }

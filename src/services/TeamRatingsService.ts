@@ -363,7 +363,41 @@ class TeamRatingsService {
 
     // 5. Build team rosters from stats data (not from player service)
     const teamMap = new Map(allTeams.map(t => [t.id, t]));
-    const mlbTeams = allTeams.filter(t => t.parentTeamId === 0);
+
+    // Get unique MLB team IDs that actually have stats (this naturally excludes All-Star teams)
+    // Check both current year and prior year in case we're in spring training with no current stats
+    const teamsWithStats = new Set<number>();
+    mlbPitchingStats.forEach(s => {
+      const statTeam = teamMap.get(s.team_id);
+      const actualTeamId = statTeam?.parentTeamId || s.team_id;
+      teamsWithStats.add(actualTeamId);
+    });
+    mlbBattingStats.forEach(s => {
+      const statTeam = teamMap.get(s.team_id);
+      const actualTeamId = statTeam?.parentTeamId || s.team_id;
+      teamsWithStats.add(actualTeamId);
+    });
+
+    // If no stats for current year, check prior year to identify valid MLB teams
+    if (teamsWithStats.size === 0) {
+      const [priorPitching, priorBatting] = await Promise.all([
+        trueRatingsService.getTruePitchingStats(year - 1),
+        trueRatingsService.getTrueBattingStats(year - 1)
+      ]);
+      priorPitching.filter(s => s.level_id === 1).forEach(s => {
+        const statTeam = teamMap.get(s.team_id);
+        const actualTeamId = statTeam?.parentTeamId || s.team_id;
+        teamsWithStats.add(actualTeamId);
+      });
+      priorBatting.filter(s => s.level_id === 1).forEach(s => {
+        const statTeam = teamMap.get(s.team_id);
+        const actualTeamId = statTeam?.parentTeamId || s.team_id;
+        teamsWithStats.add(actualTeamId);
+      });
+    }
+
+    // Filter to MLB teams that have stats
+    const mlbTeams = allTeams.filter(t => t.parentTeamId === 0 && teamsWithStats.has(t.id));
 
     const powerRankings: TeamPowerRanking[] = [];
 
@@ -381,6 +415,7 @@ class TeamRatingsService {
         const actualTeamId = statTeam?.parentTeamId || s.team_id;
         return actualTeamId === team.id;
       });
+
 
       // Build rated pitchers from stats
       const ratedPitchers: RatedPitcher[] = teamPitchingStats.map(stat => {
@@ -429,19 +464,32 @@ class TeamRatingsService {
       }).filter(p => p.trueRating > 0.5);
 
       // Build rated batters from stats
+      // Include all batters - use True Rating if available, otherwise use scouting or default
       const ratedBatters: RatedBatter[] = teamBattingStats.map(stat => {
         const trData = batterTrMap.get(stat.player_id);
+        const scouting = hitterScoutingMap.get(stat.player_id);
+
+        // Use True Rating if available, otherwise estimate from scouting or use default
+        let trueRating = (trData as any)?.trueRating ?? 0;
+        if (trueRating === 0 && scouting) {
+          // Estimate rating from scouting: average of key tools on 20-80 scale, converted to 0.5-5.0
+          const avgTool = ((scouting.power ?? 50) + (scouting.eye ?? 50) + (scouting.avoidK ?? 50) + (scouting.contact ?? 50)) / 4;
+          trueRating = 0.5 + (avgTool - 20) / 60 * 4.5; // Map 20-80 to 0.5-5.0
+        }
+        if (trueRating === 0) {
+          trueRating = 2.0; // Default for players without TR or scouting
+        }
 
         return {
           playerId: stat.player_id,
           name: stat.playerName,
           position: stat.position,
           positionLabel: this.getPositionLabel(stat.position),
-          trueRating: (trData as any)?.trueRating ?? 0.5,
-          estimatedPower: (trData as any)?.estimatedPower ?? 50,
-          estimatedEye: (trData as any)?.estimatedEye ?? 50,
-          estimatedAvoidK: (trData as any)?.estimatedAvoidK ?? 50,
-          estimatedContact: (trData as any)?.estimatedContact ?? 50,
+          trueRating,
+          estimatedPower: (trData as any)?.estimatedPower ?? scouting?.power ?? 50,
+          estimatedEye: (trData as any)?.estimatedEye ?? scouting?.eye ?? 50,
+          estimatedAvoidK: (trData as any)?.estimatedAvoidK ?? scouting?.avoidK ?? 50,
+          estimatedContact: (trData as any)?.estimatedContact ?? scouting?.contact ?? 50,
           stats: {
             pa: stat.pa,
             avg: stat.avg,
@@ -452,18 +500,36 @@ class TeamRatingsService {
             war: stat.war
           }
         };
-      }).filter(p => p.trueRating > 0.5);
+      });
 
       // Construct optimal roster allocation
-      const rotation = ratedPitchers.filter(p => p.role === 'SP')
-        .sort((a, b) => b.trueRating - a.trueRating)
-        .slice(0, 5);
+      // 1. Fill rotation with top 5 actual starters (by role)
+      const starters = ratedPitchers.filter(p => p.role === 'SP')
+        .sort((a, b) => b.trueRating - a.trueRating);
+      const rotation = starters.slice(0, 5);
 
-      const bullpen = ratedPitchers.filter(p => p.role === 'RP')
+      // 2. Everyone else goes to bullpen (relievers + overflow starters)
+      const rotationIds = new Set(rotation.map(p => p.playerId));
+      const bullpen = ratedPitchers
+        .filter(p => !rotationIds.has(p.playerId))
         .sort((a, b) => b.trueRating - a.trueRating)
         .slice(0, 8);
 
+      // Debug: Only log when pitching staff is incomplete
+      if (rotation.length < 5 || bullpen.length === 0) {
+        console.warn(`[TeamRatings] ${team.name}: Pitching issue - ${rotation.length}/5 rotation, ${bullpen.length}/8 bullpen (${ratedPitchers.length} total pitchers)`);
+      }
+
       const lineup = this.constructOptimalLineup(ratedBatters);
+
+      // Debug: Only log when lineup is incomplete
+      if (lineup.length < 9) {
+        const filledPositions = new Set(lineup.map(l => l.positionLabel));
+        const allPositions = ['C', '1B', '2B', 'SS', '3B', 'LF', 'CF', 'RF', 'DH'];
+        const missing = allPositions.filter(p => !filledPositions.has(p));
+        console.warn(`[TeamRatings] ${team.name}: Missing lineup positions: ${missing.join(', ')} (${ratedBatters.length} batters available)`);
+      }
+
       const bench = ratedBatters
         .filter(b => !lineup.some(l => l.playerId === b.playerId))
         .sort((a, b) => b.trueRating - a.trueRating)
@@ -500,7 +566,15 @@ class TeamRatingsService {
 
   /**
    * Construct optimal 9-player lineup with position flexibility
-   * Updates position labels to show the slot they're filling
+   * Uses scarcity-based assignment: fill most constrained positions first
+   * to avoid putting flexible players where specialists should go.
+   *
+   * Position flexibility rules:
+   * - SS can play 1B, 2B, 3B, SS
+   * - CF can play LF, CF, RF
+   * - LF can play LF, RF
+   * - RF can play LF, RF
+   * - All other positions: natural position only
    */
   private constructOptimalLineup(batters: RatedBatter[]): RatedBatter[] {
     const lineup: RatedBatter[] = [];
@@ -509,43 +583,65 @@ class TeamRatingsService {
     // Sort batters by True Rating descending
     const sorted = [...batters].sort((a, b) => b.trueRating - a.trueRating);
 
-    // Position requirements and flexibility (Position enum values)
-    const positionPriority = [
-      { label: 'C', position: 2, canPlay: [2] },  // Catcher only
-      { label: '1B', position: 3, canPlay: [3] }, // First Base only
-      { label: 'SS', position: 6, canPlay: [6, 4] }, // Shortstop, or Second Base
-      { label: '2B', position: 4, canPlay: [4, 6] }, // Second Base, or Shortstop
-      { label: '3B', position: 5, canPlay: [5] }, // Third Base only
-      { label: 'CF', position: 8, canPlay: [8, 7, 9] }, // Center Field, or any OF
-      { label: 'LF', position: 7, canPlay: [7, 9, 8] }, // Left Field, or any OF
-      { label: 'RF', position: 9, canPlay: [9, 7, 8] }, // Right Field, or any OF
+    // Position slots and which player positions can fill them
+    // Based on flexibility rules: SS→1B/2B/3B/SS, CF→LF/CF/RF, LF↔RF
+    const positionSlots = [
+      { label: 'C', position: 2, canPlay: [2] },           // C only
+      { label: '1B', position: 3, canPlay: [3, 6] },       // 1B or SS
+      { label: '2B', position: 4, canPlay: [4, 6] },       // 2B or SS
+      { label: 'SS', position: 6, canPlay: [6] },          // SS only
+      { label: '3B', position: 5, canPlay: [5, 6] },       // 3B or SS
+      { label: 'LF', position: 7, canPlay: [7, 8, 9] },    // LF, CF, or RF
+      { label: 'CF', position: 8, canPlay: [8] },          // CF only
+      { label: 'RF', position: 9, canPlay: [9, 7, 8] },    // RF, LF, or CF
     ];
 
-    // Fill positions in priority order
-    for (const posReq of positionPriority) {
-      let assigned = false;
+    // Fill positions by scarcity - most constrained positions first
+    // This prevents putting a SS at 1B when a dedicated 1B exists
+    const remainingSlots = [...positionSlots];
+
+    while (remainingSlots.length > 0) {
+      // Count eligible players for each remaining slot
+      const slotScarcity = remainingSlots.map(slot => {
+        const eligibleCount = sorted.filter(b =>
+          !used.has(b.playerId) && slot.canPlay.includes(b.position)
+        ).length;
+        return { slot, eligibleCount };
+      });
+
+      // Sort by scarcity (fewest eligible players first)
+      slotScarcity.sort((a, b) => a.eligibleCount - b.eligibleCount);
+
+      // Fill the most constrained slot
+      const { slot } = slotScarcity[0];
+      let filled = false;
+
       for (const batter of sorted) {
         if (used.has(batter.playerId)) continue;
-        if (posReq.canPlay.includes(batter.position)) {
-          // Create a new object with the position label set to the slot we're filling
+        if (slot.canPlay.includes(batter.position)) {
           lineup.push({
             ...batter,
-            position: posReq.position,
-            positionLabel: posReq.label
+            position: slot.position,
+            positionLabel: slot.label
           });
           used.add(batter.playerId);
-          assigned = true;
+          filled = true;
           break;
         }
       }
-      if (!assigned) {
-        // If no one can play this position, take best available
+
+      // Remove this slot from remaining
+      const slotIndex = remainingSlots.findIndex(s => s.label === slot.label);
+      remainingSlots.splice(slotIndex, 1);
+
+      // If not filled with eligible player, try fallback with best available
+      if (!filled) {
         for (const batter of sorted) {
           if (used.has(batter.playerId)) continue;
           lineup.push({
             ...batter,
-            position: posReq.position,
-            positionLabel: posReq.label
+            position: slot.position,
+            positionLabel: slot.label
           });
           used.add(batter.playerId);
           break;
