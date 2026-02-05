@@ -12,6 +12,8 @@ import { playerService } from './PlayerService';
 import { trueFutureRatingService } from './TrueFutureRatingService';
 import { hitterTrueFutureRatingService, HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
 import { hitterScoutingDataService } from './HitterScoutingDataService';
+import { hitterTrueRatingsCalculationService, HitterTrueRatingInput } from './HitterTrueRatingsCalculationService';
+import { batterProjectionService } from './BatterProjectionService';
 import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 
@@ -195,6 +197,75 @@ export interface HitterFarmData {
     prospects: RatedHitterProspect[];
 }
 
+// ============================================================================
+// Power Rankings Interfaces
+// ============================================================================
+
+export interface RatedPitcher {
+  playerId: number;
+  name: string;
+  trueRating: number;
+  trueStuff: number;
+  trueControl: number;
+  trueHra: number;
+  role: string;  // 'SP' | 'RP'
+  stats?: {
+    ip: number;
+    k9: number;
+    bb9: number;
+    hr9: number;
+    era: number;
+    fip: number;
+    war?: number;
+  };
+}
+
+export interface RatedBatter {
+  playerId: number;
+  name: string;
+  position: number;
+  positionLabel: string;
+  trueRating: number;
+  estimatedPower: number;
+  estimatedEye: number;
+  estimatedAvoidK: number;
+  estimatedContact: number;
+  stats?: {
+    pa: number;
+    avg: number;
+    obp: number;
+    slg: number;
+    ops: number;
+    hr: number;
+    war?: number;
+  };
+}
+
+export interface TeamPowerRanking {
+  teamId: number;
+  teamName: string;
+  teamRating: number;  // Weighted 0.5-5.0 scale
+
+  // Component scores
+  rotationRating: number;
+  bullpenRating: number;
+  lineupRating: number;
+  benchRating: number;
+
+  // Player rosters
+  rotation: RatedPitcher[];      // Top 5 SP
+  bullpen: RatedPitcher[];       // Top 8 RP
+  lineup: RatedBatter[];         // 9 position players
+  bench: RatedBatter[];          // Remaining players
+
+  // Metadata
+  totalRosterSize: number;       // Should be 26
+}
+
+// ============================================================================
+// Team Rating Result (for Projections)
+// ============================================================================
+
 export interface TeamRatingResult {
   teamId: number;
   teamName: string;
@@ -209,9 +280,291 @@ export interface TeamRatingResult {
   bullpenWar: number;
   rotation: RatedPlayer[];
   bullpen: RatedPlayer[];
+
+  // NEW: Batter projections
+  lineup?: RatedBatter[];
+  bench?: RatedBatter[];
+  lineupWar?: number;
+  benchWar?: number;
+  totalWar?: number;  // rotationWar + bullpenWar + lineupWar
 }
 
 class TeamRatingsService {
+  /**
+   * Get Power Rankings for all MLB teams
+   * Ranks teams by weighted Team Rating = 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench
+   */
+  async getPowerRankings(year: number): Promise<TeamPowerRanking[]> {
+    // 1. Fetch all required data
+    const [allTeams, pitchingStats, leagueAverages] = await Promise.all([
+      teamService.getAllTeams(),
+      trueRatingsService.getTruePitchingStats(year),
+      trueRatingsService.getLeagueAverages(year)
+    ]);
+
+    // Fetch batting stats and scouting
+    const [battingStats, myScoutingRatings, osaScoutingRatings] = await Promise.all([
+      trueRatingsService.getTrueBattingStats(year),
+      hitterScoutingDataService.getLatestScoutingRatings('my'),
+      hitterScoutingDataService.getLatestScoutingRatings('osa')
+    ]);
+
+    // 2. Get multi-year stats for True Ratings
+    const multiYearPitchingStats = await trueRatingsService.getMultiYearPitchingStats(year, 3);
+    const multiYearBattingStats = await trueRatingsService.getMultiYearBattingStats(year, 4);
+
+    // 3. Calculate True Ratings for all pitchers (only those with stats in this year)
+    const scoutingMap = new Map(await scoutingDataFallbackService.getScoutingRatingsWithFallback(year).then(s => s.ratings.map(r => [r.playerId, r])));
+
+    // Filter to MLB pitchers only (level_id === 1)
+    const mlbPitchingStats = pitchingStats.filter(stat => stat.level_id === 1);
+
+    const pitcherTrInputs = mlbPitchingStats.map(stat => ({
+      playerId: stat.player_id,
+      playerName: stat.playerName,
+      yearlyStats: multiYearPitchingStats.get(stat.player_id) ?? [],
+      scoutingRatings: scoutingMap.get(stat.player_id)
+    }));
+    const pitcherTrResults = trueRatingsCalculationService.calculateTrueRatings(pitcherTrInputs, leagueAverages);
+    const pitcherTrMap = new Map(pitcherTrResults.map(tr => [tr.playerId, tr]));
+
+    // 4. Calculate True Ratings for all batters
+    const hitterScoutingMap = new Map<number, any>();
+    for (const rating of osaScoutingRatings) {
+      hitterScoutingMap.set(rating.playerId, rating);
+    }
+    for (const rating of myScoutingRatings) {
+      hitterScoutingMap.set(rating.playerId, rating);
+    }
+
+    // Filter to MLB batters only (level_id === 1, position !== 1)
+    const mlbBattingStats = battingStats.filter(stat => stat.level_id === 1 && stat.position !== 1);
+
+    const batterTrInputs: HitterTrueRatingInput[] = [];
+    mlbBattingStats.forEach(stat => {
+      const stats = multiYearBattingStats.get(stat.player_id);
+      if (stats && stats.length > 0 && stat.pa >= 100) {
+        batterTrInputs.push({
+          playerId: stat.player_id,
+          playerName: stat.playerName,
+          yearlyStats: stats,
+          scoutingRatings: hitterScoutingMap.get(stat.player_id)
+        });
+      }
+    });
+    const batterTrResults = hitterTrueRatingsCalculationService.calculateTrueRatings(batterTrInputs);
+    const batterTrMap = new Map(batterTrResults.map((tr: any) => [tr.playerId, tr]));
+
+    // 5. Build team rosters from stats data (not from player service)
+    const teamMap = new Map(allTeams.map(t => [t.id, t]));
+    const mlbTeams = allTeams.filter(t => t.parentTeamId === 0);
+
+    const powerRankings: TeamPowerRanking[] = [];
+
+    for (const team of mlbTeams) {
+      // Get pitchers and batters from this team's stats
+      const teamPitchingStats = mlbPitchingStats.filter(s => {
+        const statTeam = teamMap.get(s.team_id);
+        // Handle parent team mapping
+        const actualTeamId = statTeam?.parentTeamId || s.team_id;
+        return actualTeamId === team.id;
+      });
+
+      const teamBattingStats = mlbBattingStats.filter(s => {
+        const statTeam = teamMap.get(s.team_id);
+        const actualTeamId = statTeam?.parentTeamId || s.team_id;
+        return actualTeamId === team.id;
+      });
+
+      // Build rated pitchers from stats
+      const ratedPitchers: RatedPitcher[] = teamPitchingStats.map(stat => {
+        const trData = pitcherTrMap.get(stat.player_id);
+        const scouting = scoutingMap.get(stat.player_id);
+
+        // Determine role (SP vs RP) - use multiple signals like getTeamRatings does
+        const pitches = scouting?.pitches ?? {};
+        const usablePitchCount = Object.values(pitches).filter(v => v >= 45).length;
+        const stamina = scouting?.stamina ?? 0;
+
+        // Priority 1: Check historical stats (most reliable)
+        const historicalStats = multiYearPitchingStats.get(stat.player_id) ?? [];
+        const totalGs = historicalStats.reduce((sum, s) => sum + (s.gs ?? 0), 0);
+        const hasStarterHistory = totalGs >= 5;
+
+        // Priority 2: Check current year stats
+        const hasStarterRole = stat.gs >= 5;
+
+        // Priority 3: Check scouting profile
+        const hasStarterProfile = usablePitchCount >= 3 && stamina >= 30;
+
+        // Classify as SP if they have any evidence of being a starter
+        const isSp = hasStarterHistory || hasStarterRole || hasStarterProfile;
+
+        const ip = trueRatingsService.parseIp(stat.ip);
+
+        return {
+          playerId: stat.player_id,
+          name: stat.playerName,
+          trueRating: trData?.trueRating ?? 0.5,
+          trueStuff: trData?.estimatedStuff ?? 20,
+          trueControl: trData?.estimatedControl ?? 20,
+          trueHra: trData?.estimatedHra ?? 20,
+          role: isSp ? 'SP' : 'RP',
+          stats: {
+            ip,
+            k9: ip > 0 ? (stat.k / ip) * 9 : 0,
+            bb9: ip > 0 ? (stat.bb / ip) * 9 : 0,
+            hr9: ip > 0 ? (stat.hra / ip) * 9 : 0,
+            era: ip > 0 ? (stat.er / ip) * 9 : 0,
+            fip: 0,
+            war: stat.war
+          }
+        };
+      }).filter(p => p.trueRating > 0.5);
+
+      // Build rated batters from stats
+      const ratedBatters: RatedBatter[] = teamBattingStats.map(stat => {
+        const trData = batterTrMap.get(stat.player_id);
+
+        return {
+          playerId: stat.player_id,
+          name: stat.playerName,
+          position: stat.position,
+          positionLabel: this.getPositionLabel(stat.position),
+          trueRating: (trData as any)?.trueRating ?? 0.5,
+          estimatedPower: (trData as any)?.estimatedPower ?? 50,
+          estimatedEye: (trData as any)?.estimatedEye ?? 50,
+          estimatedAvoidK: (trData as any)?.estimatedAvoidK ?? 50,
+          estimatedContact: (trData as any)?.estimatedContact ?? 50,
+          stats: {
+            pa: stat.pa,
+            avg: stat.avg,
+            obp: stat.obp,
+            slg: stat.ab > 0 ? ((stat.h + stat.d + 2 * stat.t + 3 * stat.hr) / stat.ab) : 0,
+            ops: stat.obp + (stat.ab > 0 ? ((stat.h + stat.d + 2 * stat.t + 3 * stat.hr) / stat.ab) : 0),
+            hr: stat.hr,
+            war: stat.war
+          }
+        };
+      }).filter(p => p.trueRating > 0.5);
+
+      // Construct optimal roster allocation
+      const rotation = ratedPitchers.filter(p => p.role === 'SP')
+        .sort((a, b) => b.trueRating - a.trueRating)
+        .slice(0, 5);
+
+      const bullpen = ratedPitchers.filter(p => p.role === 'RP')
+        .sort((a, b) => b.trueRating - a.trueRating)
+        .slice(0, 8);
+
+      const lineup = this.constructOptimalLineup(ratedBatters);
+      const bench = ratedBatters
+        .filter(b => !lineup.some(l => l.playerId === b.playerId))
+        .sort((a, b) => b.trueRating - a.trueRating)
+        .slice(0, 4);
+
+      // Calculate component scores
+      const rotationRating = rotation.length > 0 ? rotation.reduce((sum, p) => sum + p.trueRating, 0) / rotation.length : 0;
+      const bullpenRating = bullpen.length > 0 ? bullpen.reduce((sum, p) => sum + p.trueRating, 0) / bullpen.length : 0;
+      const lineupRating = lineup.length > 0 ? lineup.reduce((sum, b) => sum + b.trueRating, 0) / lineup.length : 0;
+      const benchRating = bench.length > 0 ? bench.reduce((sum, b) => sum + b.trueRating, 0) / bench.length : 0;
+
+      // Calculate Team Rating (weighted average)
+      const teamRating = (rotationRating * 0.30) + (lineupRating * 0.45) + (bullpenRating * 0.20) + (benchRating * 0.05);
+
+      powerRankings.push({
+        teamId: team.id,
+        teamName: team.nickname,
+        teamRating,
+        rotationRating,
+        bullpenRating,
+        lineupRating,
+        benchRating,
+        rotation,
+        bullpen,
+        lineup,
+        bench,
+        totalRosterSize: rotation.length + bullpen.length + lineup.length + bench.length
+      });
+    }
+
+    // Sort by Team Rating descending
+    return powerRankings.sort((a, b) => b.teamRating - a.teamRating);
+  }
+
+  /**
+   * Construct optimal 9-player lineup with position flexibility
+   * Updates position labels to show the slot they're filling
+   */
+  private constructOptimalLineup(batters: RatedBatter[]): RatedBatter[] {
+    const lineup: RatedBatter[] = [];
+    const used = new Set<number>();
+
+    // Sort batters by True Rating descending
+    const sorted = [...batters].sort((a, b) => b.trueRating - a.trueRating);
+
+    // Position requirements and flexibility (Position enum values)
+    const positionPriority = [
+      { label: 'C', position: 2, canPlay: [2] },  // Catcher only
+      { label: '1B', position: 3, canPlay: [3] }, // First Base only
+      { label: 'SS', position: 6, canPlay: [6, 4] }, // Shortstop, or Second Base
+      { label: '2B', position: 4, canPlay: [4, 6] }, // Second Base, or Shortstop
+      { label: '3B', position: 5, canPlay: [5] }, // Third Base only
+      { label: 'CF', position: 8, canPlay: [8, 7, 9] }, // Center Field, or any OF
+      { label: 'LF', position: 7, canPlay: [7, 9, 8] }, // Left Field, or any OF
+      { label: 'RF', position: 9, canPlay: [9, 7, 8] }, // Right Field, or any OF
+    ];
+
+    // Fill positions in priority order
+    for (const posReq of positionPriority) {
+      let assigned = false;
+      for (const batter of sorted) {
+        if (used.has(batter.playerId)) continue;
+        if (posReq.canPlay.includes(batter.position)) {
+          // Create a new object with the position label set to the slot we're filling
+          lineup.push({
+            ...batter,
+            position: posReq.position,
+            positionLabel: posReq.label
+          });
+          used.add(batter.playerId);
+          assigned = true;
+          break;
+        }
+      }
+      if (!assigned) {
+        // If no one can play this position, take best available
+        for (const batter of sorted) {
+          if (used.has(batter.playerId)) continue;
+          lineup.push({
+            ...batter,
+            position: posReq.position,
+            positionLabel: posReq.label
+          });
+          used.add(batter.playerId);
+          break;
+        }
+      }
+    }
+
+    // Assign best remaining player to DH
+    for (const batter of sorted) {
+      if (used.has(batter.playerId)) continue;
+      lineup.push({ ...batter, position: 10, positionLabel: 'DH' });
+      used.add(batter.playerId);
+      break;
+    }
+
+    return lineup;
+  }
+
+  private getPositionLabel(position: number): string {
+    const labels: Record<number, string> = {
+      1: 'P', 2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH'
+    };
+    return labels[position] ?? 'Unknown';
+  }
+
   async getFarmData(year: number): Promise<FarmData> {
       // Fetch scouting data first to handle fallback logic
       let scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
@@ -707,14 +1060,22 @@ class TeamRatingsService {
   }
 
   async getProjectedTeamRatings(baseYear: number): Promise<TeamRatingResult[]> {
-      const projections = await projectionService.getProjections(baseYear, { forceRosterRefresh: false });
-      const leagueStats = await leagueStatsService.getLeagueStats(baseYear);
-      
-      const teamGroups = new Map<number, { rotation: RatedPlayer[], bullpen: RatedPlayer[] }>();
+      const [pitcherProjections, leagueStats, batterProjectionsCtx] = await Promise.all([
+        projectionService.getProjections(baseYear, { forceRosterRefresh: false }),
+        leagueStatsService.getLeagueStats(baseYear),
+        batterProjectionService.getProjectionsWithContext(baseYear)
+      ]);
+
+      const teamGroups = new Map<number, {
+        rotation: RatedPlayer[],
+        bullpen: RatedPlayer[],
+        batters: RatedBatter[]
+      }>();
       const teams = await teamService.getAllTeams();
       const teamMap = new Map(teams.map(t => [t.id, t]));
 
-      projections.forEach(p => {
+      // Process pitcher projections
+      pitcherProjections.forEach(p => {
           if (p.teamId === 0) return; // Skip FA
 
           // Use the role classification from the projection service
@@ -743,7 +1104,7 @@ class TeamRatingsService {
           };
 
           if (!teamGroups.has(p.teamId)) {
-              teamGroups.set(p.teamId, { rotation: [], bullpen: [] });
+              teamGroups.set(p.teamId, { rotation: [], bullpen: [], batters: [] });
           }
           const group = teamGroups.get(p.teamId)!;
           if (isSp) {
@@ -751,6 +1112,38 @@ class TeamRatingsService {
           } else {
               group.bullpen.push(ratedPlayer);
           }
+      });
+
+      // Process batter projections
+      batterProjectionsCtx.projections.forEach(b => {
+          if (b.teamId === 0) return; // Skip FA
+
+          const ratedBatter: RatedBatter = {
+              playerId: b.playerId,
+              name: b.name,
+              position: b.position,
+              positionLabel: b.positionLabel,
+              trueRating: b.currentTrueRating,
+              estimatedPower: b.estimatedRatings.power,
+              estimatedEye: b.estimatedRatings.eye,
+              estimatedAvoidK: b.estimatedRatings.avoidK,
+              estimatedContact: b.estimatedRatings.contact,
+              stats: {
+                  pa: b.projectedStats.pa,
+                  avg: b.projectedStats.avg,
+                  obp: b.projectedStats.obp,
+                  slg: b.projectedStats.slg,
+                  ops: b.projectedStats.ops,
+                  hr: b.projectedStats.hr,
+                  war: b.projectedStats.war
+              }
+          };
+
+          if (!teamGroups.has(b.teamId)) {
+              teamGroups.set(b.teamId, { rotation: [], bullpen: [], batters: [] });
+          }
+          const group = teamGroups.get(b.teamId)!;
+          group.batters.push(ratedBatter);
       });
 
       // 1. Organize Groups & Calculate Role-Specific Baselines
@@ -854,8 +1247,22 @@ class TeamRatingsService {
       const globalAvgRotationRuns = count > 0 ? grandTotalRotationRuns / count : 0;
       const globalAvgBullpenRuns = count > 0 ? grandTotalBullpenRuns / count : 0;
 
-      // 3. Finalize Results
+      // 3. Finalize Results with batter data
       const results: TeamRatingResult[] = teamRunTotals.map(r => {
+          const group = r.group;
+
+          // Sort batters by True Rating and construct lineup
+          const sortedBatters = (group as any).batters.sort((a: RatedBatter, b: RatedBatter) => b.trueRating - a.trueRating);
+          const lineup = this.constructOptimalLineup(sortedBatters);
+          const bench = sortedBatters
+              .filter((b: RatedBatter) => !lineup.some(l => l.playerId === b.playerId))
+              .slice(0, 4);
+
+          // Calculate WAR
+          const lineupWar = lineup.reduce((sum: number, b: RatedBatter) => sum + (b.stats?.war ?? 0), 0);
+          const benchWar = bench.reduce((sum: number, b: RatedBatter) => sum + (b.stats?.war ?? 0), 0);
+          const totalWar = r.rotationWar + r.bullpenWar + lineupWar;
+
           return {
               teamId: r.teamId,
               teamName: r.teamName,
@@ -869,7 +1276,12 @@ class TeamRatingsService {
               rotationWar: r.rotationWar,
               bullpenWar: r.bullpenWar,
               rotation: r.group.rotation,
-              bullpen: r.group.bullpen
+              bullpen: r.group.bullpen,
+              lineup,
+              bench,
+              lineupWar,
+              benchWar,
+              totalWar
           };
       });
 
