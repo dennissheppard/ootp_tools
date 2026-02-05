@@ -1,10 +1,12 @@
-import { teamRatingsService, TeamRatingResult, RatedPlayer } from '../services/TeamRatingsService';
+import { teamRatingsService, TeamRatingResult, RatedPlayer, TeamPowerRanking } from '../services/TeamRatingsService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { dateService } from '../services/DateService';
 import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
+import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { scoutingDataService } from '../services/ScoutingDataService';
+import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 
 interface TeamColumn {
   key: 'name' | 'trueRating' | 'ip' | 'k9' | 'bb9' | 'hr9' | 'eraOrWar' | 'war';
@@ -30,11 +32,14 @@ interface ImprovementRow {
 export class TeamRatingsView {
   private container: HTMLElement;
   private selectedYear: number = 2020;
-  private viewMode: 'projected' | 'all-time' | 'year' = 'year';
+  private viewMode: 'projected' | 'all-time' | 'year' | 'power-rankings' = 'power-rankings';
+  private displayMode: 'table' | 'dashboard' = 'dashboard';
   private results: TeamRatingResult[] = [];
+  private powerRankings: TeamPowerRanking[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private currentGameYear: number | null = null;
   private playerProfileModal: PlayerProfileModal;
+  private batterProfileModal: BatterProfileModal;
   private playerRowLookup: Map<string, PlayerRowContext> = new Map();
   private teamResultLookup: Map<string, TeamRatingResult> = new Map();
   private isDraggingColumn = false;
@@ -47,6 +52,7 @@ export class TeamRatingsView {
   constructor(container: HTMLElement) {
     this.container = container;
     this.playerProfileModal = new PlayerProfileModal();
+    this.batterProfileModal = new BatterProfileModal();
     this.renderLayout();
     this.loadCurrentGameYear();
     this.loadData();
@@ -56,14 +62,21 @@ export class TeamRatingsView {
     this.container.innerHTML = `
       <div class="true-ratings-content">
         <h2 class="view-title">Team Ratings</h2>
-        
-        <div class="true-ratings-controls">          
+
+        <div class="true-ratings-controls">
           <div class="form-field">
-            <label>View:</label>
+            <label>Mode:</label>
             <div class="toggle-group" role="group" aria-label="View mode">
+              <button class="toggle-btn active" data-view-mode="power-rankings" aria-pressed="true">Power Rankings</button>
               <button class="toggle-btn" data-view-mode="projected" aria-pressed="false">Projections</button>
-              <button class="toggle-btn" data-view-mode="all-time" aria-pressed="false">All Time</button>
-              <button class="toggle-btn active" data-view-mode="year" aria-pressed="true">By Year</button>
+              <button class="toggle-btn" data-view-mode="year" aria-pressed="false">By Year</button>
+            </div>
+          </div>
+          <div class="form-field" id="display-mode-field">
+            <label>View:</label>
+            <div class="toggle-group" role="group" aria-label="Display mode">
+              <button class="toggle-btn" data-display-mode="table" aria-pressed="false">Table</button>
+              <button class="toggle-btn active" data-display-mode="dashboard" aria-pressed="true">Dashboard</button>
             </div>
           </div>
           <div class="form-field" id="year-selector-field">
@@ -105,12 +118,12 @@ export class TeamRatingsView {
 
     this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            const mode = (e.target as HTMLElement).dataset.viewMode as 'projected' | 'all-time' | 'year';
+            const mode = (e.target as HTMLElement).dataset.viewMode as 'projected' | 'all-time' | 'year' | 'power-rankings';
             if (mode === this.viewMode) return;
-            
+
             this.viewMode = mode;
             this.teamSortState.clear();
-            
+
             // If switching to projections, force latest year (2020)
             if (this.viewMode === 'projected') {
                 this.selectedYear = 2020;
@@ -118,7 +131,7 @@ export class TeamRatingsView {
                 if (yearSelect) yearSelect.value = '2020';
             }
 
-            if (this.viewMode === 'year') {
+            if (this.viewMode === 'year' || this.viewMode === 'power-rankings') {
                 this.selectedYear = this.lastSelectedYear;
                 const yearSelect = this.container.querySelector<HTMLSelectElement>('#team-ratings-year');
                 if (yearSelect) yearSelect.value = String(this.selectedYear);
@@ -130,10 +143,30 @@ export class TeamRatingsView {
                 b.classList.toggle('active', isActive);
                 b.setAttribute('aria-pressed', String(isActive));
             });
-            
+
             this.updateViewNotice();
             this.showLoadingState();
             this.loadData();
+        });
+    });
+
+    // Display mode toggle (Table vs Dashboard)
+    this.container.querySelectorAll('[data-display-mode]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            const mode = (e.target as HTMLElement).dataset.displayMode as 'table' | 'dashboard';
+            if (mode === this.displayMode) return;
+
+            this.displayMode = mode;
+
+            this.container.querySelectorAll('[data-display-mode]').forEach(btn => {
+                const b = btn as HTMLElement;
+                const isActive = b.dataset.displayMode === mode;
+                b.classList.toggle('active', isActive);
+                b.setAttribute('aria-pressed', String(isActive));
+            });
+
+            // Re-render with new display mode
+            this.renderLists();
         });
     });
   }
@@ -227,9 +260,13 @@ export class TeamRatingsView {
   private updateViewNotice(): void {
       const notice = this.container.querySelector<HTMLElement>('#view-notice');
       const yearField = this.container.querySelector<HTMLElement>('#year-selector-field');
-      
+      const displayField = this.container.querySelector<HTMLElement>('#display-mode-field');
+
       if (notice) {
-          if (this.viewMode === 'projected') {
+          if (this.viewMode === 'power-rankings') {
+              notice.style.display = 'block';
+              notice.innerHTML = `<strong>Power Rankings:</strong> Current team ability snapshot using True Ratings from 26-man MLB rosters. Team Rating = 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench.`;
+          } else if (this.viewMode === 'projected') {
               notice.style.display = 'block';
               notice.innerHTML = `<strong>Projections:</strong> Showing projected ratings for the <em>upcoming</em> season (${this.selectedYear + 1}) based on historical data and wizardry. These will not update throughout the year. Use 'By Year' to show current team ratings.`;
           } else if (this.viewMode === 'all-time') {
@@ -239,16 +276,25 @@ export class TeamRatingsView {
               notice.style.display = 'none';
           }
       }
-      
+
       if (yearField) {
-          yearField.style.display = this.viewMode === 'year' ? 'block' : 'none';
+          yearField.style.display = (this.viewMode === 'year' || this.viewMode === 'power-rankings') ? 'block' : 'none';
+      }
+
+      if (displayField) {
+          displayField.style.display = (this.viewMode === 'power-rankings' || this.viewMode === 'projected') ? 'block' : 'none';
       }
   }
 
   private async loadData(): Promise<void> {
     try {
-        if (this.viewMode === 'year') {
+        if (this.viewMode === 'power-rankings') {
+            this.powerRankings = await teamRatingsService.getPowerRankings(this.selectedYear);
+            this.results = [];
+            this.projectedBaselineResults = null;
+        } else if (this.viewMode === 'year') {
             this.results = await teamRatingsService.getTeamRatings(this.selectedYear);
+            this.powerRankings = [];
             this.projectedBaselineResults = null;
         } else if (this.viewMode === 'all-time') {
             if (this.allTimeResults) {
@@ -257,6 +303,7 @@ export class TeamRatingsView {
                 this.results = await teamRatingsService.getAllTimeTeamRatings(this.yearOptions);
                 this.allTimeResults = this.results;
             }
+            this.powerRankings = [];
             this.projectedBaselineResults = null;
         } else {
             console.log('Fetching projections...', teamRatingsService);
@@ -265,6 +312,7 @@ export class TeamRatingsView {
                 throw new Error('Service method missing. Please refresh the page.');
             }
             this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear);
+            this.powerRankings = [];
             try {
                 this.projectedBaselineResults = await teamRatingsService.getTeamRatings(this.selectedYear);
             } catch (baselineError) {
@@ -272,7 +320,11 @@ export class TeamRatingsView {
                 this.projectedBaselineResults = null;
             }
         }
-        if (this.results.length === 0) {
+        if (this.viewMode === 'power-rankings' && this.powerRankings.length === 0) {
+            await this.renderNoData();
+            return;
+        }
+        if (this.viewMode !== 'power-rankings' && this.results.length === 0) {
             await this.renderNoData();
             return;
         }
@@ -288,6 +340,26 @@ export class TeamRatingsView {
       const penContainer = this.container.querySelector('#bullpen-rankings');
 
       if (!rotContainer || !penContainer) return;
+
+      // Power Rankings mode
+      if (this.viewMode === 'power-rankings') {
+        if (this.displayMode === 'dashboard') {
+          this.renderPowerRankingsDashboard(rotContainer, penContainer);
+        } else {
+          this.renderPowerRankingsTable(rotContainer, penContainer);
+        }
+        this.bindToggleEvents();
+        this.bindPlayerNameClicks();
+        return;
+      }
+
+      // Projections mode with dashboard
+      if (this.viewMode === 'projected' && this.displayMode === 'dashboard') {
+        this.renderProjectionsDashboard(rotContainer, penContainer);
+        this.bindToggleEvents();
+        this.renderProjectedImprovements();
+        return;
+      }
 
       // Build player lookup for modal access
       this.playerRowLookup = new Map();
@@ -501,6 +573,305 @@ export class TeamRatingsView {
         </div>
       </details>
     `;
+  }
+
+  private renderProjectionsDashboard(rotContainer: Element, penContainer: Element): void {
+      // Calculate rankings for each component
+      const rotationRanked = [...this.results].sort((a, b) => b.rotationWar - a.rotationWar);
+      const bullpenRanked = [...this.results].sort((a, b) => b.bullpenWar - a.bullpenWar);
+      const lineupRanked = [...this.results]
+        .filter(r => r.lineupWar !== undefined)
+        .sort((a, b) => (b.lineupWar ?? 0) - (a.lineupWar ?? 0));
+      const benchRanked = [...this.results]
+        .filter(r => r.benchWar !== undefined)
+        .sort((a, b) => (b.benchWar ?? 0) - (a.benchWar ?? 0));
+
+      // Render in 2x2 grid
+      rotContainer.innerHTML = `
+        ${this.renderProjectionComponent('Top Rotations', rotationRanked, 'rotation')}
+        ${lineupRanked.length > 0 ? this.renderProjectionComponent('Top Lineups', lineupRanked, 'lineup') : ''}
+      `;
+
+      penContainer.innerHTML = `
+        ${this.renderProjectionComponent('Top Bullpens', bullpenRanked, 'bullpen')}
+        ${benchRanked.length > 0 ? this.renderProjectionComponent('Top Benches', benchRanked, 'bench') : ''}
+      `;
+  }
+
+  private renderProjectionComponent(
+    title: string,
+    teams: TeamRatingResult[],
+    component: 'rotation' | 'bullpen' | 'lineup' | 'bench'
+  ): string {
+      const getWar = (team: TeamRatingResult) => {
+        switch (component) {
+          case 'rotation': return team.rotationWar;
+          case 'bullpen': return team.bullpenWar;
+          case 'lineup': return team.lineupWar ?? 0;
+          case 'bench': return team.benchWar ?? 0;
+        }
+      };
+
+      const preview = teams.slice(0, 3).map((team, idx) => {
+          const war = getWar(team);
+          const scoreClass = this.getWarClass(war, component === 'rotation' || component === 'lineup' ? 'rotation' : 'bullpen');
+          const yearLabel = this.viewMode === 'all-time' && team.seasonYear
+            ? ` <span class="note-text">(${team.seasonYear})</span>`
+            : '';
+          return `
+            <div class="team-preview-row">
+              <span class="team-preview-rank">#${idx + 1}</span>
+              <span class="team-preview-name">${team.teamName}${yearLabel}</span>
+              <span class="badge ${scoreClass} team-preview-score">${war.toFixed(1)}</span>
+            </div>
+          `;
+      }).join('');
+
+      const fullList = teams.map((team, idx) => {
+          const war = getWar(team);
+          const scoreClass = this.getWarClass(war, component === 'rotation' || component === 'lineup' ? 'rotation' : 'bullpen');
+          const yearLabel = this.viewMode === 'all-time' && team.seasonYear
+            ? ` <span class="note-text">(${team.seasonYear})</span>`
+            : '';
+          return `
+            <div class="improvement-row">
+              <span class="improvement-rank">#${idx + 1}</span>
+              <span class="improvement-team">${team.teamName}${yearLabel}</span>
+              <span class="badge ${scoreClass}">${war.toFixed(1)}</span>
+            </div>
+          `;
+      }).join('');
+
+      return `
+        <details class="team-collapsible" style="margin-bottom: 1rem;">
+          <summary class="team-collapsible-summary">
+            <div>
+              <h3 class="section-title">${title} <span class="note-text">(Ranked by WAR)</span></h3>
+              <div class="team-preview-list">
+                ${preview}
+              </div>
+            </div>
+            <span class="team-collapsible-label">
+              <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
+              <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
+              <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
+              <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
+            </span>
+          </summary>
+          <div class="improvement-list">
+            ${fullList}
+          </div>
+        </details>
+      `;
+  }
+
+  private renderPowerRankingsDashboard(rotContainer: Element, penContainer: Element): void {
+      // Calculate rankings for each component
+      const rotationRanked = [...this.powerRankings].sort((a, b) => b.rotationRating - a.rotationRating);
+      const bullpenRanked = [...this.powerRankings].sort((a, b) => b.bullpenRating - a.bullpenRating);
+      const lineupRanked = [...this.powerRankings].sort((a, b) => b.lineupRating - a.lineupRating);
+      const benchRanked = [...this.powerRankings].sort((a, b) => b.benchRating - a.benchRating);
+
+      // Render in 2x2 grid
+      rotContainer.innerHTML = `
+        ${this.renderPowerRankingComponent('Top Rotations', rotationRanked, 'rotation', 'rotationRating')}
+        ${this.renderPowerRankingComponent('Top Lineups', lineupRanked, 'lineup', 'lineupRating')}
+      `;
+
+      penContainer.innerHTML = `
+        ${this.renderPowerRankingComponent('Top Bullpens', bullpenRanked, 'bullpen', 'bullpenRating')}
+        ${this.renderPowerRankingComponent('Top Benches', benchRanked, 'bench', 'benchRating')}
+      `;
+  }
+
+  private renderPowerRankingComponent(
+    title: string,
+    teams: TeamPowerRanking[],
+    _component: 'rotation' | 'bullpen' | 'lineup' | 'bench',
+    ratingKey: keyof TeamPowerRanking
+  ): string {
+      const preview = teams.slice(0, 3).map((team, idx) => {
+          const rating = team[ratingKey] as number;
+          const scoreClass = this.getRatingClass(rating);
+          return `
+            <div class="team-preview-row">
+              <span class="team-preview-rank">#${idx + 1}</span>
+              <span class="team-preview-name">${team.teamName}</span>
+              <span class="badge ${scoreClass} team-preview-score">${rating.toFixed(2)}</span>
+            </div>
+          `;
+      }).join('');
+
+      const fullList = teams.map((team, idx) => {
+          const rating = team[ratingKey] as number;
+          const scoreClass = this.getRatingClass(rating);
+          return `
+            <div class="improvement-row">
+              <span class="improvement-rank">#${idx + 1}</span>
+              <span class="improvement-team">${team.teamName}</span>
+              <span class="badge ${scoreClass}">${rating.toFixed(2)}</span>
+            </div>
+          `;
+      }).join('');
+
+      return `
+        <details class="team-collapsible" style="margin-bottom: 1rem;">
+          <summary class="team-collapsible-summary">
+            <div>
+              <h3 class="section-title">${title} <span class="note-text">(Ranked by Avg TR)</span></h3>
+              <div class="team-preview-list">
+                ${preview}
+              </div>
+            </div>
+            <span class="team-collapsible-label">
+              <span class="team-collapsible-icon team-collapsible-icon-open">−</span>
+              <span class="team-collapsible-icon team-collapsible-icon-closed">+</span>
+              <span class="team-collapsible-text team-collapsible-text-open">Collapse list</span>
+              <span class="team-collapsible-text team-collapsible-text-closed">View full list</span>
+            </span>
+          </summary>
+          <div class="improvement-list">
+            ${fullList}
+          </div>
+        </details>
+      `;
+  }
+
+  private renderPowerRankingsTable(rotContainer: Element, penContainer: Element): void {
+      const sorted = [...this.powerRankings].sort((a, b) => b.teamRating - a.teamRating);
+
+      const tableHtml = `
+        <div style="grid-column: 1 / -1;">
+          <h3 class="section-title">Team Power Rankings <span class="note-text">(Ranked by Team Rating)</span></h3>
+          ${sorted.map((team, idx) => this.renderPowerRankingRow(team, idx + 1)).join('')}
+        </div>
+      `;
+
+      rotContainer.innerHTML = tableHtml;
+      penContainer.innerHTML = '';
+  }
+
+  private renderPowerRankingRow(team: TeamPowerRanking, rank: number): string {
+      const teamKey = `pr-${team.teamId}`;
+      return `
+        <div class="team-card" style="margin-bottom: 1rem;">
+          <div class="team-header" data-team-key="${teamKey}" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px;">
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <span style="font-weight: bold; color: var(--color-text-muted); width: 20px;">#${rank}</span>
+              <span style="font-weight: 600;">${team.teamName}</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 1rem;">
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <span style="font-size: 0.85em; color: var(--color-text-muted);">Rotation:</span>
+                <span class="badge ${this.getRatingClass(team.rotationRating)}">${team.rotationRating.toFixed(2)}</span>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <span style="font-size: 0.85em; color: var(--color-text-muted);">Lineup:</span>
+                <span class="badge ${this.getRatingClass(team.lineupRating)}">${team.lineupRating.toFixed(2)}</span>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <span style="font-size: 0.85em; color: var(--color-text-muted);">Bullpen:</span>
+                <span class="badge ${this.getRatingClass(team.bullpenRating)}">${team.bullpenRating.toFixed(2)}</span>
+              </div>
+              <div style="display: flex; gap: 0.5rem; align-items: center;">
+                <span style="font-size: 0.85em; color: var(--color-text-muted);">Bench:</span>
+                <span class="badge ${this.getRatingClass(team.benchRating)}">${team.benchRating.toFixed(2)}</span>
+              </div>
+              <span class="badge ${this.getRatingClass(team.teamRating)}" style="font-size: 1.1em; min-width: 50px;">${team.teamRating.toFixed(2)}</span>
+              <span class="toggle-icon">▼</span>
+            </div>
+          </div>
+          <div class="team-details" id="details-${teamKey}" style="display: none; padding: 1rem; background: var(--color-surface-hover); border: 1px solid var(--color-border); border-top: none; border-radius: 0 0 4px 4px;">
+            ${this.renderPowerRankingDetails(team)}
+          </div>
+        </div>
+      `;
+  }
+
+  private renderPowerRankingDetails(team: TeamPowerRanking): string {
+      return `
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+          ${this.renderPowerRankingSection('Rotation', team.rotation, team.rotationRating, 'pitcher')}
+          ${this.renderPowerRankingSection('Bullpen', team.bullpen, team.bullpenRating, 'pitcher')}
+          ${this.renderPowerRankingSection('Lineup', team.lineup, team.lineupRating, 'batter')}
+          ${this.renderPowerRankingSection('Bench', team.bench, team.benchRating, 'batter')}
+        </div>
+      `;
+  }
+
+  private renderPowerRankingSection(
+    title: string,
+    players: any[],
+    avgRating: number,
+    type: 'pitcher' | 'batter'
+  ): string {
+      if (players.length === 0) {
+        return `
+          <div>
+            <h4 class="section-title">${title} <span class="note-text">(No players)</span></h4>
+            <p class="no-stats">No players found</p>
+          </div>
+        `;
+      }
+
+      const playerRows = players.map((player, idx) => {
+        if (type === 'pitcher') {
+          return `
+            <tr>
+              <td>${idx + 1}</td>
+              <td><button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}</button></td>
+              <td>${player.role}</td>
+              <td><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(2)}</span></td>
+              <td>${player.trueStuff}</td>
+              <td>${player.trueControl}</td>
+              <td>${player.trueHra}</td>
+              <td>${player.stats?.ip?.toFixed(1) ?? '-'}</td>
+              <td>${player.stats?.war?.toFixed(1) ?? '-'}</td>
+            </tr>
+          `;
+        } else {
+          return `
+            <tr>
+              <td>${idx + 1}</td>
+              <td><button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}</button></td>
+              <td>${player.positionLabel}</td>
+              <td><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(2)}</span></td>
+              <td>${player.estimatedPower}</td>
+              <td>${player.estimatedEye}</td>
+              <td>${player.estimatedAvoidK}</td>
+              <td>${player.estimatedContact}</td>
+              <td>${player.stats?.pa ?? '-'}</td>
+              <td>${player.stats?.war?.toFixed(1) ?? '-'}</td>
+            </tr>
+          `;
+        }
+      }).join('');
+
+      const headers = type === 'pitcher'
+        ? '<th>#</th><th>Name</th><th>Role</th><th>TR</th><th>Stuff</th><th>Ctrl</th><th>HRA</th><th>IP</th><th>WAR</th>'
+        : '<th>#</th><th>Name</th><th>Pos</th><th>TR</th><th>Pow</th><th>Eye</th><th>AvK</th><th>Con</th><th>PA</th><th>WAR</th>';
+
+      return `
+        <div>
+          <h4 class="section-title">${title} <span class="note-text">(Avg TR: ${avgRating.toFixed(2)})</span></h4>
+          <table class="stats-table" style="width: 100%; font-size: 0.85em; margin-top: 0.5rem;">
+            <thead>
+              <tr>${headers}</tr>
+            </thead>
+            <tbody>
+              ${playerRows}
+            </tbody>
+          </table>
+        </div>
+      `;
+  }
+
+  private getRatingClass(rating: number): string {
+      if (rating >= 4.5) return 'rating-elite';
+      if (rating >= 4.0) return 'rating-plus';
+      if (rating >= 3.0) return 'rating-avg';
+      if (rating >= 2.0) return 'rating-fringe';
+      return 'rating-poor';
   }
 
   private renderTeamPreviewRow(team: TeamRatingResult, rank: number, type: 'rotation' | 'bullpen'): string {
@@ -790,16 +1161,23 @@ export class TeamRatingsView {
           header.addEventListener('click', () => {
               const teamKey = (header as HTMLElement).dataset.teamKey;
               const type = (header as HTMLElement).dataset.type;
-              const details = this.container.querySelector(`#details-${type}-${teamKey}`);
+
+              // Handle different detail ID patterns
+              let details: Element | null = null;
+              if (type) {
+                  // Old pattern for projections: details-{type}-{teamKey}
+                  details = this.container.querySelector(`#details-${type}-${teamKey}`);
+              } else {
+                  // New pattern for power rankings: details-{teamKey}
+                  details = this.container.querySelector(`#details-${teamKey}`);
+              }
+
               const icon = header.querySelector('.toggle-icon');
-              
+
               if (details && icon) {
                   const isHidden = (details as HTMLElement).style.display === 'none';
                   (details as HTMLElement).style.display = isHidden ? 'block' : 'none';
                   icon.textContent = isHidden ? '▲' : '▼';
-                  
-                  // Re-bind flip events if becoming visible (though checking querySelector inside might be safer globally)
-                  // But flip events are bound on renderLists, so they should persist.
               }
           });
       });
@@ -855,8 +1233,16 @@ export class TeamRatingsView {
           this.openPlayerProfile(playerKey);
           return;
         }
+        // Handle power rankings mode - playerId directly
         const playerId = parseInt(link.dataset.playerId ?? '', 10);
         if (!playerId) return;
+
+        if (this.viewMode === 'power-rankings') {
+          this.openPowerRankingPlayerProfile(playerId);
+          return;
+        }
+
+        // Fallback for other modes
         const fallbackKey = Array.from(this.playerRowLookup.keys())
           .find(key => key.endsWith(`-${playerId}`));
         if (fallbackKey) {
@@ -1058,6 +1444,142 @@ export class TeamRatingsView {
       arrow.addEventListener('transitionend', () => arrow.remove(), { once: true });
       setTimeout(() => arrow.remove(), 800);
     }, 900);
+  }
+
+  private async openPowerRankingPlayerProfile(playerId: number): Promise<void> {
+    // Find player in power rankings data
+    let playerData: any = null;
+    let isPitcher = false;
+
+    for (const team of this.powerRankings) {
+      // Check rotation and bullpen
+      playerData = team.rotation.find(p => p.playerId === playerId);
+      if (playerData) {
+        isPitcher = true;
+        break;
+      }
+      playerData = team.bullpen.find(p => p.playerId === playerId);
+      if (playerData) {
+        isPitcher = true;
+        break;
+      }
+      // Check lineup and bench
+      playerData = team.lineup.find(p => p.playerId === playerId);
+      if (playerData) break;
+      playerData = team.bench.find(p => p.playerId === playerId);
+      if (playerData) break;
+    }
+
+    if (!playerData) {
+      console.warn('Player not found in power rankings:', playerId);
+      return;
+    }
+
+    // Fetch full player info
+    const player = await playerService.getPlayerById(playerId);
+    if (!player) return;
+
+    const team = await teamService.getTeamById(player.teamId);
+    const teamLabel = team ? `${team.name} ${team.nickname}` : '';
+    let parentLabel = '';
+    if (team && team.parentTeamId !== 0) {
+      const parent = await teamService.getTeamById(team.parentTeamId);
+      if (parent) parentLabel = parent.nickname;
+    }
+
+    if (isPitcher) {
+      // Get scouting from both sources
+      const [myRatings, osaRatings] = await Promise.all([
+        scoutingDataService.getLatestScoutingRatings('my'),
+        scoutingDataService.getLatestScoutingRatings('osa')
+      ]);
+      const myScouting = myRatings.find(s => s.playerId === playerId);
+      const osaScouting = osaRatings.find(s => s.playerId === playerId);
+      const scouting = myScouting || osaScouting;
+
+      const pitchRatings = scouting?.pitches ?? {};
+      const pitches = Object.keys(pitchRatings);
+
+      const profileData: PlayerProfileData = {
+        playerId,
+        playerName: playerData.name,
+        team: teamLabel,
+        parentTeam: parentLabel,
+        age: player.age,
+        position: playerData.role,
+        positionLabel: playerData.role,
+        trueRating: playerData.trueRating,
+        estimatedStuff: playerData.trueStuff,
+        estimatedControl: playerData.trueControl,
+        estimatedHra: playerData.trueHra,
+        scoutStuff: myScouting?.stuff,
+        scoutControl: myScouting?.control,
+        scoutHra: myScouting?.hra,
+        scoutStamina: myScouting?.stamina,
+        scoutInjuryProneness: myScouting?.injuryProneness,
+        scoutOvr: myScouting?.ovr,
+        scoutPot: myScouting?.pot,
+        osaStuff: osaScouting?.stuff,
+        osaControl: osaScouting?.control,
+        osaHra: osaScouting?.hra,
+        osaStamina: osaScouting?.stamina,
+        osaInjuryProneness: osaScouting?.injuryProneness,
+        osaOvr: osaScouting?.ovr,
+        osaPot: osaScouting?.pot,
+        activeScoutSource: myScouting ? 'my' : 'osa',
+        hasMyScout: !!myScouting,
+        hasOsaScout: !!osaScouting,
+        pitchCount: pitches.length,
+        pitches,
+        pitchRatings,
+        isProspect: false,
+        year: this.selectedYear,
+        showYearLabel: false
+      };
+
+      await this.playerProfileModal.show(profileData, this.selectedYear);
+    } else {
+      // Batter
+      const [myScoutingRatings, osaScoutingRatings] = await Promise.all([
+        hitterScoutingDataService.getLatestScoutingRatings('my'),
+        hitterScoutingDataService.getLatestScoutingRatings('osa')
+      ]);
+      const myScouting = myScoutingRatings.find(s => s.playerId === playerId);
+      const osaScouting = osaScoutingRatings.find(s => s.playerId === playerId);
+
+      const profileData: BatterProfileData = {
+        playerId,
+        playerName: playerData.name,
+        team: teamLabel,
+        parentTeam: parentLabel,
+        age: player.age,
+        position: playerData.position,
+        positionLabel: playerData.positionLabel,
+        trueRating: playerData.trueRating,
+        estimatedPower: playerData.estimatedPower,
+        estimatedEye: playerData.estimatedEye,
+        estimatedAvoidK: playerData.estimatedAvoidK,
+        estimatedContact: playerData.estimatedContact,
+        scoutPower: myScouting?.power,
+        scoutEye: myScouting?.eye,
+        scoutAvoidK: myScouting?.avoidK,
+        scoutContact: myScouting?.contact,
+        scoutGap: myScouting?.gap,
+        scoutSpeed: myScouting?.speed,
+        scoutOvr: myScouting?.ovr,
+        scoutPot: myScouting?.pot,
+        injuryProneness: myScouting?.injuryProneness || osaScouting?.injuryProneness,
+        pa: playerData.stats?.pa,
+        avg: playerData.stats?.avg,
+        obp: playerData.stats?.obp,
+        slg: playerData.stats?.slg,
+        hr: playerData.stats?.hr,
+        war: playerData.stats?.war,
+        isProspect: false
+      };
+
+      await this.batterProfileModal.show(profileData, this.selectedYear);
+    }
   }
 
   private async openPlayerProfile(playerKey: string): Promise<void> {
