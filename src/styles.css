@@ -2104,9 +2104,17 @@ td.player-cell.player-name {
   border-color: rgba(15, 20, 25, 0.95) transparent transparent transparent;
 }
 
-td:hover .stat-tooltip {
+td:hover .stat-tooltip,
+th:hover .stat-tooltip {
   opacity: 1;
   visibility: visible;
+}
+
+/* Wider tooltips for header descriptions */
+th .stat-tooltip {
+  white-space: normal;
+  max-width: 280px;
+  text-align: center;
 }
 
 .rating-bar {
