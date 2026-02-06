@@ -418,6 +418,13 @@ export class PlayerProfileModal {
 
             if (!proj && typeof data.estimatedStuff === 'number' && typeof data.estimatedControl === 'number' && typeof data.estimatedHra === 'number') {
                 try {
+                    // Determine active scout source and get appropriate values
+                    const activeSource = data.activeScoutSource || 'my';
+                    const activePitchRatings = activeSource === 'osa' ? data.osaPitchRatings : data.myPitchRatings;
+                    const activeStamina = activeSource === 'osa' ? data.osaStamina : data.scoutStamina;
+                    const activeInjury = activeSource === 'osa' ? data.osaInjuryProneness : data.scoutInjuryProneness;
+                    const activePitchCount = activePitchRatings ? Object.values(activePitchRatings).filter(v => v >= 45).length : 0;
+
                     // For peak projections, use last full season (2020) for consistent league context
                     // This ensures replacementFip = avgFip + 1.0 is consistent across all prospects
                     const leagueYear = isProspectProjection ? 2020 : projectionBaseYear;
@@ -433,7 +440,7 @@ export class PlayerProfileModal {
                     const recent = mlbStats[0]; // Most recent year in history
                     let isSp = recent && recent.ip > 80;
 
-                    if (isProspectProjection && data.pitchCount && data.pitchCount >= 3 && (data.scoutStamina ?? 0) >= 35) {
+                    if (isProspectProjection && activePitchCount >= 3 && (activeStamina ?? 0) >= 35) {
                         isSp = true;
                     }
 
@@ -443,14 +450,14 @@ export class PlayerProfileModal {
                     proj = await projectionService.calculateProjection(
                         { stuff: data.estimatedStuff, control: data.estimatedControl, hra: data.estimatedHra },
                         projectionAge,
-                        data.pitchCount ?? 0,
+                        activePitchCount,
                         isSp ? 20 : 0, // Mock GS to trigger SP logic in service
                         leagueContext,
-                        data.scoutStamina,
-                        data.scoutInjuryProneness,
+                        activeStamina,
+                        activeInjury,
                         mlbStats,
                         data.trueRating ?? 0,
-                        data.pitchRatings
+                        activePitchRatings
                     );
                 } catch (e) {
                     console.warn('Failed to calculate projection', e);
@@ -1432,10 +1439,15 @@ export class PlayerProfileModal {
   private determinePitcherRoleLabel(data: PlayerRatingsData, player: Player | null): 'SP' | 'RP' | undefined {
     const playerRoleValue = player?.role ?? 0;
     const hasRecentMlb = this.currentMlbStats.some((stat) => stat.ip > 0);
-    const usablePitches = data.pitchRatings
-      ? Object.values(data.pitchRatings).filter((rating) => rating >= 25).length
+
+    // Use active scout source for pitch ratings and stamina
+    const activeSource = data.activeScoutSource || 'my';
+    const activePitchRatings = activeSource === 'osa' ? data.osaPitchRatings : data.myPitchRatings;
+    const stamina = activeSource === 'osa' ? (data.osaStamina ?? 0) : (data.scoutStamina ?? 0);
+
+    const usablePitches = activePitchRatings
+      ? Object.values(activePitchRatings).filter((rating) => rating >= 25).length
       : 0;
-    const stamina = data.scoutStamina ?? 0;
     const trueRating = data.trueRating ?? 0;
 
     const meetsProfile = usablePitches >= 3 && stamina >= 35 && (!hasRecentMlb || trueRating >= 2);
@@ -1453,7 +1465,7 @@ export class PlayerProfileModal {
       return undefined;
     }
 
-    if (stamina < 35 || (data.pitchCount ?? 0) < 3) {
+    if (stamina < 35 || usablePitches < 3) {
       return 'RP';
     }
 
