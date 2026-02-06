@@ -12,6 +12,8 @@ import { hitterScoutingDataService } from '../services/HitterScoutingDataService
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { teamService } from '../services/TeamService';
+import { fipWarService } from '../services/FipWarService';
+import { leagueStatsService } from '../services/LeagueStatsService';
 
 export interface GlobalSearchBarOptions {
   onSearch: (query: string) => void;
@@ -357,57 +359,92 @@ export class GlobalSearchBar {
         }
       }
 
-      // If no MLB True Rating and we have scouting data, calculate TFR (prospect)
+      // If no MLB True Rating and we have scouting data, get TFR from full prospect rankings
+      let projectionOverride: PlayerProfileData['projectionOverride'] = undefined;
+
       if (!playerResult && scoutMatch) {
         try {
-          const age = player.age ?? 22;
-
-          // Get minor league stats
-          const minorStats = await minorLeagueStatsService.getPlayerStats(playerId, year - 2, year);
-
-          // Only calculate TFR if we have MLB pitchers for comparison
-          if (allPitchers.length === 0) {
-            console.warn('No MLB pitchers available for TFR calculation, skipping');
-            // Still set estimated ratings from scouting
-            playerResult = {
-              estimatedStuff: scoutMatch.stuff,
-              estimatedControl: scoutMatch.control,
-              estimatedHra: scoutMatch.hra,
-            };
-          } else {
-            // Calculate TFR for this prospect
-          const tfrInput = {
-            playerId,
-            playerName,
-            age,
-            scouting: {
-              playerId,
-              playerName,
-              stuff: scoutMatch.stuff,
-              control: scoutMatch.control,
-              hra: scoutMatch.hra,
-              ovr: (scoutMatch as any).ovr,
-              pot: (scoutMatch as any).pot,
-            },
-            minorLeagueStats: minorStats,
-          };
-
-          const [tfrResult] = await trueFutureRatingService.calculateTrueFutureRatings([tfrInput]);
+          // Get TFR for ALL prospects (required for proper percentile ranking)
+          // Single-prospect calculation produces NaN due to division by zero in ranking
+          const allTfrResults = await trueFutureRatingService.getProspectTrueFutureRatings(year);
+          const tfrResult = allTfrResults.find(r => r.playerId === playerId);
 
           if (tfrResult) {
             isProspect = true;
             tfrData = tfrResult;
 
-            // Set estimated ratings from TFR projections
+            // Use True Ratings from TFR (normalized from percentiles, 20-80 scale)
             playerResult = {
-              estimatedStuff: Math.round((tfrResult.projK9 - 2.07) / 0.074),
-              estimatedControl: Math.round((5.22 - tfrResult.projBb9) / 0.052),
-              estimatedHra: Math.round((2.08 - tfrResult.projHr9) / 0.024),
+              estimatedStuff: tfrResult.trueStuff,
+              estimatedControl: tfrResult.trueControl,
+              estimatedHra: tfrResult.trueHra,
+            };
+
+            // Build projectionOverride to match FarmRankingsView
+            // Calculate peakIp from stamina and injury ratings
+            const stamina = scoutMatch.stamina ?? 50;
+            const injury = scoutMatch.injuryProneness ?? 'Normal';
+            const pitchCount = scoutMatch.pitches ? Object.values(scoutMatch.pitches).filter((r: any) => r >= 45).length : 0;
+            const isSp = pitchCount >= 3 && stamina >= 30;
+
+            let peakIp: number;
+            if (isSp) {
+              // SP: Peak workload formula (stamina 50 → 180 IP, 60 → 210 IP, 70 → 240 IP)
+              const baseIp = 30 + (stamina * 3.0);
+              let injuryFactor = 1.0;
+              if (injury === 'Fragile') injuryFactor = 0.90;
+              else if (injury === 'Durable') injuryFactor = 1.10;
+              else if (injury === 'Wrecked') injuryFactor = 0.75;
+              else if (injury === 'Ironman' || injury === 'Iron Man') injuryFactor = 1.15;
+              peakIp = Math.round(Math.max(120, Math.min(260, baseIp * injuryFactor)));
+            } else {
+              // RP: 50-75 IP typical range
+              const baseIp = 50 + (stamina * 0.5);
+              let injuryFactor = 1.0;
+              if (injury === 'Fragile') injuryFactor = 0.90;
+              else if (injury === 'Durable') injuryFactor = 1.10;
+              else if (injury === 'Wrecked') injuryFactor = 0.75;
+              else if (injury === 'Ironman' || injury === 'Iron Man') injuryFactor = 1.15;
+              peakIp = Math.round(Math.max(40, Math.min(80, baseIp * injuryFactor)));
+            }
+
+            // Calculate peakWar
+            const leagueStats = await leagueStatsService.getLeagueStats(2020); // Use 2020 for consistent context
+            const replacementFip = leagueStats.avgFip + 1.0;
+            const runsPerWin = 8.5;
+            const peakWar = fipWarService.calculateWar(tfrResult.projFip, peakIp, replacementFip, runsPerWin);
+
+            projectionOverride = {
+              projectedStats: {
+                k9: tfrResult.projK9,
+                bb9: tfrResult.projBb9,
+                hr9: tfrResult.projHr9,
+                fip: tfrResult.projFip,
+                war: peakWar,
+                ip: peakIp,
+              },
+              projectedRatings: {
+                stuff: scoutMatch.stuff,
+                control: scoutMatch.control,
+                hra: scoutMatch.hra,
+              },
+            };
+          } else {
+            // Player not in TFR results - use scouting ratings directly
+            playerResult = {
+              estimatedStuff: scoutMatch.stuff,
+              estimatedControl: scoutMatch.control,
+              estimatedHra: scoutMatch.hra,
             };
           }
-          } // Close else block for MLB pitchers check
         } catch (error) {
-          console.warn('Error calculating TFR:', error);
+          console.warn('Error getting TFR:', error);
+          // Fallback to scouting ratings
+          playerResult = {
+            estimatedStuff: scoutMatch.stuff,
+            estimatedControl: scoutMatch.control,
+            estimatedHra: scoutMatch.hra,
+          };
         }
       }
 
@@ -468,6 +505,7 @@ export class GlobalSearchBar {
         projectionYear: year,
         projectionBaseYear: Math.max(2000, year - 1),
         forceProjection: isProspect, // Force peak projection for prospects
+        projectionOverride, // Pass pre-calculated TFR projection to match FarmRankingsView
       };
     } catch (error) {
       console.error('Error fetching player ratings:', error);

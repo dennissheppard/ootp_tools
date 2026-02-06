@@ -231,9 +231,7 @@ export class ProjectionsView {
 
     batterDefaults.push(
       { key: 'kPct', label: 'Proj K%', sortKey: 'projectedStats.kPct', accessor: b => {
-        const kPct = b.projectedStats.kPct?.toFixed(1) ?? 'N/A';
-        const estAvoidK = b.estimatedRatings.avoidK;
-        return this.renderFlipCell(kPct, estAvoidK.toString(), 'Est Avoid K Rating');
+        return b.projectedStats.kPct?.toFixed(1) ?? 'N/A';
       }}
     );
 

@@ -13,7 +13,6 @@ interface BatterRatings {
   contact: number;
   power: number;
   eye: number;
-  avoidK: number;
 }
 
 interface PotentialBattingStats {
@@ -24,14 +23,12 @@ interface PotentialBattingStats {
   t: number;
   hr: number;
   bb: number;
-  k: number;
   avg: number;
   obp: number;
   slg: number;
   ops: number;
   woba: number;
   bbPct: number;
-  kPct: number;
   hrPct: number;
 }
 
@@ -119,13 +116,11 @@ export class PotentialStatsView {
   private calculateBatterStats(ratings: BatterRatings, pa: number): PotentialBattingStats {
     // Get expected rate stats from ratings using HitterRatingEstimatorService
     const bbPct = HitterRatingEstimatorService.expectedBbPct(ratings.eye);
-    const kPct = HitterRatingEstimatorService.expectedKPct(ratings.avoidK);
     const hrPct = HitterRatingEstimatorService.expectedHrPct(ratings.power);
     const avg = HitterRatingEstimatorService.expectedAvg(ratings.contact);
 
     // Calculate counting stats from rates
     const bb = Math.round((bbPct / 100) * pa);
-    const k = Math.round((kPct / 100) * pa);
     const hr = Math.max(0, Math.round((hrPct / 100) * pa)); // HR% can be negative for low power
 
     // AB = PA - BB - HBP - SF - SH (we'll approximate as PA - BB for simplicity)
@@ -163,14 +158,12 @@ export class PotentialStatsView {
       t,
       hr,
       bb,
-      k,
       avg,
       obp,
       slg,
       ops,
       woba,
       bbPct,
-      kPct,
       hrPct: Math.max(0, hrPct), // Display as 0 if negative
     };
   }
@@ -205,10 +198,6 @@ export class PotentialStatsView {
           <label for="rating-eye">Eye</label>
           <input type="number" id="rating-eye" min="20" max="80" value="50" required>
         </div>
-        <div class="rating-field">
-          <label for="rating-avoidk">AvK</label>
-          <input type="number" id="rating-avoidk" min="20" max="80" value="50" required>
-        </div>
       `;
     }
   }
@@ -216,7 +205,7 @@ export class PotentialStatsView {
   private getCSVFormat(): string {
     return this.playerType === 'pitchers'
       ? 'Format: name, stuff, control, hra [, ip]'
-      : 'Format: name, contact, power, eye, avoidk [, pa]';
+      : 'Format: name, contact, power, eye [, pa]';
   }
 
   private renderFormulas(): string {
@@ -234,7 +223,6 @@ export class PotentialStatsView {
         <div class="formula-note">
           <strong>Batter Rating Formulas:</strong><br>
           BB% = 1.62 + 0.115 × Eye<br>
-          K% = 25.10 - 0.200 × AvK<br>
           HR% = -0.59 + 0.058 × Power<br>
           AVG = 0.035 + 0.0039 × Contact<br>
           <em style="font-size: 0.9em; color: var(--color-text-muted);">Note: Coefficients calibrated from OOTP engine data</em>
@@ -406,7 +394,6 @@ export class PotentialStatsView {
         contact: getValue('rating-contact'),
         power: getValue('rating-power'),
         eye: getValue('rating-eye'),
-        avoidK: getValue('rating-avoidk'),
       };
 
       const pa = getValue('rating-volume');
@@ -552,12 +539,10 @@ export class PotentialStatsView {
         <td>${r.contact}</td>
         <td>${r.power}</td>
         <td>${r.eye}</td>
-        <td>${r.avoidK}</td>
         <td class="divider"></td>
         <td>${r.pa}</td>
         <td>${r.h}</td>
         <td>${r.bb}</td>
-        <td>${r.k}</td>
         <td>${r.hr}</td>
         <td class="divider"></td>
         <td>${r.avg.toFixed(3)}</td>
@@ -567,7 +552,6 @@ export class PotentialStatsView {
         <td class="divider"></td>
         <td>${r.woba.toFixed(3)}</td>
         <td>${r.bbPct.toFixed(1)}%</td>
-        <td>${r.kPct.toFixed(1)}%</td>
       </tr>
     `).join('');
 
@@ -580,12 +564,10 @@ export class PotentialStatsView {
               <th title="Contact">CON</th>
               <th title="Power">PWR</th>
               <th title="Eye">EYE</th>
-              <th title="Avoid K">AvK</th>
               <th class="divider"></th>
               <th>PA</th>
               <th>H</th>
               <th>BB</th>
-              <th>K</th>
               <th>HR</th>
               <th class="divider"></th>
               <th>AVG</th>
@@ -595,7 +577,6 @@ export class PotentialStatsView {
               <th class="divider"></th>
               <th>wOBA</th>
               <th>BB%</th>
-              <th>K%</th>
             </tr>
           </thead>
           <tbody>

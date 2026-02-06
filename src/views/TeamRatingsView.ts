@@ -1044,7 +1044,6 @@ export class TeamRatingsView {
               <td><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(2)}</span></td>
               <td>${player.estimatedPower}</td>
               <td>${player.estimatedEye}</td>
-              <td>${player.estimatedAvoidK}</td>
               <td>${player.estimatedContact}</td>
               <td>${player.stats?.pa ?? '-'}</td>
               <td>${player.stats?.war?.toFixed(1) ?? '-'}</td>
@@ -1055,7 +1054,7 @@ export class TeamRatingsView {
 
       const headers = type === 'pitcher'
         ? '<th>#</th><th>Name</th><th>Role</th><th>TR</th><th>Stuff</th><th>Ctrl</th><th>HRA</th><th>IP</th><th>WAR</th>'
-        : '<th>#</th><th>Name</th><th>Pos</th><th>TR</th><th>Pow</th><th>Eye</th><th>AvK</th><th>Con</th><th>PA</th><th>WAR</th>';
+        : '<th>#</th><th>Name</th><th>Pos</th><th>TR</th><th>Pow</th><th>Eye</th><th>Con</th><th>PA</th><th>WAR</th>';
 
       return `
         <div>

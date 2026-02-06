@@ -813,12 +813,11 @@ export class BatterProfileModal {
     // Prepare Flip Cards
     const contactRating = this.clampRatingForDisplay(data.estimatedContact ?? 50);
     const eyeRating = this.clampRatingForDisplay(data.estimatedEye ?? 50);
-    const avoidKRating = this.clampRatingForDisplay(data.estimatedAvoidK ?? 50);
     const powerRating = this.clampRatingForDisplay(data.estimatedPower ?? 50);
 
     const avgFlip = this.renderFlipCell(formatStat(projAvg), contactRating.toString(), 'Estimated Contact');
     const bbPctFlip = this.renderFlipCell(formatPct(projBbPct), eyeRating.toString(), 'Estimated Eye');
-    const kPctFlip = this.renderFlipCell(formatPct(projKPct), avoidKRating.toString(), 'Estimated Avoid K');
+    const kPctDisplay = formatPct(projKPct);
     const hrPctFlip = this.renderFlipCell(formatPct(projHrPct), powerRating.toString(), 'Estimated Power');
 
     // Show comparison to actual if we have stats
@@ -882,7 +881,7 @@ export class BatterProfileModal {
                 <td>${avgFlip}</td>
                 <td>${formatStat(projObp)}</td>
                 <td>${bbPctFlip}</td>
-                <td>${kPctFlip}</td>
+                <td>${kPctDisplay}</td>
                 <td>${hrPctFlip}</td>
                 <td>${projHr}</td>
                 <td>${formatStat(projSlg)}</td>
@@ -941,7 +940,6 @@ export class BatterProfileModal {
           ${this.renderRatingBar('Contact', s.contact ?? 50)}
           ${this.renderRatingBar('Power', s.power)}
           ${this.renderRatingBar('Eye', s.eye)}
-          ${this.renderRatingBar('Avoid K', s.avoidK)}
         </div>
       `;
     }
@@ -958,7 +956,6 @@ export class BatterProfileModal {
           ${this.renderRatingBar('Contact', data.estimatedContact)}
           ${this.renderRatingBar('Power', data.estimatedPower)}
           ${this.renderRatingBar('Eye', data.estimatedEye)}
-          ${this.renderRatingBar('Avoid K', data.estimatedAvoidK)}
         </div>
       `;
     }
@@ -1001,7 +998,6 @@ export class BatterProfileModal {
         ${this.renderRatingBarComparison('Contact', data.estimatedContact, s.contact ?? 50)}
         ${this.renderRatingBarComparison('Power', data.estimatedPower, s.power)}
         ${this.renderRatingBarComparison('Eye', data.estimatedEye, s.eye)}
-        ${this.renderRatingBarComparison('Avoid K', data.estimatedAvoidK, s.avoidK)}
       </div>
     `;
   }
@@ -1094,13 +1090,12 @@ export class BatterProfileModal {
       // Estimate ratings
       const estContact = HitterRatingEstimatorService.estimateContact(s.avg, s.pa).rating;
       const estEye = HitterRatingEstimatorService.estimateEye(bbPct, s.pa).rating;
-      const estAvoidK = HitterRatingEstimatorService.estimateAvoidK(kPct, s.pa).rating;
       const estPower = HitterRatingEstimatorService.estimatePower(hrPct, s.pa).rating;
 
       // Flip cells
       const avgFlip = this.renderFlipCell(s.avg.toFixed(3), this.clampRatingForDisplay(estContact).toString(), `Estimated Contact (${s.year})`);
       const bbPctFlip = this.renderFlipCell(bbPct.toFixed(1) + '%', this.clampRatingForDisplay(estEye).toString(), `Estimated Eye (${s.year})`);
-      const kPctFlip = this.renderFlipCell(kPct.toFixed(1) + '%', this.clampRatingForDisplay(estAvoidK).toString(), `Estimated Avoid K (${s.year})`);
+      const kPctDisplay = kPct.toFixed(1) + '%';
       const hrPctFlip = this.renderFlipCell(hrPct.toFixed(1) + '%', this.clampRatingForDisplay(estPower).toString(), `Estimated Power (${s.year})`);
 
       return `
@@ -1111,7 +1106,7 @@ export class BatterProfileModal {
           <td style="text-align: center;">${avgFlip}</td>
           <td style="text-align: center;">${s.obp.toFixed(3)}</td>
           <td style="text-align: center;">${bbPctFlip}</td>
-          <td style="text-align: center;">${kPctFlip}</td>
+          <td style="text-align: center;">${kPctDisplay}</td>
           <td style="text-align: center;">${hrPctFlip}</td>
           <td style="text-align: center;">${s.hr}</td>
           <td style="text-align: center;">${s.slg.toFixed(3)}</td>
