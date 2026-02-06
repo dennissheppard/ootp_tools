@@ -298,9 +298,9 @@ export class DataManagementView {
       }
   }
 
-  private handleFileSelection(files: FileList): void {
+  private async handleFileSelection(files: FileList): Promise<void> {
     this.selectedFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.csv'));
-    
+
     // Auto-detect year/level only for stats mode
     if (this.currentMode === 'stats' && this.selectedFiles.length === 1) {
         const file = this.selectedFiles[0];
@@ -317,10 +317,82 @@ export class DataManagementView {
         }
     }
 
+    // Check for filename/toggle mismatches in scouting mode
+    if (this.currentMode === 'scouting' && this.selectedFiles.length > 0) {
+      await this.checkScoutingFileMismatch();
+    }
+
     this.updateFileDisplay();
-    
+
     const uploadBtn = this.container.querySelector<HTMLButtonElement>('#upload-btn');
     if (uploadBtn) uploadBtn.disabled = this.selectedFiles.length === 0;
+  }
+
+  private async checkScoutingFileMismatch(): Promise<void> {
+    // Combine all file names for checking
+    const names = this.selectedFiles.map(f => f.name.toLowerCase());
+    const combined = names.join(' ');
+
+    const hitterKeywords = /hitter|batter|batting|hitting/;
+    const pitcherKeywords = /pitcher|pitching/;
+    const osaKeywords = /[\b_]osa[\b_.]|[\b_]osa$/;
+    const myKeywords = /[\b_]my[\b_.]|[\b_]my$/;
+
+    // Check player type mismatch
+    if (this.selectedScoutingPlayerType === 'pitcher' && hitterKeywords.test(combined)) {
+      const choice = await this.messageModal.confirm(
+        'File Name Mismatch',
+        `The selected file${this.selectedFiles.length > 1 ? 's appear' : ' appears'} to contain <strong>batting/hitter</strong> data based on the filename, but you have <strong>Pitchers</strong> selected.\n\nHow would you like to proceed?`,
+        ['Switch to Hitters', 'Keep as Pitchers']
+      );
+      if (choice === 'Switch to Hitters') {
+        this.selectedScoutingPlayerType = 'hitter';
+        this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => {
+          b.classList.toggle('active', b.dataset.playerType === 'hitter');
+        });
+        this.updateModeUI();
+      }
+    } else if (this.selectedScoutingPlayerType === 'hitter' && pitcherKeywords.test(combined)) {
+      const choice = await this.messageModal.confirm(
+        'File Name Mismatch',
+        `The selected file${this.selectedFiles.length > 1 ? 's appear' : ' appears'} to contain <strong>pitching</strong> data based on the filename, but you have <strong>Hitters</strong> selected.\n\nHow would you like to proceed?`,
+        ['Switch to Pitchers', 'Keep as Hitters']
+      );
+      if (choice === 'Switch to Pitchers') {
+        this.selectedScoutingPlayerType = 'pitcher';
+        this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => {
+          b.classList.toggle('active', b.dataset.playerType === 'pitcher');
+        });
+        this.updateModeUI();
+      }
+    }
+
+    // Check source mismatch
+    if (this.selectedScoutingSource === 'my' && osaKeywords.test(combined)) {
+      const choice = await this.messageModal.confirm(
+        'Scout Source Mismatch',
+        `The selected file${this.selectedFiles.length > 1 ? 's appear' : ' appears'} to contain <strong>OSA</strong> scouting data based on the filename, but you have <strong>My Scout</strong> selected.\n\nHow would you like to proceed?`,
+        ['Switch to OSA', 'Keep as My Scout']
+      );
+      if (choice === 'Switch to OSA') {
+        this.selectedScoutingSource = 'osa';
+        this.container.querySelectorAll<HTMLButtonElement>('[data-source]').forEach(b => {
+          b.classList.toggle('active', b.dataset.source === 'osa');
+        });
+      }
+    } else if (this.selectedScoutingSource === 'osa' && myKeywords.test(combined)) {
+      const choice = await this.messageModal.confirm(
+        'Scout Source Mismatch',
+        `The selected file${this.selectedFiles.length > 1 ? 's appear' : ' appears'} to contain <strong>My Scout</strong> data based on the filename, but you have <strong>OSA</strong> selected.\n\nHow would you like to proceed?`,
+        ['Switch to My Scout', 'Keep as OSA']
+      );
+      if (choice === 'Switch to My Scout') {
+        this.selectedScoutingSource = 'my';
+        this.container.querySelectorAll<HTMLButtonElement>('[data-source]').forEach(b => {
+          b.classList.toggle('active', b.dataset.source === 'my');
+        });
+      }
+    }
   }
 
   private detectFileInfo(filename: string): { year?: number, level?: MinorLeagueLevel } {
