@@ -5489,6 +5489,183 @@ td:hover .stat-tooltip {
   }
 }
 
+/* Trade Analyzer: Player Type Toggle */
+.trade-player-type-toggle {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.trade-player-type-toggle .toggle-btn {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background-color: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.trade-player-type-toggle .toggle-btn:hover {
+  border-color: var(--color-primary);
+  color: var(--color-text);
+}
+
+.trade-player-type-toggle .toggle-btn.active {
+  background-color: rgba(29, 155, 240, 0.15);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+/* Trade Analyzer: Sort Controls */
+.trade-sort-control {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.trade-sort-select {
+  flex: 1;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.trade-sort-select:hover {
+  border-color: var(--color-primary);
+}
+
+.trade-sort-direction {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  cursor: pointer;
+  min-width: 32px;
+  transition: all 0.2s ease;
+}
+
+.trade-sort-direction:hover {
+  border-color: var(--color-primary);
+  background-color: rgba(29, 155, 240, 0.1);
+}
+
+/* Trade Analyzer: Draft Picks */
+.draft-picks-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.trade-pick-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.75rem;
+  background: rgba(153, 102, 255, 0.08);
+  border: 1px solid rgba(153, 102, 255, 0.2);
+  border-radius: 4px;
+}
+
+.trade-pick-item .pick-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.trade-pick-item .pick-label {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+
+.trade-pick-item .pick-value {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.trade-pick-item .pick-position-group {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pick-position-field {
+  width: 50px;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background-color: var(--color-surface);
+  color: var(--color-text);
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.pick-position-field::placeholder {
+  color: var(--color-text-muted);
+}
+
+.add-pick-btn {
+  padding: 0.35rem 0.6rem;
+  border: 1px solid rgba(153, 102, 255, 0.4);
+  border-radius: 4px;
+  background: rgba(153, 102, 255, 0.15);
+  color: #c99bff;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.add-pick-btn:hover {
+  background: rgba(153, 102, 255, 0.25);
+  border-color: rgba(153, 102, 255, 0.6);
+}
+
+/* Trade Analyzer: Draft Pick in Bucket */
+.trade-bucket-pick {
+  background: linear-gradient(135deg, rgba(153, 102, 255, 0.15), rgba(153, 102, 255, 0.08));
+  border-color: rgba(153, 102, 255, 0.3);
+}
+
+.trade-bucket-pick .pick-war-value {
+  font-size: 0.75rem;
+  color: #c99bff;
+  margin-left: auto;
+  margin-right: 0.5rem;
+}
+
+/* Trade Analyzer: TFR Badge styling */
+.player-rating .badge {
+  font-size: 0.75rem;
+  font-weight: 600;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  border: 1px solid;
+}
+
+.player-rating .badge.tfr-badge {
+  border-style: dashed;
+}
+
+/* Trade Ratings Table Badge styling */
+.trade-ratings-table .badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.15rem 0.35rem;
+  border-radius: 3px;
+  border: 1px solid;
+}
+
 /* ========================================
    DEVELOPMENT CHART STYLES
    ======================================== */

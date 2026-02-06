@@ -5,17 +5,33 @@ import { projectionService, ProjectedPlayer } from '../services/ProjectionServic
 import { Team } from '../models/Team';
 import { dateService } from '../services/DateService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
-import { PitcherScoutingRatings } from '../models/ScoutingData';
+import { PitcherScoutingRatings, HitterScoutingRatings } from '../models/ScoutingData';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { MinorLeagueStatsWithLevel } from '../models/Stats';
 import { fipWarService } from '../services/FipWarService';
 import { PlayerProfileModal } from './PlayerProfileModal';
+import { batterProjectionService, ProjectedBatter } from '../services/BatterProjectionService';
+import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
+import { hitterTrueFutureRatingService } from '../services/HitterTrueFutureRatingService';
+
+interface DraftPick {
+  id: string;
+  round: number;
+  pickPosition?: number;
+  displayName: string;
+  estimatedValue: number;  // WAR estimate
+}
 
 interface TradeTeamState {
   teamId: number;
   minorLevel: string;
   tradingPlayers: ProjectedPlayer[];
+  tradingBatters: ProjectedBatter[];
+  tradingPicks: DraftPick[];
+  showingPitchers: boolean;
+  sortKey: 'name' | 'position' | 'rating';
+  sortDirection: 'asc' | 'desc';
 }
 
 interface TradeAnalysis {
@@ -32,12 +48,32 @@ export class TradeAnalyzerView {
   private allTeams: Team[] = [];
   private allProjections: Map<number, ProjectedPlayer> = new Map();
   private allScoutingRatings: Map<number, PitcherScoutingRatings> = new Map();
+  private allBatterProjections: Map<number, ProjectedBatter> = new Map();
+  private allHitterScoutingRatings: Map<number, HitterScoutingRatings> = new Map();
   private minorLeagueStats: Map<number, MinorLeagueStatsWithLevel[]> = new Map();
   private currentYear: number = 2022;
   private playerProfileModal: PlayerProfileModal;
 
-  private team1State: TradeTeamState = { teamId: 0, minorLevel: 'mlb', tradingPlayers: [] };
-  private team2State: TradeTeamState = { teamId: 0, minorLevel: 'mlb', tradingPlayers: [] };
+  private team1State: TradeTeamState = {
+    teamId: 0,
+    minorLevel: 'mlb',
+    tradingPlayers: [],
+    tradingBatters: [],
+    tradingPicks: [],
+    showingPitchers: true,
+    sortKey: 'name',
+    sortDirection: 'asc'
+  };
+  private team2State: TradeTeamState = {
+    teamId: 0,
+    minorLevel: 'mlb',
+    tradingPlayers: [],
+    tradingBatters: [],
+    tradingPicks: [],
+    showingPitchers: true,
+    sortKey: 'name',
+    sortDirection: 'asc'
+  };
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -146,6 +182,40 @@ export class TradeAnalyzerView {
       console.error('Failed to load minor league stats:', e);
     }
 
+    // Load batter projections
+    try {
+      const projectionYear = this.currentYear - 1;
+      console.log(`Loading batter projections for year ${projectionYear}...`);
+      const batterProjections = await batterProjectionService.getProjections(projectionYear);
+      console.log(`Loaded ${batterProjections.length} batter projections`);
+      batterProjections.forEach(p => {
+        this.allBatterProjections.set(p.playerId, p);
+      });
+    } catch (e) {
+      console.error('Failed to load batter projections:', e);
+    }
+
+    // Load hitter scouting ratings
+    try {
+      console.log('Loading hitter scouting ratings...');
+      const hitterScoutingList = await hitterScoutingDataService.getLatestScoutingRatings('osa');
+      hitterScoutingList.forEach(rating => {
+        if (rating.playerId > 0) {
+          this.allHitterScoutingRatings.set(rating.playerId, rating);
+        }
+      });
+      // Also try "my" scouting ratings (preferred)
+      const myHitterScouting = await hitterScoutingDataService.getLatestScoutingRatings('my');
+      myHitterScouting.forEach(rating => {
+        if (rating.playerId > 0) {
+          this.allHitterScoutingRatings.set(rating.playerId, rating);
+        }
+      });
+      console.log(`Loaded ${this.allHitterScoutingRatings.size} hitter scouting ratings`);
+    } catch (e) {
+      console.error('Failed to load hitter scouting ratings:', e);
+    }
+
     this.setupEventHandlers();
     this.populateTeamDropdowns();
   }
@@ -175,7 +245,22 @@ export class TradeAnalyzerView {
               <option value="a">Single-A</option>
               <option value="r">Rookie</option>
               <option value="ic">Int'l Complex</option>
+              <option value="draft">Draft Picks</option>
             </select>
+          </div>
+
+          <div class="trade-player-type-toggle" data-team="1">
+            <button class="toggle-btn active" data-player-type="pitchers" data-team="1">Pitchers</button>
+            <button class="toggle-btn" data-player-type="batters" data-team="1">Batters</button>
+          </div>
+
+          <div class="trade-sort-control" data-team="1">
+            <select class="trade-sort-select" data-team="1">
+              <option value="name">Name</option>
+              <option value="position">Position</option>
+              <option value="rating">True Rating</option>
+            </select>
+            <button class="trade-sort-direction" data-team="1" title="Toggle sort direction">▴</button>
           </div>
 
           <div class="trade-player-list" data-team="1">
@@ -223,7 +308,22 @@ export class TradeAnalyzerView {
               <option value="a">Single-A</option>
               <option value="r">Rookie</option>
               <option value="ic">Int'l Complex</option>
+              <option value="draft">Draft Picks</option>
             </select>
+          </div>
+
+          <div class="trade-player-type-toggle" data-team="2">
+            <button class="toggle-btn active" data-player-type="pitchers" data-team="2">Pitchers</button>
+            <button class="toggle-btn" data-player-type="batters" data-team="2">Batters</button>
+          </div>
+
+          <div class="trade-sort-control" data-team="2">
+            <select class="trade-sort-select" data-team="2">
+              <option value="name">Name</option>
+              <option value="position">Position</option>
+              <option value="rating">True Rating</option>
+            </select>
+            <button class="trade-sort-direction" data-team="2" title="Toggle sort direction">▴</button>
           </div>
 
           <div class="trade-player-list" data-team="2">
@@ -275,6 +375,32 @@ export class TradeAnalyzerView {
       });
     });
 
+    // Player type toggle handlers
+    this.container.querySelectorAll('.trade-player-type-toggle .toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const teamNum = parseInt((btn as HTMLElement).dataset.team!) as 1 | 2;
+        const playerType = (btn as HTMLElement).dataset.playerType;
+        this.onPlayerTypeChange(teamNum, playerType === 'pitchers');
+      });
+    });
+
+    // Sort select handlers
+    this.container.querySelectorAll('.trade-sort-select').forEach(select => {
+      select.addEventListener('change', () => {
+        const teamNum = parseInt((select as HTMLSelectElement).dataset.team!) as 1 | 2;
+        const sortKey = (select as HTMLSelectElement).value as 'name' | 'position' | 'rating';
+        this.onSortChange(teamNum, sortKey);
+      });
+    });
+
+    // Sort direction handlers
+    this.container.querySelectorAll('.trade-sort-direction').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const teamNum = parseInt((btn as HTMLElement).dataset.team!) as 1 | 2;
+        this.toggleSortDirection(teamNum);
+      });
+    });
+
     // Clear buttons
     this.container.querySelectorAll('.clear-trade-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -282,6 +408,41 @@ export class TradeAnalyzerView {
         this.clearTeamTrade(teamNum);
       });
     });
+  }
+
+  private onPlayerTypeChange(teamNum: 1 | 2, showPitchers: boolean): void {
+    const state = teamNum === 1 ? this.team1State : this.team2State;
+    state.showingPitchers = showPitchers;
+
+    // Update toggle button states
+    const toggleContainer = this.container.querySelector(`.trade-player-type-toggle[data-team="${teamNum}"]`);
+    if (toggleContainer) {
+      toggleContainer.querySelectorAll('.toggle-btn').forEach(btn => {
+        const isPitchers = (btn as HTMLElement).dataset.playerType === 'pitchers';
+        btn.classList.toggle('active', isPitchers === showPitchers);
+      });
+    }
+
+    this.updatePlayerList(teamNum);
+  }
+
+  private onSortChange(teamNum: 1 | 2, sortKey: 'name' | 'position' | 'rating'): void {
+    const state = teamNum === 1 ? this.team1State : this.team2State;
+    state.sortKey = sortKey;
+    this.updatePlayerList(teamNum);
+  }
+
+  private toggleSortDirection(teamNum: 1 | 2): void {
+    const state = teamNum === 1 ? this.team1State : this.team2State;
+    state.sortDirection = state.sortDirection === 'asc' ? 'desc' : 'asc';
+
+    // Update button text
+    const btn = this.container.querySelector(`.trade-sort-direction[data-team="${teamNum}"]`);
+    if (btn) {
+      btn.textContent = state.sortDirection === 'asc' ? '▴' : '▾';
+    }
+
+    this.updatePlayerList(teamNum);
   }
 
   private onTeamChange(teamNum: 1 | 2): void {
@@ -292,6 +453,8 @@ export class TradeAnalyzerView {
     const state = teamNum === 1 ? this.team1State : this.team2State;
     state.teamId = teamId;
     state.tradingPlayers = [];
+    state.tradingBatters = [];
+    state.tradingPicks = [];
 
     this.updatePlayerList(teamNum);
     this.updateAnalysis();
@@ -304,16 +467,28 @@ export class TradeAnalyzerView {
     const state = teamNum === 1 ? this.team1State : this.team2State;
     state.minorLevel = select.value;
 
+    // Toggle visibility of player type toggle and sort controls based on level
+    const isDraftPicks = state.minorLevel === 'draft';
+    const toggleContainer = this.container.querySelector(`.trade-player-type-toggle[data-team="${teamNum}"]`) as HTMLElement;
+    const sortContainer = this.container.querySelector(`.trade-sort-control[data-team="${teamNum}"]`) as HTMLElement;
+
+    if (toggleContainer) {
+      toggleContainer.style.display = isDraftPicks ? 'none' : 'flex';
+    }
+    if (sortContainer) {
+      sortContainer.style.display = isDraftPicks ? 'none' : 'flex';
+    }
+
     this.updatePlayerList(teamNum);
   }
 
-  private getPlayersByTeamAndLevel(teamId: number, level: string): Player[] {
+  private getPlayersByTeamAndLevel(teamId: number, level: string, showPitchers: boolean): Player[] {
     if (teamId === 0) {
       console.log('No team selected');
       return [];
     }
 
-    console.log(`Filtering players: teamId=${teamId}, level=${level}, total players=${this.allPlayers.length}`);
+    console.log(`Filtering players: teamId=${teamId}, level=${level}, showPitchers=${showPitchers}, total players=${this.allPlayers.length}`);
 
     let filtered = this.allPlayers.filter(p => {
       if (level === 'mlb') {
@@ -337,11 +512,88 @@ export class TradeAnalyzerView {
 
     console.log(`After team/level filter: ${filtered.length} players`);
 
-    // Filter for pitchers only
-    const pitchers = filtered.filter(p => isPitcher(p));
-    console.log(`After pitcher filter: ${pitchers.length} pitchers`);
+    // Filter by player type (pitchers vs batters)
+    const result = filtered.filter(p => showPitchers ? isPitcher(p) : !isPitcher(p));
+    console.log(`After player type filter: ${result.length} ${showPitchers ? 'pitchers' : 'batters'}`);
 
-    return pitchers.sort((a, b) => a.lastName.localeCompare(b.lastName));
+    return result;
+  }
+
+  private sortPlayers(players: Player[], sortKey: 'name' | 'position' | 'rating', sortDirection: 'asc' | 'desc', showPitchers: boolean): Player[] {
+    const sorted = [...players];
+    const multiplier = sortDirection === 'asc' ? 1 : -1;
+
+    sorted.sort((a, b) => {
+      let comparison = 0;
+
+      switch (sortKey) {
+        case 'name':
+          comparison = a.lastName.localeCompare(b.lastName);
+          break;
+        case 'position':
+          comparison = a.position - b.position;
+          break;
+        case 'rating':
+          // Get ratings for comparison
+          const ratingA = this.getPlayerRating(a, showPitchers);
+          const ratingB = this.getPlayerRating(b, showPitchers);
+          comparison = ratingA - ratingB;
+          break;
+      }
+
+      return comparison * multiplier;
+    });
+
+    return sorted;
+  }
+
+  private getPlayerRating(player: Player, isPitcherPlayer: boolean): number {
+    if (isPitcherPlayer) {
+      const projection = this.allProjections.get(player.id);
+      if (projection?.currentTrueRating) {
+        return projection.currentTrueRating;
+      }
+      // Fallback: calculate from scouting
+      const scouting = this.allScoutingRatings.get(player.id);
+      if (scouting) {
+        const avgScoutRating = (scouting.stuff + scouting.control + scouting.hra) / 3;
+        return ((avgScoutRating - 20) / 60) * 4.5 + 0.5;
+      }
+    } else {
+      const projection = this.allBatterProjections.get(player.id);
+      if (projection?.currentTrueRating) {
+        return projection.currentTrueRating;
+      }
+      // Fallback: calculate from scouting
+      const scouting = this.allHitterScoutingRatings.get(player.id);
+      if (scouting) {
+        const avgScoutRating = (scouting.power + scouting.eye + scouting.avoidK + scouting.contact) / 4;
+        return ((avgScoutRating - 20) / 60) * 4.5 + 0.5;
+      }
+    }
+    return 0;
+  }
+
+  private getTrueRatingClass(value: number): string {
+    if (value >= 4.5) return 'rating-elite';
+    if (value >= 4.0) return 'rating-plus';
+    if (value >= 3.0) return 'rating-avg';
+    if (value >= 2.0) return 'rating-fringe';
+    return 'rating-poor';
+  }
+
+  private wobaToRating(woba: number): number {
+    // Convert wOBA to 0.5-5.0 scale
+    // Elite: .400+ → 4.5-5.0
+    // Plus:  .370-.399 → 4.0-4.5
+    // Avg:   .320-.369 → 3.0-4.0
+    // Below: .280-.319 → 2.0-3.0
+    // Poor:  <.280 → 0.5-2.0
+    if (woba >= 0.400) return 4.5 + (woba - 0.400) * 10;
+    if (woba >= 0.370) return 4.0 + (woba - 0.370) / 0.030 * 0.5;
+    if (woba >= 0.320) return 3.0 + (woba - 0.320) / 0.050;
+    if (woba >= 0.280) return 2.0 + (woba - 0.280) / 0.040;
+    return Math.max(0.5, 0.5 + (woba - 0.200) / 0.080 * 1.5);
   }
 
   private updatePlayerList(teamNum: 1 | 2): void {
@@ -349,86 +601,211 @@ export class TradeAnalyzerView {
     const listContainer = this.container.querySelector<HTMLElement>(`.trade-player-list[data-team="${teamNum}"]`);
     if (!listContainer) return;
 
-    const players = this.getPlayersByTeamAndLevel(state.teamId, state.minorLevel);
-    console.log(`Team ${teamNum}: Found ${players.length} players for teamId=${state.teamId}, level=${state.minorLevel}`);
-
-    if (players.length === 0) {
-      listContainer.innerHTML = '<div class="empty-text">No pitchers found at this level</div>';
+    // Handle draft picks view
+    if (state.minorLevel === 'draft') {
+      this.renderDraftPicksList(teamNum, listContainer);
       return;
     }
 
-    listContainer.innerHTML = players.map((player, index) => {
-      const projection = this.allProjections.get(player.id);
-      const scouting = this.allScoutingRatings.get(player.id);
+    const players = this.getPlayersByTeamAndLevel(state.teamId, state.minorLevel, state.showingPitchers);
+    const sortedPlayers = this.sortPlayers(players, state.sortKey, state.sortDirection, state.showingPitchers);
+    const playerTypeLabel = state.showingPitchers ? 'pitchers' : 'batters';
+    console.log(`Team ${teamNum}: Found ${sortedPlayers.length} ${playerTypeLabel} for teamId=${state.teamId}, level=${state.minorLevel}`);
 
-      // Debug first few players
-      if (index < 3) {
-        console.log(`Player ${getFullName(player)} (ID: ${player.id}):`, {
-          hasProjection: !!projection,
-          currentTrueRating: projection?.currentTrueRating,
-          hasScouting: !!scouting,
-          scoutingRatings: scouting ? { stuff: scouting.stuff, control: scouting.control, hra: scouting.hra } : null,
-          teamId: player.teamId,
-          parentTeamId: player.parentTeamId,
-          level: player.level,
-          age: player.age
-        });
-      }
+    if (sortedPlayers.length === 0) {
+      listContainer.innerHTML = `<div class="empty-text">No ${playerTypeLabel} found at this level</div>`;
+      return;
+    }
 
-      // Try to get rating from projection first, then fall back to TFR (True Future Rating)
-      let trueRating = projection?.currentTrueRating ?? 0;
+    listContainer.innerHTML = sortedPlayers.map((player) => {
+      let trueRating = 0;
       let ratingSource = 'projection';
 
-      // If no projection, calculate TFR from scouting + minor league stats
-      if (trueRating === 0 && scouting) {
-        const playerMinorStats = this.minorLeagueStats.get(player.id) || [];
+      if (state.showingPitchers) {
+        // Pitcher rating logic
+        const projection = this.allProjections.get(player.id);
+        const scouting = this.allScoutingRatings.get(player.id);
 
-        try {
-          const tfrResult = trueFutureRatingService.calculateTrueFutureRating({
-            playerId: player.id,
-            playerName: getFullName(player),
-            age: player.age,
-            scouting,
-            minorLeagueStats: playerMinorStats
-          });
+        trueRating = projection?.currentTrueRating ?? 0;
 
-          // Calculate TFR from projected FIP percentile
-          // We'll use a simple mapping since we don't have full MLB context here
-          const fip = tfrResult.projFip;
-          let percentile = 50; // Default to average
-          if (fip < 3.0) percentile = 90;
-          else if (fip < 3.5) percentile = 75;
-          else if (fip < 4.0) percentile = 60;
-          else if (fip < 4.5) percentile = 50;
-          else if (fip < 5.0) percentile = 35;
-          else if (fip < 5.5) percentile = 20;
-          else percentile = 10;
+        if (trueRating === 0 && scouting) {
+          const playerMinorStats = this.minorLeagueStats.get(player.id) || [];
 
-          // Convert percentile to 0.5-5.0 rating scale
-          trueRating = this.percentileToRating(percentile);
-          ratingSource = 'tfr';
-        } catch (e) {
-          // Fallback to simple scouting average if TFR calculation fails
-          const avgScoutRating = (scouting.stuff + scouting.control + scouting.hra) / 3;
-          trueRating = ((avgScoutRating - 20) / 60) * 4.5 + 0.5;
-          ratingSource = 'scouting';
+          try {
+            const tfrResult = trueFutureRatingService.calculateTrueFutureRating({
+              playerId: player.id,
+              playerName: getFullName(player),
+              age: player.age,
+              scouting,
+              minorLeagueStats: playerMinorStats
+            });
+
+            const fip = tfrResult.projFip;
+            let percentile = 50;
+            if (fip < 3.0) percentile = 90;
+            else if (fip < 3.5) percentile = 75;
+            else if (fip < 4.0) percentile = 60;
+            else if (fip < 4.5) percentile = 50;
+            else if (fip < 5.0) percentile = 35;
+            else if (fip < 5.5) percentile = 20;
+            else percentile = 10;
+
+            trueRating = this.percentileToRating(percentile);
+            ratingSource = 'tfr';
+          } catch {
+            const avgScoutRating = (scouting.stuff + scouting.control + scouting.hra) / 3;
+            trueRating = ((avgScoutRating - 20) / 60) * 4.5 + 0.5;
+            ratingSource = 'scouting';
+          }
+        }
+      } else {
+        // Batter rating logic
+        const projection = this.allBatterProjections.get(player.id);
+        const scouting = this.allHitterScoutingRatings.get(player.id);
+
+        trueRating = projection?.currentTrueRating ?? 0;
+
+        if (trueRating === 0 && scouting) {
+          // Calculate TFR for batter from scouting ratings
+          try {
+            const tfrResult = hitterTrueFutureRatingService.calculateTrueFutureRating({
+              playerId: player.id,
+              playerName: getFullName(player),
+              age: player.age,
+              scouting,
+              minorLeagueStats: [] // No minor league batting stats available
+            });
+
+            trueRating = this.wobaToRating(tfrResult.projWoba);
+            ratingSource = 'tfr';
+          } catch {
+            // Fallback to scouting average
+            const avgScoutRating = (scouting.power + scouting.eye + scouting.avoidK + scouting.contact) / 4;
+            trueRating = ((avgScoutRating - 20) / 60) * 4.5 + 0.5;
+            ratingSource = 'scouting';
+          }
         }
       }
 
       const hasRating = trueRating > 0;
       const rating = hasRating ? trueRating.toFixed(1) : 'N/A';
-      const ratingLabel = hasRating ? (ratingSource === 'projection' ? '⭐ ' : '◈ ') : '';
+      const ratingClass = hasRating ? this.getTrueRatingClass(trueRating) : '';
+      const tfrBadgeClass = ratingSource === 'tfr' ? 'tfr-badge' : '';
 
       return `
-        <div class="trade-player-item" draggable="true" data-player-id="${player.id}" data-team="${teamNum}">
+        <div class="trade-player-item" draggable="true" data-player-id="${player.id}" data-team="${teamNum}" data-is-pitcher="${state.showingPitchers}">
           <div class="player-name player-name-link" data-player-id="${player.id}">${getFullName(player)}</div>
-          <div class="player-rating">${hasRating ? ratingLabel + rating : rating}</div>
+          <div class="player-rating">
+            ${hasRating
+              ? `<span class="badge ${ratingClass} ${tfrBadgeClass}">${rating}</span>`
+              : 'N/A'}
+          </div>
         </div>
       `;
     }).join('');
 
     // Setup drag handlers
     this.setupDragHandlers(teamNum);
+  }
+
+  private renderDraftPicksList(teamNum: 1 | 2, container: HTMLElement): void {
+    const rounds = [
+      { round: 1, label: '1st Round', value: 3.0 },
+      { round: 2, label: '2nd Round', value: 1.5 },
+      { round: 3, label: '3rd Round', value: 0.8 },
+      { round: 4, label: '4th Round', value: 0.4 },
+      { round: 5, label: '5th Round', value: 0.2 },
+    ];
+
+    container.innerHTML = `
+      <div class="draft-picks-list">
+        ${rounds.map(r => `
+          <div class="trade-pick-item" data-round="${r.round}" data-team="${teamNum}">
+            <div class="pick-info">
+              <span class="pick-label">${r.label}</span>
+              <span class="pick-value">${r.value.toFixed(1)} WAR</span>
+            </div>
+            <div class="pick-position-group">
+              <input type="number" class="pick-position-field" min="1" max="30" placeholder="#" title="Pick position (1-30)">
+              <button class="add-pick-btn" data-round="${r.round}" data-team="${teamNum}">+</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+
+    this.setupDraftPickHandlers(teamNum, container);
+  }
+
+  private setupDraftPickHandlers(teamNum: 1 | 2, container: HTMLElement): void {
+    container.querySelectorAll('.add-pick-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const round = parseInt((btn as HTMLElement).dataset.round!);
+        const pickItem = btn.closest('.trade-pick-item');
+        const positionInput = pickItem?.querySelector('.pick-position-field') as HTMLInputElement;
+        const position = positionInput?.value ? parseInt(positionInput.value) : undefined;
+
+        this.addDraftPickToTrade(teamNum, round, position);
+
+        // Clear the input
+        if (positionInput) positionInput.value = '';
+      });
+    });
+  }
+
+  private addDraftPickToTrade(teamNum: 1 | 2, round: number, position?: number): void {
+    const state = teamNum === 1 ? this.team1State : this.team2State;
+
+    // Generate unique ID
+    const id = `pick-${teamNum}-${round}-${position ?? 'general'}-${Date.now()}`;
+
+    // Calculate estimated WAR value
+    let estimatedValue: number;
+    const roundLabels = ['', '1st', '2nd', '3rd', '4th', '5th'];
+
+    switch (round) {
+      case 1:
+        // Adjust by position: top 5 = 4.0, 6-10 = 3.5, 11-20 = 3.0, 21-30 = 2.0
+        if (position) {
+          if (position <= 5) estimatedValue = 4.0;
+          else if (position <= 10) estimatedValue = 3.5;
+          else if (position <= 20) estimatedValue = 3.0;
+          else estimatedValue = 2.0;
+        } else {
+          estimatedValue = 3.0; // Default for unspecified
+        }
+        break;
+      case 2:
+        estimatedValue = 1.5;
+        break;
+      case 3:
+        estimatedValue = 0.8;
+        break;
+      case 4:
+        estimatedValue = 0.4;
+        break;
+      case 5:
+        estimatedValue = 0.2;
+        break;
+      default:
+        estimatedValue = 0.1;
+    }
+
+    const displayName = position
+      ? `${roundLabels[round]} Round Pick #${position}`
+      : `${roundLabels[round]} Round Pick`;
+
+    const pick: DraftPick = {
+      id,
+      round,
+      pickPosition: position,
+      displayName,
+      estimatedValue,
+    };
+
+    state.tradingPicks.push(pick);
+    this.updateBucket(teamNum);
+    this.updateAnalysis();
   }
 
   private setupDragHandlers(teamNum: 1 | 2): void {
@@ -490,101 +867,195 @@ export class TradeAnalyzerView {
 
   private addPlayerToTrade(teamNum: 1 | 2, playerId: number): void {
     const state = teamNum === 1 ? this.team1State : this.team2State;
+    const player = this.allPlayers.find(p => p.id === playerId);
+    if (!player) {
+      console.warn(`Player ${playerId} not found`);
+      return;
+    }
 
-    // Avoid duplicates
-    if (state.tradingPlayers.find(p => p.playerId === playerId)) return;
+    const playerIsPitcher = isPitcher(player);
 
-    let projection = this.allProjections.get(playerId);
+    if (playerIsPitcher) {
+      // Handle pitcher
+      if (state.tradingPlayers.find(p => p.playerId === playerId)) return;
 
-    // If no projection exists, create one using TFR (True Future Rating)
-    if (!projection) {
-      const player = this.allPlayers.find(p => p.id === playerId);
-      const scouting = this.allScoutingRatings.get(playerId);
+      let projection = this.allProjections.get(playerId);
 
-      if (!player) {
-        console.warn(`Player ${playerId} not found`);
-        return;
-      }
+      if (!projection) {
+        const scouting = this.allScoutingRatings.get(playerId);
 
-      if (!scouting) {
-        console.warn(`No scouting data for player ${playerId}`);
-        return;
-      }
+        if (!scouting) {
+          console.warn(`No scouting data for pitcher ${playerId}`);
+          return;
+        }
 
-      const playerMinorStats = this.minorLeagueStats.get(playerId) || [];
-      const team = this.allTeams.find(t => t.id === player.teamId);
+        const playerMinorStats = this.minorLeagueStats.get(playerId) || [];
+        const team = this.allTeams.find(t => t.id === player.teamId);
 
-      try {
-        // Calculate True Future Rating (peak projection)
-        const tfrResult = trueFutureRatingService.calculateTrueFutureRating({
-          playerId: player.id,
-          playerName: getFullName(player),
-          age: player.age,
-          scouting,
-          minorLeagueStats: playerMinorStats
-        });
+        try {
+          const tfrResult = trueFutureRatingService.calculateTrueFutureRating({
+            playerId: player.id,
+            playerName: getFullName(player),
+            age: player.age,
+            scouting,
+            minorLeagueStats: playerMinorStats
+          });
 
-        // Estimate percentile from FIP (simplified - ideally we'd use actual MLB distribution)
-        const fip = tfrResult.projFip;
-        let percentile = 50;
-        if (fip < 3.0) percentile = 90;
-        else if (fip < 3.5) percentile = 75;
-        else if (fip < 4.0) percentile = 60;
-        else if (fip < 4.5) percentile = 50;
-        else if (fip < 5.0) percentile = 35;
-        else if (fip < 5.5) percentile = 20;
-        else percentile = 10;
+          const fip = tfrResult.projFip;
+          let percentile = 50;
+          if (fip < 3.0) percentile = 90;
+          else if (fip < 3.5) percentile = 75;
+          else if (fip < 4.0) percentile = 60;
+          else if (fip < 4.5) percentile = 50;
+          else if (fip < 5.0) percentile = 35;
+          else if (fip < 5.5) percentile = 20;
+          else percentile = 10;
 
-        const trueRating = this.percentileToRating(percentile);
+          const trueRating = this.percentileToRating(percentile);
 
-        // Calculate projected WAR using FIP and estimated IP
-        const projectedIp = 150; // Assume SP projection for prospects
-        const warResult = fipWarService.calculate({
-          k9: tfrResult.projK9,
-          bb9: tfrResult.projBb9,
-          hr9: tfrResult.projHr9,
-          ip: projectedIp
-        });
-
-        projection = {
-          playerId: player.id,
-          name: getFullName(player),
-          teamId: player.teamId,
-          teamName: team?.nickname ?? 'Unknown',
-          position: player.position,
-          age: player.age,
-          currentTrueRating: trueRating,
-          projectedTrueRating: trueRating,
-          projectedStats: {
+          const projectedIp = 150;
+          const warResult = fipWarService.calculate({
             k9: tfrResult.projK9,
             bb9: tfrResult.projBb9,
             hr9: tfrResult.projHr9,
-            fip: tfrResult.projFip,
-            war: warResult.war,
             ip: projectedIp
-          },
-          projectedRatings: {
-            stuff: scouting.stuff,
-            control: scouting.control,
-            hra: scouting.hra
-          },
-          isSp: true,
-          isProspect: true
+          });
+
+          projection = {
+            playerId: player.id,
+            name: getFullName(player),
+            teamId: player.teamId,
+            teamName: team?.nickname ?? 'Unknown',
+            position: player.position,
+            age: player.age,
+            currentTrueRating: trueRating,
+            projectedTrueRating: trueRating,
+            projectedStats: {
+              k9: tfrResult.projK9,
+              bb9: tfrResult.projBb9,
+              hr9: tfrResult.projHr9,
+              fip: tfrResult.projFip,
+              war: warResult.war,
+              ip: projectedIp
+            },
+            projectedRatings: {
+              stuff: scouting.stuff,
+              control: scouting.control,
+              hra: scouting.hra
+            },
+            isSp: true,
+            isProspect: true
+          };
+
+          console.log(`Created TFR projection for pitcher ${getFullName(player)}:`, {
+            trueRating,
+            projFip: tfrResult.projFip,
+            projWar: warResult.war,
+            totalMinorIp: tfrResult.totalMinorIp
+          });
+        } catch (e) {
+          console.error(`Failed to calculate TFR for pitcher ${playerId}:`, e);
+          return;
+        }
+      }
+
+      state.tradingPlayers.push(projection);
+    } else {
+      // Handle batter
+      if (state.tradingBatters.find(p => p.playerId === playerId)) return;
+
+      let batterProjection = this.allBatterProjections.get(playerId);
+
+      if (!batterProjection) {
+        const scouting = this.allHitterScoutingRatings.get(playerId);
+
+        if (!scouting) {
+          console.warn(`No scouting data for batter ${playerId}`);
+          return;
+        }
+
+        const team = this.allTeams.find(t => t.id === player.teamId);
+        const positionLabels: Record<number, string> = {
+          1: 'P', 2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH',
         };
 
-        console.log(`Created TFR projection for ${getFullName(player)}:`, {
-          trueRating,
-          projFip: tfrResult.projFip,
-          projWar: warResult.war,
-          totalMinorIp: tfrResult.totalMinorIp
-        });
-      } catch (e) {
-        console.error(`Failed to calculate TFR for player ${playerId}:`, e);
-        return;
+        try {
+          const tfrResult = hitterTrueFutureRatingService.calculateTrueFutureRating({
+            playerId: player.id,
+            playerName: getFullName(player),
+            age: player.age,
+            scouting,
+            minorLeagueStats: []
+          });
+
+          const trueRating = this.wobaToRating(tfrResult.projWoba);
+
+          // Estimate WAR from wOBA (rough calculation)
+          const projectedPa = 550;
+          const lgWoba = 0.320;
+          const wobaScale = 1.25;
+          const woba = tfrResult.projWoba;
+          const wRaa = ((woba - lgWoba) / wobaScale) * projectedPa;
+          const runPerWar = 10;
+          const war = wRaa / runPerWar;
+
+          batterProjection = {
+            playerId: player.id,
+            name: getFullName(player),
+            teamId: player.teamId,
+            teamName: team?.nickname ?? 'Unknown',
+            position: player.position,
+            positionLabel: positionLabels[player.position] || 'UT',
+            age: player.age,
+            currentTrueRating: trueRating,
+            percentile: 50,
+            projectedStats: {
+              woba: tfrResult.projWoba,
+              avg: tfrResult.projAvg,
+              obp: tfrResult.projAvg + (tfrResult.projBbPct / 100),
+              slg: tfrResult.projAvg + (tfrResult.projHrPct / 100) * 3 + 0.05,
+              ops: 0,
+              wrcPlus: 100,
+              war: Math.max(0, war),
+              pa: projectedPa,
+              hr: Math.round(projectedPa * (tfrResult.projHrPct / 100)),
+              rbi: Math.round(projectedPa * 0.12),
+              sb: 5,
+              hrPct: tfrResult.projHrPct,
+              bbPct: tfrResult.projBbPct,
+              kPct: tfrResult.projKPct,
+            },
+            estimatedRatings: {
+              power: scouting.power,
+              eye: scouting.eye,
+              avoidK: scouting.avoidK,
+              contact: scouting.contact,
+            },
+            scoutingRatings: {
+              power: scouting.power,
+              eye: scouting.eye,
+              avoidK: scouting.avoidK,
+              contact: scouting.contact,
+            },
+          };
+
+          // Fix OPS
+          batterProjection.projectedStats.ops = batterProjection.projectedStats.obp + batterProjection.projectedStats.slg;
+
+          console.log(`Created TFR projection for batter ${getFullName(player)}:`, {
+            trueRating,
+            projWoba: tfrResult.projWoba,
+            projWar: batterProjection.projectedStats.war,
+          });
+        } catch (e) {
+          console.error(`Failed to calculate TFR for batter ${playerId}:`, e);
+          return;
+        }
       }
+
+      state.tradingBatters.push(batterProjection);
     }
 
-    state.tradingPlayers.push(projection);
     this.updateBucket(teamNum);
     this.updateAnalysis();
   }
@@ -594,17 +1065,46 @@ export class TradeAnalyzerView {
     const bucket = this.container.querySelector<HTMLElement>(`.trade-bucket[data-team="${teamNum}"]`);
     if (!bucket) return;
 
-    bucket.innerHTML = state.tradingPlayers.map(player => `
-      <div class="trade-bucket-item">
+    // Render pitchers
+    const pitcherItems = state.tradingPlayers.map(player => `
+      <div class="trade-bucket-item" data-type="pitcher">
         <span class="bucket-player-name">${player.name}</span>
-        <button class="bucket-remove-btn" data-player-id="${player.playerId}" data-team="${teamNum}">×</button>
+        <button class="bucket-remove-btn" data-player-id="${player.playerId}" data-team="${teamNum}" data-type="pitcher">×</button>
       </div>
     `).join('');
 
+    // Render batters
+    const batterItems = state.tradingBatters.map(batter => `
+      <div class="trade-bucket-item" data-type="batter">
+        <span class="bucket-player-name">${batter.name}</span>
+        <button class="bucket-remove-btn" data-player-id="${batter.playerId}" data-team="${teamNum}" data-type="batter">×</button>
+      </div>
+    `).join('');
+
+    // Render draft picks
+    const pickItems = state.tradingPicks.map(pick => `
+      <div class="trade-bucket-item trade-bucket-pick" data-type="pick">
+        <span class="bucket-player-name">${pick.displayName}</span>
+        <span class="pick-war-value">${pick.estimatedValue.toFixed(1)} WAR</span>
+        <button class="bucket-remove-btn" data-pick-id="${pick.id}" data-team="${teamNum}" data-type="pick">×</button>
+      </div>
+    `).join('');
+
+    bucket.innerHTML = pitcherItems + batterItems + pickItems;
+
     bucket.querySelectorAll('.bucket-remove-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const playerId = parseInt((btn as HTMLElement).dataset.playerId!);
-        state.tradingPlayers = state.tradingPlayers.filter(p => p.playerId !== playerId);
+        const type = (btn as HTMLElement).dataset.type;
+        if (type === 'pitcher') {
+          const playerId = parseInt((btn as HTMLElement).dataset.playerId!);
+          state.tradingPlayers = state.tradingPlayers.filter(p => p.playerId !== playerId);
+        } else if (type === 'batter') {
+          const playerId = parseInt((btn as HTMLElement).dataset.playerId!);
+          state.tradingBatters = state.tradingBatters.filter(p => p.playerId !== playerId);
+        } else if (type === 'pick') {
+          const pickId = (btn as HTMLElement).dataset.pickId!;
+          state.tradingPicks = state.tradingPicks.filter(p => p.id !== pickId);
+        }
         this.updateBucket(teamNum);
         this.updateAnalysis();
       });
@@ -614,6 +1114,8 @@ export class TradeAnalyzerView {
   private clearTeamTrade(teamNum: 1 | 2): void {
     const state = teamNum === 1 ? this.team1State : this.team2State;
     state.tradingPlayers = [];
+    state.tradingBatters = [];
+    state.tradingPicks = [];
     this.updateBucket(teamNum);
     this.updateAnalysis();
   }
@@ -622,7 +1124,14 @@ export class TradeAnalyzerView {
     const contentDiv = this.container.querySelector<HTMLElement>('.trade-analysis-content');
     if (!contentDiv) return;
 
-    if (this.team1State.tradingPlayers.length === 0 && this.team2State.tradingPlayers.length === 0) {
+    const team1HasAssets = this.team1State.tradingPlayers.length > 0 ||
+      this.team1State.tradingBatters.length > 0 ||
+      this.team1State.tradingPicks.length > 0;
+    const team2HasAssets = this.team2State.tradingPlayers.length > 0 ||
+      this.team2State.tradingBatters.length > 0 ||
+      this.team2State.tradingPicks.length > 0;
+
+    if (!team1HasAssets && !team2HasAssets) {
       contentDiv.innerHTML = `
         <div class="analysis-placeholder">
           <p>Select players from both teams to analyze trade impact</p>
@@ -652,16 +1161,7 @@ export class TradeAnalyzerView {
             ${analysis.team1Gain ? '+' : ''}${analysis.team1WarChange.toFixed(1)} WAR
           </div>
           <div class="war-detail">
-            ${this.team1State.tradingPlayers.length > 0 ? `
-              <div class="player-war-list">
-                ${this.team1State.tradingPlayers.map(p => `
-                  <div class="player-war-item">
-                    <span>${p.name}</span>
-                    <span class="war-value">${p.projectedStats.war.toFixed(1)} WAR</span>
-                  </div>
-                `).join('')}
-              </div>
-            ` : '<p class="empty-text">No players selected</p>'}
+            ${this.renderWarDetail(this.team1State)}
           </div>
         </div>
 
@@ -671,16 +1171,7 @@ export class TradeAnalyzerView {
             ${analysis.team2Gain ? '+' : ''}${analysis.team2WarChange.toFixed(1)} WAR
           </div>
           <div class="war-detail">
-            ${this.team2State.tradingPlayers.length > 0 ? `
-              <div class="player-war-list">
-                ${this.team2State.tradingPlayers.map(p => `
-                  <div class="player-war-item">
-                    <span>${p.name}</span>
-                    <span class="war-value">${p.projectedStats.war.toFixed(1)} WAR</span>
-                  </div>
-                `).join('')}
-              </div>
-            ` : '<p class="empty-text">No players selected</p>'}
+            ${this.renderWarDetail(this.team2State)}
           </div>
         </div>
       </div>
@@ -692,36 +1183,90 @@ export class TradeAnalyzerView {
     `;
   }
 
-  private renderRatingsTable(): string {
-    const allPlayers = [...this.team1State.tradingPlayers, ...this.team2State.tradingPlayers];
+  private renderWarDetail(state: TradeTeamState): string {
+    const items: string[] = [];
 
-    if (allPlayers.length === 0) {
+    // Pitchers
+    state.tradingPlayers.forEach(p => {
+      items.push(`
+        <div class="player-war-item">
+          <span>${p.name}</span>
+          <span class="war-value">${p.projectedStats.war.toFixed(1)} WAR</span>
+        </div>
+      `);
+    });
+
+    // Batters
+    state.tradingBatters.forEach(b => {
+      items.push(`
+        <div class="player-war-item">
+          <span>${b.name}</span>
+          <span class="war-value">${b.projectedStats.war.toFixed(1)} WAR</span>
+        </div>
+      `);
+    });
+
+    // Draft picks
+    state.tradingPicks.forEach(pick => {
+      items.push(`
+        <div class="player-war-item">
+          <span>${pick.displayName}</span>
+          <span class="war-value">${pick.estimatedValue.toFixed(1)} WAR</span>
+        </div>
+      `);
+    });
+
+    if (items.length === 0) {
+      return '<p class="empty-text">No assets selected</p>';
+    }
+
+    return `<div class="player-war-list">${items.join('')}</div>`;
+  }
+
+  private renderRatingsTable(): string {
+    const allPitchers = [...this.team1State.tradingPlayers, ...this.team2State.tradingPlayers];
+    const allBatters = [...this.team1State.tradingBatters, ...this.team2State.tradingBatters];
+
+    if (allPitchers.length === 0 && allBatters.length === 0) {
       return '<p class="empty-text">Add players to view ratings</p>';
     }
 
+    // Multi-purpose columns for mixed player types
+    // Column headers adapt based on what players are in the trade
     return `
       <table class="trade-ratings-table">
         <thead>
           <tr>
             <th>Player</th>
             <th>True Rating</th>
-            <th>Projected FIP</th>
-            <th>K/9</th>
-            <th>BB/9</th>
-            <th>Stuff</th>
-            <th>Control</th>
+            <th>FIP/wOBA</th>
+            <th>K/9 / K%</th>
+            <th>BB/9 / BB%</th>
+            <th>Stuff/Power</th>
+            <th>Control/Eye</th>
           </tr>
         </thead>
         <tbody>
-          ${allPlayers.map(p => `
+          ${allPitchers.map(p => `
             <tr>
               <td>${p.name}</td>
-              <td>${p.currentTrueRating.toFixed(1)}⭐</td>
+              <td><span class="badge ${this.getTrueRatingClass(p.currentTrueRating)}">${p.currentTrueRating.toFixed(1)}</span></td>
               <td>${p.projectedStats.fip.toFixed(2)}</td>
               <td>${p.projectedStats.k9.toFixed(2)}</td>
               <td>${p.projectedStats.bb9.toFixed(2)}</td>
               <td>${p.projectedRatings.stuff.toFixed(0)}</td>
               <td>${p.projectedRatings.control.toFixed(0)}</td>
+            </tr>
+          `).join('')}
+          ${allBatters.map(b => `
+            <tr>
+              <td>${b.name}</td>
+              <td><span class="badge ${this.getTrueRatingClass(b.currentTrueRating)}">${b.currentTrueRating.toFixed(1)}</span></td>
+              <td>${b.projectedStats.woba.toFixed(3)}</td>
+              <td>${b.projectedStats.kPct?.toFixed(1) ?? '-'}%</td>
+              <td>${b.projectedStats.bbPct?.toFixed(1) ?? '-'}%</td>
+              <td>${b.estimatedRatings.power.toFixed(0)}</td>
+              <td>${b.estimatedRatings.eye.toFixed(0)}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -730,8 +1275,17 @@ export class TradeAnalyzerView {
   }
 
   private calculateTradeAnalysis(): TradeAnalysis {
-    const team1WarChange = this.team1State.tradingPlayers.reduce((sum, p) => sum + p.projectedStats.war, 0);
-    const team2WarChange = this.team2State.tradingPlayers.reduce((sum, p) => sum + p.projectedStats.war, 0);
+    // Calculate total WAR for team 1 (pitchers + batters + picks)
+    const team1PitcherWar = this.team1State.tradingPlayers.reduce((sum, p) => sum + p.projectedStats.war, 0);
+    const team1BatterWar = this.team1State.tradingBatters.reduce((sum, b) => sum + b.projectedStats.war, 0);
+    const team1PickWar = this.team1State.tradingPicks.reduce((sum, pick) => sum + pick.estimatedValue, 0);
+    const team1WarChange = team1PitcherWar + team1BatterWar + team1PickWar;
+
+    // Calculate total WAR for team 2 (pitchers + batters + picks)
+    const team2PitcherWar = this.team2State.tradingPlayers.reduce((sum, p) => sum + p.projectedStats.war, 0);
+    const team2BatterWar = this.team2State.tradingBatters.reduce((sum, b) => sum + b.projectedStats.war, 0);
+    const team2PickWar = this.team2State.tradingPicks.reduce((sum, pick) => sum + pick.estimatedValue, 0);
+    const team2WarChange = team2PitcherWar + team2BatterWar + team2PickWar;
 
     const team1Gain = team2WarChange > team1WarChange;
     const team2Gain = team1WarChange > team2WarChange;
