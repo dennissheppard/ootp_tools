@@ -147,15 +147,16 @@ const STABILIZATION = {
  * Rationale:
  * - K%: Lower threshold (120 PA) - K% stabilizes quickly (60 PA), stats are predictive
  * - BB%: Medium threshold (200 PA) - Stabilizes at 120 PA, scouts can see plate discipline
- * - HR%/ISO: Higher threshold (350 PA) - Power is volatile, scouts see bat speed/exit velo
- *            that may not show up immediately in MLB results
+ * - HR%: Higher threshold (350 PA) - Power is volatile, scouts see bat speed/exit velo
+ *        that may not show up immediately in MLB results
  * - AVG: Higher threshold (350 PA) - Stabilizes at 300 PA, scouts can evaluate contact skills
+ *
+ * Note: ISO is not blended with scouting - we use HR% directly for power estimation.
  */
 const SCOUTING_BLEND_THRESHOLDS = {
   kPct: 120,    // K% stabilizes at 60 PA - trust stats sooner
   bbPct: 200,   // BB% stabilizes at 120 PA - medium trust
   hrPct: 350,   // HR% stabilizes at 160 PA but volatile - trust scouts longer
-  iso: 350,     // ISO tied to power - same as HR%
   avg: 350,     // AVG stabilizes at 300 PA - trust scouts longer
 };
 
@@ -314,15 +315,15 @@ class HitterTrueRatingsCalculationService {
     if (input.scoutingRatings) {
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings);
       // Use component-specific blend thresholds
+      // Note: ISO is not blended - we use HR% directly for power estimation
       blendedBbPct = this.blendWithScouting(regressedBbPct, scoutExpected.bbPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.bbPct);
       blendedKPct = this.blendWithScouting(regressedKPct, scoutExpected.kPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.kPct);
       blendedHrPct = this.blendWithScouting(regressedHrPct, scoutExpected.hrPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.hrPct);
-      blendedIso = this.blendWithScouting(regressedIso, scoutExpected.iso, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.iso);
       blendedAvg = this.blendWithScouting(regressedAvg, scoutExpected.avg, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.avg);
     }
 
-    // Step 4: Calculate wOBA from blended rates
-    const woba = this.calculateWobaFromRates(blendedBbPct, blendedKPct, blendedIso, blendedAvg);
+    // Step 4: Calculate wOBA from blended rates (using HR% directly, not ISO)
+    const woba = this.calculateWobaFromRates(blendedBbPct, blendedKPct, blendedHrPct, blendedAvg);
 
     // Note: Component ratings (Power, Eye, AvK, Contact) will be calculated
     // via percentile ranking in calculateComponentRatingsFromPercentiles()
@@ -603,27 +604,24 @@ class HitterTrueRatingsCalculationService {
 
   /**
    * Calculate wOBA from rate stats
-   * This is an approximation since we don't have exact counting stats
+   * Uses HR% directly (not ISO) per the HR%-based power estimation fix.
    */
-  calculateWobaFromRates(bbPct: number, _kPct: number, iso: number, avg: number): number {
+  calculateWobaFromRates(bbPct: number, _kPct: number, hrPct: number, avg: number): number {
     // Approximate plate appearance outcomes
-    // Note: kPct not directly used in wOBA calculation but kept for API consistency
     const bbRate = bbPct / 100;
+    const hrRate = hrPct / 100; // Use HR% directly, not ISO-derived
     const hitRate = avg * (1 - bbRate); // Approximate hit rate accounting for walks
 
-    // Rough estimates of hit types based on ISO/AVG relationship
-    // Average distribution: ~65% singles, ~20% doubles, ~3% triples, ~12% HR
-    // Adjust based on ISO (higher ISO = more HR/XBH)
-    const isoFactor = iso / 0.140; // Normalize to league average
-    const hrRate = hitRate * 0.12 * isoFactor;
+    // Estimate hit type distribution (doubles, triples, singles)
+    // HR rate is known directly, estimate the rest
     const tripleRate = hitRate * 0.03;
     const doubleRate = hitRate * 0.20;
-    const singleRate = hitRate - hrRate - tripleRate - doubleRate;
+    const singleRate = Math.max(0, hitRate - hrRate - tripleRate - doubleRate);
 
     // Calculate wOBA
     const woba =
       WOBA_WEIGHTS.bb * bbRate +
-      WOBA_WEIGHTS.single * Math.max(0, singleRate) +
+      WOBA_WEIGHTS.single * singleRate +
       WOBA_WEIGHTS.double * doubleRate +
       WOBA_WEIGHTS.triple * tripleRate +
       WOBA_WEIGHTS.hr * hrRate;

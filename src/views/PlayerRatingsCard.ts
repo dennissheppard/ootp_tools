@@ -133,11 +133,11 @@ export class PlayerRatingsCard {
       console.log(`BADGE:   Decision: useTfr=${useTfr}, showing ${useTfr ? 'TFR' : 'TR'} = ${ratingValue?.toFixed(1)}`);
     }
 
-    if (typeof ratingValue !== 'number') return null;
+    if (typeof ratingValue !== 'number' || isNaN(ratingValue)) return null;
 
     const hasScout = this.hasScoutingData(data);
     const badgeClass = this.getTrueRatingClass(ratingValue);
-    const percentileText = typeof percentileValue === 'number'
+    const percentileText = typeof percentileValue === 'number' && !isNaN(percentileValue)
       ? `${this.formatPercentile(percentileValue)} percentile`
       : '';
 
@@ -614,8 +614,8 @@ export class PlayerRatingsCard {
     const scoutWidth = Math.max(20, Math.min(80, scoutValue));
     const scoutClass = this.getRatingClassForValue(scoutValue);
 
-    // If we have no estimated rating (missing stats), show placeholder on left
-    if (estimated === undefined) {
+    // If we have no estimated rating (missing stats or NaN), show placeholder on left
+    if (estimated === undefined || isNaN(estimated)) {
       return `
         <div class="rating-row">
           <span class="rating-label">${label}</span>
@@ -692,8 +692,8 @@ export class PlayerRatingsCard {
    * Render a placeholder bar (no scout data)
    */
   static renderPlaceholderBar(label: string, estimated?: number): string {
-    // If no estimated rating (no MLB stats), show placeholder on left too
-    if (estimated === undefined) {
+    // If no estimated rating (no MLB stats or NaN), show placeholder on left too
+    if (estimated === undefined || isNaN(estimated)) {
       return `
         <div class="rating-row">
           <span class="rating-label">${label}</span>
@@ -738,8 +738,8 @@ export class PlayerRatingsCard {
    * Render estimated-only bar (for modal when no scout data)
    */
   static renderEstimatedOnlyBar(label: string, estimated?: number): string {
-    // If no estimated rating, show placeholder
-    if (estimated === undefined) {
+    // If no estimated rating or NaN, show placeholder
+    if (estimated === undefined || isNaN(estimated)) {
       return `
         <div class="rating-row">
           <span class="rating-label">${label}</span>

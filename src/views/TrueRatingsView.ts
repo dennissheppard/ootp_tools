@@ -2024,7 +2024,6 @@ export class TrueRatingsView {
         { key: 'estimatedContact', label: 'True Contact', sortKey: 'estimatedContact' },
         { key: 'estimatedPower', label: 'True Pow', sortKey: 'estimatedPower' },
         { key: 'estimatedEye', label: 'True Eye', sortKey: 'estimatedEye' },
-        { key: 'estimatedAvoidK', label: 'True AvK', sortKey: 'estimatedAvoidK' },
       ];
 
       return [...baseColumns, ...trueRatingColumns];

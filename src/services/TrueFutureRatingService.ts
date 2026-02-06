@@ -389,6 +389,13 @@ class TrueFutureRatingService {
 
     const n = componentResults.length;
 
+    // Handle single prospect edge case - assign 50th percentile (no ranking possible)
+    if (n === 1) {
+      const prospect = componentResults[0];
+      percentiles.set(prospect.playerId, { stuffPercentile: 50, controlPercentile: 50, hraPercentile: 50 });
+      return percentiles;
+    }
+
     // Rank by Stuff (K9 - higher is better)
     const stuffSorted = [...componentResults].sort((a, b) => b.stuffValue - a.stuffValue);
     for (let i = 0; i < n; i++) {
@@ -690,7 +697,8 @@ class TrueFutureRatingService {
 
     return sortedByFip.map((result, index) => {
       // Calculate percentile rank (lower FIP = better = higher percentile)
-      const percentile = ((n - index - 1) / (n - 1)) * 100;
+      // Handle n=1 edge case to avoid division by zero
+      const percentile = n === 1 ? 50 : ((n - index - 1) / (n - 1)) * 100;
       const trueFutureRating = this.percentileToRating(percentile);
 
       // Calculate true ratings from percentiles: rating = 20 + (percentile / 100) * 60

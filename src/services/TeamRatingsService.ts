@@ -1281,9 +1281,9 @@ class TeamRatingsService {
           // Sort Bullpen by Projected TR desc (now includes overflow starters)
           group.bullpen.sort((a, b) => b.trueRating - a.trueRating);
 
-          // Aggregate stats for Baseline Calculation (using top 5 only)
+          // Aggregate stats for Baseline Calculation (using top 5 rotation, top 8 bullpen)
           const topRotation = group.rotation;
-          const topBullpen = group.bullpen.slice(0, 5);
+          const topBullpen = group.bullpen.slice(0, 8);
 
           topRotation.forEach(p => {
               if (p.stats.ip > 0) {
@@ -1323,7 +1323,7 @@ class TeamRatingsService {
           if (team && team.parentTeamId !== 0) return;
 
           const topRotation = group.rotation;
-          const topBullpen = group.bullpen.slice(0, 5);
+          const topBullpen = group.bullpen.slice(0, 8);
           
           // Use role-specific averages for replacement level
           // Pass avgRotationFip as the "League Average" to the helper.

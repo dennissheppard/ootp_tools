@@ -96,14 +96,15 @@ const BATTER_LEAGUE_AVERAGES = { bbPct: 8.5, kPct: 22.0, iso: 0.140, avg: 0.260 
  *
  * - K%: Lower (120 PA) - stats are predictive, K% stabilizes quickly
  * - BB%: Medium (200 PA) - scouts can see plate discipline
- * - HR%/ISO: Higher (350 PA) - power is volatile, scouts see bat speed/exit velo
+ * - HR%: Higher (350 PA) - power is volatile, scouts see bat speed/exit velo
  * - AVG: Higher (350 PA) - scouts can evaluate contact skills
+ *
+ * Note: ISO is not blended - we use HR% directly for power estimation.
  */
 const SCOUTING_BLEND_THRESHOLDS = {
   kPct: 120,
   bbPct: 200,
   hrPct: 350,
-  iso: 350,
   avg: 350,
 };
 
@@ -787,8 +788,8 @@ function traceBatterTR(
   console.log(`    AVG  = ${weightedAvg.toFixed(3)}`);
   console.log(`    Total PA: ${totalPa}`);
 
-  // Calculate raw wOBA for tier determination
-  const rawWoba = calculateWobaFromRates(weightedBbPct, weightedKPct, weightedIso, weightedAvg);
+  // Calculate raw wOBA for tier determination (using HR% directly, not ISO)
+  const rawWoba = calculateWobaFromRates(weightedBbPct, weightedKPct, weightedHrPct, weightedAvg);
   console.log(`\n  Raw wOBA (for tier determination): ${rawWoba.toFixed(3)}`);
 
   // Tier-aware regression
@@ -858,7 +859,7 @@ function traceBatterTR(
     console.log(`    HR%: ${scoutHrPct.toFixed(3)}%`);
     console.log(`    AVG: ${scoutAvg.toFixed(3)}`);
 
-    // Component-specific blend weights
+    // Component-specific blend weights (ISO not blended - we use HR% directly)
     const calcBlend = (threshold: number) => {
       const statsW = totalPa / (totalPa + threshold);
       return { stats: statsW, scout: 1 - statsW };
@@ -867,37 +868,35 @@ function traceBatterTR(
     const blendK = calcBlend(SCOUTING_BLEND_THRESHOLDS.kPct);
     const blendBb = calcBlend(SCOUTING_BLEND_THRESHOLDS.bbPct);
     const blendHr = calcBlend(SCOUTING_BLEND_THRESHOLDS.hrPct);
-    const blendIso = calcBlend(SCOUTING_BLEND_THRESHOLDS.iso);
     const blendAvgW = calcBlend(SCOUTING_BLEND_THRESHOLDS.avg);
 
     console.log(`\n  Component-Specific Blend Weights (PA / (PA + threshold)):`);
     console.log(`    K%:  ${totalPa} / (${totalPa} + ${SCOUTING_BLEND_THRESHOLDS.kPct}) = ${(blendK.stats * 100).toFixed(1)}% stats, ${(blendK.scout * 100).toFixed(1)}% scout`);
     console.log(`    BB%: ${totalPa} / (${totalPa} + ${SCOUTING_BLEND_THRESHOLDS.bbPct}) = ${(blendBb.stats * 100).toFixed(1)}% stats, ${(blendBb.scout * 100).toFixed(1)}% scout`);
     console.log(`    HR%: ${totalPa} / (${totalPa} + ${SCOUTING_BLEND_THRESHOLDS.hrPct}) = ${(blendHr.stats * 100).toFixed(1)}% stats, ${(blendHr.scout * 100).toFixed(1)}% scout`);
-    console.log(`    ISO: ${totalPa} / (${totalPa} + ${SCOUTING_BLEND_THRESHOLDS.iso}) = ${(blendIso.stats * 100).toFixed(1)}% stats, ${(blendIso.scout * 100).toFixed(1)}% scout`);
     console.log(`    AVG: ${totalPa} / (${totalPa} + ${SCOUTING_BLEND_THRESHOLDS.avg}) = ${(blendAvgW.stats * 100).toFixed(1)}% stats, ${(blendAvgW.scout * 100).toFixed(1)}% scout`);
+    console.log(`    ISO: (not blended - derived from HR%)`);
 
     console.log(`\n  Rationale: K% stabilizes quickly (trust stats). HR%/AVG more volatile (trust scouts longer).`);
 
     blendedBbPct = blendBb.stats * regressedBbPct + blendBb.scout * scoutBbPct;
     blendedKPct = blendK.stats * regressedKPct + blendK.scout * scoutKPct;
     blendedHrPct = blendHr.stats * regressedHrPct + blendHr.scout * scoutHrPct;
-    blendedIso = blendIso.stats * regressedIso + blendIso.scout * scoutIso;
     blendedAvg = blendAvgW.stats * regressedAvg + blendAvgW.scout * scoutAvg;
+    // ISO not blended - keep regressed value (used only for display, not wOBA)
 
     console.log(`\n  Blended Rates:`);
     console.log(`    BB%: ${blendBb.stats.toFixed(3)} × ${regressedBbPct.toFixed(2)} + ${blendBb.scout.toFixed(3)} × ${scoutBbPct.toFixed(2)} = ${blendedBbPct.toFixed(2)}%`);
     console.log(`    K%:  ${blendK.stats.toFixed(3)} × ${regressedKPct.toFixed(2)} + ${blendK.scout.toFixed(3)} × ${scoutKPct.toFixed(2)} = ${blendedKPct.toFixed(2)}%`);
     console.log(`    HR%: ${blendHr.stats.toFixed(3)} × ${regressedHrPct.toFixed(3)} + ${blendHr.scout.toFixed(3)} × ${scoutHrPct.toFixed(3)} = ${blendedHrPct.toFixed(3)}%`);
-    console.log(`    ISO: ${blendIso.stats.toFixed(3)} × ${regressedIso.toFixed(3)} + ${blendIso.scout.toFixed(3)} × ${scoutIso.toFixed(3)} = ${blendedIso.toFixed(3)}`);
     console.log(`    AVG: ${blendAvgW.stats.toFixed(3)} × ${regressedAvg.toFixed(3)} + ${blendAvgW.scout.toFixed(3)} × ${scoutAvg.toFixed(3)} = ${blendedAvg.toFixed(3)}`);
   } else {
     console.log('\n--- STEP 4: Scouting Blend (SKIPPED - no scouting data provided) ---\n');
   }
 
-  // Calculate wOBA
+  // Calculate wOBA using HR% directly (not ISO)
   console.log('\n--- STEP 5: Calculate wOBA ---\n');
-  const finalWoba = calculateWobaFromRates(blendedBbPct, blendedKPct, blendedIso, blendedAvg);
+  const finalWoba = calculateWobaFromRates(blendedBbPct, blendedKPct, blendedHrPct, blendedAvg);
   console.log(`  wOBA = ${finalWoba.toFixed(3)}`);
 
   // Estimate ratings
@@ -1195,7 +1194,7 @@ function traceBatterTFR(
   console.log(`  Power (HR%): ${(powerScoutWeight * 100).toFixed(0)}% scout × ${scoutHrPct.toFixed(2)} + ${((1 - powerScoutWeight) * 100).toFixed(0)}% stats × ${adjustedHrPct.toFixed(2)} = ${blendedHrPct.toFixed(2)}%`);
 
   console.log('\n--- STEP 7: Calculate Projected wOBA ---\n');
-  const projWoba = calculateWobaFromRates(blendedBbPct, blendedKPct, 0, blendedAvg, blendedHrPct / 100);
+  const projWoba = calculateWobaFromRates(blendedBbPct, blendedKPct, blendedHrPct, blendedAvg);
   console.log(`  Projected Peak wOBA = ${projWoba.toFixed(3)}`);
 
   console.log('\n--- SUMMARY ---\n');
@@ -1248,20 +1247,23 @@ function calculateStrengthMultiplier(estimatedFip: number): number {
   return 2.00;
 }
 
-function calculateWobaFromRates(bbPct: number, _kPct: number, iso: number, avg: number, hrRate?: number): number {
+/**
+ * Calculate wOBA from rate stats using HR% directly (not ISO).
+ */
+function calculateWobaFromRates(bbPct: number, _kPct: number, hrPct: number, avg: number): number {
   const bbRate = bbPct / 100;
+  const hrRate = hrPct / 100; // Use HR% directly
   const hitRate = avg * (1 - bbRate);
-  const actualHrRate = hrRate ?? hitRate * 0.12 * (iso / 0.140);
   const tripleRate = hitRate * 0.03;
   const doubleRate = hitRate * 0.20;
-  const singleRate = Math.max(0, hitRate - actualHrRate - tripleRate - doubleRate);
+  const singleRate = Math.max(0, hitRate - hrRate - tripleRate - doubleRate);
 
   return Math.max(0.200, Math.min(0.500,
     WOBA_WEIGHTS.bb * bbRate +
     WOBA_WEIGHTS.single * singleRate +
     WOBA_WEIGHTS.double * doubleRate +
     WOBA_WEIGHTS.triple * tripleRate +
-    WOBA_WEIGHTS.hr * actualHrRate
+    WOBA_WEIGHTS.hr * hrRate
   ));
 }
 

@@ -3668,12 +3668,20 @@ td:hover .stat-tooltip {
 /* Flip card effect for stats */
 .flip-cell {
   perspective: 1000px;
-  width: 60px;
+  width: 100%;
   height: 24px;
   display: inline-block;
   vertical-align: middle;
   position: relative;
   z-index: 1;
+}
+
+/* Center True Rating columns in Projections and True Ratings views */
+.true-ratings-table th[data-key="currentTrueRating"],
+.true-ratings-table td[data-col-key="currentTrueRating"],
+.true-ratings-table th[data-key="trueRating"],
+.true-ratings-table td[data-col-key="trueRating"] {
+  text-align: center !important;
 }
 
 .flip-cell-inner {

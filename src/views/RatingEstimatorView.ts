@@ -15,7 +15,6 @@ type BatterComparisonInputs = {
     contact: { scout?: number; osa?: number };
     power: { scout?: number; osa?: number };
     eye: { scout?: number; osa?: number };
-    avoidK: { scout?: number; osa?: number };
 };
 
 const AVAILABLE_YEARS = [2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010];
@@ -218,11 +217,6 @@ export class RatingEstimatorView {
                         <input type="number" id="comp-eye-scout" min="20" max="80" placeholder="--" />
                         <input type="number" id="comp-eye-osa" min="20" max="80" placeholder="--" />
                     </div>
-                    <div class="comparison-field">
-                        <label for="comp-avoidk">AvoidK</label>
-                        <input type="number" id="comp-avoidk-scout" min="20" max="80" placeholder="--" />
-                        <input type="number" id="comp-avoidk-osa" min="20" max="80" placeholder="--" />
-                    </div>
                 </div>
             </div>
         `;
@@ -312,7 +306,6 @@ export class RatingEstimatorView {
             contact: { scout: getCompValue('comp-contact-scout'), osa: getCompValue('comp-contact-osa') },
             power: { scout: getCompValue('comp-power-scout'), osa: getCompValue('comp-power-osa') },
             eye: { scout: getCompValue('comp-eye-scout'), osa: getCompValue('comp-eye-osa') },
-            avoidK: { scout: getCompValue('comp-avoidk-scout'), osa: getCompValue('comp-avoidk-osa') },
         };
 
         this.lastBatterStats = stats;
@@ -380,7 +373,7 @@ export class RatingEstimatorView {
         const resultsContainer = this.container.querySelector<HTMLDivElement>('#estimator-results');
         if (!resultsContainer) return;
 
-        const renderComparison = (stat: 'contact' | 'power' | 'eye' | 'avoidK') => {
+        const renderComparison = (stat: 'contact' | 'power' | 'eye') => {
             const scout = comparison[stat].scout;
             const osa = comparison[stat].osa;
             const estimated = ratings[stat];
@@ -419,11 +412,6 @@ export class RatingEstimatorView {
                         <td>Eye</td>
                         <td>${ratings.eye.rating}</td>
                         ${renderComparison('eye')}
-                    </tr>
-                    <tr>
-                        <td>AvoidK</td>
-                        <td>${ratings.avoidK.rating}</td>
-                        ${renderComparison('avoidK')}
                     </tr>
                 </tbody>
             </table>
