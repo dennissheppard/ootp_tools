@@ -893,7 +893,7 @@ export class BatterProfileModal {
             </tbody>
           </table>
         </div>
-        <p class="projection-note">* Projection based on True Ratings. Assumes full season health.</p>
+        <p class="projection-note">* Projection based on True Ratings. Assumes full season health, and EVERYTHING going right for this guy.</p>
       </div>
     `;
   }

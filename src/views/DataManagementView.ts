@@ -1,6 +1,6 @@
 import { minorLeagueStatsService, MinorLeagueLevel } from '../services/MinorLeagueStatsService';
 import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingStatsService';
-import { scoutingDataService, ScoutingSource } from '../services/ScoutingDataService';
+import { scoutingDataService, ScoutingSource, PITCH_TYPE_ALIASES } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { dateService } from '../services/DateService';
 import { indexedDBService } from '../services/IndexedDBService';
@@ -290,10 +290,10 @@ export class DataManagementView {
           if (scoutingInputs) scoutingInputs.style.display = 'grid';
           if (this.selectedScoutingPlayerType === 'pitcher') {
               if (formatHint) formatHint.textContent = 'Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]';
-              if (namingHint) namingHint.innerHTML = 'For bulk historical upload, use: <code>scouting_[source]_YYYY-MM-DD.csv</code> (e.g. scouting_my_2024-03-15.csv)';
+              if (namingHint) namingHint.innerHTML = 'For bulk upload, use: <code>pitcher_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. pitcher_scouting_my_2024-03-15.csv)';
           } else {
               if (formatHint) formatHint.textContent = 'Format: player_id, name, power, eye, avoidK [, babip, gap, speed, age]';
-              if (namingHint) namingHint.innerHTML = 'For bulk historical upload, use: <code>hitter_scouting_[source]_YYYY-MM-DD.csv</code>';
+              if (namingHint) namingHint.innerHTML = 'For bulk upload, use: <code>hitter_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. hitter_scouting_osa_2024-03-15.csv)';
           }
       }
   }
@@ -318,7 +318,7 @@ export class DataManagementView {
     }
 
     // Check for filename/toggle mismatches in scouting mode
-    if (this.currentMode === 'scouting' && this.selectedFiles.length > 0) {
+    if (this.currentMode === 'scouting' && this.selectedFiles.length === 1) {
       await this.checkScoutingFileMismatch();
     }
 
@@ -418,19 +418,28 @@ export class DataManagementView {
   }
 
   /**
-   * Detect date and optionally source from scouting filename.
-   * Supports patterns like:
-   * - scouting_my_2024-01-15.csv
-   * - scouting_my_2024_01_15.csv (underscores also work)
-   * - scouting_2024-01-15_my.csv
-   * - 2024-01-15_scouting.csv
-   * - my_2024-01-15.csv
+   * Detect date, source, and player type from scouting filename.
+   * Accepts flexible naming like:
+   * - pitcher_scouting_my_2024-03-15.csv  (canonical pitcher format)
+   * - hitter_scouting_osa_2024-03-15.csv  (canonical hitter format)
+   * - pitchers_scouting_my_2024_03_15.csv (plural, underscored date)
+   * - hitters_scouting_osa_2024_03_15.csv (plural, underscored date)
+   * - scouting_my_2024-01-15.csv          (legacy pitcher format, still accepted)
+   * - my_2024-01-15.csv                   (minimal, date detected)
    * - Any file with YYYY-MM-DD or YYYY_MM_DD pattern
    */
-  private detectScoutingFileInfo(filename: string): { date?: string, source?: ScoutingSource } {
+  private detectScoutingFileInfo(filename: string): { date?: string, source?: ScoutingSource, playerType?: ScoutingPlayerType } {
     const name = filename.toLowerCase();
     let date: string | undefined;
     let source: ScoutingSource | undefined;
+    let playerType: ScoutingPlayerType | undefined;
+
+    // Detect player type from filename
+    if (/(?:^|[_\-])(?:hitter|hitters|batting|hitting)(?:[_\-.]|$)/.test(name)) {
+      playerType = 'hitter';
+    } else if (/(?:^|[_\-])(?:pitcher|pitchers|pitching)(?:[_\-.]|$)/.test(name)) {
+      playerType = 'pitcher';
+    }
 
     // Try to detect source from filename
     if (name.includes('_my_') || name.includes('_my.') || name.startsWith('my_') || name.includes('my_scout')) {
@@ -440,13 +449,130 @@ export class DataManagementView {
     }
 
     // Try to detect date (YYYY-MM-DD or YYYY_MM_DD format)
-    const dateMatch = name.match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
+    const dateMatch = name.match(/(\d{4})[-_](\d{1,2})[-_](\d{1,2})/);
     if (dateMatch) {
-      // Normalize to YYYY-MM-DD format
-      date = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`;
+      // Normalize to YYYY-MM-DD format (zero-pad month/day)
+      date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
     }
 
-    return { date, source };
+    return { date, source, playerType };
+  }
+
+  /**
+   * Validate that a CSV file's headers match what we expect for the current upload type.
+   * Returns an error string if invalid, or null if OK.
+   */
+  private validateCsvHeaders(content: string, filename: string): string | null {
+    const firstLine = content.split(/\r?\n/).find(l => l.trim().length > 0);
+    if (!firstLine) return 'File is empty.';
+
+    // Normalize headers the same way the services do: lowercase, strip all non-alphanumeric
+    const normalize = (s: string) => s.replace(/^\ufeff/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const rawHeaders = firstLine.split(',').map(h => h.replace(/['"]/g, '').trim());
+    const headers = rawHeaders.map(normalize);
+
+    // If all cells are numeric, there's no header row — the parsers handle positional formats, so skip validation
+    const allNumeric = headers.every(h => /^\d+(\.\d+)?$/.test(h));
+    if (allNumeric) return null;
+
+    // Helper: check if any alias matches a normalized header
+    const findHeader = (aliases: string[]) => headers.some(h => aliases.includes(h));
+
+    if (this.currentMode === 'stats') {
+      // Minor league stats: need ip + at least some counting stats (hr, bb, k)
+      const statsKeywords = ['ip', 'innings'];
+      const countingKeywords = ['hr', 'hra', 'homeruns', 'bb', 'walks', 'k', 'so', 'strikeouts'];
+      const hasIp = headers.some(h => statsKeywords.includes(h));
+      const countingFound = countingKeywords.filter(kw => headers.includes(kw));
+      if (!hasIp) {
+        return `Missing required column "IP". Expected stats columns: IP, HR, BB, K.`;
+      }
+      if (countingFound.length < 2) {
+        return `Missing counting stat columns. Expected at least HR, BB, and K (found: ${countingFound.join(', ') || 'none'}).`;
+      }
+
+      // Warn if this looks like scouting data, not stats
+      const scoutingKeywords = ['stuff', 'control', 'power', 'eye', 'avoidk', 'avoid_k'];
+      if (scoutingKeywords.some(kw => headers.includes(kw))) {
+        return `Headers look like scouting data (found: ${scoutingKeywords.filter(kw => headers.includes(kw)).join(', ')}), but you have "Minor League Stats" selected. Switch to "Scouting Reports" mode?`;
+      }
+      return null;
+    }
+
+    // --- Scouting mode validation ---
+
+    // Determine effective player type
+    const scoutInfo = this.detectScoutingFileInfo(filename);
+    const playerType = scoutInfo.playerType || this.selectedScoutingPlayerType;
+
+    // Columns required for BOTH pitcher and hitter scouting
+    const sharedAliases: Record<string, string[]> = {
+      'player ID':  ['playerid', 'player_id', 'id', 'pid'],
+      'OVR':        ['ovr', 'overall', 'cur', 'current'],
+      'POT':        ['pot', 'potential', 'ceil', 'ceiling'],
+      'prone':      ['prone', 'injury', 'injuryproneness', 'inj', 'durability'],
+    };
+
+    // Pitcher-specific required columns
+    const pitcherAliases: Record<string, string[]> = {
+      stuff:   ['stuff', 'stu', 'stf', 'stup', 'stfp', 'stuffp'],
+      control: ['control', 'con', 'ctl', 'conp', 'controlp'],
+      hra:     ['hra', 'hr', 'hrr', 'hravoid', 'hravoidance', 'hrrp', 'hrp'],
+    };
+
+    // Hitter-specific required columns
+    const hitterAliases: Record<string, string[]> = {
+      position: ['pos', 'position'],
+      power:    ['power', 'pow', 'pwr', 'powerp', 'pwrp', 'powp'],
+      eye:      ['eye', 'eyep', 'discipline', 'disc'],
+      contact:  ['contact', 'con', 'conp', 'cnt', 'contactp'],
+      avoidK:   ['avoidk', 'avoid_k', 'avk', 'avoidks', 'avoidkp', 'avoidsks', 'kav', 'kavoid', 'kp'],
+    };
+
+    // Check shared columns first
+    const missingShared = Object.entries(sharedAliases)
+      .filter(([, aliases]) => !findHeader(aliases))
+      .map(([name]) => name);
+
+    // Check type-specific columns
+    if (playerType === 'pitcher') {
+      const missingPitcher = Object.entries(pitcherAliases)
+        .filter(([, aliases]) => !findHeader(aliases))
+        .map(([name]) => name);
+
+      // Cross-type check: does this look like hitter data?
+      const hasHitterCols = ['power', 'eye', 'avoidK'].filter(key => findHeader(hitterAliases[key]));
+      if (hasHitterCols.length >= 2 && missingPitcher.length > 0) {
+        return `Headers look like hitter scouting data (found: ${hasHitterCols.join(', ')}), but uploading as Pitchers. Switch the Player Type toggle to Hitters?`;
+      }
+
+      // Check for at least one pitch type column using the canonical allowlist
+      const hasPitches = headers.some(h => PITCH_TYPE_ALIASES.has(h));
+
+      const allMissing = [...missingPitcher, ...missingShared];
+      if (!hasPitches) allMissing.push('pitch types (e.g. Fastball, Slider)');
+
+      if (allMissing.length > 0) {
+        return `Missing required pitcher scouting columns: ${allMissing.join(', ')}.`;
+      }
+    } else {
+      const missingHitter = Object.entries(hitterAliases)
+        .filter(([, aliases]) => !findHeader(aliases))
+        .map(([name]) => name);
+
+      // Cross-type check: does this look like pitcher data?
+      const hasPitcherCols = ['stuff', 'control', 'hra'].filter(key => findHeader(pitcherAliases[key]));
+      if (hasPitcherCols.length >= 2 && missingHitter.length > 0) {
+        return `Headers look like pitcher scouting data (found: ${hasPitcherCols.join(', ')}), but uploading as Hitters. Switch the Player Type toggle to Pitchers?`;
+      }
+
+      const allMissing = [...missingHitter, ...missingShared];
+      if (allMissing.length > 0) {
+        return `Missing required hitter scouting columns: ${allMissing.join(', ')}.`;
+      }
+    }
+
+    return null;
   }
 
   private updateFileDisplay(): void {
@@ -469,10 +595,12 @@ export class DataManagementView {
                 } else {
                     const scoutInfo = this.detectScoutingFileInfo(f.name);
                     const displaySource = scoutInfo.source || this.selectedScoutingSource;
+                    const displayType = scoutInfo.playerType || this.selectedScoutingPlayerType;
                     const displayDate = scoutInfo.date
                         ? `<span style="color: var(--color-success)">${scoutInfo.date}</span>`
                         : `<span style="opacity:0.5">${this.currentGameDate || 'Current'}</span>`;
-                    details = `<span style="color: var(--color-primary)">${displaySource.toUpperCase()}</span> ${displayDate}`;
+                    const typeLabel = displayType === 'hitter' ? 'Hitter' : 'Pitcher';
+                    details = `${typeLabel} <span style="color: var(--color-primary)">${displaySource.toUpperCase()}</span> ${displayDate}`;
                 }
 
                 return `<div style="display:flex; justify-content:space-between; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.1)">
@@ -504,7 +632,15 @@ export class DataManagementView {
     for (const file of this.selectedFiles) {
         try {
             const content = await this.readFile(file);
-            
+
+            // Validate headers before parsing
+            const headerError = this.validateCsvHeaders(content, file.name);
+            if (headerError) {
+                failCount++;
+                errors.push(`${file.name}: ${headerError}`);
+                continue;
+            }
+
             if (this.currentMode === 'stats') {
                 const stats = minorLeagueStatsService.parseCsv(content);
                 if (stats.length === 0) {
@@ -518,14 +654,21 @@ export class DataManagementView {
                 await minorLeagueStatsService.saveStats(year, level, stats, 'csv');
                 successCount++;
             } else {
-                // Detect date and source from filename for historical uploads
+                // Detect date, source, and player type from filename
                 const scoutInfo = this.detectScoutingFileInfo(file.name);
                 const saveSource = scoutInfo.source || this.selectedScoutingSource;
                 const saveDate = scoutInfo.date || this.currentGameDate || new Date().toISOString().split('T')[0];
 
+                // For multi-file bulk uploads, validate naming when no date detected
+                if (this.selectedFiles.length > 1 && !scoutInfo.date) {
+                    failCount++;
+                    const typePrefix = this.selectedScoutingPlayerType === 'hitter' ? 'hitter' : 'pitcher';
+                    errors.push(`${file.name}: Could not detect date from filename. For bulk upload, name files like ${typePrefix}_scouting_${this.selectedScoutingSource}_YYYY-MM-DD.csv`);
+                    continue;
+                }
+
                 // Determine player type from filename or UI selection
-                const isHitterFile = file.name.toLowerCase().includes('hitter');
-                const playerType = isHitterFile ? 'hitter' : this.selectedScoutingPlayerType;
+                const playerType = scoutInfo.playerType || this.selectedScoutingPlayerType;
 
                 if (playerType === 'hitter') {
                     const ratings = hitterScoutingDataService.parseScoutingCsv(content, saveSource);

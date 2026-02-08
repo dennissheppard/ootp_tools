@@ -10,7 +10,6 @@ import { hitterTrueRatingsCalculationService } from '../services/HitterTrueRatin
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
-import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { teamService } from '../services/TeamService';
 import { fipWarService } from '../services/FipWarService';
 import { leagueStatsService } from '../services/LeagueStatsService';

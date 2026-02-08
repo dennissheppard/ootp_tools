@@ -327,16 +327,18 @@ Tracks scouting ratings over time to visualize player development trends.
 **Bulk Historical Upload:**
 To populate historical data, name your scouting CSVs with dates:
 ```
-scouting_my_2024-01-15.csv
-scouting_my_2024-03-01.csv
-scouting_osa_2024-02-10.csv
+pitcher_scouting_my_2024-01-15.csv
+pitcher_scouting_osa_2024-03-01.csv
+hitter_scouting_my_2024-02-10.csv
+hitter_scouting_osa_2024-02-10.csv
 ```
 
-Supported filename patterns:
-- `scouting_[source]_YYYY-MM-DD.csv`
-- `scouting_[source]_YYYY_MM_DD.csv` (underscores also work)
-- `[source]_YYYY-MM-DD.csv`
-- Any file containing `YYYY-MM-DD` or `YYYY_MM_DD` pattern
+Naming format: `[type]_scouting_[source]_YYYY-MM-DD.csv`
+- Type: `pitcher`/`pitchers` or `hitter`/`hitters`
+- Source: `my` or `osa`
+- Date: `YYYY-MM-DD` or `YYYY_MM_DD` (underscores also work)
+
+Files are validated on upload — headers are checked against expected columns for the selected data type, and mismatches between filename and selected toggles are flagged.
 
 ### Projections
 Three-model ensemble for future performance:
@@ -370,6 +372,7 @@ Three-model ensemble for future performance:
 | Service | Purpose |
 |---------|---------|
 | `TeamRatingsService` | Farm rankings, organizational depth analysis, Farm Score |
+| `DevTrackerService` | Org development scoring (youth dev, peak WAR, aging curves, trade impact) |
 | `ProjectionService` | Future performance projections |
 | `DevelopmentSnapshotService` | Historical scouting snapshot storage |
 | `MinorLeagueStatsService` | Minor league stats from API/CSV |
@@ -432,8 +435,9 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - **BatterTrueRatingsView**: MLB batter dashboard with TR/projections
 - **FarmRankingsView**: Top 100 prospects, org rankings with Farm Score, sortable/draggable columns
 - **ProjectionsView**: Future performance projections with 3-model ensemble
+- **DevTrackerView**: Org-level development rankings (2015-2021 WAR), expandable rows with player trajectories and trade impact
 - **TradeAnalyzerView**: Side-by-side player comparisons
-- **DataManagementView**: File uploads, data refresh, system maintenance
+- **DataManagementView**: File uploads with header validation, filename mismatch detection, data refresh
 - **PlayerProfileModal**: Deep-dive with Ratings + Development tabs
 
 ## Data Sources

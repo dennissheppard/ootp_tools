@@ -3428,6 +3428,11 @@ th .stat-tooltip {
   color: #ba68c8;
 }
 
+.level-ic {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: #ccc;
+}
+
 /* Minor league row styling */
 .minor-league-row {
   background-color: rgba(255, 255, 255, 0.02);

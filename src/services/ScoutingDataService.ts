@@ -20,6 +20,17 @@ const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   injuryProneness: ['prone', 'injury', 'injuryproneness', 'inj']
 };
 
+/** Known pitch type column headers (normalized to lowercase alphanumeric) */
+export const PITCH_TYPE_ALIASES = new Set([
+  // OOTP column codes
+  'fbp', 'chp', 'cbp', 'slp', 'sip', 'spp', 'ctp', 'fop', 'ccp', 'scp', 'kcp', 'knp',
+  // Full names (normalized: spaces/hyphens stripped)
+  'fastball', 'changeup', 'curveball', 'slider', 'sinker', 'splitter',
+  'cutter', 'forkball', 'circlechange', 'screwball', 'knucklecurve', 'knuckleball',
+  // Common abbreviations
+  'fb', 'ch', 'cb', 'sl', 'si', 'sp', 'ct', 'fo', 'cc', 'sc', 'kc', 'kn',
+]);
+
 export type ScoutingSource = 'my' | 'osa';
 
 class ScoutingDataService {
@@ -407,24 +418,14 @@ class ScoutingDataService {
     );
     const hasHeader = hasRatingsHeader || matches >= 2;
 
-    // Identify potential pitch columns
+    // Identify pitch columns by explicit allowlist
     if (hasHeader) {
-        const usedIndices = new Set(Object.values(indexMap));
-        const ignoreHeaders = new Set([
-            'team', 'pos', 'position', 'height', 'weight', 'bats', 'throws', 'leagues', 'levels', 'org',
-            'velocity', 'arm', 'stamina', 'hold', 'gb', 'mov', 'movement', 'babip',
-            'ovr', 'overall', 'cur', 'current', 'pot', 'potential', 'ceil', 'ceiling'
-        ]);
-        
         headerCells.forEach((rawHeader, idx) => {
-            if (usedIndices.has(idx)) return;
             const norm = this.normalizeHeader(rawHeader);
             if (!norm) return;
-            if (ignoreHeaders.has(norm)) return;
-            
-            // Heuristic: If it looks like a pitch name (not caught by ignore list)
-            // We'll trust the caller to provide a clean file, but we can verify later if values are numeric
-            pitchIndexMap[rawHeader.trim()] = idx; 
+            if (PITCH_TYPE_ALIASES.has(norm)) {
+                pitchIndexMap[rawHeader.trim()] = idx;
+            }
         });
     }
 
