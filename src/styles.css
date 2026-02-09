@@ -2186,6 +2186,47 @@ th .stat-tooltip {
   box-shadow: 0 0 6px rgba(251, 146, 60, 0.6);
 }
 
+/* Batter rating bars */
+.rating-bar-fill.contact {
+  background: linear-gradient(to right, rgba(168, 85, 247, 0.6), rgba(168, 85, 247, 1));
+  box-shadow: 0 0 4px rgba(168, 85, 247, 0.4);
+}
+
+.rating-bar-fill.contact.high-value {
+  filter: brightness(1.3) saturate(1.1);
+  box-shadow: 0 0 6px rgba(168, 85, 247, 0.6);
+}
+
+.rating-bar-fill.power {
+  background: linear-gradient(to right, rgba(239, 68, 68, 0.6), rgba(239, 68, 68, 1));
+  box-shadow: 0 0 4px rgba(239, 68, 68, 0.4);
+}
+
+.rating-bar-fill.power.high-value {
+  filter: brightness(1.3) saturate(1.1);
+  box-shadow: 0 0 6px rgba(239, 68, 68, 0.6);
+}
+
+.rating-bar-fill.eye {
+  background: linear-gradient(to right, rgba(20, 184, 166, 0.6), rgba(20, 184, 166, 1));
+  box-shadow: 0 0 4px rgba(20, 184, 166, 0.4);
+}
+
+.rating-bar-fill.eye.high-value {
+  filter: brightness(1.3) saturate(1.1);
+  box-shadow: 0 0 6px rgba(20, 184, 166, 0.6);
+}
+
+.rating-bar-fill.avoidk {
+  background: linear-gradient(to right, rgba(234, 179, 8, 0.6), rgba(234, 179, 8, 1));
+  box-shadow: 0 0 4px rgba(234, 179, 8, 0.4);
+}
+
+.rating-bar-fill.avoidk.high-value {
+  filter: brightness(1.3) saturate(1.1);
+  box-shadow: 0 0 6px rgba(234, 179, 8, 0.6);
+}
+
 /* Percentile bars for projections */
 .rating-bar-fill.percentile-elite {
   background: linear-gradient(to right, rgba(29, 155, 240, 0.6), rgba(29, 155, 240, 1));
@@ -2234,6 +2275,21 @@ th .stat-tooltip {
   color: rgb(251, 146, 60);
 }
 
+.rating-value.contact {
+  color: rgb(168, 85, 247);
+}
+
+.rating-value.power {
+  color: rgb(239, 68, 68);
+}
+
+.rating-value.eye {
+  color: rgb(20, 184, 166);
+}
+
+.rating-value.avoidk {
+  color: rgb(234, 179, 8);
+}
 
 .rating-bar {
   position: relative;

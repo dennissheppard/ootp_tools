@@ -1968,6 +1968,31 @@ export class TrueRatingsView {
         if (key === 'playerName') {
           return `<td data-col-key="${key}" class="name-col" title="Player ID: ${s.player_id}">${this.formatBatterValue(value, key, s)}</td>`;
         }
+
+        // Add rating bars for True Rating columns
+        if (key === 'estimatedContact' || key === 'estimatedPower' || key === 'estimatedEye' || key === 'estimatedAvoidK') {
+          const ratingValue = value;
+          if (typeof ratingValue === 'number' && !isNaN(ratingValue)) {
+            const barType = key === 'estimatedContact' ? 'contact' :
+                           key === 'estimatedPower' ? 'power' :
+                           key === 'estimatedEye' ? 'eye' : 'avoidk';
+
+            // 20-80 scale
+            const percentage = Math.min(Math.max((ratingValue - 20) / 60 * 100, 0), 100);
+
+            const highValueClass = ratingValue >= 65 ? 'high-value' : '';
+            const displayValue = this.formatBatterValue(value, key, s);
+            return `<td data-col-key="${key}">
+              <div class="rating-with-bar">
+                <div class="rating-bar">
+                  <div class="rating-bar-fill ${barType} ${highValueClass} animate-fill" style="--bar-width: ${percentage}%"></div>
+                </div>
+                <span class="rating-value ${barType}">${displayValue}</span>
+              </div>
+            </td>`;
+          }
+        }
+
         return `<td data-col-key="${key}">${this.formatBatterValue(value, key, s)}</td>`;
       }).join('');
       return `<tr>${cells}</tr>`;
