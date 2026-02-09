@@ -171,6 +171,8 @@ export interface RatedHitterProspect {
         eye: number;
         avoidK: number;
         contact: number;
+        gap: number;
+        speed: number;
     };
     /** Position */
     position: number;
@@ -1015,6 +1017,9 @@ class TeamRatingsService {
       // Calculate True Future Ratings
       const tfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
 
+      // Build empirical PA distributions from MLB peak-age data by injury category
+      const empiricalPaByInjury = await hitterTrueFutureRatingService.buildMLBPaByInjury(scoutingMap);
+
       // Build prospect list grouped by organization
       const orgGroups = new Map<number, RatedHitterProspect[]>();
       const allProspects: RatedHitterProspect[] = [];
@@ -1034,7 +1039,10 @@ class TeamRatingsService {
           const projSlg = tfr.projAvg + tfr.projIso;
           const projObp = tfr.projAvg + (tfr.projBbPct / 100); // Simplified OBP
           const projOps = projObp + projSlg;
-          const projPa = leagueBattingAveragesService.getProjectedPa(scouting.injuryProneness);
+          const injury = scouting.injuryProneness ?? 'Normal';
+          const projPa = empiricalPaByInjury.get(injury)
+              ?? empiricalPaByInjury.get('Normal')
+              ?? leagueBattingAveragesService.getProjectedPa(scouting.injuryProneness);
 
           // Calculate wRC+ and WAR using league averages
           let wrcPlus = 100; // Default to league average
@@ -1042,6 +1050,15 @@ class TeamRatingsService {
           if (leagueAvg) {
               wrcPlus = leagueBattingAveragesService.calculateWrcPlus(tfr.projWoba, leagueAvg);
               projWar = leagueBattingAveragesService.calculateBattingWar(tfr.projWoba, projPa, leagueAvg);
+          } else {
+              // Fallback calculation when league averages not available
+              // Use typical league values: lgWoba=0.315, wobaScale=1.15, runsPerWin=10
+              const lgWoba = 0.315;
+              const wobaScale = 1.15;
+              const runsPerWin = 10;
+              const wRAA = ((tfr.projWoba - lgWoba) / wobaScale) * projPa;
+              const replacementRuns = (projPa / 600) * 20;
+              projWar = Math.round(((wRAA + replacementRuns) / runsPerWin) * 10) / 10;
           }
 
           // Determine level label - use contract to detect IC players
@@ -1089,6 +1106,8 @@ class TeamRatingsService {
                   eye: tfr.trueEye,
                   avoidK: tfr.trueAvoidK,
                   contact: tfr.trueContact,
+                  gap: tfr.trueGap,
+                  speed: tfr.trueSpeed,
               },
               position: player.position,
           };

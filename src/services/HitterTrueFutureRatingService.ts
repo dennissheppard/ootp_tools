@@ -41,11 +41,17 @@ export interface HitterTrueFutureRatingResult {
   powerPercentile: number;
   /** Percentile rank for Contact component (0-100) */
   contactPercentile: number;
+  /** Percentile rank for Gap component (0-100) */
+  gapPercentile: number;
+  /** Percentile rank for Speed component (0-100) */
+  speedPercentile: number;
   /** True ratings - normalized from percentiles (20-80 scale) */
   trueEye: number;
   trueAvoidK: number;
   truePower: number;
   trueContact: number;
+  trueGap: number;
+  trueSpeed: number;
   /** Scouting-expected rates */
   scoutBbPct: number;
   scoutKPct: number;
@@ -96,7 +102,9 @@ export interface HitterComponentBlendedResult {
   eyeValue: number;      // Blended BB%
   avoidKValue: number;   // Blended K%
   powerValue: number;    // Blended HR%
-  contactValue: number;    // Blended AVG
+  contactValue: number;  // Blended AVG
+  gapValue: number;      // Scout Gap (20-80)
+  speedValue: number;    // Scout Speed (20-80)
   /** Total minor league PA */
   totalMinorPa: number;
   /** Total weighted PA for reliability */
@@ -412,9 +420,16 @@ class HitterTrueFutureRatingService {
    * Calculate wOBA from rate stats
    *
    * Uses HR% directly (not derived from ISO) since Power rating maps to HR rate.
-   * Doubles/triples are estimated from hits based on typical MLB distributions.
+   * Doubles/triples are dynamically calculated from Gap/Speed ratings.
    */
-  calculateWobaFromRates(bbPct: number, _kPct: number, hrPct: number, avg: number): number {
+  calculateWobaFromRates(
+    bbPct: number,
+    _kPct: number,
+    hrPct: number,
+    avg: number,
+    gap: number = 50,    // Default to league average
+    speed: number = 50   // Default to league average
+  ): number {
     // Convert percentages to rates per PA
     const bbRate = bbPct / 100;
     const hrRate = hrPct / 100;
@@ -427,11 +442,28 @@ class HitterTrueFutureRatingService {
     // Non-HR hits (singles + doubles + triples)
     const nonHrHitRate = Math.max(0, hitRate - hrRate);
 
-    // Distribute non-HR hits: ~65% singles, ~25% doubles, ~10% triples (rough MLB averages)
-    // These ratios can be refined with Gap/Speed ratings but we keep it simple here
-    const singleRate = nonHrHitRate * 0.65;
-    const doubleRate = nonHrHitRate * 0.27;
-    const tripleRate = nonHrHitRate * 0.08;
+    // Calculate expected doubles and triples rates from Gap/Speed ratings
+    // These return rates on AB basis, need to convert to PA basis
+    const rawDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
+    const rawTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+
+    // Convert AB-basis to PA-basis by multiplying by (1 - bbRate)
+    const doublesRatePA = rawDoublesRate * (1 - bbRate);
+    const triplesRatePA = rawTriplesRate * (1 - bbRate);
+
+    // Ensure 2B + 3B don't exceed available non-HR hits (proportional scaling if needed)
+    const totalXbhRate = doublesRatePA + triplesRatePA;
+    let doubleRate = doublesRatePA;
+    let tripleRate = triplesRatePA;
+
+    if (totalXbhRate > nonHrHitRate) {
+      const scale = nonHrHitRate / totalXbhRate;
+      doubleRate = doublesRatePA * scale;
+      tripleRate = triplesRatePA * scale;
+    }
+
+    // Singles are the remainder
+    const singleRate = Math.max(0, nonHrHitRate - doubleRate - tripleRate);
 
     const woba =
       WOBA_WEIGHTS.bb * bbRate +
@@ -441,6 +473,58 @@ class HitterTrueFutureRatingService {
       WOBA_WEIGHTS.hr * hrRate;
 
     return Math.max(0.200, Math.min(0.500, woba));
+  }
+
+  /**
+   * Calculate ISO from rate stats using Gap/Speed for doubles/triples distribution
+   *
+   * ISO = (1B*0 + 2B*1 + 3B*2 + HR*3) / AB
+   * ISO = (2B + 2*3B + 3*HR) / AB
+   */
+  private calculateIsoFromRates(
+    bbPct: number,
+    hrPct: number,
+    avg: number,
+    gap: number,
+    speed: number
+  ): number {
+    const bbRate = bbPct / 100;
+    const hrRate = hrPct / 100;
+
+    // Hit rate on PA basis
+    const hitRate = avg * (1 - bbRate);
+    const nonHrHitRate = Math.max(0, hitRate - hrRate);
+
+    // Get doubles and triples rates (AB-basis)
+    const rawDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
+    const rawTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+
+    // Convert to PA-basis
+    const doublesRatePA = rawDoublesRate * (1 - bbRate);
+    const triplesRatePA = rawTriplesRate * (1 - bbRate);
+
+    // Scale if needed to ensure constraint
+    const totalXbhRate = doublesRatePA + triplesRatePA;
+    let doubleRate = doublesRatePA;
+    let tripleRate = triplesRatePA;
+
+    if (totalXbhRate > nonHrHitRate) {
+      const scale = nonHrHitRate / totalXbhRate;
+      doubleRate = doublesRatePA * scale;
+      tripleRate = triplesRatePA * scale;
+    }
+
+    // Convert PA rates back to AB basis for ISO calculation
+    // ISO = (doubles*1 + triples*2 + HR*3) / AB
+    // On PA basis: need to divide by (1 - bbRate) to get AB basis
+    const abBasis = (1 - bbRate) > 0 ? (1 - bbRate) : 1;
+    const doublesPerAB = doubleRate / abBasis;
+    const triplesPerAB = tripleRate / abBasis;
+    const hrPerAB = hrRate / abBasis;
+
+    const iso = doublesPerAB * 1 + triplesPerAB * 2 + hrPerAB * 3;
+
+    return Math.max(0, Math.min(0.400, iso));
   }
 
   /**
@@ -525,9 +609,75 @@ class HitterTrueFutureRatingService {
   }
 
   /**
+   * Build empirical peak PA projections from MLB peak-age hitters by injury tier.
+   *
+   * Pools ALL full seasons (2015-2020, ages 25-29, 400+ PA) into one combined
+   * distribution, then maps each injury tier to a fixed percentile:
+   *   Iron Man=90th, Durable=80th, Normal=70th, Fragile=50th, Wrecked=25th
+   *
+   * This avoids small-sample noise from per-category splits and guarantees
+   * monotonic ordering (Iron Man > Durable > Normal > Fragile > Wrecked).
+   */
+  async buildMLBPaByInjury(
+    _scoutingMap: Map<number, { injuryProneness?: string }>
+  ): Promise<Map<string, number>> {
+    const years = [2015, 2016, 2017, 2018, 2019, 2020];
+    const allPa: number[] = [];
+
+    const dobMap = await this.loadPlayerDOBs();
+
+    for (const year of years) {
+      try {
+        const mlbStats = await trueRatingsService.getTrueBattingStats(year);
+
+        for (const stat of mlbStats) {
+          if (stat.pa < 400) continue;
+
+          const age = this.calculateAge(dobMap.get(stat.player_id), year);
+          if (!age || age < 25 || age > 29) continue;
+
+          allPa.push(stat.pa);
+        }
+      } catch (error) {
+        // Skip years with missing data
+      }
+    }
+
+    if (allPa.length === 0) {
+      // Hardcoded fallback if no data
+      const result = new Map<string, number>();
+      result.set('Iron Man', 670);
+      result.set('Durable', 650);
+      result.set('Normal', 630);
+      result.set('Fragile', 600);
+      result.set('Wrecked', 550);
+      return result;
+    }
+
+    allPa.sort((a, b) => a - b);
+
+    // Map each injury tier to a fixed percentile in the combined distribution
+    const tierPercentiles: Record<string, number> = {
+      'Iron Man': 0.90,
+      'Durable': 0.80,
+      'Normal': 0.70,
+      'Fragile': 0.50,
+      'Wrecked': 0.25,
+    };
+
+    const result = new Map<string, number>();
+    for (const [tier, pctl] of Object.entries(tierPercentiles)) {
+      const idx = Math.min(Math.floor(allPa.length * pctl), allPa.length - 1);
+      result.set(tier, allPa[idx]);
+    }
+
+    return result;
+  }
+
+  /**
    * Load player DOBs from mlb_dob.csv
    */
-  private async loadPlayerDOBs(): Promise<Map<number, Date>> {
+  async loadPlayerDOBs(): Promise<Map<number, Date>> {
     try {
       const response = await fetch('/data/mlb_dob.csv');
       const csvText = await response.text();
@@ -560,7 +710,7 @@ class HitterTrueFutureRatingService {
   /**
    * Calculate age at the start of a season
    */
-  private calculateAge(dob: Date | undefined, season: number): number | null {
+  calculateAge(dob: Date | undefined, season: number): number | null {
     if (!dob) return null;
 
     const seasonStart = new Date(season, 3, 1); // April 1st of season year
@@ -568,6 +718,45 @@ class HitterTrueFutureRatingService {
     const age = Math.floor(ageMs / (1000 * 60 * 60 * 24 * 365.25));
 
     return age;
+  }
+
+  /**
+   * Find where a value falls in a sorted MLB distribution.
+   * Returns 0-100 percentile indicating what fraction of MLB hitters are at or below this value.
+   *
+   * @param value - The blended rate value to look up
+   * @param sortedValues - Sorted ascending array of MLB rate values
+   * @param higherIsBetter - If true (BB%, HR%, AVG), percentile = % at or below.
+   *                         If false (K%), percentile = % at or above (inverted).
+   * @returns Percentile 0-100
+   */
+  findValuePercentileInDistribution(value: number, sortedValues: number[], higherIsBetter: boolean): number {
+    if (sortedValues.length === 0) return 50;
+
+    const n = sortedValues.length;
+
+    // Binary search: find how many values are <= this value
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedValues[mid] <= value) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    // lo = number of values <= value
+
+    // For "higher is better": percentile = fraction of hitters at or below
+    // For "lower is better" (K%): percentile = fraction of hitters at or above (100 - fraction below)
+    const fractionAtOrBelow = lo / n * 100;
+
+    if (higherIsBetter) {
+      return Math.max(0, Math.min(100, fractionAtOrBelow));
+    } else {
+      return Math.max(0, Math.min(100, 100 - fractionAtOrBelow));
+    }
   }
 
   /**
@@ -611,12 +800,12 @@ class HitterTrueFutureRatingService {
    * Returns a map of playerId to component percentiles.
    *
    * @param componentResults - Array of component-blended results
-   * @returns Map of playerId to { eyePercentile, avoidKPercentile, powerPercentile, contactPercentile }
+   * @returns Map of playerId to percentiles for each component
    */
   rankProspectsByComponent(
     componentResults: HitterComponentBlendedResult[]
-  ): Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; contactPercentile: number }> {
-    const percentiles = new Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; contactPercentile: number }>();
+  ): Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; contactPercentile: number; gapPercentile: number; speedPercentile: number }> {
+    const percentiles = new Map<number, { eyePercentile: number; avoidKPercentile: number; powerPercentile: number; contactPercentile: number; gapPercentile: number; speedPercentile: number }>();
 
     if (componentResults.length === 0) {
       return percentiles;
@@ -631,7 +820,7 @@ class HitterTrueFutureRatingService {
       const eyePercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
 
       if (!percentiles.has(prospect.playerId)) {
-        percentiles.set(prospect.playerId, { eyePercentile: 0, avoidKPercentile: 0, powerPercentile: 0, contactPercentile: 0 });
+        percentiles.set(prospect.playerId, { eyePercentile: 0, avoidKPercentile: 0, powerPercentile: 0, contactPercentile: 0, gapPercentile: 0, speedPercentile: 0 });
       }
       percentiles.get(prospect.playerId)!.eyePercentile = eyePercentile;
     }
@@ -661,6 +850,24 @@ class HitterTrueFutureRatingService {
       const contactPercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
 
       percentiles.get(prospect.playerId)!.contactPercentile = contactPercentile;
+    }
+
+    // Rank by Gap (20-80 scale - higher is better)
+    const gapSorted = [...componentResults].sort((a, b) => b.gapValue - a.gapValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = gapSorted[i];
+      const gapPercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
+
+      percentiles.get(prospect.playerId)!.gapPercentile = gapPercentile;
+    }
+
+    // Rank by Speed (20-200 scale - higher is better)
+    const speedSorted = [...componentResults].sort((a, b) => b.speedValue - a.speedValue);
+    for (let i = 0; i < n; i++) {
+      const prospect = speedSorted[i];
+      const speedPercentile = n > 1 ? ((n - i - 1) / (n - 1)) * 100 : 50;
+
+      percentiles.get(prospect.playerId)!.speedPercentile = speedPercentile;
     }
 
     return percentiles;
@@ -721,6 +928,10 @@ class HitterTrueFutureRatingService {
     const powerValue = powerScoutWeight * scoutRates.hrPct + (1 - powerScoutWeight) * adjustedHrPct;
     // Contact (AVG): 100% scout - MiLB AVG doesn't predict MLB AVG (r=0.18)
     const contactValue = contactScoutWeight * scoutRates.avg + (1 - contactScoutWeight) * adjustedAvg;
+    // Gap & Speed: 100% scout - No good research on MiLB 2B/3B rates predicting MLB
+    // Note: Speed is now on 20-80 scale (same as other ratings), default to 50 (average)
+    const gapValue = scouting.gap ?? 50;
+    const speedValue = scouting.speed ?? 50;
 
     return {
       playerId: input.playerId,
@@ -738,6 +949,8 @@ class HitterTrueFutureRatingService {
       avoidKValue: Math.round(avoidKValue * 100) / 100,
       powerValue: Math.round(powerValue * 100) / 100,  // HR% as percentage
       contactValue: Math.round(contactValue * 1000) / 1000,
+      gapValue,
+      speedValue,
       totalMinorPa,
       totalWeightedPa: weightedPa,
       trueRating: input.trueRating,
@@ -747,12 +960,16 @@ class HitterTrueFutureRatingService {
   /**
    * Calculate True Future Ratings for multiple hitter prospects.
    *
-   * NEW ALGORITHM:
+   * ALGORITHM (Direct MLB Comparison):
    * 1. Blend scouting + stats separately for each component (eye/avoidK/power/contact)
-   * 2. Rank prospects by each component to get percentiles
-   * 3. Map percentiles to MLB distributions (2015-2020)
-   * 4. Calculate peak wOBA from mapped rates
-   * 5. Rank by wOBA for final TFR rating
+   * 2. Load MLB peak-age distributions
+   * 3. For Eye/AvoidK/Power/Contact: find blended rate's percentile in MLB distribution
+   *    (blended rates are already MLB-calibrated, so compare directly to MLB hitters)
+   * 4. For Gap/Speed: rank among prospects (no MLB distribution available)
+   * 5. Projected rates = blended rates (already MLB-calibrated)
+   * 6. True Ratings = 20 + (MLB percentile / 100) * 60
+   * 7. Calculate wOBA from blended rates
+   * 8. Rank by wOBA among prospects for final TFR star rating
    */
   async calculateTrueFutureRatings(
     inputs: HitterTrueFutureRatingInput[]
@@ -764,47 +981,63 @@ class HitterTrueFutureRatingService {
     // Step 1: Calculate component blends for all prospects
     const componentResults = inputs.map(input => this.calculateComponentBlend(input));
 
-    // Step 2: Rank by each component to get percentiles
-    const componentPercentiles = this.rankProspectsByComponent(componentResults);
-
-    // Step 3: Load MLB distribution for mapping
+    // Step 2: Load MLB distribution
     const mlbDist = await this.buildMLBHitterPercentileDistribution();
 
-    // Step 4: Map percentiles to MLB rates and calculate wOBA
-    const resultsWithWoba = componentResults.map(result => {
-      const percentiles = componentPercentiles.get(result.playerId)!;
+    // Step 3: Rank Gap/Speed among prospects (no MLB distribution for these)
+    const prospectPercentiles = this.rankProspectsByComponent(componentResults);
 
-      // Map percentiles to MLB distribution values
-      // For eye (BB%): higher percentile = higher BB% (use percentile as-is)
-      // For avoidK (K%): higher percentile = lower K% (invert percentile)
-      // For power (HR%): higher percentile = higher HR% (use percentile as-is)
-      // For contact (AVG): higher percentile = higher AVG (use percentile as-is)
-      let projBbPct = this.mapPercentileToMLBValue(percentiles.eyePercentile, mlbDist.bbPctValues);
-      let projKPct = this.mapPercentileToMLBValue(100 - percentiles.avoidKPercentile, mlbDist.kPctValues);
-      let projHrPct = this.mapPercentileToMLBValue(percentiles.powerPercentile, mlbDist.hrPctValues);
-      let projAvg = this.mapPercentileToMLBValue(percentiles.contactPercentile, mlbDist.avgValues);
+    // Step 4: For each prospect, find blended rate's percentile in MLB distribution
+    const resultsWithWoba = componentResults.map(result => {
+      const prospectPctls = prospectPercentiles.get(result.playerId)!;
+
+      // Look up Gap/Speed from input scouting
+      const input = inputs.find(i => i.playerId === result.playerId);
+      const gap = input?.scouting.gap ?? 50;
+      const speed = input?.scouting.speed ?? 50;
+
+      // Find blended rate's percentile directly in MLB distribution
+      // Eye (BB%): higher is better
+      const eyePercentile = this.findValuePercentileInDistribution(result.eyeValue, mlbDist.bbPctValues, true);
+      // AvoidK (K%): lower is better
+      const avoidKPercentile = this.findValuePercentileInDistribution(result.avoidKValue, mlbDist.kPctValues, false);
+      // Power (HR%): higher is better
+      const powerPercentile = this.findValuePercentileInDistribution(result.powerValue, mlbDist.hrPctValues, true);
+      // Contact (AVG): higher is better
+      const contactPercentile = this.findValuePercentileInDistribution(result.contactValue, mlbDist.avgValues, true);
+
+      // Gap/Speed: still ranked among prospects (no MLB distribution)
+      const gapPercentile = prospectPctls.gapPercentile;
+      const speedPercentile = prospectPctls.speedPercentile;
+
+      // Projected rates = blended rates directly (already MLB-calibrated)
+      let projBbPct = result.eyeValue;
+      let projKPct = result.avoidKValue;
+      let projHrPct = result.powerValue;
+      let projAvg = result.contactValue;
 
       // Clamp to realistic ranges
       projBbPct = Math.max(3.0, Math.min(20.0, projBbPct));
       projKPct = Math.max(5.0, Math.min(35.0, projKPct));
-      projHrPct = Math.max(0.5, Math.min(8.0, projHrPct));  // HR% range
+      projHrPct = Math.max(0.5, Math.min(8.0, projHrPct));
       projAvg = Math.max(0.200, Math.min(0.350, projAvg));
 
-      // Calculate peak wOBA from mapped rates
-      const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg);
+      // Calculate peak wOBA from blended rates
+      const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg, gap, speed);
 
       return {
         ...result,
-        eyePercentile: Math.round(percentiles.eyePercentile * 10) / 10,
-        avoidKPercentile: Math.round(percentiles.avoidKPercentile * 10) / 10,
-        powerPercentile: Math.round(percentiles.powerPercentile * 10) / 10,
-        contactPercentile: Math.round(percentiles.contactPercentile * 10) / 10,
+        eyePercentile: Math.round(eyePercentile * 10) / 10,
+        avoidKPercentile: Math.round(avoidKPercentile * 10) / 10,
+        powerPercentile: Math.round(powerPercentile * 10) / 10,
+        contactPercentile: Math.round(contactPercentile * 10) / 10,
+        gapPercentile: Math.round(gapPercentile * 10) / 10,
+        speedPercentile: Math.round(speedPercentile * 10) / 10,
         projBbPct: Math.round(projBbPct * 10) / 10,
         projKPct: Math.round(projKPct * 10) / 10,
         projHrPct: Math.round(projHrPct * 100) / 100,
         projAvg: Math.round(projAvg * 1000) / 1000,
-        // Calculate ISO from HR%: ISO ≈ HR% * 3 (since HR = 3 extra bases) + base XBH contribution
-        projIso: Math.round(((projHrPct / 100) * 3 + 0.05) * 1000) / 1000,
+        projIso: Math.round(this.calculateIsoFromRates(projBbPct, projHrPct, projAvg, gap, speed) * 1000) / 1000,
         projWoba: Math.round(projWoba * 1000) / 1000,
       };
     });
@@ -818,12 +1051,15 @@ class HitterTrueFutureRatingService {
       const percentile = n > 1 ? ((n - index - 1) / (n - 1)) * 100 : 50;
       const trueFutureRating = this.percentileToRating(percentile);
 
-      // Calculate true ratings from percentiles: rating = 20 + (percentile / 100) * 60
-      // This normalizes across all prospects - 50th percentile = 50 rating
+      // True ratings from MLB percentiles: rating = 20 + (percentile / 100) * 60
+      // Eye/AvoidK/Power/Contact use MLB percentiles (direct comparison)
+      // Gap/Speed use prospect percentiles (no MLB distribution available)
       const trueEye = Math.round(20 + (result.eyePercentile / 100) * 60);
       const trueAvoidK = Math.round(20 + (result.avoidKPercentile / 100) * 60);
       const truePower = Math.round(20 + (result.powerPercentile / 100) * 60);
       const trueContact = Math.round(20 + (result.contactPercentile / 100) * 60);
+      const trueGap = Math.round(20 + (result.gapPercentile / 100) * 60);
+      const trueSpeed = Math.round(20 + (result.speedPercentile / 100) * 60);
 
       return {
         playerId: result.playerId,
@@ -833,10 +1069,14 @@ class HitterTrueFutureRatingService {
         avoidKPercentile: result.avoidKPercentile,
         powerPercentile: result.powerPercentile,
         contactPercentile: result.contactPercentile,
+        gapPercentile: result.gapPercentile,
+        speedPercentile: result.speedPercentile,
         trueEye,
         trueAvoidK,
         truePower,
         trueContact,
+        trueGap,
+        trueSpeed,
         scoutBbPct: result.scoutBbPct,
         scoutKPct: result.scoutKPct,
         scoutHrPct: result.scoutHrPct,
@@ -907,7 +1147,9 @@ class HitterTrueFutureRatingService {
     const projHrPct = powerScoutWeight * scoutRates.hrPct + (1 - powerScoutWeight) * adjustedHrPct;
     const projAvg = contactScoutWeight * scoutRates.avg + (1 - contactScoutWeight) * adjustedAvg;
 
-    const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg);
+    const gap = scouting.gap ?? 50;
+    const speed = scouting.speed ?? 50;
+    const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg, gap, speed);
 
     return {
       projWoba: Math.round(projWoba * 1000) / 1000,

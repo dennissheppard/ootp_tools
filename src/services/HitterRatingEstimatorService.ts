@@ -120,19 +120,60 @@ const REGRESSION_COEFFICIENTS = {
   // Contact correlates with AVG at r=0.97 (vs Hit Tool alone at r=0.82)
   contact: { intercept: 0.035156, slope: 0.003873 },
 
-  // Gap (20-80) → Doubles/AB (0.008 to 0.055)
-  // D/AB = -0.004 + 0.00078 * gap
-  // At 20: -0.004 + 0.00078 * 20 = 0.012
-  // At 80: -0.004 + 0.00078 * 80 = 0.058
-  // Gap determines extra-base hit type after hit is decided
-  gap: { intercept: -0.004, slope: 0.00078 },
+  // Gap (20-80) → Doubles/AB
+  // Calibrated from OOTP data (n=225, R²=0.75)
+  // D/AB = -0.012627 + 0.001086 * gap
+  // At 20: -0.012627 + 0.001086 * 20 = 0.0091 (5.5 doubles per 600 AB)
+  // At 50: -0.012627 + 0.001086 * 50 = 0.0417 (25.0 doubles per 600 AB)
+  // At 80: -0.012627 + 0.001086 * 80 = 0.0742 (44.5 doubles per 600 AB)
+  gap: { intercept: -0.012627, slope: 0.001086 },
 
-  // Speed (20-200) → Triples/AB (0.002 to 0.015)
-  // T/AB = 0.001 + 0.000067 * speed
-  speed: { intercept: 0.001, slope: 0.000067 },
+  // Speed (20-80) → Triples/AB
+  // IMPORTANT: Scouting data uses 20-80 scale, but coefficients were calibrated on 20-200 scale.
+  // Use convertSpeed2080To20200() to convert before applying this formula.
+  //
+  // Calibrated for WBL using OOTP game mechanic: Speed=100 (on 200 scale) → triples:doubles ratio = 0.135
+  // Validated against WBL MLB 2018-2020 (n=562, error=+0.3%, MAE=0.75)
+  // T/AB = -0.001657 + 0.000083 * speed_200
+  //
+  // Examples (after 20-80 → 20-200 conversion):
+  // 20 (20-80) → 20 (20-200):  -0.001657 + 0.000083 * 20  = 0.0000 (0.0 triples per 600 AB)
+  // 50 (20-80) → 110 (20-200): -0.001657 + 0.000083 * 110 = 0.0075 (4.5 triples per 600 AB)
+  // 80 (20-80) → 200 (20-200): -0.001657 + 0.000083 * 200 = 0.0149 (8.9 triples per 600 AB)
+  speed: { intercept: -0.001657, slope: 0.000083 },
 };
 
 class HitterRatingEstimatorService {
+  /**
+   * Convert speed from 20-80 scale (scouting) to 20-200 scale (calibration data).
+   * The triples rate coefficients were calibrated on the 20-200 scale, but current
+   * scouting data uses the standard 20-80 scale like all other ratings.
+   *
+   * Conversion: speed_200 = 20 + ((speed_80 - 20) / 60) * 180
+   *
+   * Examples:
+   *   20 (slow)    → 20
+   *   50 (average) → 110
+   *   80 (elite)   → 200
+   */
+  static convertSpeed2080To20200(speed80: number): number {
+    // Clamp input to 20-80 range
+    const clamped = Math.max(20, Math.min(80, speed80));
+    return 20 + ((clamped - 20) / 60) * 180;
+  }
+
+  /**
+   * Convert speed from 20-200 scale (calibration data) to 20-80 scale (scouting).
+   * Inverse of convertSpeed2080To20200().
+   *
+   * Conversion: speed_80 = 20 + ((speed_200 - 20) / 180) * 60
+   */
+  static convertSpeed20200To2080(speed200: number): number {
+    // Clamp input to 20-200 range
+    const clamped = Math.max(20, Math.min(200, speed200));
+    return 20 + ((clamped - 20) / 180) * 60;
+  }
+
   private static capRating(rating: number, min: number = 20, max: number = 80): number {
     return Math.max(min, Math.min(max, rating));
   }
@@ -271,22 +312,32 @@ class HitterRatingEstimatorService {
   }
 
   /**
-   * Estimate Speed rating from triples rate
-   * Triples rate = T / AB
-   * Note: Speed uses 20-200 scale
+   * Estimate Speed rating from triples rate.
+   * Returns rating on 20-80 scale (standard scouting scale).
+   *
+   * The formula converts triples rate to the 20-200 scale internally,
+   * then converts the result back to 20-80 scale.
+   *
+   * @param triplesRate Triples per AB (e.g., 0.0075)
+   * @param pa Plate appearances (for confidence calculation)
+   * @returns Speed rating estimate on 20-80 scale
    */
   static estimateSpeed(triplesRate: number, pa: number): RatingEstimate {
     const coef = REGRESSION_COEFFICIENTS.speed;
-    const rawRating = (triplesRate - coef.intercept) / coef.slope;
-    const rating = Math.max(20, Math.min(200, Math.round(rawRating)));
+    // Calculate raw rating on 20-200 scale
+    const rawRating200 = (triplesRate - coef.intercept) / coef.slope;
+    // Convert to 20-80 scale
+    const rawRating80 = this.convertSpeed20200To2080(rawRating200);
+    const rating = this.capRating(Math.round(rawRating80));
 
     const { confidence, multiplier } = this.getConfidence(pa, STABILIZATION.triples);
-    const uncertainty = 20 * multiplier;
+    // Uncertainty is smaller on 20-80 scale (was 20 on 200 scale, so ~7 on 80 scale)
+    const uncertainty = 7 * multiplier;
 
     return {
       rating,
-      low: Math.max(20, Math.min(200, Math.round(rawRating - uncertainty))),
-      high: Math.max(20, Math.min(200, Math.round(rawRating + uncertainty))),
+      low: this.capRating(Math.round(rawRating80 - uncertainty)),
+      high: this.capRating(Math.round(rawRating80 + uncertainty)),
       confidence,
     };
   }
@@ -401,9 +452,20 @@ class HitterRatingEstimatorService {
     return coef.intercept + coef.slope * gap;
   }
 
+  /**
+   * Calculate expected triples rate (per AB) from speed rating.
+   *
+   * IMPORTANT: Accepts speed on 20-80 scale (standard scouting scale).
+   * Internally converts to 20-200 scale before applying the calibrated formula.
+   *
+   * @param speed Speed rating on 20-80 scale
+   * @returns Triples per AB (e.g., 0.0075 = 4.5 triples per 600 AB)
+   */
   static expectedTriplesRate(speed: number): number {
+    // Convert from 20-80 scouting scale to 20-200 calibration scale
+    const speed200 = this.convertSpeed2080To20200(speed);
     const coef = REGRESSION_COEFFICIENTS.speed;
-    return coef.intercept + coef.slope * speed;
+    return Math.max(0, coef.intercept + coef.slope * speed200);
   }
 
   /**

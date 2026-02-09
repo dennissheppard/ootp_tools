@@ -33,6 +33,8 @@ export interface BatterProfileData {
   estimatedEye?: number;
   estimatedAvoidK?: number;
   estimatedContact?: number;
+  estimatedGap?: number;
+  estimatedSpeed?: number;
 
   // Scouting data
   scoutPower?: number;
@@ -110,7 +112,11 @@ export class BatterProfileModal {
   private developmentChart: DevelopmentChart | null = null;
   private activeDevMetrics: DevelopmentMetric[] = ['scoutPower', 'scoutEye', 'scoutAvoidK'];
 
+  // Advanced ratings accordion state
+  private advancedRatingsExpanded = false;
+
   constructor() {
+    this.advancedRatingsExpanded = localStorage.getItem('wbl_expanded_ratings_expanded') === 'true';
     this.ensureOverlayExists();
   }
 
@@ -544,19 +550,6 @@ export class BatterProfileModal {
   private renderHeaderMetadata(data: BatterProfileData): string {
     const s = this.scoutingData;
 
-    // Speed rating bar
-    const speed = s?.speed ?? 50;
-    const speedWidth = Math.max(0, Math.min(100, ((speed - 20) / 180) * 100)); // 20-200 scale
-    const speedColor = speed >= 150 ? 'linear-gradient(90deg, #22c55e, #4ade80)'
-      : speed >= 100 ? 'linear-gradient(90deg, #3b82f6, #60a5fa)'
-      : speed >= 50 ? 'linear-gradient(90deg, #eab308, #facc15)'
-      : 'linear-gradient(90deg, #ef4444, #f87171)';
-
-    // Injury/durability bar
-    const injury = s?.injuryProneness || data.injuryProneness || 'Normal';
-    const injuryWidth = this.getInjuryBarWidth(injury);
-    const injuryColor = this.getInjuryBarColor(injury);
-
     // OVR/POT stars
     const ovr = s?.ovr ?? data.scoutOvr;
     const pot = s?.pot ?? data.scoutPot;
@@ -564,46 +557,116 @@ export class BatterProfileModal {
       ? `${ovr.toFixed(1)}★ / ${pot.toFixed(1)}★`
       : '--';
 
+    // WAR badge - use projWar for both prospects (peak) and MLB players (projected season)
+    // projWar is calculated in the calling views and passed appropriately
+    const projWar = data.projWar;
+    const warBadgeClass = this.getWarBadgeClass(projWar);
+    const warText = typeof projWar === 'number' ? projWar.toFixed(1) : '--';
+    const warLabel = data.isProspect ? 'Proj Peak WAR' : 'Proj WAR';
+
+    // Injury donut chart
+    const injury = s?.injuryProneness ?? data.injuryProneness ?? 'Normal';
+    const injuryDonut = this.renderInjuryDonut(injury);
+
+    // Speed donut chart (scout speed - 20-80 scale)
+    const scoutSpeed = s?.speed ?? data.scoutSpeed ?? 50;
+    const speedDonut = this.renderSpeedDonut(scoutSpeed);
+
     return `
       <div class="header-metadata">
-        <div class="metadata-row">
-          <span class="metadata-label">Speed</span>
-          <div class="metadata-bar">
-            <div class="metadata-bar-fill" style="width: ${speedWidth}%; background: ${speedColor};"></div>
+        <div class="metadata-col metadata-war-col">
+          <div class="war-badge ${warBadgeClass}">
+            <span class="war-value">${warText}</span>
+            <span class="war-label">${warLabel}</span>
           </div>
         </div>
-        <div class="metadata-row">
-          <span class="metadata-label">Injury</span>
-          <div class="metadata-bar">
-            <div class="metadata-bar-fill" style="width: ${injuryWidth}%; background: ${injuryColor};"></div>
+        <div class="metadata-col metadata-stats-col">
+          <div class="metadata-donuts-row">
+            ${injuryDonut}
+            ${speedDonut}
           </div>
-        </div>
-        <div class="metadata-row metadata-stars-row">
-          <span class="metadata-label"></span>
           <div class="metadata-stars">${starsText}</div>
         </div>
       </div>
     `;
   }
 
-  private getInjuryBarWidth(injury: string): number {
-    switch (injury) {
-      case 'Ironman': case 'Durable': return 100;
-      case 'Normal': return 70;
-      case 'Fragile': return 40;
-      case 'Wrecked': case 'Prone': return 15;
-      default: return 70;
-    }
+  private renderInjuryDonut(injury: string): string {
+    // Map injury proneness to a percentage (Durable/Ironman = high, Fragile/Prone = low)
+    const injuryMap: Record<string, { pct: number; colorClass: string }> = {
+      'Ironman': { pct: 100, colorClass: 'injury-durable' },
+      'Durable': { pct: 85, colorClass: 'injury-durable' },
+      'Normal': { pct: 60, colorClass: 'injury-normal' },
+      'Wary': { pct: 40, colorClass: 'injury-wary' },
+      'Fragile': { pct: 20, colorClass: 'injury-fragile' },
+      'Prone': { pct: 10, colorClass: 'injury-prone' },
+      'Wrecked': { pct: 5, colorClass: 'injury-prone' },
+    };
+    const info = injuryMap[injury] ?? { pct: 60, colorClass: 'injury-normal' };
+
+    // SVG circle parameters
+    const radius = 10;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (info.pct / 100) * circumference;
+
+    return `
+      <div class="header-donut" title="Injury: ${injury}">
+        <svg class="stat-donut" viewBox="0 0 24 24" width="24" height="24">
+          <circle class="stat-donut-bg" cx="12" cy="12" r="${radius}" />
+          <circle
+            class="stat-donut-fill ${info.colorClass}"
+            cx="12"
+            cy="12"
+            r="${radius}"
+            stroke-dasharray="${circumference}"
+            style="--donut-offset: ${strokeDashoffset}; --donut-circumference: ${circumference};"
+          />
+        </svg>
+        <span class="donut-label">INJ</span>
+      </div>
+    `;
   }
 
-  private getInjuryBarColor(injury: string): string {
-    switch (injury) {
-      case 'Ironman': case 'Durable': return 'linear-gradient(90deg, #22c55e, #4ade80)';
-      case 'Normal': return 'linear-gradient(90deg, #eab308, #facc15)';
-      case 'Fragile': return 'linear-gradient(90deg, #f97316, #fb923c)';
-      case 'Wrecked': case 'Prone': return 'linear-gradient(90deg, #ef4444, #f87171)';
-      default: return 'linear-gradient(90deg, #eab308, #facc15)';
-    }
+  private renderSpeedDonut(speed: number): string {
+    // Speed is on 20-80 scale (same as other ratings), map to percentage
+    const percentage = Math.max(0, Math.min(100, ((speed - 20) / 60) * 100));
+
+    // Color class based on speed value (20-80 scale)
+    const colorClass = speed >= 70 ? 'rating-elite' :
+                       speed >= 60 ? 'rating-plus' :
+                       speed >= 45 ? 'rating-avg' :
+                       'rating-poor';
+
+    // SVG circle parameters
+    const radius = 10;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    return `
+      <div class="header-donut" title="Speed: ${speed}">
+        <svg class="stat-donut" viewBox="0 0 24 24" width="24" height="24">
+          <circle class="stat-donut-bg" cx="12" cy="12" r="${radius}" />
+          <circle
+            class="stat-donut-fill ${colorClass}"
+            cx="12"
+            cy="12"
+            r="${radius}"
+            stroke-dasharray="${circumference}"
+            style="--donut-offset: ${strokeDashoffset}; --donut-circumference: ${circumference};"
+          />
+        </svg>
+        <span class="donut-label">SPD</span>
+      </div>
+    `;
+  }
+
+  private getWarBadgeClass(war?: number): string {
+    if (war === undefined) return 'war-none';
+    if (war >= 6.0) return 'war-elite';
+    if (war >= 4.0) return 'war-allstar';
+    if (war >= 2.0) return 'war-starter';
+    if (war >= 1.0) return 'war-bench';
+    return 'war-replacement';
   }
 
   private getTrueRatingClass(value: number): string {
@@ -624,6 +687,7 @@ export class BatterProfileModal {
 
   private renderBody(data: BatterProfileData, stats: BatterSeasonStats[]): string {
     const ratingsComparison = this.renderRatingsComparison(data);
+    const advancedRatings = this.renderAdvancedRatings(data);
     const projectionSection = this.renderProjection(data, stats);
     const statsSection = this.renderStatsTable(stats);
 
@@ -636,6 +700,7 @@ export class BatterProfileModal {
         <div class="tab-pane active" data-pane="ratings">
           <div class="profile-body">
             ${ratingsComparison}
+            ${advancedRatings}
             ${projectionSection}
             ${statsSection}
           </div>
@@ -1059,6 +1124,125 @@ export class BatterProfileModal {
     `;
   }
 
+  private renderAdvancedRatings(data: BatterProfileData): string {
+    const s = this.scoutingData;
+
+    // Scout values with fallbacks
+    const scoutGap = s?.gap ?? data.scoutGap ?? 50;
+    const scoutAvoidK = s?.avoidK ?? data.scoutAvoidK ?? 50;
+
+    // True (estimated) values - may be undefined for prospects without stats
+    const trueGap = data.estimatedGap;
+    const trueAvoidK = data.estimatedAvoidK;
+
+    // Check if we have any true ratings to show comparisons
+    const hasTrue = trueGap !== undefined || trueAvoidK !== undefined;
+
+    const expandedClass = this.advancedRatingsExpanded ? 'expanded' : '';
+    const toggleIcon = this.advancedRatingsExpanded ? '▾' : '▸';
+
+    // Decide rendering mode: comparison or scout-only
+    let ratingsContent: string;
+    if (hasTrue) {
+      ratingsContent = `
+        <div class="advanced-ratings-comparison">
+          <div class="rating-row rating-row-header">
+            <span class="rating-label"></span>
+            <div class="rating-bars">
+              <span class="bar-header">True</span>
+              <span class="bar-vs"></span>
+              <span class="bar-header">Scout</span>
+            </div>
+          </div>
+          ${this.renderAdvancedRatingComparison('Gap', trueGap, scoutGap, 20, 80)}
+          ${this.renderAdvancedRatingComparison('AvoidK', trueAvoidK, scoutAvoidK, 20, 80)}
+        </div>
+      `;
+    } else {
+      ratingsContent = `
+        ${this.renderAdvancedRatingBar('Gap', scoutGap, 20, 80)}
+        ${this.renderAdvancedRatingBar('AvoidK', scoutAvoidK, 20, 80)}
+      `;
+    }
+
+    return `
+      <div class="advanced-ratings-section ${expandedClass}">
+        <button class="advanced-ratings-toggle" aria-expanded="${this.advancedRatingsExpanded}">
+          <span class="toggle-icon">${toggleIcon}</span>
+          Expanded Ratings
+        </button>
+        <div class="advanced-ratings-content">
+          ${ratingsContent}
+        </div>
+      </div>
+    `;
+  }
+
+  private renderAdvancedRatingComparison(label: string, trueValue: number | undefined, scoutValue: number, min: number, max: number): string {
+    const isSpeed = label === 'Speed';
+    const tv = trueValue ?? scoutValue; // fallback to scout if no true value
+    const sv = scoutValue;
+    const truePercent = Math.max(0, Math.min(100, ((tv - min) / (max - min)) * 100));
+    const scoutPercent = Math.max(0, Math.min(100, ((sv - min) / (max - min)) * 100));
+    const trueBarClass = isSpeed ? this.getSpeedBarClass(tv) : this.getRatingBarClass(tv);
+    const scoutBarClass = isSpeed ? this.getSpeedBarClass(sv) : this.getRatingBarClass(sv);
+    const trueDisplay = Math.round(tv);
+    const scoutDisplay = Math.round(sv);
+    const diff = trueDisplay - scoutDisplay;
+    const diffText = diff > 0 ? `+${diff}` : diff === 0 ? '—' : `${diff}`;
+    const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
+
+    return `
+      <div class="rating-row rating-row-advanced">
+        <span class="rating-label">${label}</span>
+        <div class="rating-bars">
+          <div class="rating-bars-left">
+            <div class="bar-container">
+              <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%"></div>
+              <span class="bar-value">${trueDisplay}</span>
+            </div>
+          </div>
+          <div class="rating-bars-center">
+            <span class="rating-diff ${diffClass}">${diffText}</span>
+            <span class="bar-vs">vs</span>
+          </div>
+          <div class="rating-bars-right">
+            <div class="bar-container bar-container-rtl">
+              <div class="bar bar-scout ${scoutBarClass}" style="width: ${scoutPercent}%"></div>
+              <span class="bar-value">${scoutDisplay}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private renderAdvancedRatingBar(label: string, value: number, min: number, max: number): string {
+    const percentage = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
+    const barClass = label === 'Speed' ? this.getSpeedBarClass(value) : this.getRatingBarClass(value);
+    const displayValue = Math.round(value);
+
+    return `
+      <div class="rating-row rating-row-advanced">
+        <span class="rating-label">${label}</span>
+        <div class="rating-bars">
+          <div class="bar-container">
+            <div class="bar bar-scout ${barClass}" style="width: ${percentage}%"></div>
+            <span class="bar-value">${displayValue}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  private getSpeedBarClass(speed: number): string {
+    if (speed >= 160) return 'rating-elite';
+    if (speed >= 120) return 'rating-plus';
+    if (speed >= 80) return 'rating-avg';
+    if (speed >= 50) return 'rating-fringe';
+    return 'rating-poor';
+  }
+
   private renderStatsTable(stats: BatterSeasonStats[]): string {
     // League averages for OPS+ calculation
     const lgObp = 0.320;
@@ -1169,6 +1353,26 @@ export class BatterProfileModal {
   private bindBodyEvents(): void {
     this.bindScoutSourceToggle();
     this.bindTabSwitching();
+    this.bindAdvancedRatingsToggle();
+  }
+
+  private bindAdvancedRatingsToggle(): void {
+    const advancedToggle = this.overlay?.querySelector('.advanced-ratings-toggle');
+    advancedToggle?.addEventListener('click', () => {
+      this.advancedRatingsExpanded = !this.advancedRatingsExpanded;
+      localStorage.setItem('wbl_expanded_ratings_expanded', String(this.advancedRatingsExpanded));
+
+      const section = this.overlay?.querySelector('.advanced-ratings-section');
+      const toggleIcon = this.overlay?.querySelector('.toggle-icon');
+
+      if (section) {
+        section.classList.toggle('expanded', this.advancedRatingsExpanded);
+      }
+      if (toggleIcon) {
+        toggleIcon.textContent = this.advancedRatingsExpanded ? '▾' : '▸';
+      }
+      advancedToggle.setAttribute('aria-expanded', String(this.advancedRatingsExpanded));
+    });
   }
 
   private bindScoutSourceToggle(): void {

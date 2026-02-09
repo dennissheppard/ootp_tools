@@ -2026,6 +2026,14 @@ td.player-cell.player-name {
     text-align: left !important;
 }
 
+/* Constrain name column width for consistency across views */
+.true-ratings-table th[data-col-key="playerName"],
+.true-ratings-table td[data-col-key="playerName"] {
+    width: 140px;
+    min-width: 140px;
+    max-width: 180px;
+}
+
 .true-ratings-table .flip-cell-front,
 .true-ratings-table .flip-cell-back {
     justify-content: flex-start !important;
@@ -5908,15 +5916,29 @@ th .stat-tooltip {
 
 .batter-profile-modal .profile-header {
   display: flex;
-  align-items: flex-start;
-  gap: 1.5rem;
+  align-items: center;
+  gap: 2rem;
   flex-wrap: wrap;
   justify-content: flex-start;
+  padding-right: 1.5rem;
 }
 
 .batter-profile-modal .profile-title-group {
   flex: 0 0 auto;
   min-width: 180px;
+}
+
+.batter-profile-modal .ratings-header-slot {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.batter-profile-modal .metadata-header-slot {
+  flex: 0 0 auto;
+  margin-top: 0;
+  margin-left: auto;
+  padding-left: 1.5rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .batter-profile-modal .title-row {
@@ -5967,12 +5989,28 @@ th .stat-tooltip {
   color: var(--color-text-muted);
 }
 
-/* Header metadata (injury bar + stars) */
+/* Header metadata (WAR + donuts/stars in two columns) */
 .batter-profile-modal .header-metadata {
   display: flex;
+  flex-direction: row;
+  gap: 1.5rem;
+  align-items: center;
+}
+
+.batter-profile-modal .metadata-col {
+  display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-  min-width: 140px;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.batter-profile-modal .metadata-war-col {
+  /* WAR badge column - positioned first/left in the metadata section */
+}
+
+.batter-profile-modal .metadata-stats-col {
+  /* Donuts and stars column */
+  align-items: center;
 }
 
 .batter-profile-modal .metadata-row {
@@ -6007,10 +6045,142 @@ th .stat-tooltip {
   font-size: 0.85rem;
   color: var(--color-text);
   text-align: left;
+  margin-top: 0.25rem;
 }
 
-.batter-profile-modal .metadata-stars-row {
-  margin-top: 0.25rem;
+/* WAR Badge */
+
+.batter-profile-modal .war-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  min-width: 70px;
+}
+
+.batter-profile-modal .war-badge .war-value {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.batter-profile-modal .war-badge .war-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.8;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+}
+
+.batter-profile-modal .war-badge.war-elite {
+  background: rgba(29, 155, 240, 0.2);
+  color: #1d9bf0;
+}
+
+.batter-profile-modal .war-badge.war-allstar {
+  background: rgba(0, 186, 124, 0.2);
+  color: #00ba7c;
+}
+
+.batter-profile-modal .war-badge.war-starter {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+}
+
+.batter-profile-modal .war-badge.war-bench {
+  background: rgba(244, 162, 97, 0.2);
+  color: #f4a261;
+}
+
+.batter-profile-modal .war-badge.war-replacement {
+  background: rgba(128, 128, 128, 0.15);
+  color: #888;
+}
+
+.batter-profile-modal .war-badge.war-none {
+  background: rgba(128, 128, 128, 0.1);
+  color: #666;
+}
+
+/* Header donut charts (injury, speed) */
+.batter-profile-modal .metadata-donuts-row {
+  display: flex;
+  gap: 0.6rem;
+  justify-content: flex-start;
+}
+
+.batter-profile-modal .header-donut {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.batter-profile-modal .stat-donut {
+  flex-shrink: 0;
+}
+
+.batter-profile-modal .stat-donut-bg {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.1);
+  stroke-width: 3;
+}
+
+.batter-profile-modal .stat-donut-fill {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  stroke-dashoffset: var(--donut-offset);
+  transition: stroke-dashoffset 0.5s ease-out;
+}
+
+.batter-profile-modal .stat-donut-fill.injury-durable {
+  stroke: #00ba7c;
+}
+
+.batter-profile-modal .stat-donut-fill.injury-normal {
+  stroke: #ffd400;
+}
+
+.batter-profile-modal .stat-donut-fill.injury-wary {
+  stroke: #f4a261;
+}
+
+.batter-profile-modal .stat-donut-fill.injury-fragile {
+  stroke: #e57373;
+}
+
+.batter-profile-modal .stat-donut-fill.injury-prone {
+  stroke: #f44336;
+}
+
+.batter-profile-modal .stat-donut-fill.rating-elite {
+  stroke: #1d9bf0;
+}
+
+.batter-profile-modal .stat-donut-fill.rating-plus {
+  stroke: #00ba7c;
+}
+
+.batter-profile-modal .stat-donut-fill.rating-avg {
+  stroke: #ffd400;
+}
+
+.batter-profile-modal .stat-donut-fill.rating-poor {
+  stroke: #8b98a5;
+}
+
+.batter-profile-modal .donut-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
 }
 
 /* Profile Body */
@@ -6422,4 +6592,123 @@ th .stat-tooltip {
   text-align: center;
   padding: 3rem;
   color: var(--color-text-muted);
+}
+
+/* Advanced Ratings Accordion */
+.batter-profile-modal .advanced-ratings-section {
+  margin: 0.75rem 0;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.batter-profile-modal .advanced-ratings-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(255, 255, 255, 0.03);
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.batter-profile-modal .advanced-ratings-toggle:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--color-text);
+}
+
+.batter-profile-modal .toggle-icon {
+  font-size: 0.75rem;
+  transition: transform 0.2s;
+}
+
+.batter-profile-modal .advanced-ratings-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, padding 0.3s ease-out;
+  padding: 0 0.75rem;
+}
+
+.batter-profile-modal .advanced-ratings-section.expanded .advanced-ratings-content {
+  max-height: 350px;
+  padding: 0.75rem;
+}
+
+.batter-profile-modal .advanced-ratings-comparison {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.batter-profile-modal .advanced-ratings-comparison .rating-row-header {
+  margin-bottom: 0.25rem;
+}
+
+.batter-profile-modal .advanced-ratings-comparison .bar-header {
+  font-size: 0.65rem;
+}
+
+.batter-profile-modal .rating-row-advanced {
+  padding: 0.25rem 0;
+}
+
+.batter-profile-modal .rating-row-advanced .rating-label {
+  width: 55px;
+}
+
+.batter-profile-modal .advanced-ratings-meta {
+  display: flex;
+  gap: 1rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.batter-profile-modal .rating-stars-compact {
+  font-size: 0.85rem;
+  color: #fbbf24;
+}
+
+.batter-profile-modal .rating-stars-compact .stars-label {
+  font-weight: 500;
+  margin-right: 0.25rem;
+  color: var(--color-text-muted);
+}
+
+.batter-profile-modal .injury-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.batter-profile-modal .injury-durable {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.batter-profile-modal .injury-normal {
+  background: rgba(128, 128, 128, 0.15);
+  color: #888;
+}
+
+.batter-profile-modal .injury-wary {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fbbf24;
+}
+
+.batter-profile-modal .injury-fragile {
+  background: rgba(251, 146, 60, 0.15);
+  color: #fb923c;
+}
+
+.batter-profile-modal .injury-prone {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
 }

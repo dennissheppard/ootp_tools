@@ -28,7 +28,7 @@ export interface HitterScoutingRatings {
   contact: number;
   /** Gap power rating (20-80): correlates with doubles */
   gap: number;
-  /** Speed rating (20-200): correlates with triples, SB */
+  /** Speed rating (20-80): correlates with triples, SB */
   speed: number;
   /** Injury proneness: Durable, Wary, Normal, Fragile, Prone */
   injuryProneness?: string;

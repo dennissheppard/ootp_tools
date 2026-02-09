@@ -21,6 +21,7 @@ import { dateService } from '../services/DateService';
 import { fipWarService } from '../services/FipWarService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
+import { teamRatingsService } from '../services/TeamRatingsService';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -63,11 +64,15 @@ interface HitterTrueRatingFields {
   blendedHrPct?: number;
   blendedIso?: number;
   blendedAvg?: number;
+  blendedDoublesRate?: number;
+  blendedTriplesRate?: number;
   /** Estimated ratings (20-80 scale) */
   estimatedPower?: number;
   estimatedEye?: number;
   estimatedAvoidK?: number;
   estimatedContact?: number;
+  estimatedGap?: number;
+  estimatedSpeed?: number;
   /** Total PA used in calculation */
   totalPa?: number;
   /** True Future Rating for prospects */
@@ -607,7 +612,9 @@ export class TrueRatingsView {
           const nextRaw = !this.showRawStats;
           if (!nextRaw && !this.showTrueRatings) return;
           this.showRawStats = nextRaw;
+          // Make Raw Stats and True Ratings mutually exclusive
           if (this.showRawStats) {
+            this.showTrueRatings = false;
             this.showProspects = false;
             this.showUndraftedPlayers = false;
             // Ensure MLB players are visible since they are the only ones with stats
@@ -619,6 +626,10 @@ export class TrueRatingsView {
           const nextTrue = !this.showTrueRatings;
           if (!nextTrue && !this.showRawStats) return;
           this.showTrueRatings = nextTrue;
+          // Make True Ratings and Raw Stats mutually exclusive
+          if (this.showTrueRatings) {
+            this.showRawStats = false;
+          }
         } else {
           return;
         }
@@ -1000,6 +1011,7 @@ export class TrueRatingsView {
     this.applyFilters();
     this.updateRatingsControlsVisibility();
     this.updateItemsPerPageForFilter();
+    this.ensureSortKeyForView();
     this.sortStats();
     this.renderStats();
   }
@@ -2280,8 +2292,8 @@ export class TrueRatingsView {
       { key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' },
     ];
 
-    // Show True Ratings columns when showTrueRatings is on AND showRawStats is off
-    if (this.showTrueRatings && !this.showRawStats) {
+    // Show True Ratings columns when showTrueRatings is on (mutually exclusive with showRawStats)
+    if (this.showTrueRatings) {
       // True Ratings columns for hitters
       const trueRatingColumns: BatterColumn[] = [
         {
@@ -3054,28 +3066,56 @@ export class TrueRatingsView {
   }
 
   private ensureSortKeyForView(): void {
-    if (this.mode !== 'pitchers') return;
-    const availableKeys = new Set<string>();
-    this.pitcherColumns.forEach(column => {
-      availableKeys.add(String(column.key));
-      if (column.sortKey) {
-        availableKeys.add(String(column.sortKey));
+    // For pitchers, check against pitcher columns
+    if (this.mode === 'pitchers') {
+      const availableKeys = new Set<string>();
+      this.pitcherColumns.forEach(column => {
+        availableKeys.add(String(column.key));
+        if (column.sortKey) {
+          availableKeys.add(String(column.sortKey));
+        }
+      });
+
+      if (this.sortKey && availableKeys.has(this.sortKey)) {
+        return;
       }
-    });
 
-    if (this.sortKey && availableKeys.has(this.sortKey)) {
-      return;
-    }
+      if (this.showTrueRatings) {
+        this.sortKey = 'percentile';
+        this.sortDirection = 'desc';
+        return;
+      }
 
-    if (this.showTrueRatings) {
-      this.sortKey = 'percentile';
-      this.sortDirection = 'desc';
-      return;
-    }
+      if (this.showRawStats) {
+        this.sortKey = 'ra9war';
+        this.sortDirection = 'desc';
+      }
+    } else {
+      // For batters, check against batter columns
+      const batterColumns = this.getBatterColumnsForView();
+      const availableKeys = new Set<string>();
+      batterColumns.forEach(column => {
+        availableKeys.add(String(column.key));
+        if (column.sortKey) {
+          availableKeys.add(String(column.sortKey));
+        }
+      });
 
-    if (this.showRawStats) {
-      this.sortKey = 'ra9war';
-      this.sortDirection = 'desc';
+      if (this.sortKey && availableKeys.has(this.sortKey)) {
+        return;
+      }
+
+      // Default sort by percentile (TR) for True Ratings view, WAR for Raw Stats
+      if (this.showTrueRatings) {
+        this.sortKey = 'percentile';
+        this.sortDirection = 'desc';
+        return;
+      }
+
+      if (this.showRawStats) {
+        this.sortKey = 'war';
+        this.sortDirection = 'desc';
+      }
     }
   }
 
@@ -3237,6 +3277,53 @@ export class TrueRatingsView {
       ? (singles + 2 * (row.d ?? 0) + 3 * (row.t ?? 0) + 4 * (row.hr ?? 0)) / row.ab
       : undefined;
 
+    // For prospects, fetch full data from hitter farm data
+    let projWar = row.war;
+    let projWoba: number | undefined;
+    let projAvg: number | undefined;
+    let projObp: number | undefined;
+    let projSlg: number | undefined;
+    let projPa: number | undefined;
+    let projBbPct: number | undefined;
+    let projKPct: number | undefined;
+    let projHrPct: number | undefined;
+    let trueFutureRating = row.trueFutureRating;
+    let tfrPercentile = row.tfrPercentile;
+    let estimatedPower = row.estimatedPower;
+    let estimatedEye = row.estimatedEye;
+    let estimatedAvoidK = row.estimatedAvoidK;
+    let estimatedContact = row.estimatedContact;
+    let estimatedGap = row.estimatedGap;
+    let estimatedSpeed = row.estimatedSpeed;
+
+    if (row.isProspect) {
+      try {
+        const hitterFarmData = await teamRatingsService.getHitterFarmData(this.selectedYear);
+        const prospectData = hitterFarmData.prospects.find(p => p.playerId === playerId);
+        if (prospectData) {
+          projWar = prospectData.projWar;
+          projWoba = prospectData.projWoba;
+          projAvg = prospectData.projAvg;
+          projObp = prospectData.projObp;
+          projSlg = prospectData.projSlg;
+          projPa = prospectData.projPa;
+          projBbPct = prospectData.projBbPct;
+          projKPct = prospectData.projKPct;
+          projHrPct = prospectData.projHrPct;
+          trueFutureRating = prospectData.trueFutureRating;
+          tfrPercentile = prospectData.percentile;
+          estimatedPower = prospectData.trueRatings.power;
+          estimatedEye = prospectData.trueRatings.eye;
+          estimatedAvoidK = prospectData.trueRatings.avoidK;
+          estimatedContact = prospectData.trueRatings.contact;
+          estimatedGap = prospectData.trueRatings.gap;
+          estimatedSpeed = prospectData.trueRatings.speed;
+        }
+      } catch (e) {
+        console.warn('Could not load hitter farm data for prospect lookup:', e);
+      }
+    }
+
     // Build profile data for the modal
     const profileData: BatterProfileData = {
       playerId: row.player_id,
@@ -3248,15 +3335,17 @@ export class TrueRatingsView {
       positionLabel: player ? getPositionLabel(player.position) : undefined,
 
       // True Ratings
-      trueRating: row.trueRating,
-      percentile: row.percentile,
+      trueRating: row.isProspect ? trueFutureRating : row.trueRating,
+      percentile: row.isProspect ? tfrPercentile : row.percentile,
       woba: row.woba,
 
       // Estimated ratings
-      estimatedPower: row.estimatedPower,
-      estimatedEye: row.estimatedEye,
-      estimatedAvoidK: row.estimatedAvoidK,
-      estimatedContact: row.estimatedContact,
+      estimatedPower,
+      estimatedEye,
+      estimatedAvoidK,
+      estimatedContact,
+      estimatedGap,
+      estimatedSpeed,
 
       // Raw stats
       pa: row.pa,
@@ -3267,11 +3356,20 @@ export class TrueRatingsView {
       rbi: row.rbi,
       sb: row.sb,
       war: row.war,
+      projWar,
+      projWoba,
+      projAvg,
+      projObp,
+      projSlg,
+      projPa,
+      projBbPct,
+      projKPct,
+      projHrPct,
 
       // Prospect info
       isProspect: Boolean(row.isProspect),
-      trueFutureRating: row.trueFutureRating,
-      tfrPercentile: row.tfrPercentile,
+      trueFutureRating,
+      tfrPercentile,
     };
 
     await batterProfileModal.show(profileData, this.selectedYear);

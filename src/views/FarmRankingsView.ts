@@ -2129,14 +2129,6 @@ export class FarmRankingsView {
       return 'rating-poor';
   }
 
-  private getWrcPlusClass(wrcPlus: number): string {
-      if (wrcPlus >= 140) return 'rating-elite';
-      if (wrcPlus >= 120) return 'rating-plus';
-      if (wrcPlus >= 100) return 'rating-avg';
-      if (wrcPlus >= 80) return 'rating-fringe';
-      return 'rating-poor';
-  }
-
   private getWobaClass(woba: number): string {
       if (woba >= 0.400) return 'rating-elite';
       if (woba >= 0.360) return 'rating-plus';
@@ -2409,6 +2401,8 @@ export class FarmRankingsView {
       const estimatedEye = hitterProspect?.trueRatings.eye;
       const estimatedAvoidK = hitterProspect?.trueRatings.avoidK;
       const estimatedContact = hitterProspect?.trueRatings.contact;
+      const estimatedGap = hitterProspect?.trueRatings.gap;
+      const estimatedSpeed = hitterProspect?.trueRatings.speed;
 
       // Build batter profile data
       const batterData: BatterProfileData = {
@@ -2429,6 +2423,8 @@ export class FarmRankingsView {
           estimatedEye,
           estimatedAvoidK,
           estimatedContact,
+          estimatedGap,
+          estimatedSpeed,
 
           // Scout data (my)
           scoutPower: myScouting?.power,

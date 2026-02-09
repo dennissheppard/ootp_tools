@@ -104,7 +104,7 @@ baseIp = 50 + (stamina × 0.5)
 
 Projects peak wOBA for hitter prospects using a 4-component model. Like pitcher TFR, this represents ceiling/peak potential ("if everything goes right").
 
-**The 4 Components:**
+**The 6 Components:**
 
 | Component | Rating | Stat | Calibrated Coefficient |
 |-----------|--------|------|------------------------|
@@ -112,6 +112,8 @@ Projects peak wOBA for hitter prospects using a 4-component model. Like pitcher 
 | AvoidK | AvoidK (20-80) | K% | 25.9942 - 0.200303 × avoidK |
 | Power | Power (20-80) | HR% | -0.5906 + 0.058434 × power |
 | Contact | Contact (20-80) | AVG | 0.035156 + 0.00395741 × contact |
+| Gap | Gap (20-80) | 2B rate | 0.01 + 0.0008 × (gap - 20) |
+| Speed | Speed (20-80) | 3B rate | Converted to 20-200 internally, then applied |
 
 **Peak Performance by Contact Rating:**
 - 80 contact → .345 AVG peak (elite top 2-4)
@@ -137,6 +139,8 @@ Different components have different predictive validity from MiLB stats:
 | Contact (AVG) | r = 0.18 | 100% always | MiLB batting avg is noise |
 | AvoidK (K%) | r = 0.68 | 40-65% by PA | MiLB K% is predictive |
 | Power (HR%) | r = 0.44 | 75-85% by PA | MiLB HR% moderately predictive |
+| Gap (2B rate) | Not studied | 100% always | No research on MiLB 2B predictive validity |
+| Speed (3B rate) | Not studied | 100% always | No research on MiLB 3B predictive validity |
 
 **Algorithm Flow:**
 
@@ -155,6 +159,9 @@ Different components have different predictive validity from MiLB stats:
    ```
    wOBA = 0.69×BB_rate + 0.89×1B_rate + 1.27×2B_rate + 1.62×3B_rate + 2.10×HR_rate
    ```
+   - Doubles rate calculated from Gap rating (higher Gap → more doubles)
+   - Triples rate calculated from Speed rating (higher Speed → more triples)
+   - Singles = remaining hits after subtracting 2B, 3B, HR
 
 6. **Rank by wOBA** for final TFR rating (0.5-5.0 scale)
 
@@ -424,6 +431,12 @@ WAR = ((5.00 - FIP) / 9) × IP / 50
 wOBA = 0.69×BB_rate + 0.89×1B_rate + 1.27×2B_rate + 1.62×3B_rate + 2.10×HR_rate
 ```
 
+**Doubles/Triples Rates (from Gap/Speed):**
+```
+doublesRate = 0.01 + (gap - 20) × 0.0008       // per AB
+triplesRate = expectedTriplesRate(speed)  // speed on 20-80 scale, converted internally
+```
+
 **Level-Weighted IP/PA (for TFR scouting weight):**
 ```
 weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
@@ -457,8 +470,8 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 | `EYE P` | eye | Eye/plate discipline |
 | `K P` | avoidK | Avoid strikeout |
 | `CON P` | contact | **Use this, NOT HT P** |
-| `GAP P` | gap | Gap power (not used in TFR) |
-| `SPE` | speed | Speed (not used in TFR) |
+| `GAP P` | gap | Gap power (used for doubles projection) |
+| `SPE` | speed | Speed rating (used for triples projection) |
 | `HT P` | — | **Not mapped** - Contact is better for AVG |
 
 ## Configuration
@@ -489,6 +502,8 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - Contact: 100% always (MiLB AVG is noise, r=0.18)
 - AvoidK: 100%/65%/50%/40% at <150/300/500/500+ PA
 - Power: 100%/85%/80%/75% at <150/300/500/500+ PA
+- Gap: 100% always (no research on MiLB 2B predictive validity)
+- Speed: 100% always (no research on MiLB 3B predictive validity)
 
 **Peak Workload Projections:**
 - SP base: 30 + (stamina × 3.0), clamped 120-260 IP
@@ -509,6 +524,8 @@ eye:     { intercept: 1.6246,  slope: 0.114789 }     // BB%
 avoidK:  { intercept: 25.10,   slope: -0.200303 }    // K% (calibrated to reduce overprediction)
 power:   { intercept: -0.5906, slope: 0.058434 }     // HR%
 contact: { intercept: 0.035156, slope: 0.003873 }    // AVG
+gap:     { intercept: 0.01,    slope: 0.0008 }       // 2B rate per AB
+speed:   { intercept: -0.001657, slope: 0.000083 }   // 3B rate per AB (speed converted from 20-80 to 20-200 internally)
 
 Note: True Ratings now use percentile-based component ratings instead of these formulas.
 These coefficients are still used for TFR (prospect projections) and scouting conversions.

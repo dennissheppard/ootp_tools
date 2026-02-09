@@ -1674,6 +1674,8 @@ export class TeamRatingsView {
         estimatedEye: playerData.estimatedEye,
         estimatedAvoidK: playerData.estimatedAvoidK,
         estimatedContact: playerData.estimatedContact,
+        estimatedGap: playerData.estimatedGap,
+        estimatedSpeed: playerData.estimatedSpeed,
         scoutPower: myScouting?.power,
         scoutEye: myScouting?.eye,
         scoutAvoidK: myScouting?.avoidK,
@@ -1689,7 +1691,9 @@ export class TeamRatingsView {
         slg: playerData.stats?.slg,
         hr: playerData.stats?.hr,
         war: playerData.stats?.war,
-        isProspect: false
+        isProspect: false,
+        // Always pass projWar for the header display
+        projWar: playerData.stats?.war,
       };
 
       await this.batterProfileModal.show(profileData, this.selectedYear);
@@ -1745,6 +1749,8 @@ export class TeamRatingsView {
         estimatedEye: row.estimatedEye,
         estimatedAvoidK: row.estimatedAvoidK,
         estimatedContact: row.estimatedContact,
+        estimatedGap: row.estimatedGap,
+        estimatedSpeed: row.estimatedSpeed,
         scoutPower: myScouting?.power,
         scoutEye: myScouting?.eye,
         scoutAvoidK: myScouting?.avoidK,
@@ -1761,13 +1767,14 @@ export class TeamRatingsView {
         hr: row.stats?.hr,
         war: row.stats?.war,
         isProspect: false,
-        // Projections
+        // Always pass projWar for the header display - use projected stats if available, else use actual
+        projWar: row.stats?.war,
+        // Only pass detailed projections in projected mode
         projAvg: this.viewMode === 'projected' ? row.stats?.avg : undefined,
         projObp: this.viewMode === 'projected' ? row.stats?.obp : undefined,
         projSlg: this.viewMode === 'projected' ? row.stats?.slg : undefined,
         projPa: this.viewMode === 'projected' ? row.stats?.pa : undefined,
         projHr: this.viewMode === 'projected' ? row.stats?.hr : undefined,
-        projWar: this.viewMode === 'projected' ? row.stats?.war : undefined,
       };
 
       await this.batterProfileModal.show(profileData, seasonYear);
