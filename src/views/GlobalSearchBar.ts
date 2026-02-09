@@ -424,9 +424,9 @@ export class GlobalSearchBar {
                 ip: peakIp,
               },
               projectedRatings: {
-                stuff: scoutMatch.stuff,
-                control: scoutMatch.control,
-                hra: scoutMatch.hra,
+                stuff: tfrResult.trueStuff,
+                control: tfrResult.trueControl,
+                hra: tfrResult.trueHra,
               },
             };
           } else {

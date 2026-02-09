@@ -2305,9 +2305,9 @@ export class FarmRankingsView {
                   ip: prospect.peakIp ?? 0 // Now uses realistic IP based on stamina/injury
               },
               projectedRatings: {
-                  stuff: prospect.scoutingRatings.stuff,
-                  control: prospect.scoutingRatings.control,
-                  hra: prospect.scoutingRatings.hra
+                  stuff: prospect.trueRatings?.stuff ?? prospect.scoutingRatings.stuff,
+                  control: prospect.trueRatings?.control ?? prospect.scoutingRatings.control,
+                  hra: prospect.trueRatings?.hra ?? prospect.scoutingRatings.hra
               }
           };
       }

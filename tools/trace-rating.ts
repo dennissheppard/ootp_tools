@@ -22,6 +22,7 @@
  *
  * SCOUTING DATA (optional, for TR blend or TFR calculation):
  *   Pitcher: --stuff=<20-80> --control=<20-80> --hra=<20-80>
+ *            --stamina=<20-80> --injury=<Iron Man|Durable|Normal|Fragile|Wrecked>
  *   Batter:  --power=<20-80> --eye=<20-80> --avoidk=<20-80> --contact=<20-80>
  *            --gap=<20-80> --speed=<20-80>
  *
@@ -239,6 +240,9 @@ interface PitcherScouting {
   stuff: number;
   control: number;
   hra: number;
+  stamina?: number;
+  injury?: string;
+  pitches?: Record<string, number>;
 }
 
 interface BatterScouting {
@@ -438,9 +442,40 @@ function loadMinorLeagueBattingStats(playerId: number, year: number): MinorLeagu
 /**
  * Load pitcher scouting data from default OSA scouting CSV
  */
-function loadPitcherScouting(playerId: number): PitcherScouting | null {
-  const filePath = path.join(DATA_DIR, 'default_osa_scouting.csv');
-  if (!fs.existsSync(filePath)) return null;
+/**
+ * Find the most recent pitcher scouting file for a given source (my or osa)
+ */
+function findLatestPitcherScoutingFile(source: 'my' | 'osa'): string | null {
+  const files = fs.readdirSync(DATA_DIR).filter(f =>
+    f.startsWith('pitcher_scouting_') && f.includes(`_${source}_`) && f.endsWith('.csv')
+  );
+
+  if (files.length === 0) {
+    // Fall back to default files
+    if (source === 'osa') {
+      const defaultOsa = path.join(DATA_DIR, 'default_osa_scouting.csv');
+      if (fs.existsSync(defaultOsa)) return defaultOsa;
+    }
+    return null;
+  }
+
+  files.sort().reverse();
+  return path.join(DATA_DIR, files[0]);
+}
+
+const PITCH_COLUMNS = ['FBP', 'CHP', 'CBP', 'SLP', 'SIP', 'SPP', 'CTP', 'FOP', 'CCP', 'SCP', 'KCP', 'KNP'];
+
+function loadPitcherScouting(playerId: number, source: 'my' | 'osa' = 'osa'): PitcherScouting | null {
+  const filePath = findLatestPitcherScoutingFile(source);
+  if (!filePath || !fs.existsSync(filePath)) {
+    if (source === 'my') {
+      console.log(`  No "my" pitcher scouting file found, falling back to OSA`);
+      return loadPitcherScouting(playerId, 'osa');
+    }
+    return null;
+  }
+
+  console.log(`  Loading pitcher scouting from: ${path.basename(filePath)}`);
 
   const csvText = fs.readFileSync(filePath, 'utf-8');
   const { headers, rows } = parseCSV(csvText);
@@ -450,14 +485,34 @@ function loadPitcherScouting(playerId: number): PitcherScouting | null {
     stuff: headers.indexOf('STU P'),
     control: headers.indexOf('CON P'),
     hra: headers.indexOf('HRR P'),
+    stamina: headers.indexOf('STM'),
+    injury: headers.indexOf('Prone'),
   };
+
+  // Build pitch column indices
+  const pitchIndices: { name: string; idx: number }[] = [];
+  for (const col of PITCH_COLUMNS) {
+    const idx = headers.indexOf(col);
+    if (idx >= 0) pitchIndices.push({ name: col, idx });
+  }
 
   for (const row of rows) {
     if (parseInt(row[indices.id]) === playerId) {
+      const pitches: Record<string, number> = {};
+      for (const p of pitchIndices) {
+        const val = row[p.idx]?.trim();
+        if (val && val !== '-' && val !== '') {
+          pitches[p.name] = parseInt(val) || 0;
+        }
+      }
+
       return {
         stuff: parseInt(row[indices.stuff]) || 50,
         control: parseInt(row[indices.control]) || 50,
         hra: parseInt(row[indices.hra]) || 50,
+        stamina: indices.stamina >= 0 ? (parseInt(row[indices.stamina]) || 50) : undefined,
+        injury: indices.injury >= 0 ? (row[indices.injury]?.trim() || 'Normal') : undefined,
+        pitches,
       };
     }
   }
@@ -1138,10 +1193,74 @@ function tracePitcherTFR(
   const projFip = calculateFip(blendedK9, blendedBb9, blendedHr9);
   console.log(`  Projected FIP = ${projFip.toFixed(2)}`);
 
+  // --- STEP 8: IP Projection ---
+  console.log('\n--- STEP 8: Projected IP (Peak Workload) ---\n');
+
+  const stamina = scouting.stamina ?? 50;
+  const injury = scouting.injury ?? 'Normal';
+  const pitches = scouting.pitches ?? {};
+
+  console.log(`  Stamina: ${stamina}`);
+  console.log(`  Injury:  ${injury}`);
+
+  // Show pitches
+  const pitchEntries = Object.entries(pitches).filter(([, v]) => v > 0);
+  if (pitchEntries.length > 0) {
+    console.log(`  Pitches: ${pitchEntries.map(([k, v]) => `${k}=${v}`).join(', ')}`);
+  }
+
+  // Role classification (matches TeamRatingsService logic)
+  const usablePitchCount = Object.values(pitches).filter(v => v >= 45).length;
+  const isSp = stamina >= 30 && usablePitchCount >= 3;
+  console.log(`\n  Usable pitches (≥45 rating): ${usablePitchCount}`);
+  console.log(`  Role classification: ${isSp ? 'STARTER' : 'RELIEVER'} (need stamina≥30 AND 3+ pitches≥45)`);
+
+  let baseIp: number;
+  let projectedIp: number;
+  if (isSp) {
+    baseIp = 30 + (stamina * 3.0);
+    console.log(`\n  SP Base IP = 30 + (${stamina} × 3.0) = ${baseIp.toFixed(0)}`);
+  } else {
+    baseIp = 50 + (stamina * 0.5);
+    console.log(`\n  RP Base IP = 50 + (${stamina} × 0.5) = ${baseIp.toFixed(0)}`);
+  }
+
+  // Injury modifier
+  let injuryFactor = 1.0;
+  switch (injury) {
+    case 'Iron Man': injuryFactor = 1.15; break;
+    case 'Durable': injuryFactor = 1.10; break;
+    case 'Normal': injuryFactor = 1.0; break;
+    case 'Fragile': injuryFactor = 0.90; break;
+    case 'Wrecked': injuryFactor = 0.75; break;
+  }
+  console.log(`  Injury modifier: ${injury} → ${injuryFactor.toFixed(2)}×`);
+  console.log(`  After injury: ${baseIp.toFixed(0)} × ${injuryFactor.toFixed(2)} = ${(baseIp * injuryFactor).toFixed(0)}`);
+
+  if (isSp) {
+    projectedIp = Math.round(Math.max(120, Math.min(260, baseIp * injuryFactor)));
+    console.log(`  Clamped (120-260): ${projectedIp} IP`);
+  } else {
+    projectedIp = Math.round(Math.max(40, Math.min(80, baseIp * injuryFactor)));
+    console.log(`  Clamped (40-80): ${projectedIp} IP`);
+  }
+
+  // WAR calculation
+  const replacementFip = 5.00;
+  const runsPerWin = 9.0;
+  const peakWar = ((replacementFip - projFip) / runsPerWin) * (projectedIp / 9);
+  console.log(`\n  WAR = ((${replacementFip.toFixed(2)} - ${projFip.toFixed(2)}) / ${runsPerWin.toFixed(1)}) × (${projectedIp} / 9)`);
+  console.log(`      = ${((replacementFip - projFip) / runsPerWin).toFixed(3)} × ${(projectedIp / 9).toFixed(1)}`);
+  console.log(`      = ${peakWar.toFixed(1)} WAR`);
+
   console.log('\n--- SUMMARY ---\n');
   console.log(`  Player ID: ${playerId}`);
   console.log(`\n  Scouting Ratings:`);
   console.log(`    Stuff: ${scouting.stuff}, Control: ${scouting.control}, HRA: ${scouting.hra}`);
+  console.log(`    Stamina: ${stamina}, Injury: ${injury}`);
+  if (pitchEntries.length > 0) {
+    console.log(`    Pitches: ${pitchEntries.map(([k, v]) => `${k}=${v}`).join(', ')} (${usablePitchCount} usable)`);
+  }
   console.log(`\n  Minor League Stats: ${totalRawIp.toFixed(1)} IP (${totalWeightedIp.toFixed(1)} weighted)`);
   console.log(`  Scouting Weight: ${(scoutingWeight * 100).toFixed(0)}%`);
   console.log(`\n  Projected Peak Rates:`);
@@ -1149,6 +1268,9 @@ function tracePitcherTFR(
   console.log(`    BB/9: ${blendedBb9.toFixed(2)}`);
   console.log(`    HR/9: ${blendedHr9.toFixed(2)}`);
   console.log(`\n  Projected Peak FIP: ${projFip.toFixed(2)}`);
+  console.log(`  Role: ${isSp ? 'SP' : 'RP'}`);
+  console.log(`  Projected Peak IP: ${projectedIp}`);
+  console.log(`  Projected Peak WAR: ${peakWar.toFixed(1)}`);
 }
 
 function traceBatterTFR(
@@ -2463,6 +2585,7 @@ SEASON STAGES:
 
 SCOUTING DATA (optional for TR, required for TFR):
   Pitcher: --stuff=<20-80> --control=<20-80> --hra=<20-80>
+           --stamina=<20-80> --injury=<Iron Man|Durable|Normal|Fragile|Wrecked>
   Batter:  --power=<20-80> --eye=<20-80> --avoidk=<20-80> --contact=<20-80>
            --gap=<20-80> --speed=<20-80>
 
@@ -2524,6 +2647,12 @@ EXAMPLES:
     } else if (arg.startsWith('--hra=')) {
       if (!pitcherScouting) pitcherScouting = { stuff: 50, control: 50, hra: 50 };
       pitcherScouting.hra = parseInt(arg.split('=')[1]) || 50;
+    } else if (arg.startsWith('--stamina=')) {
+      if (!pitcherScouting) pitcherScouting = { stuff: 50, control: 50, hra: 50 };
+      pitcherScouting.stamina = parseInt(arg.split('=')[1]) || 50;
+    } else if (arg.startsWith('--injury=')) {
+      if (!pitcherScouting) pitcherScouting = { stuff: 50, control: 50, hra: 50 };
+      pitcherScouting.injury = arg.split('=')[1].trim();
     } else if (arg.startsWith('--power=')) {
       if (!batterScouting) batterScouting = { power: 50, eye: 50, avoidK: 50, contact: 50, gap: 50, speed: 50 };
       batterScouting.power = parseInt(arg.split('=')[1]) || 50;
@@ -2586,12 +2715,12 @@ EXAMPLES:
     }
   }
 
-  // Auto-load scouting data from OSA files if not provided via CLI
+  // Auto-load scouting data from files if not provided via CLI
   if (playerType === 'pitcher' && !pitcherScouting) {
-    const loaded = loadPitcherScouting(playerId);
+    const loaded = loadPitcherScouting(playerId, scoutingSource);
     if (loaded) {
       pitcherScouting = loaded;
-      console.log(`Loaded pitcher scouting from OSA: Stuff=${loaded.stuff}, Control=${loaded.control}, HRA=${loaded.hra}`);
+      console.log(`Loaded pitcher scouting (${scoutingSource.toUpperCase()}): Stuff=${loaded.stuff}, Control=${loaded.control}, HRA=${loaded.hra}, Stamina=${loaded.stamina ?? '?'}, Injury=${loaded.injury ?? '?'}`);
     }
   }
   if (playerType === 'batter' && !batterScouting) {
@@ -2628,12 +2757,12 @@ EXAMPLES:
   if (isTfr) {
     if (playerType === 'pitcher') {
       if (!pitcherScouting) {
-        pitcherScouting = loadPitcherScouting(playerId) ?? undefined;
+        pitcherScouting = loadPitcherScouting(playerId, scoutingSource) ?? undefined;
         if (!pitcherScouting) {
-          console.error('Error: TFR requires scouting data. Not found in OSA file. Please provide --stuff, --control, --hra');
+          console.error(`Error: TFR requires scouting data. Not found in ${scoutingSource.toUpperCase()} file. Please provide --stuff, --control, --hra`);
           process.exit(1);
         }
-        console.log(`Loaded pitcher scouting from OSA: Stuff=${pitcherScouting.stuff}, Control=${pitcherScouting.control}, HRA=${pitcherScouting.hra}`);
+        console.log(`Loaded pitcher scouting (${scoutingSource.toUpperCase()}): Stuff=${pitcherScouting.stuff}, Control=${pitcherScouting.control}, HRA=${pitcherScouting.hra}, Stamina=${pitcherScouting.stamina ?? '?'}, Injury=${pitcherScouting.injury ?? '?'}`);
       }
       tracePitcherTFR(playerId, baseYear, pitcherScouting);
     } else {

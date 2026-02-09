@@ -12,8 +12,6 @@ import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { contractService } from '../services/ContractService';
-import { trueFutureRatingService } from '../services/TrueFutureRatingService';
-import { hitterTrueFutureRatingService } from '../services/HitterTrueFutureRatingService';
 import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingStatsService';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { MinorLeagueStatsWithLevel, MinorLeagueBattingStatsWithLevel } from '../models/Stats';
@@ -21,7 +19,7 @@ import { dateService } from '../services/DateService';
 import { fipWarService } from '../services/FipWarService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
-import { teamRatingsService } from '../services/TeamRatingsService';
+import { teamRatingsService, HitterFarmData, FarmData } from '../services/TeamRatingsService';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -204,6 +202,9 @@ export class TrueRatingsView {
   private cachedLeagueAverages: any = null; // Store for passing to modal
   private cachedLeagueBattingAverages: LeagueBattingAverages | null = null; // For OPS+ calculation
   private hasLoadedData = false; // Track if data has been loaded (for lazy loading)
+  private _cachedHitterFarmData: HitterFarmData | null = null;
+  // @ts-ignore - Written in buildProspectRows, available for future pitcher modal use
+  private _cachedPitcherFarmData: FarmData | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -471,6 +472,7 @@ export class TrueRatingsView {
 
     if (disableProspects) {
       this.showProspects = false;
+      this.showUndraftedPlayers = false;
       if (!this.showMlbPlayers) {
         this.showMlbPlayers = true;
       }
@@ -482,6 +484,15 @@ export class TrueRatingsView {
       prospectToggle.setAttribute('aria-disabled', String(disableProspects));
       prospectToggle.title = disableProspects
         ? 'Prospects are only available for the current season.'
+        : '';
+    }
+
+    const undraftedToggle = this.container.querySelector<HTMLButtonElement>('[data-player-toggle="undrafted"]');
+    if (undraftedToggle) {
+      undraftedToggle.disabled = disableProspects;
+      undraftedToggle.setAttribute('aria-disabled', String(disableProspects));
+      undraftedToggle.title = disableProspects
+        ? 'Undrafted players are only available for the current season.'
         : '';
     }
 
@@ -742,19 +753,27 @@ export class TrueRatingsView {
       prospectBtn.style.display = '';
     }
 
-    // Disable undrafted toggle if a specific team is selected
+    // Disable undrafted toggle if a specific team is selected or year is in the past
     if (undraftedBtn) {
       const isTeamSelected = this.selectedTeam !== 'all';
-      (undraftedBtn as HTMLButtonElement).disabled = isTeamSelected;
-      undraftedBtn.style.opacity = isTeamSelected ? '0.5' : '1';
-      undraftedBtn.style.cursor = isTeamSelected ? 'not-allowed' : 'pointer';
-      undraftedBtn.title = isTeamSelected ? 'Filter only available when viewing "All Teams"' : '';
+      const isPastYear = this.currentGameYear != null && this.selectedYear < this.currentGameYear;
+      const isDisabled = isTeamSelected || isPastYear;
+      (undraftedBtn as HTMLButtonElement).disabled = isDisabled;
+      undraftedBtn.style.opacity = isDisabled ? '0.5' : '1';
+      undraftedBtn.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
+      undraftedBtn.title = isPastYear
+        ? 'Undrafted players are only available for the current season.'
+        : isTeamSelected ? 'Filter only available when viewing "All Teams"' : '';
     }
   }
 
   private async fetchAndRenderStats(): Promise<void> {
     const tableContainer = this.container.querySelector<HTMLElement>('#true-ratings-table-container')!;
     tableContainer.innerHTML = this.renderTableLoadingState();
+
+    // Clear cached farm data so it gets re-fetched with fresh data
+    this._cachedHitterFarmData = null;
+    this._cachedPitcherFarmData = null;
 
     try {
       if (this.mode === 'pitchers') {
@@ -1559,40 +1578,25 @@ export class TrueRatingsView {
   private async buildBatterProspectRows(
     mlbPlayerIds: Set<number>
   ): Promise<BatterRow[]> {
-    if (!this.hitterScoutingLookup) return [];
+    // Use getHitterFarmData() as the single source of truth for TFR calculations
+    // This ensures TFR values match across True Ratings table, Farm Rankings, and modal
+    const hitterFarmData = await teamRatingsService.getHitterFarmData(this.selectedYear);
+    this._cachedHitterFarmData = hitterFarmData;
 
-    // Find hitter scouting entries not in MLB stats
-    const prospectScouting = this.hitterScoutingRatings.filter(s =>
-      s.playerId > 0 && !mlbPlayerIds.has(s.playerId)
-    );
+    // Filter to prospects not shown in the MLB table
+    const farmProspects = hitterFarmData.prospects.filter(p => !mlbPlayerIds.has(p.playerId));
 
-    if (prospectScouting.length === 0) {
+    if (farmProspects.length === 0) {
       return [];
     }
 
-    // Batch fetch all minor league batting stats at once - includes past 3 years
+    // Batch fetch minor league batting stats for current season display
     const allMinorBattingStats = await minorLeagueBattingStatsService.getAllPlayerStatsBatch(
       this.selectedYear - 2,
       this.selectedYear
     );
 
-    // Build TFR inputs
-    const tfrInputs = prospectScouting.map(scouting => {
-      const minorStats = allMinorBattingStats.get(scouting.playerId) ?? [];
-      return {
-        playerId: scouting.playerId,
-        playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
-        age: scouting.age ?? 22,
-        scouting,
-        minorLeagueStats: minorStats,
-      };
-    });
-
-    // Calculate TFR for all batter prospects
-    const tfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
-    const tfrMap = new Map(tfrResults.map(r => [r.playerId, r]));
-
-    // Fetch player/team data for prospects
+    // Fetch player/team data for prospect rows
     const [allPlayers, allTeams, allContracts] = await Promise.all([
       playerService.getAllPlayers(),
       teamService.getAllTeams(),
@@ -1604,17 +1608,14 @@ export class TrueRatingsView {
     // Build prospect rows
     const prospectRows: BatterRow[] = [];
 
-    for (const scouting of prospectScouting) {
-      const tfr = tfrMap.get(scouting.playerId);
-      if (!tfr) continue;
-
-      const player = playerMap.get(scouting.playerId);
+    for (const farmProspect of farmProspects) {
+      const player = playerMap.get(farmProspect.playerId);
       let teamDisplay = '';
       let teamFilter = '';
       let teamIsMajor = false;
 
       // Determine highest minor league level for current season
-      const playerMinorStats = allMinorBattingStats.get(scouting.playerId) ?? [];
+      const playerMinorStats = allMinorBattingStats.get(farmProspect.playerId) ?? [];
       const currentSeasonStats = playerMinorStats.filter(s => s.year === this.selectedYear);
       const seasonStats = this.getHighestMinorLeagueBattingStats(currentSeasonStats);
 
@@ -1640,7 +1641,6 @@ export class TrueRatingsView {
             // Check if this is an IC player via contract
             const contract = allContracts.get(player.id);
             if (contract && contract.leagueId === -200) {
-              // IC player on MLB team - use team nickname with IC label
               teamDisplay = `${team.nickname} <span class="league-level">(IC)</span>`;
               teamFilter = team.nickname;
             } else {
@@ -1652,14 +1652,14 @@ export class TrueRatingsView {
         }
       }
 
-      const scoutOverall = scouting.ovr;
+      const scoutOverall = farmProspect.scoutingRatings.ovr;
       const prospectHasStats = Boolean(seasonStats);
 
-      // Create a prospect row with placeholder stats
+      // Create a prospect row using farm data TFR values (single source of truth)
       const prospectRow = {
         // Required TruePlayerBattingStats fields (placeholders)
-        player_id: scouting.playerId,
-        playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
+        player_id: farmProspect.playerId,
+        playerName: farmProspect.name,
         id: 0,
         year: this.selectedYear,
         team_id: player?.teamId ?? 0,
@@ -1667,7 +1667,7 @@ export class TrueRatingsView {
         league_id: 0,
         level_id: player?.level ?? 0,
         split_id: 0,
-        position: player?.position ?? 0,
+        position: farmProspect.position ?? player?.position ?? 0,
         ab: seasonStats?.ab ?? 0,
         h: seasonStats?.h ?? 0,
         k: seasonStats?.k ?? 0,
@@ -1696,21 +1696,23 @@ export class TrueRatingsView {
         avg: seasonStats?.avg ?? 0,
         obp: seasonStats?.obp ?? 0,
         // Age
-        age: player ? Math.max(16, player.age - (this.currentGameYear ?? new Date().getFullYear()) + this.selectedYear) : (scouting.age ?? 22),
+        age: farmProspect.age,
         // Team info
         teamDisplay,
         teamFilter,
         teamIsMajor,
-        // Hitter True Rating fields - use TFR
-        trueFutureRating: tfr.trueFutureRating,
-        tfrPercentile: tfr.percentile,
-        estimatedPower: tfr.truePower,
-        estimatedEye: tfr.trueEye,
-        estimatedAvoidK: tfr.trueAvoidK,
-        estimatedContact: tfr.trueContact,
-        woba: tfr.projWoba,
+        // Hitter True Rating fields - from farm data (single source of truth)
+        trueFutureRating: farmProspect.trueFutureRating,
+        tfrPercentile: farmProspect.percentile,
+        estimatedPower: farmProspect.trueRatings.power,
+        estimatedEye: farmProspect.trueRatings.eye,
+        estimatedAvoidK: farmProspect.trueRatings.avoidK,
+        estimatedContact: farmProspect.trueRatings.contact,
+        estimatedGap: farmProspect.trueRatings.gap,
+        estimatedSpeed: farmProspect.trueRatings.speed,
+        woba: farmProspect.projWoba,
         isProspect: true,
-        starGap: Math.max(0, (scouting.pot ?? scoutOverall) - scoutOverall),
+        starGap: Math.max(0, (farmProspect.scoutingRatings.pot ?? scoutOverall) - scoutOverall),
         prospectHasStats,
         prospectLevel: seasonStats?.level,
         hasStats: false,
@@ -1749,40 +1751,25 @@ export class TrueRatingsView {
   private async buildProspectRows(
     mlbPlayerIds: Set<number>
   ): Promise<PitcherRow[]> {
-    // Find scouting entries not in MLB stats
-    const prospectScouting = this.scoutingRatings.filter(s =>
-      s.playerId > 0 && !mlbPlayerIds.has(s.playerId)
-    );
+    // Use getFarmData() as the single source of truth for TFR calculations
+    // This ensures TFR values match across True Ratings table, Farm Rankings, and modal
+    const pitcherFarmData = await teamRatingsService.getFarmData(this.selectedYear);
+    this._cachedPitcherFarmData = pitcherFarmData;
 
-    if (prospectScouting.length === 0) {
+    // Filter to prospects not shown in the MLB table
+    const farmProspects = pitcherFarmData.prospects.filter(p => !mlbPlayerIds.has(p.playerId));
+
+    if (farmProspects.length === 0) {
       return [];
     }
 
-    // Build TFR inputs for prospects
-    // Batch fetch all minor league stats at once - includes past 3 years
-    // This single batch fetch replaces thousands of individual DB queries
+    // Batch fetch minor league stats for current season display
     const allMinorStats = await minorLeagueStatsService.getAllPlayerStatsBatch(
       this.selectedYear - 2,
       this.selectedYear
     );
 
-    const tfrInputs = prospectScouting.map(scouting => {
-      const minorStats = allMinorStats.get(scouting.playerId) ?? [];
-
-      return {
-        playerId: scouting.playerId,
-        playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
-        age: scouting.age ?? 22,
-        scouting,
-        minorLeagueStats: minorStats,
-      };
-    });
-
-    // Calculate TFR for all prospects
-    const tfrResults = await trueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
-    const tfrMap = new Map(tfrResults.map(r => [r.playerId, r]));
-
-    // Fetch player/team data for prospects
+    // Fetch player/team data for prospect rows
     const [allPlayers, allTeams, allContracts] = await Promise.all([
       playerService.getAllPlayers(),
       teamService.getAllTeams(),
@@ -1791,123 +1778,129 @@ export class TrueRatingsView {
     const playerMap = new Map(allPlayers.map(p => [p.id, p]));
     const teamMap = new Map(allTeams.map(t => [t.id, t]));
 
+    // Also load scouting data for role determination and scoutOverall
+    const scoutingMap = new Map(this.scoutingRatings.map(s => [s.playerId, s]));
+
     // Build prospect rows
     const prospectRows: PitcherRow[] = [];
 
-      for (const scouting of prospectScouting) {
-        const tfr = tfrMap.get(scouting.playerId);
-        if (!tfr) continue;
+    for (const farmProspect of farmProspects) {
+      const player = playerMap.get(farmProspect.playerId);
+      const scouting = scoutingMap.get(farmProspect.playerId);
+      let teamDisplay = '';
+      let teamFilter = '';
+      let teamIsMajor = false;
 
-        const player = playerMap.get(scouting.playerId);
-        let teamDisplay = '';
-        let teamFilter = '';
-        let teamIsMajor = false;
+      // Use already-fetched batch data for current season display stats
+      const playerMinorStats = allMinorStats.get(farmProspect.playerId) ?? [];
+      const currentSeasonStats = playerMinorStats.filter(s => s.year === this.selectedYear);
+      const seasonStats = this.getHighestMinorLeagueStats(currentSeasonStats);
 
-        // Use already-fetched batch data instead of making another DB query
-        const playerMinorStats = allMinorStats.get(scouting.playerId) ?? [];
-        const currentSeasonStats = playerMinorStats.filter(s => s.year === this.selectedYear);
-        const seasonStats = this.getHighestMinorLeagueStats(currentSeasonStats);
+      if (player) {
+        const team = teamMap.get(player.teamId);
+        if (team) {
+          if (player.parentTeamId !== 0) {
+            const parent = teamMap.get(player.parentTeamId);
+            if (parent) {
+              let levelLabel = this.getLevelLabelFromId(player.level);
 
-        if (player) {
-          const team = teamMap.get(player.teamId);
-          if (team) {
-            if (player.parentTeamId !== 0) {
-              const parent = teamMap.get(player.parentTeamId);
-              if (parent) {
-                let levelLabel = this.getLevelLabelFromId(player.level);
-
-                if (!levelLabel) {
-                   const contract = allContracts.get(player.id);
-                   if (contract && contract.leagueId === -200) {
-                       levelLabel = 'IC';
-                   }
-                }
-
-                teamDisplay = levelLabel ? `${parent.nickname} <span class="league-level">(${levelLabel})</span>` : parent.nickname;
-                teamFilter = parent.nickname;
+              if (!levelLabel) {
+                 const contract = allContracts.get(player.id);
+                 if (contract && contract.leagueId === -200) {
+                     levelLabel = 'IC';
+                 }
               }
+
+              teamDisplay = levelLabel ? `${parent.nickname} <span class="league-level">(${levelLabel})</span>` : parent.nickname;
+              teamFilter = parent.nickname;
+            }
+          } else {
+            // Check if this is an IC player via contract
+            const contract = allContracts.get(player.id);
+            if (contract && contract.leagueId === -200) {
+              teamDisplay = `${team.nickname} <span class="league-level">(IC)</span>`;
+              teamFilter = team.nickname;
             } else {
-              // Check if this is an IC player via contract
-              const contract = allContracts.get(player.id);
-              if (contract && contract.leagueId === -200) {
-                teamDisplay = `${team.nickname} <span class="league-level">(IC)</span>`;
-                teamFilter = team.nickname;
-              } else {
-                teamDisplay = team.nickname;
-                teamFilter = team.nickname;
-                teamIsMajor = true;
-              }
+              teamDisplay = team.nickname;
+              teamFilter = team.nickname;
+              teamIsMajor = true;
             }
           }
         }
+      }
 
-        const scoutOverall = this.averageRating(scouting.stuff, scouting.control, scouting.hra);
-        const prospectHasStats = Boolean(seasonStats);
-        const prospectIp = seasonStats?.ip ?? 0;
-        const prospectOuts = prospectHasStats ? this.parseIpToOuts(prospectIp) : 0;
-        const prospectK = seasonStats?.k ?? 0;
-        const prospectBb = seasonStats?.bb ?? 0;
-        const prospectHr = seasonStats?.hr ?? 0;
-        const prospectK9 = seasonStats?.k9 ?? (prospectIp > 0 ? (prospectK / prospectIp) * 9 : 0);
-        const prospectBb9 = seasonStats?.bb9 ?? (prospectIp > 0 ? (prospectBb / prospectIp) * 9 : 0);
-        const prospectHr9 = seasonStats?.hr9 ?? (prospectIp > 0 ? (prospectHr / prospectIp) * 9 : 0);
+      const scoutOverall = scouting
+        ? this.averageRating(scouting.stuff, scouting.control, scouting.hra)
+        : this.averageRating(farmProspect.scoutingRatings.stuff, farmProspect.scoutingRatings.control, farmProspect.scoutingRatings.hra);
+      const prospectHasStats = Boolean(seasonStats);
+      const prospectIp = seasonStats?.ip ?? 0;
+      const prospectOuts = prospectHasStats ? this.parseIpToOuts(prospectIp) : 0;
+      const prospectK = seasonStats?.k ?? 0;
+      const prospectBb = seasonStats?.bb ?? 0;
+      const prospectHr = seasonStats?.hr ?? 0;
+      const prospectK9 = seasonStats?.k9 ?? (prospectIp > 0 ? (prospectK / prospectIp) * 9 : 0);
+      const prospectBb9 = seasonStats?.bb9 ?? (prospectIp > 0 ? (prospectBb / prospectIp) * 9 : 0);
+      const prospectHr9 = seasonStats?.hr9 ?? (prospectIp > 0 ? (prospectHr / prospectIp) * 9 : 0);
 
-        // Determine role for prospect
-        const prospectRole = determinePitcherRole({
-          pitchRatings: scouting.pitches,
-          stamina: scouting.stamina,
-          ootpRole: player?.role,
-          inningsPitched: prospectIp,
-        });
+      // Determine role for prospect
+      const prospectRole = determinePitcherRole({
+        pitchRatings: scouting?.pitches,
+        stamina: scouting?.stamina ?? farmProspect.scoutingRatings.stamina,
+        ootpRole: player?.role,
+        inningsPitched: prospectIp,
+      });
 
-        // Create a prospect row with placeholder stats
-        // Cast through unknown then to PitcherRow - we only populate the fields we need
-        const prospectRow = {
-          // Required TruePlayerStats fields (will show as "-")
-          player_id: scouting.playerId,
-          playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
-          ip: prospectHasStats ? prospectIp.toFixed(1) : '0',
-          k: prospectK,
-          bb: prospectBb,
-          hra: prospectHr,
-          r: 0,
-          er: 0,
-          war: 0,
-          ra9war: 0,
-          wpa: 0,
-          gs: 0,
-          position: 1,
-          // Derived fields
-          ipOuts: prospectOuts,
-          kPer9: prospectK9,
-          bbPer9: prospectBb9,
-          hraPer9: prospectHr9,
-          fip: prospectHasStats ? fipWarService.calculateFip({ ip: prospectIp, k9: prospectK9, bb9: prospectBb9, hr9: prospectHr9 }, 3.47) : 0,
-          // Age
-          age: player ? Math.max(16, player.age - (this.currentGameYear ?? new Date().getFullYear()) + this.selectedYear) : (scouting.age ?? 22),
-          // Team info
-          teamDisplay,
-          teamFilter,
-          teamIsMajor,
-          // True Ratings fields - use TFR
-          trueFutureRating: tfr.trueFutureRating,
-          tfrPercentile: tfr.percentile,
-          fipLike: tfr.projFip - 3.47, // Convert back to FIP-like (without constant)
-          // Convert projected peak rates to ratings using relaxed clamped ranges
-          // Clamped ranges: K9[3.0-11.0], BB9[0.85-7.0], HR9[0.20-2.5] → 20-80 scale
-          // These allow actual MLB extremes for generational prospects (80/80/80)
-          // Display clamping happens in formatValue() to show 20-80 in UI
-          estimatedStuff: Math.round(20 + ((Math.max(3.0, Math.min(11.0, tfr.projK9)) - 3.0) / (11.0 - 3.0)) * 60),
-          estimatedControl: Math.round(20 + ((7.0 - Math.max(0.85, Math.min(7.0, tfr.projBb9))) / (7.0 - 0.85)) * 60),
-          estimatedHra: Math.round(20 + ((2.5 - Math.max(0.20, Math.min(2.5, tfr.projHr9))) / (2.5 - 0.20)) * 60),
-          scoutOverall,
-          starGap: Math.max(0, (scouting.pot ?? scoutOverall) - scoutOverall),
-          isProspect: true,
-          prospectHasStats,
-          prospectLevel: seasonStats?.level,
-          hasStats: prospectHasStats,
-          role: prospectRole,
-        } as unknown as PitcherRow;
+      // Use farm data true ratings if available, otherwise derive from projected rates
+      const estimatedStuff = farmProspect.trueRatings?.stuff
+        ?? Math.round(20 + ((Math.max(3.0, Math.min(11.0, farmProspect.projK9 ?? 0)) - 3.0) / (11.0 - 3.0)) * 60);
+      const estimatedControl = farmProspect.trueRatings?.control
+        ?? Math.round(20 + ((7.0 - Math.max(0.85, Math.min(7.0, farmProspect.projBb9 ?? 0))) / (7.0 - 0.85)) * 60);
+      const estimatedHra = farmProspect.trueRatings?.hra
+        ?? Math.round(20 + ((2.5 - Math.max(0.20, Math.min(2.5, farmProspect.projHr9 ?? 0))) / (2.5 - 0.20)) * 60);
+
+      // Create a prospect row using farm data TFR values (single source of truth)
+      const prospectRow = {
+        // Required TruePlayerStats fields (will show as "-")
+        player_id: farmProspect.playerId,
+        playerName: farmProspect.name,
+        ip: prospectHasStats ? prospectIp.toFixed(1) : '0',
+        k: prospectK,
+        bb: prospectBb,
+        hra: prospectHr,
+        r: 0,
+        er: 0,
+        war: 0,
+        ra9war: 0,
+        wpa: 0,
+        gs: 0,
+        position: 1,
+        // Derived fields
+        ipOuts: prospectOuts,
+        kPer9: prospectK9,
+        bbPer9: prospectBb9,
+        hraPer9: prospectHr9,
+        fip: prospectHasStats ? fipWarService.calculateFip({ ip: prospectIp, k9: prospectK9, bb9: prospectBb9, hr9: prospectHr9 }, 3.47) : 0,
+        // Age
+        age: farmProspect.age,
+        // Team info
+        teamDisplay,
+        teamFilter,
+        teamIsMajor,
+        // True Ratings fields - from farm data (single source of truth)
+        trueFutureRating: farmProspect.trueFutureRating,
+        tfrPercentile: farmProspect.percentile,
+        fipLike: farmProspect.peakFip - 3.47,
+        estimatedStuff,
+        estimatedControl,
+        estimatedHra,
+        scoutOverall,
+        starGap: Math.max(0, ((scouting?.pot ?? scoutOverall) - scoutOverall)),
+        isProspect: true,
+        prospectHasStats,
+        prospectLevel: seasonStats?.level,
+        hasStats: prospectHasStats,
+        role: prospectRole,
+      } as unknown as PitcherRow;
 
       prospectRows.push(prospectRow);
     }
@@ -3197,6 +3190,46 @@ export class TrueRatingsView {
       }
     }
 
+    // For prospects, look up farm data to get consistent projection values
+    let prospectEstimatedStuff = row.estimatedStuff;
+    let prospectEstimatedControl = row.estimatedControl;
+    let prospectEstimatedHra = row.estimatedHra;
+    let projectionOverride: PlayerProfileData['projectionOverride'];
+
+    if (row.isProspect) {
+      try {
+        const pitcherFarmData = this._cachedPitcherFarmData
+            ?? await teamRatingsService.getFarmData(this.selectedYear);
+        const prospectData = pitcherFarmData.prospects.find(p => p.playerId === playerId);
+        if (prospectData) {
+          // Use farm data true ratings for consistency with Farm Rankings
+          if (prospectData.trueRatings) {
+            prospectEstimatedStuff = prospectData.trueRatings.stuff;
+            prospectEstimatedControl = prospectData.trueRatings.control;
+            prospectEstimatedHra = prospectData.trueRatings.hra;
+          }
+          // Build projectionOverride so the modal doesn't run its own independent projection
+          projectionOverride = {
+            projectedStats: {
+              k9: prospectData.projK9 ?? 0,
+              bb9: prospectData.projBb9 ?? 0,
+              hr9: prospectData.projHr9 ?? 0,
+              fip: prospectData.peakFip,
+              war: prospectData.peakWar,
+              ip: prospectData.peakIp ?? prospectData.stats.ip,
+            },
+            projectedRatings: {
+              stuff: prospectData.trueRatings?.stuff ?? prospectEstimatedStuff ?? 0,
+              control: prospectData.trueRatings?.control ?? prospectEstimatedControl ?? 0,
+              hra: prospectData.trueRatings?.hra ?? prospectEstimatedHra ?? 0,
+            },
+          };
+        }
+      } catch (e) {
+        console.warn('Could not load pitcher farm data for prospect lookup:', e);
+      }
+    }
+
     const profileData: PlayerProfileData = {
       playerId: row.player_id,
       playerName: row.playerName,
@@ -3207,9 +3240,9 @@ export class TrueRatingsView {
       trueRating: row.trueRating,
       percentile: row.percentile,
       fipLike: row.fipLike,
-      estimatedStuff: row.estimatedStuff,
-      estimatedControl: row.estimatedControl,
-      estimatedHra: row.estimatedHra,
+      estimatedStuff: prospectEstimatedStuff,
+      estimatedControl: prospectEstimatedControl,
+      estimatedHra: prospectEstimatedHra,
 
       // My Scout data
       scoutStuff: myScouting?.stuff,
@@ -3249,7 +3282,8 @@ export class TrueRatingsView {
       year: this.selectedYear,
       projectionYear: this.selectedYear,
       projectionBaseYear: Math.max(2000, this.selectedYear - 1),
-      forceProjection: row.isProspect // Force peak projection for prospects
+      forceProjection: row.isProspect, // Force peak projection for prospects
+      projectionOverride, // Use farm data projection for consistency
     };
 
     // Collect FIP-like distribution for percentile recalcs in modal
@@ -3323,7 +3357,8 @@ export class TrueRatingsView {
 
     if (row.isProspect) {
       try {
-        const hitterFarmData = await teamRatingsService.getHitterFarmData(this.selectedYear);
+        const hitterFarmData = this._cachedHitterFarmData
+            ?? await teamRatingsService.getHitterFarmData(this.selectedYear);
         const prospectData = hitterFarmData.prospects.find(p => p.playerId === playerId);
         if (prospectData) {
           projWar = prospectData.projWar;
