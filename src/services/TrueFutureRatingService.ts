@@ -17,6 +17,7 @@ import { minorLeagueStatsService } from './MinorLeagueStatsService';
 import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { trueRatingsService } from './TrueRatingsService';
 import { trueRatingsCalculationService } from './TrueRatingsCalculationService';
+import { contractService } from './ContractService';
 
 // ============================================================================
 // Interfaces
@@ -757,6 +758,9 @@ class TrueFutureRatingService {
 
     // Fetch career MLB IP to exclude veterans (>50 IP)
     const careerIpMap = await this.getCareerMlbIpMap(year);
+    
+    // Fetch contracts to identify affiliated players who haven't played yet (e.g. IC/DSL)
+    const contracts = await contractService.getAllContracts();
 
     // Build prospect inputs
     const prospectInputs: TrueFutureRatingInput[] = [];
@@ -779,11 +783,20 @@ class TrueFutureRatingService {
       // Look up this player's stats from the bulk-fetched data
       const minorStats = allMinorLeagueStats.get(scouting.playerId) ?? [];
 
-      // IMPORTANT: Only include players who actually played in the minors during this period
+      // IMPORTANT: Only include players who actually played in the minors during this period OR are affiliated
       // This excludes amateur/draft prospects who have scouting ratings but haven't debuted yet
-      // For example, if analyzing 2020, only include players with 2018-2020 minor league stats
+      // UNLESS they are signed to a pro team (e.g. International Complex players with no stats)
       const totalIp = minorStats.reduce((sum, stat) => sum + stat.ip, 0);
-      if (totalIp === 0) continue; // Skip players with no minor league experience in this period
+      
+      if (totalIp === 0) {
+          // If no stats, check if they have a professional contract
+          // Amateurs (Draft Pool) usually don't have a contract entry or have league_id=0/null
+          const contract = contracts.get(scouting.playerId);
+          if (!contract || contract.leagueId === 0) {
+              continue; // Truly amateur/unsigned, skip
+          }
+          // If they have a contract (e.g. league_id = -200 for IC, or others), include them
+      }
 
       // Get age (from scouting data or estimate)
       const age = scouting.age ?? 22; // Default to 22 if not available

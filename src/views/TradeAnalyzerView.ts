@@ -1,4 +1,4 @@
-import { Player, getFullName, isPitcher } from '../models/Player';
+import { Player, getFullName, isPitcher, getPositionLabel } from '../models/Player';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { projectionService, ProjectedPlayer } from '../services/ProjectionService';
@@ -11,9 +11,11 @@ import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { MinorLeagueStatsWithLevel } from '../models/Stats';
 import { fipWarService } from '../services/FipWarService';
 import { PlayerProfileModal } from './PlayerProfileModal';
+import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { batterProjectionService, ProjectedBatter } from '../services/BatterProjectionService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { hitterTrueFutureRatingService } from '../services/HitterTrueFutureRatingService';
+import { teamRatingsService } from '../services/TeamRatingsService';
 
 interface DraftPick {
   id: string;
@@ -53,6 +55,7 @@ export class TradeAnalyzerView {
   private minorLeagueStats: Map<number, MinorLeagueStatsWithLevel[]> = new Map();
   private currentYear: number = 2022;
   private playerProfileModal: PlayerProfileModal;
+  private batterProfileModal: BatterProfileModal;
 
   private team1State: TradeTeamState = {
     teamId: 0,
@@ -78,6 +81,7 @@ export class TradeAnalyzerView {
   constructor(container: HTMLElement) {
     this.container = container;
     this.playerProfileModal = new PlayerProfileModal();
+    this.batterProfileModal = new BatterProfileModal();
     this.initialize();
   }
 
@@ -101,31 +105,125 @@ export class TradeAnalyzerView {
       return;
     }
 
-    const scouting = this.allScoutingRatings.get(playerId);
-    const projection = this.allProjections.get(playerId);
     const team = this.allTeams.find(t => t.id === player.teamId);
 
-    // Construct PlayerRatingsData
-    const profileData = {
-      playerId: player.id,
-      playerName: getFullName(player),
-      team: team?.nickname,
-      age: player.age,
-      trueRating: projection?.currentTrueRating,
-      percentile: projection?.currentPercentile,
-      estimatedStuff: projection?.projectedRatings.stuff,
-      estimatedControl: projection?.projectedRatings.control,
-      estimatedHra: projection?.projectedRatings.hra,
-      scoutStuff: scouting?.stuff,
-      scoutControl: scouting?.control,
-      scoutHra: scouting?.hra,
-      scoutStamina: scouting?.stamina,
-      scoutInjuryProneness: scouting?.injuryProneness,
-      scoutOvr: scouting?.ovr,
-      scoutPot: scouting?.pot,
-    };
+    if (isPitcher(player)) {
+      // Handle pitcher profile
+      const scouting = this.allScoutingRatings.get(playerId);
+      const projection = this.allProjections.get(playerId);
 
-    await this.playerProfileModal.show(profileData, this.currentYear);
+      const profileData = {
+        playerId: player.id,
+        playerName: getFullName(player),
+        team: team?.nickname,
+        age: player.age,
+        trueRating: projection?.currentTrueRating,
+        percentile: projection?.currentPercentile,
+        estimatedStuff: projection?.projectedRatings.stuff,
+        estimatedControl: projection?.projectedRatings.control,
+        estimatedHra: projection?.projectedRatings.hra,
+        scoutStuff: scouting?.stuff,
+        scoutControl: scouting?.control,
+        scoutHra: scouting?.hra,
+        scoutStamina: scouting?.stamina,
+        scoutInjuryProneness: scouting?.injuryProneness,
+        scoutOvr: scouting?.ovr,
+        scoutPot: scouting?.pot,
+      };
+
+      await this.playerProfileModal.show(profileData, this.currentYear);
+    } else {
+      // Handle batter profile
+      const batterProjection = this.allBatterProjections.get(playerId);
+
+      // Try to get prospect data from hitter farm data for full projection info
+      let projWar: number | undefined;
+      let projWoba: number | undefined;
+      let projAvg: number | undefined;
+      let projObp: number | undefined;
+      let projSlg: number | undefined;
+      let projPa: number | undefined;
+      let projBbPct: number | undefined;
+      let projKPct: number | undefined;
+      let projHrPct: number | undefined;
+      let trueFutureRating: number | undefined;
+      let tfrPercentile: number | undefined;
+      let estimatedPower: number | undefined;
+      let estimatedEye: number | undefined;
+      let estimatedAvoidK: number | undefined;
+      let estimatedContact: number | undefined;
+      let estimatedGap: number | undefined;
+      let estimatedSpeed: number | undefined;
+      let isProspect = false;
+
+      // Check if this is a prospect (no MLB projection or minor leaguer)
+      if (!batterProjection || (team && team.parentTeamId !== 0)) {
+        isProspect = true;
+        try {
+          const hitterFarmData = await teamRatingsService.getHitterFarmData(this.currentYear);
+          const prospectData = hitterFarmData.prospects.find(p => p.playerId === playerId);
+          if (prospectData) {
+            projWar = prospectData.projWar;
+            projWoba = prospectData.projWoba;
+            projAvg = prospectData.projAvg;
+            projObp = prospectData.projObp;
+            projSlg = prospectData.projSlg;
+            projPa = prospectData.projPa;
+            projBbPct = prospectData.projBbPct;
+            projKPct = prospectData.projKPct;
+            projHrPct = prospectData.projHrPct;
+            trueFutureRating = prospectData.trueFutureRating;
+            tfrPercentile = prospectData.percentile;
+            estimatedPower = prospectData.trueRatings.power;
+            estimatedEye = prospectData.trueRatings.eye;
+            estimatedAvoidK = prospectData.trueRatings.avoidK;
+            estimatedContact = prospectData.trueRatings.contact;
+            estimatedGap = prospectData.trueRatings.gap;
+            estimatedSpeed = prospectData.trueRatings.speed;
+          }
+        } catch (e) {
+          console.warn('Could not load hitter farm data for prospect lookup:', e);
+        }
+      } else if (batterProjection) {
+        // MLB player with projection
+        projWar = batterProjection.projectedStats.war;
+        projAvg = batterProjection.projectedStats.avg;
+        projObp = batterProjection.projectedStats.obp;
+        projSlg = batterProjection.projectedStats.slg;
+        projPa = batterProjection.projectedStats.pa;
+      }
+
+      const profileData: BatterProfileData = {
+        playerId: player.id,
+        playerName: getFullName(player),
+        team: team?.nickname,
+        age: player.age,
+        position: player.position,
+        positionLabel: getPositionLabel(player.position),
+        trueRating: isProspect ? trueFutureRating : batterProjection?.currentTrueRating,
+        percentile: isProspect ? tfrPercentile : batterProjection?.percentile,
+        estimatedPower,
+        estimatedEye,
+        estimatedAvoidK,
+        estimatedContact,
+        estimatedGap,
+        estimatedSpeed,
+        isProspect,
+        trueFutureRating,
+        tfrPercentile,
+        projWar,
+        projWoba,
+        projAvg,
+        projObp,
+        projSlg,
+        projPa,
+        projBbPct,
+        projKPct,
+        projHrPct,
+      };
+
+      await this.batterProfileModal.show(profileData, this.currentYear);
+    }
   }
 
   private async initialize(): Promise<void> {

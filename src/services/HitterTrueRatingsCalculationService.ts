@@ -68,11 +68,15 @@ export interface HitterTrueRatingResult {
   blendedHrPct: number;
   blendedIso: number;
   blendedAvg: number;
+  blendedDoublesRate: number;
+  blendedTriplesRate: number;
   /** Estimated ratings (from performance, 20-80 scale) */
   estimatedPower: number;
   estimatedEye: number;
   estimatedAvoidK: number;
   estimatedContact: number;
+  estimatedGap: number;
+  estimatedSpeed: number;
   /** wOBA (weighted On-Base Average) - lower is worse */
   woba: number;
   /** Percentile rank (0-100, higher is better) */
@@ -325,7 +329,7 @@ class HitterTrueRatingsCalculationService {
     // Step 4: Calculate wOBA from blended rates (using HR% directly, not ISO)
     const woba = this.calculateWobaFromRates(blendedBbPct, blendedKPct, blendedHrPct, blendedAvg);
 
-    // Note: Component ratings (Power, Eye, AvK, Contact) will be calculated
+    // Note: Component ratings (Power, Eye, AvK, Contact, Gap, Speed) will be calculated
     // via percentile ranking in calculateComponentRatingsFromPercentiles()
     // after all players' blended stats are determined
 
@@ -337,10 +341,14 @@ class HitterTrueRatingsCalculationService {
       blendedHrPct: Math.round(blendedHrPct * 10) / 10,
       blendedIso: Math.round(blendedIso * 1000) / 1000,
       blendedAvg: Math.round(blendedAvg * 1000) / 1000,
+      blendedDoublesRate: Math.round(weighted.doublesRate * 10000) / 10000,
+      blendedTriplesRate: Math.round(weighted.triplesRate * 10000) / 10000,
       estimatedPower: 0, // Calculated via percentile in next step
       estimatedEye: 0,   // Calculated via percentile in next step
       estimatedAvoidK: 0, // Calculated via percentile in next step
       estimatedContact: 0, // Calculated via percentile in next step
+      estimatedGap: 0,    // Calculated via percentile in next step
+      estimatedSpeed: 0,  // Calculated via percentile in next step
       woba: Math.round(woba * 1000) / 1000,
       percentile: 0,
       trueRating: 0,
@@ -630,7 +638,7 @@ class HitterTrueRatingsCalculationService {
   }
 
   /**
-   * Calculate component ratings (Power, Eye, AvK, Contact) from percentile rankings
+   * Calculate component ratings (Power, Eye, AvK, Contact, Gap, Speed) from percentile rankings
    * within the season. This ensures the league leader always gets ~80 rating regardless
    * of absolute stat values, accounting for year-to-year offensive environment changes.
    */
@@ -671,6 +679,8 @@ class HitterTrueRatingsCalculationService {
     const eyeRatings = calculateRatingFromPercentile(results, r => r.blendedBbPct, false);
     const avoidKRatings = calculateRatingFromPercentile(results, r => r.blendedKPct, true); // Lower K% is better
     const contactRatings = calculateRatingFromPercentile(results, r => r.blendedAvg, false);
+    const gapRatings = calculateRatingFromPercentile(results, r => r.blendedDoublesRate, false); // Higher doubles = better gap
+    const speedRatings = calculateRatingFromPercentile(results, r => r.blendedTriplesRate, false); // Higher triples = better speed
 
     // Assign ratings to each result
     results.forEach(result => {
@@ -678,6 +688,8 @@ class HitterTrueRatingsCalculationService {
       result.estimatedEye = Math.round(eyeRatings.get(result.playerId) ?? 50);
       result.estimatedAvoidK = Math.round(avoidKRatings.get(result.playerId) ?? 50);
       result.estimatedContact = Math.round(contactRatings.get(result.playerId) ?? 50);
+      result.estimatedGap = Math.round(gapRatings.get(result.playerId) ?? 50);
+      result.estimatedSpeed = Math.round(speedRatings.get(result.playerId) ?? 50);
     });
   }
 

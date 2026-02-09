@@ -825,7 +825,7 @@ export class PlayerProfileModal {
         ? `Peak Year Projection <span style="font-weight: normal; opacity: 0.8;">(Age ${projectionAge})</span>`
         : `${yearDisplay} Season Projection <span style="font-weight: normal; opacity: 0.8;">(${projectionAge}yo)</span>${confidenceWarning}`;
       const note = isProspect
-        ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance.'
+        ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance. Everything has to go right for this.'
         : '* Projection based on prior year True Ratings. Hover cells to show ratings.';
 
       const k9ProjFlip = this.renderFlipCell(s.k9.toFixed(2), this.clampRatingForDisplay(r.stuff).toString(), 'Projected True Stuff');

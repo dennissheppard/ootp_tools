@@ -16,6 +16,7 @@ import { hitterTrueRatingsCalculationService, HitterTrueRatingInput } from './Hi
 import { batterProjectionService } from './BatterProjectionService';
 import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
+import { contractService } from './ContractService';
 
 export interface RatedPlayer {
   playerId: number;
@@ -170,6 +171,8 @@ export interface RatedHitterProspect {
         eye: number;
         avoidK: number;
         contact: number;
+        gap: number;
+        speed: number;
     };
     /** Position */
     position: number;
@@ -675,17 +678,18 @@ class TeamRatingsService {
           scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
       }
 
-      const [allPlayers, tfrResults, teams, leagueStats] = await Promise.all([
+      const [allPlayers, tfrResults, teams, leagueStats, contracts] = await Promise.all([
           playerService.getAllPlayers(),
           trueFutureRatingService.getProspectTrueFutureRatings(year),
           teamService.getAllTeams(),
-          leagueStatsService.getLeagueStats(year)
+          leagueStatsService.getLeagueStats(year),
+          contractService.getAllContracts()
       ]);
 
       const playerMap = new Map(allPlayers.map(p => [p.id, p]));
       const teamMap = new Map(teams.map(t => [t.id, t]));
       const scoutingMap = new Map(scoutingData.ratings.map(s => [s.playerId, s]));
-      
+
       // Calculate Replacement Level FIP (League Avg + 1.00)
       const replacementFip = (leagueStats.avgFip || 4.20) + 1.00;
       const runsPerWin = 8.5; // Standard WBL constant
@@ -701,10 +705,20 @@ class TeamRatingsService {
 
           // Determine Organization ID via Team Service lookup
           const team = teamMap.get(player.teamId);
-          if (!team || team.parentTeamId === 0) return;
+          if (!team) return;
+
+          // Skip MLB-level teams (parentTeamId === 0 means root org)
+          // But allow IC players through (identified by contract leagueId === -200)
+          let orgId = team.parentTeamId;
+          if (orgId === 0) {
+              const contract = contracts.get(tfr.playerId);
+              if (!contract || contract.leagueId !== -200) return; // Skip MLB players
+              // IC player on a root-level team - use the team's own ID as org
+              // (IC teams are sometimes root orgs in OOTP)
+              orgId = team.id;
+          }
 
           processedCount++;
-          const orgId = team.parentTeamId;
           const scouting = scoutingMap.get(tfr.playerId);
           
           const pitches = scouting?.pitches ?? {};
@@ -749,6 +763,12 @@ class TeamRatingsService {
 
           const peakWar = fipWarService.calculateWar(tfr.projFip, projectedIp, replacementFip, runsPerWin);
 
+          // Determine level label - use contract to detect IC players
+          const playerContract = contracts.get(tfr.playerId);
+          const levelLabel = (playerContract && playerContract.leagueId === -200)
+              ? 'IC'
+              : this.getLevelLabel(player.level);
+
           const prospect: RatedProspect = {
               playerId: tfr.playerId,
               name: tfr.playerName,
@@ -763,7 +783,7 @@ class TeamRatingsService {
                   hra: tfr.trueHra,
               },
               age: tfr.age,
-              level: this.getLevelLabel(player.level),
+              level: levelLabel,
               teamId: player.teamId,
               orgId: orgId,
               peakFip: tfr.projFip,
@@ -906,11 +926,12 @@ class TeamRatingsService {
    */
   async getHitterFarmData(year: number): Promise<HitterFarmData> {
       // Fetch hitter scouting data and league averages in parallel
-      const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerAbMap] = await Promise.all([
+      const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerAbMap, contracts] = await Promise.all([
           hitterScoutingDataService.getLatestScoutingRatings('my'),
           hitterScoutingDataService.getLatestScoutingRatings('osa'),
           leagueBattingAveragesService.getLeagueAverages(year),
-          this.getCareerMlbAbMap(year)
+          this.getCareerMlbAbMap(year),
+          contractService.getAllContracts()
       ]);
 
       // Merge scouting data (my takes priority)
@@ -956,7 +977,13 @@ class TeamRatingsService {
 
           // Only include minor leaguers (not on MLB roster)
           const team = teamMap.get(player.teamId);
-          if (!team || team.parentTeamId === 0) return; // Skip MLB players
+          if (!team) return;
+
+          // Skip MLB-level teams, but allow IC players through
+          if (team.parentTeamId === 0) {
+              const contract = contracts.get(playerId);
+              if (!contract || contract.leagueId !== -200) return; // Skip MLB players
+          }
 
           // Exclude veterans with significant MLB experience (> 130 AB)
           const careerAb = careerAbMap.get(playerId) ?? 0;
@@ -966,7 +993,15 @@ class TeamRatingsService {
 
           // Skip players with no minor league experience in this period
           const totalPa = minorStats.reduce((sum, s) => sum + s.pa, 0);
-          if (totalPa === 0) return;
+          
+          if (totalPa === 0) {
+              // If no stats, check if they have a professional contract
+              const contract = contracts.get(playerId);
+              if (!contract || contract.leagueId === 0) {
+                  return; // Truly amateur/unsigned, skip
+              }
+              // If they have a contract (e.g. IC players), include them
+          }
 
           tfrInputs.push({
               playerId,
@@ -982,6 +1017,9 @@ class TeamRatingsService {
       // Calculate True Future Ratings
       const tfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
 
+      // Build empirical PA distributions from MLB peak-age data by injury category
+      const empiricalPaByInjury = await hitterTrueFutureRatingService.buildMLBPaByInjury(scoutingMap);
+
       // Build prospect list grouped by organization
       const orgGroups = new Map<number, RatedHitterProspect[]>();
       const allProspects: RatedHitterProspect[] = [];
@@ -994,13 +1032,17 @@ class TeamRatingsService {
           const team = teamMap.get(player.teamId);
           if (!team) return;
 
-          const orgId = team.parentTeamId;
+          // For IC players on root-level teams, orgId is the team itself
+          const orgId = team.parentTeamId !== 0 ? team.parentTeamId : team.id;
 
           // Calculate derived stats
           const projSlg = tfr.projAvg + tfr.projIso;
           const projObp = tfr.projAvg + (tfr.projBbPct / 100); // Simplified OBP
           const projOps = projObp + projSlg;
-          const projPa = leagueBattingAveragesService.getProjectedPa(scouting.injuryProneness);
+          const injury = scouting.injuryProneness ?? 'Normal';
+          const projPa = empiricalPaByInjury.get(injury)
+              ?? empiricalPaByInjury.get('Normal')
+              ?? leagueBattingAveragesService.getProjectedPa(scouting.injuryProneness);
 
           // Calculate wRC+ and WAR using league averages
           let wrcPlus = 100; // Default to league average
@@ -1008,7 +1050,22 @@ class TeamRatingsService {
           if (leagueAvg) {
               wrcPlus = leagueBattingAveragesService.calculateWrcPlus(tfr.projWoba, leagueAvg);
               projWar = leagueBattingAveragesService.calculateBattingWar(tfr.projWoba, projPa, leagueAvg);
+          } else {
+              // Fallback calculation when league averages not available
+              // Use typical league values: lgWoba=0.315, wobaScale=1.15, runsPerWin=10
+              const lgWoba = 0.315;
+              const wobaScale = 1.15;
+              const runsPerWin = 10;
+              const wRAA = ((tfr.projWoba - lgWoba) / wobaScale) * projPa;
+              const replacementRuns = (projPa / 600) * 20;
+              projWar = Math.round(((wRAA + replacementRuns) / runsPerWin) * 10) / 10;
           }
+
+          // Determine level label - use contract to detect IC players
+          const playerContract = contracts.get(tfr.playerId);
+          const hitterLevelLabel = (playerContract && playerContract.leagueId === -200)
+              ? 'IC'
+              : this.getLevelLabel(player.level);
 
           const prospect: RatedHitterProspect = {
               playerId: tfr.playerId,
@@ -1016,7 +1073,7 @@ class TeamRatingsService {
               trueFutureRating: tfr.trueFutureRating,
               percentile: tfr.percentile,
               age: tfr.age,
-              level: this.getLevelLabel(player.level),
+              level: hitterLevelLabel,
               teamId: player.teamId,
               team: team.nickname,
               orgId,
@@ -1049,6 +1106,8 @@ class TeamRatingsService {
                   eye: tfr.trueEye,
                   avoidK: tfr.trueAvoidK,
                   contact: tfr.trueContact,
+                  gap: tfr.trueGap,
+                  speed: tfr.trueSpeed,
               },
               position: player.position,
           };
@@ -1162,7 +1221,7 @@ class TeamRatingsService {
           case 5: return 'Short-A'; // Not used in WBL
           case 6: return 'R'; // Rookie
           case 7: return 'R'; // Also Rookie (fallback)
-          case 8: return 'DSL'; // International Complex
+          case 8: return 'IC'; // International Complex
           default: return `Lvl ${level}`;
       }
   }

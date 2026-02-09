@@ -234,7 +234,7 @@ export class StatsView {
       const r = proj.projectedRatings;
       const title = isProspect ? `Peak Year Projection (Age ${projectionAge})` : `${projectionAge}yo Season Projection`;
       const note = isProspect
-          ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance.'
+          ? '* Peak year projection based on True Future Rating. Assumes full development and optimal performance. Everything would need to go perfect for this to happen.'
           : '* Based on current True Ratings and standard aging curves. Parentheses show Projected True Ratings.';
 
       return `

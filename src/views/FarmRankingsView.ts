@@ -76,15 +76,14 @@ export class FarmRankingsView {
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'team', label: 'Team', sortKey: 'orgId' },
     { key: 'trueFutureRating', label: 'TFR', sortKey: 'trueFutureRating' },
-    { key: 'wrcPlus', label: 'wRC+', sortKey: 'wrcPlus', title: 'Weighted Runs Created Plus (100 = league average)' },
-    { key: 'projWar', label: 'WAR', sortKey: 'projWar', title: 'Projected Batting WAR' },
     { key: 'projWoba', label: 'wOBA', sortKey: 'projWoba', title: 'Projected weighted On-Base Average' },
+    { key: 'projWar', label: 'WAR', sortKey: 'projWar', title: 'Projected Batting WAR' },
     { key: 'age', label: 'Age', sortKey: 'age' },
     { key: 'level', label: 'Level', sortKey: 'level' }
   ];
 
   private combinedProspectsColumns: FarmColumn[] = [
-    { key: 'rank', label: '#' },
+    { key: 'rank', label: '#', sortKey: 'originalRank' },
     { key: 'position', label: 'Pos', sortKey: 'position' },
     { key: 'name', label: 'Name', sortKey: 'name' },
     { key: 'team', label: 'Team', sortKey: 'team' },
@@ -1031,23 +1030,26 @@ export class FarmRankingsView {
           return '<p class="no-stats">No prospect data available.</p>';
       }
 
-      // Sort by selected column or default to percentile
+      // Assign unified ranks by percentile desc, TFR tiebreaker
+      combined.sort((a, b) => {
+          const cmp = (b.percentile || 0) - (a.percentile || 0);
+          if (cmp !== 0) return cmp;
+          return b.tfr - a.tfr;
+      });
+      combined.forEach((p, idx) => { p.originalRank = idx + 1; });
+
+      // Re-sort by user-selected column (if not the default percentile desc, list is already correct)
+      const isDefaultSort = this.prospectsSortKey === 'percentile' && this.prospectsSortDirection === 'desc';
+      if (!isDefaultSort) {
       combined.sort((a, b) => {
           let aVal: any;
           let bVal: any;
 
           // Map sort key to UnifiedProspect field
-          if (this.prospectsSortKey === 'percentile') {
-              aVal = a.percentile;
-              bVal = b.percentile;
-              // Break ties with peakWar
-              if (aVal === bVal) {
-                  const aWar = a.peakWar;
-                  const bWar = b.peakWar;
-                  const compare = aWar - bWar;
-                  return this.prospectsSortDirection === 'asc' ? compare : -compare;
-              }
-          } else if (this.prospectsSortKey === 'trueFutureRating') {
+          if (this.prospectsSortKey === 'percentile' || this.prospectsSortKey === 'originalRank') {
+              aVal = a.originalRank;
+              bVal = b.originalRank;
+          } else if (this.prospectsSortKey === 'trueFutureRating' || this.prospectsSortKey === 'tfr') {
               aVal = a.tfr;
               bVal = b.tfr;
           } else if (this.prospectsSortKey === 'peakWar') {
@@ -1078,6 +1080,7 @@ export class FarmRankingsView {
           }
           return this.prospectsSortDirection === 'asc' ? compare : -compare;
       });
+      } // end if (!isDefaultSort)
 
       // Filter by team if selected
       const filtered = this.selectedTeam === 'all'
@@ -1088,7 +1091,6 @@ export class FarmRankingsView {
           return '<p class="no-stats">No prospects found for this team.</p>';
       }
 
-      const isDefaultSort = this.prospectsSortKey === 'percentile' && this.prospectsSortDirection === 'desc';
       const rows = filtered.map((p, idx) => {
           const cells = this.combinedProspectsColumns.map(col => {
               switch (col.key) {
@@ -1605,12 +1607,10 @@ export class FarmRankingsView {
                     return `<td data-col-key="team" style="text-align: left;">${this.getTeamName(p.orgId)}</td>`;
                 case 'trueFutureRating':
                     return `<td data-col-key="trueFutureRating" style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>`;
-                case 'wrcPlus':
-                    return `<td data-col-key="wrcPlus" style="text-align: center;"><span class="badge ${this.getWrcPlusClass(p.wrcPlus)}">${Math.round(p.wrcPlus)}</span></td>`;
+                case 'projWoba':
+                    return `<td data-col-key="projWoba" style="text-align: center;"><span class="badge ${this.getWobaClass(p.projWoba)}">${p.projWoba.toFixed(3)}</span></td>`;
                 case 'projWar':
                     return `<td data-col-key="projWar" style="text-align: center;"><span class="badge ${this.getWarClass(p.projWar)}">${p.projWar.toFixed(1)}</span></td>`;
-                case 'projWoba':
-                    return `<td data-col-key="projWoba" style="text-align: center;">${p.projWoba.toFixed(3)}</td>`;
                 case 'projIso':
                     return `<td data-col-key="projIso" style="text-align: center;">${p.projIso.toFixed(3)}</td>`;
                 case 'age':
@@ -1837,7 +1837,7 @@ export class FarmRankingsView {
         { key: 'trueFutureRating', label: 'TFR' },
         { key: 'level', label: 'Lvl' },
         { key: 'age', label: 'Age' },
-        { key: 'wrcPlus', label: 'wRC+' },
+        { key: 'projWoba', label: 'wOBA' },
         { key: 'projWar', label: 'WAR' }
     ];
 
@@ -1877,9 +1877,9 @@ export class FarmRankingsView {
         return player.level;
       case 'age':
         return player.age.toString();
-      case 'wrcPlus':
-        const wrcClass = this.getWrcPlusClass(player.wrcPlus);
-        return `<span class="badge ${wrcClass}" style="padding: 2px 6px; font-size: 0.85em;">${player.wrcPlus}</span>`;
+      case 'projWoba':
+        const wobaClass = this.getWobaClass(player.projWoba);
+        return `<span class="badge ${wobaClass}" style="padding: 2px 6px; font-size: 0.85em;">${player.projWoba.toFixed(3)}</span>`;
       case 'projWar':
         const warClass = this.getWarClass(player.projWar);
         return `<span class="badge ${warClass}" style="padding: 2px 6px; font-size: 0.85em;">${player.projWar.toFixed(1)}</span>`;
@@ -1923,7 +1923,7 @@ export class FarmRankingsView {
           <td><button class="btn-link player-name-link" data-player-id="${p.playerId}" data-player-type="hitter">${p.name}</button></td>
           <td>${p.team || 'FA'}</td>
           <td>${this.renderRatingBadge(p.trueFutureRating)}</td>
-          <td>${p.wrcPlus}</td>
+          <td>${p.projWoba.toFixed(3)}</td>
         </tr>
       `).join('');
 
@@ -1932,7 +1932,7 @@ export class FarmRankingsView {
           <h4 style="margin: 0.5rem 0; font-size: 0.95em; color: var(--color-text-secondary);">${pos}</h4>
           <table class="stats-table" style="width: 100%; font-size: 0.85em;">
             <thead>
-              <tr><th>#</th><th>Name</th><th>Team</th><th>TFR</th><th>wRC+</th></tr>
+              <tr><th>#</th><th>Name</th><th>Team</th><th>TFR</th><th>wOBA</th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
@@ -2129,11 +2129,11 @@ export class FarmRankingsView {
       return 'rating-poor';
   }
 
-  private getWrcPlusClass(wrcPlus: number): string {
-      if (wrcPlus >= 140) return 'rating-elite';
-      if (wrcPlus >= 120) return 'rating-plus';
-      if (wrcPlus >= 100) return 'rating-avg';
-      if (wrcPlus >= 80) return 'rating-fringe';
+  private getWobaClass(woba: number): string {
+      if (woba >= 0.400) return 'rating-elite';
+      if (woba >= 0.360) return 'rating-plus';
+      if (woba >= 0.320) return 'rating-avg';
+      if (woba >= 0.290) return 'rating-fringe';
       return 'rating-poor';
   }
 
@@ -2401,6 +2401,8 @@ export class FarmRankingsView {
       const estimatedEye = hitterProspect?.trueRatings.eye;
       const estimatedAvoidK = hitterProspect?.trueRatings.avoidK;
       const estimatedContact = hitterProspect?.trueRatings.contact;
+      const estimatedGap = hitterProspect?.trueRatings.gap;
+      const estimatedSpeed = hitterProspect?.trueRatings.speed;
 
       // Build batter profile data
       const batterData: BatterProfileData = {
@@ -2421,6 +2423,8 @@ export class FarmRankingsView {
           estimatedEye,
           estimatedAvoidK,
           estimatedContact,
+          estimatedGap,
+          estimatedSpeed,
 
           // Scout data (my)
           scoutPower: myScouting?.power,

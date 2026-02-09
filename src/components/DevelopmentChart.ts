@@ -37,7 +37,7 @@ const METRIC_CONFIG: Record<DevelopmentMetric, { name: string; color: string; sc
   scoutAvoidK: { name: 'Avoid K', color: '#22c55e', scale: 'scouting' },
   scoutBabip: { name: 'BABIP', color: '#f59e0b', scale: 'scouting' },
   scoutGap: { name: 'Gap', color: '#8b5cf6', scale: 'scouting' },
-  scoutSpeed: { name: 'Speed', color: '#06b6d4', scale: 'speed' },
+  scoutSpeed: { name: 'Speed', color: '#06b6d4', scale: 'scouting' },  // Speed now uses 20-80 scale like other ratings
   // Common metrics
   scoutOvr: { name: 'OVR Stars', color: '#ffc107', scale: 'stars' },
   scoutPot: { name: 'POT Stars', color: '#a855f7', scale: 'stars' },

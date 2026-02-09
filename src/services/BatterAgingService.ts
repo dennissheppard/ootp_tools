@@ -74,15 +74,14 @@ class BatterAgingService {
   ): { power: number; eye: number; avoidK: number; speed: number } {
     const mods = this.getAgingModifiers(age);
 
-    // Clamp between 20-80 for tools, 20-200 for speed
-    const clampTool = (val: number) => Math.max(20, Math.min(80, val));
-    const clampSpeed = (val: number) => Math.max(20, Math.min(200, val));
+    // Clamp all ratings between 20-80 (speed now uses same scale as other ratings)
+    const clamp2080 = (val: number) => Math.max(20, Math.min(80, val));
 
     return {
-      power: clampTool(ratings.power + mods.power),
-      eye: clampTool(ratings.eye + mods.eye),
-      avoidK: clampTool(ratings.avoidK + mods.avoidK),
-      speed: clampSpeed(ratings.speed + mods.speed),
+      power: clamp2080(ratings.power + mods.power),
+      eye: clamp2080(ratings.eye + mods.eye),
+      avoidK: clamp2080(ratings.avoidK + mods.avoidK),
+      speed: clamp2080(ratings.speed + mods.speed),
     };
   }
 

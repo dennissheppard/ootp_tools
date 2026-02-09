@@ -10,8 +10,8 @@ import { hitterTrueRatingsCalculationService } from '../services/HitterTrueRatin
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
-import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { teamService } from '../services/TeamService';
+import { teamRatingsService } from '../services/TeamRatingsService';
 import { fipWarService } from '../services/FipWarService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 
@@ -639,6 +639,54 @@ export class GlobalSearchBar {
         slg = (singles + 2 * (batterStats.d ?? 0) + 3 * (batterStats.t ?? 0) + 4 * (batterStats.hr ?? 0)) / batterStats.ab;
       }
 
+      // For prospects, look up TFR data from hitter farm data
+      let trueFutureRating: number | undefined;
+      let tfrPercentile: number | undefined;
+      let projWar: number | undefined;
+      let projWoba: number | undefined;
+      let projAvg: number | undefined;
+      let projObp: number | undefined;
+      let projSlg: number | undefined;
+      let projPa: number | undefined;
+      let projBbPct: number | undefined;
+      let projKPct: number | undefined;
+      let projHrPct: number | undefined;
+      let estimatedGap: number | undefined;
+      let estimatedSpeed: number | undefined;
+
+      if (isProspect) {
+        try {
+          const hitterFarmData = await teamRatingsService.getHitterFarmData(year);
+          const prospectData = hitterFarmData.prospects.find(p => p.playerId === playerId);
+          if (prospectData) {
+            trueFutureRating = prospectData.trueFutureRating;
+            tfrPercentile = prospectData.percentile;
+            projWar = prospectData.projWar;
+            projWoba = prospectData.projWoba;
+            projAvg = prospectData.projAvg;
+            projObp = prospectData.projObp;
+            projSlg = prospectData.projSlg;
+            projPa = prospectData.projPa;
+            projBbPct = prospectData.projBbPct;
+            projKPct = prospectData.projKPct;
+            projHrPct = prospectData.projHrPct;
+            estimatedPower = prospectData.trueRatings.power;
+            estimatedEye = prospectData.trueRatings.eye;
+            estimatedAvoidK = prospectData.trueRatings.avoidK;
+            estimatedContact = prospectData.trueRatings.contact;
+            estimatedGap = prospectData.trueRatings.gap;
+            estimatedSpeed = prospectData.trueRatings.speed;
+            trueRating = trueFutureRating;
+            percentile = tfrPercentile;
+          }
+        } catch (e) {
+          console.warn('Could not load hitter farm data for prospect lookup:', e);
+        }
+      } else {
+        // For MLB players, use actual WAR as projected WAR
+        projWar = batterStats?.war;
+      }
+
       return {
         playerId,
         playerName,
@@ -654,6 +702,8 @@ export class GlobalSearchBar {
         estimatedEye,
         estimatedAvoidK,
         estimatedContact,
+        estimatedGap,
+        estimatedSpeed,
         pa: batterStats?.pa,
         avg: batterStats?.avg,
         obp: batterStats?.obp,
@@ -663,6 +713,17 @@ export class GlobalSearchBar {
         sb: batterStats?.sb,
         war: batterStats?.war,
         isProspect,
+        trueFutureRating,
+        tfrPercentile,
+        projWar,
+        projWoba,
+        projAvg,
+        projObp,
+        projSlg,
+        projPa,
+        projBbPct,
+        projKPct,
+        projHrPct,
       };
     } catch (error) {
       console.error('Error fetching batter ratings:', error);
