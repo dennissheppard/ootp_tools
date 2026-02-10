@@ -8,14 +8,21 @@
 import ApexCharts from 'apexcharts';
 import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
 
-// Pitcher metrics
+// Pitcher scouting metrics
 export type PitcherDevelopmentMetric = 'scoutStuff' | 'scoutControl' | 'scoutHra';
-// Hitter metrics
+// Hitter scouting metrics
 export type HitterDevelopmentMetric = 'scoutPower' | 'scoutEye' | 'scoutAvoidK' | 'scoutBabip' | 'scoutGap' | 'scoutSpeed';
-// Common metrics
+// Common scouting metrics
 export type CommonDevelopmentMetric = 'scoutOvr' | 'scoutPot';
+// Pitcher True Rating metrics (calculated from stats)
+export type PitcherTrueMetric = 'trueStuff' | 'trueControl' | 'trueHra';
+// Hitter True Rating metrics (calculated from stats)
+export type HitterTrueMetric = 'truePower' | 'trueEye' | 'trueAvoidK' | 'trueContact' | 'trueGap' | 'trueSpeed';
+// True Rating star metric (common)
+export type TrueRatingMetric = 'trueRating';
 // Combined type
-export type DevelopmentMetric = PitcherDevelopmentMetric | HitterDevelopmentMetric | CommonDevelopmentMetric;
+export type DevelopmentMetric = PitcherDevelopmentMetric | HitterDevelopmentMetric | CommonDevelopmentMetric
+  | PitcherTrueMetric | HitterTrueMetric | TrueRatingMetric;
 
 interface DevelopmentChartConfig {
   containerId: string;
@@ -27,20 +34,33 @@ interface DevelopmentChartConfig {
 
 // Metric display configuration
 const METRIC_CONFIG: Record<DevelopmentMetric, { name: string; color: string; scale: 'scouting' | 'stars' | 'speed' }> = {
-  // Pitcher metrics
+  // Pitcher scouting metrics
   scoutStuff: { name: 'Stuff', color: '#1d9bf0', scale: 'scouting' },
   scoutControl: { name: 'Control', color: '#00ba7c', scale: 'scouting' },
   scoutHra: { name: 'HR Avoid', color: '#f97316', scale: 'scouting' },
-  // Hitter metrics
+  // Hitter scouting metrics
   scoutPower: { name: 'Power', color: '#ef4444', scale: 'scouting' },
   scoutEye: { name: 'Eye', color: '#3b82f6', scale: 'scouting' },
   scoutAvoidK: { name: 'Avoid K', color: '#22c55e', scale: 'scouting' },
   scoutBabip: { name: 'BABIP', color: '#f59e0b', scale: 'scouting' },
   scoutGap: { name: 'Gap', color: '#8b5cf6', scale: 'scouting' },
   scoutSpeed: { name: 'Speed', color: '#06b6d4', scale: 'scouting' },  // Speed now uses 20-80 scale like other ratings
-  // Common metrics
+  // Common scouting metrics
   scoutOvr: { name: 'OVR Stars', color: '#ffc107', scale: 'stars' },
   scoutPot: { name: 'POT Stars', color: '#a855f7', scale: 'stars' },
+  // Pitcher True Rating metrics (calculated from stats, 20-80 scale)
+  trueStuff: { name: 'True Stuff', color: '#1d9bf0', scale: 'scouting' },
+  trueControl: { name: 'True Control', color: '#00ba7c', scale: 'scouting' },
+  trueHra: { name: 'True HR Avoid', color: '#f97316', scale: 'scouting' },
+  // Hitter True Rating metrics (calculated from stats, 20-80 scale)
+  truePower: { name: 'True Power', color: '#ef4444', scale: 'scouting' },
+  trueEye: { name: 'True Eye', color: '#3b82f6', scale: 'scouting' },
+  trueAvoidK: { name: 'True Avoid K', color: '#22c55e', scale: 'scouting' },
+  trueContact: { name: 'True Contact', color: '#f59e0b', scale: 'scouting' },
+  trueGap: { name: 'True Gap', color: '#8b5cf6', scale: 'scouting' },
+  trueSpeed: { name: 'True Speed', color: '#06b6d4', scale: 'scouting' },
+  // True Rating star metric
+  trueRating: { name: 'True Rating', color: '#ffc107', scale: 'stars' },
 };
 
 export class DevelopmentChart {
@@ -329,15 +349,24 @@ export class DevelopmentChart {
  * Helper function to render metric toggle checkboxes
  * @param activeMetrics - Currently active metrics
  * @param playerType - 'pitcher' or 'hitter' to show appropriate metrics
+ * @param dataMode - 'scout' for scouting metrics, 'true' for calculated True Rating metrics
  */
 export function renderMetricToggles(
   activeMetrics: DevelopmentMetric[],
-  playerType: 'pitcher' | 'hitter' = 'pitcher'
+  playerType: 'pitcher' | 'hitter' = 'pitcher',
+  dataMode: 'scout' | 'true' = 'scout'
 ): string {
-  const pitcherMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra', 'scoutOvr', 'scoutPot'];
-  const hitterMetrics: DevelopmentMetric[] = ['scoutPower', 'scoutEye', 'scoutAvoidK', 'scoutBabip', 'scoutOvr', 'scoutPot'];
+  const pitcherScoutMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra', 'scoutOvr', 'scoutPot'];
+  const hitterScoutMetrics: DevelopmentMetric[] = ['scoutPower', 'scoutEye', 'scoutAvoidK', 'scoutBabip', 'scoutOvr', 'scoutPot'];
+  const pitcherTrueMetrics: DevelopmentMetric[] = ['trueStuff', 'trueControl', 'trueHra', 'trueRating'];
+  const hitterTrueMetrics: DevelopmentMetric[] = ['truePower', 'trueEye', 'trueAvoidK', 'trueContact', 'trueGap', 'trueSpeed', 'trueRating'];
 
-  const allMetrics = playerType === 'hitter' ? hitterMetrics : pitcherMetrics;
+  let allMetrics: DevelopmentMetric[];
+  if (dataMode === 'true') {
+    allMetrics = playerType === 'hitter' ? hitterTrueMetrics : pitcherTrueMetrics;
+  } else {
+    allMetrics = playerType === 'hitter' ? hitterScoutMetrics : pitcherScoutMetrics;
+  }
 
   return `
     <div class="development-metric-toggles">

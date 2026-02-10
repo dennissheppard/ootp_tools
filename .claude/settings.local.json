@@ -36,7 +36,8 @@
       "Bash(powershell -Command \"Remove-Item ''\\\\?\\\\C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\\\\nul''\")",
       "Bash(powershell -Command \"Remove-Item ''.\\\\nul''\")",
       "Bash(test:*)",
-      "Bash(powershell:*)"
+      "Bash(powershell:*)",
+      "Bash(npx vite:*)"
     ]
   }
 }

@@ -2,8 +2,9 @@ import { Player } from '../models/Player';
 import { playerService } from './PlayerService';
 import { statsService } from './StatsService';
 import { dateService } from './DateService';
-import { LeagueAverages, YearlyPitchingStats } from './TrueRatingsCalculationService';
-import { YearlyHittingStats } from './HitterTrueRatingsCalculationService';
+import { LeagueAverages, YearlyPitchingStats, TrueRatingInput, trueRatingsCalculationService } from './TrueRatingsCalculationService';
+import { YearlyHittingStats, HitterTrueRatingInput, hitterTrueRatingsCalculationService } from './HitterTrueRatingsCalculationService';
+import { DevelopmentSnapshotRecord } from './IndexedDBService';
 import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
 
@@ -946,6 +947,144 @@ class TrueRatingsService {
 
     // Sort by year descending (most recent first)
     return results.sort((a, b) => b.year - a.year);
+  }
+
+  /**
+   * Calculate historical True Ratings for a pitcher across all years with MLB data.
+   * For each year, runs the full TR pipeline (all pitchers, percentile ranking)
+   * and extracts the target player's component ratings.
+   *
+   * @param playerId - The player ID to calculate historical TRs for
+   * @returns Array of synthetic DevelopmentSnapshotRecord objects (one per year)
+   */
+  public async calculateHistoricalPitcherTR(playerId: number): Promise<DevelopmentSnapshotRecord[]> {
+    const endYear = await dateService.getCurrentYear();
+    const yearRange = Array.from(
+      { length: endYear - LEAGUE_START_YEAR + 1 },
+      (_, i) => LEAGUE_START_YEAR + i
+    );
+
+    // Pre-fetch all single-year stats in parallel to warm cache
+    const singleYearStatsArr = await Promise.all(
+      yearRange.map(y => this.getTruePitchingStats(y).catch(() => [] as TruePlayerStats[]))
+    );
+
+    // Find years where the target player has data
+    const playerYears: number[] = [];
+    for (let i = 0; i < yearRange.length; i++) {
+      if (singleYearStatsArr[i].some(s => s.player_id === playerId)) {
+        playerYears.push(yearRange[i]);
+      }
+    }
+
+    if (playerYears.length === 0) return [];
+
+    // For each year with data, calculate TRs for ALL pitchers to get percentiles
+    const results: DevelopmentSnapshotRecord[] = [];
+    for (const year of playerYears) {
+      const multiYearStats = await this.getMultiYearPitchingStats(year, 4);
+      const leagueAvg = await this.getLeagueAverages(year);
+
+      // Build inputs for all pitchers (no scouting blend for historical)
+      const inputs: TrueRatingInput[] = [];
+      multiYearStats.forEach((stats, pid) => {
+        inputs.push({
+          playerId: pid,
+          playerName: '',
+          yearlyStats: stats,
+        });
+      });
+
+      const trResults = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAvg);
+      const playerResult = trResults.find(r => r.playerId === playerId);
+
+      if (playerResult) {
+        results.push({
+          key: `${playerId}_${year}-07-01`,
+          playerId,
+          date: `${year}-07-01`,
+          snapshotType: 'data_upload',
+          playerType: 'pitcher',
+          trueStuff: playerResult.estimatedStuff,
+          trueControl: playerResult.estimatedControl,
+          trueHra: playerResult.estimatedHra,
+          trueRating: playerResult.trueRating,
+          source: 'calculated',
+        });
+      }
+    }
+
+    return results.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Calculate historical True Ratings for a batter across all years with MLB data.
+   * For each year, runs the full TR pipeline (all batters, percentile ranking)
+   * and extracts the target player's component ratings.
+   *
+   * @param playerId - The player ID to calculate historical TRs for
+   * @returns Array of synthetic DevelopmentSnapshotRecord objects (one per year)
+   */
+  public async calculateHistoricalBatterTR(playerId: number): Promise<DevelopmentSnapshotRecord[]> {
+    const endYear = await dateService.getCurrentYear();
+    const yearRange = Array.from(
+      { length: endYear - LEAGUE_START_YEAR + 1 },
+      (_, i) => LEAGUE_START_YEAR + i
+    );
+
+    // Pre-fetch all single-year stats in parallel to warm cache
+    const singleYearStatsArr = await Promise.all(
+      yearRange.map(y => this.getTrueBattingStats(y).catch(() => [] as TruePlayerBattingStats[]))
+    );
+
+    // Find years where the target player has data
+    const playerYears: number[] = [];
+    for (let i = 0; i < yearRange.length; i++) {
+      if (singleYearStatsArr[i].some(s => s.player_id === playerId)) {
+        playerYears.push(yearRange[i]);
+      }
+    }
+
+    if (playerYears.length === 0) return [];
+
+    // For each year with data, calculate TRs for ALL batters to get percentiles
+    const results: DevelopmentSnapshotRecord[] = [];
+    for (const year of playerYears) {
+      const multiYearStats = await this.getMultiYearBattingStats(year, 4);
+
+      // Build inputs for all batters (no scouting blend for historical)
+      const inputs: HitterTrueRatingInput[] = [];
+      multiYearStats.forEach((stats, pid) => {
+        inputs.push({
+          playerId: pid,
+          playerName: '',
+          yearlyStats: stats,
+        });
+      });
+
+      const trResults = hitterTrueRatingsCalculationService.calculateTrueRatings(inputs);
+      const playerResult = trResults.find(r => r.playerId === playerId);
+
+      if (playerResult) {
+        results.push({
+          key: `${playerId}_${year}-07-01`,
+          playerId,
+          date: `${year}-07-01`,
+          snapshotType: 'data_upload',
+          playerType: 'hitter',
+          truePower: playerResult.estimatedPower,
+          trueEye: playerResult.estimatedEye,
+          trueAvoidK: playerResult.estimatedAvoidK,
+          trueContact: playerResult.estimatedContact,
+          trueGap: playerResult.estimatedGap,
+          trueSpeed: playerResult.estimatedSpeed,
+          trueRating: playerResult.trueRating,
+          source: 'calculated',
+        });
+      }
+    }
+
+    return results.sort((a, b) => a.date.localeCompare(b.date));
   }
 }
 

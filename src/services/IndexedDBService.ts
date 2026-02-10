@@ -103,6 +103,17 @@ export interface DevelopmentSnapshotRecord {
   // Star ratings (0.5-5.0 scale)
   scoutOvr?: number;
   scoutPot?: number;
+  // Pitcher True Ratings (20-80 scale, calculated from stats)
+  trueStuff?: number;
+  trueControl?: number;
+  trueHra?: number;
+  // Hitter True Ratings (20-80 scale, calculated from stats)
+  truePower?: number;
+  trueEye?: number;
+  trueAvoidK?: number;
+  trueContact?: number;
+  trueGap?: number;
+  trueSpeed?: number;
   // Metadata
   source: 'my' | 'osa' | 'calculated';
   level?: string; // MLB, AAA, AA, A, R

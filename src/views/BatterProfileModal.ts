@@ -12,6 +12,7 @@ import { dateService } from '../services/DateService';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
 import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
 import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
+import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
 import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
 
 export interface BatterProfileData {
@@ -753,13 +754,23 @@ export class BatterProfileModal {
   }
 
   private renderDevelopmentTab(playerId: number): string {
+    const isProspect = this.currentData?.isProspect === true;
+    const dataMode = isProspect ? 'scout' : 'true';
+
+    // Set default active metrics based on player type
+    if (!isProspect) {
+      this.activeDevMetrics = ['truePower', 'trueEye', 'trueAvoidK', 'trueContact'];
+    } else {
+      this.activeDevMetrics = ['scoutPower', 'scoutEye', 'scoutAvoidK'];
+    }
+
     return `
       <div class="development-section">
         <div class="development-header">
-          <h4>Development History</h4>
+          <h4>${isProspect ? 'Development History' : 'True Rating History'}</h4>
           <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
         </div>
-        ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
+        ${renderMetricToggles(this.activeDevMetrics, 'hitter', dataMode)}
         <div class="development-chart-container" id="development-chart-${playerId}"></div>
       </div>
     `;
@@ -772,24 +783,31 @@ export class BatterProfileModal {
       this.developmentChart = null;
     }
 
-    // Fetch snapshots
-    const snapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+    const isProspect = this.currentData?.isProspect === true;
+    let snapshots: DevelopmentSnapshotRecord[];
 
-    // Filter to only hitter snapshots (those with hitter-specific fields)
-    const hitterSnapshots = snapshots.filter(s =>
-      s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
-    );
+    if (!isProspect) {
+      // MLB player: calculate historical True Ratings from stats
+      snapshots = await trueRatingsService.calculateHistoricalBatterTR(playerId);
+    } else {
+      // Prospect: use scouting snapshots
+      const allSnapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+      snapshots = allSnapshots.filter(s =>
+        s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
+      );
+    }
 
     // Update snapshot count
     const countEl = this.overlay?.querySelector('#dev-snapshot-count');
     if (countEl) {
-      countEl.textContent = `${hitterSnapshots.length} snapshot${hitterSnapshots.length !== 1 ? 's' : ''}`;
+      const label = isProspect ? 'snapshot' : 'season';
+      countEl.textContent = `${snapshots.length} ${label}${snapshots.length !== 1 ? 's' : ''}`;
     }
 
     // Create and render chart
     this.developmentChart = new DevelopmentChart({
       containerId: `development-chart-${playerId}`,
-      snapshots: hitterSnapshots,
+      snapshots,
       metrics: this.activeDevMetrics,
       height: 280,
     });

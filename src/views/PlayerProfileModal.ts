@@ -11,6 +11,7 @@ import { fipWarService } from '../services/FipWarService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
+import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
 import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
 
 export type { PlayerRatingsData as PlayerProfileData };
@@ -598,22 +599,37 @@ export class PlayerProfileModal {
   }
 
   private renderDevelopmentTab(playerId: number): string {
+    const isProspect = this.currentPlayerData?.isProspect === true;
+    const dataMode = isProspect ? 'scout' : 'true';
+
+    // Set default active metrics based on player type
+    if (!isProspect) {
+      this.activeDevMetrics = ['trueStuff', 'trueControl', 'trueHra'];
+    } else {
+      this.activeDevMetrics = ['scoutStuff', 'scoutControl', 'scoutHra'];
+    }
+
+    // Only show my/osa source toggle for prospects (scouting snapshots)
+    const scoutSourceToggle = isProspect ? `
+      <div class="dev-scout-toggle custom-dropdown" id="dev-scout-toggle">
+        <span class="dropdown-trigger">${this.activeDevScoutSource === 'my' ? 'My' : 'OSA'}</span>
+        <div class="dropdown-menu">
+          <div class="dropdown-item ${this.activeDevScoutSource === 'my' ? 'active' : ''}" data-value="my">My</div>
+          <div class="dropdown-item ${this.activeDevScoutSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
+        </div>
+      </div>
+    ` : '';
+
     return `
       <div class="development-section">
         <div class="development-header">
-          <h4>Development History</h4>
+          <h4>${isProspect ? 'Development History' : 'True Rating History'}</h4>
           <div class="development-controls">
-            <div class="dev-scout-toggle custom-dropdown" id="dev-scout-toggle">
-              <span class="dropdown-trigger">${this.activeDevScoutSource === 'my' ? 'My' : 'OSA'}</span>
-              <div class="dropdown-menu">
-                <div class="dropdown-item ${this.activeDevScoutSource === 'my' ? 'active' : ''}" data-value="my">My</div>
-                <div class="dropdown-item ${this.activeDevScoutSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
-              </div>
-            </div>
+            ${scoutSourceToggle}
             <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
           </div>
         </div>
-        ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
+        ${renderMetricToggles(this.activeDevMetrics, 'pitcher', dataMode)}
         <div class="development-chart-container" id="development-chart-${playerId}"></div>
       </div>
     `;
@@ -626,33 +642,45 @@ export class PlayerProfileModal {
       this.developmentChart = null;
     }
 
-    // Fetch all snapshots
-    const allSnapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+    const isProspect = this.currentPlayerData?.isProspect === true;
+    let snapshots: DevelopmentSnapshotRecord[];
 
-    // Determine which sources have data
-    const hasMySnapshots = allSnapshots.some(s => s.source === 'my');
-    const hasOsaSnapshots = allSnapshots.some(s => s.source === 'osa');
+    if (!isProspect) {
+      // MLB pitcher: calculate historical True Ratings from stats
+      snapshots = await trueRatingsService.calculateHistoricalPitcherTR(playerId);
+    } else {
+      // Prospect: use scouting snapshots with my/osa source selection
+      const allSnapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
 
-    // Set default source if current selection has no data
-    if (this.activeDevScoutSource === 'my' && !hasMySnapshots && hasOsaSnapshots) {
-      this.activeDevScoutSource = 'osa';
-    } else if (this.activeDevScoutSource === 'osa' && !hasOsaSnapshots && hasMySnapshots) {
-      this.activeDevScoutSource = 'my';
+      // Determine which sources have data
+      const hasMySnapshots = allSnapshots.some(s => s.source === 'my');
+      const hasOsaSnapshots = allSnapshots.some(s => s.source === 'osa');
+
+      // Set default source if current selection has no data
+      if (this.activeDevScoutSource === 'my' && !hasMySnapshots && hasOsaSnapshots) {
+        this.activeDevScoutSource = 'osa';
+      } else if (this.activeDevScoutSource === 'osa' && !hasOsaSnapshots && hasMySnapshots) {
+        this.activeDevScoutSource = 'my';
+      }
+
+      // Filter snapshots by active source (never mix my and osa)
+      snapshots = allSnapshots.filter(s => s.source === this.activeDevScoutSource);
+
+      // Show/hide toggle based on whether both sources have data
+      const toggleEl = this.overlay?.querySelector<HTMLElement>('#dev-scout-toggle');
+      if (toggleEl) {
+        toggleEl.style.display = (hasMySnapshots && hasOsaSnapshots) ? '' : 'none';
+      }
+
+      // Bind scout source toggle
+      this.bindDevScoutSourceToggle(playerId);
     }
-
-    // Filter snapshots by active source (never mix my and osa)
-    const snapshots = allSnapshots.filter(s => s.source === this.activeDevScoutSource);
 
     // Update snapshot count
     const countEl = this.overlay?.querySelector('#dev-snapshot-count');
     if (countEl) {
-      countEl.textContent = `${snapshots.length} snapshot${snapshots.length !== 1 ? 's' : ''}`;
-    }
-
-    // Show/hide toggle based on whether both sources have data
-    const toggleEl = this.overlay?.querySelector<HTMLElement>('#dev-scout-toggle');
-    if (toggleEl) {
-      toggleEl.style.display = (hasMySnapshots && hasOsaSnapshots) ? '' : 'none';
+      const label = isProspect ? 'snapshot' : 'season';
+      countEl.textContent = `${snapshots.length} ${label}${snapshots.length !== 1 ? 's' : ''}`;
     }
 
     // Create and render chart
@@ -663,9 +691,6 @@ export class PlayerProfileModal {
       height: 280,
     });
     this.developmentChart.render();
-
-    // Bind scout source toggle
-    this.bindDevScoutSourceToggle(playerId);
 
     // Bind metric toggle handlers
     const container = this.overlay?.querySelector('.development-section');
