@@ -106,8 +106,9 @@ class BatterProjectionService {
     // Build team lookup
     const teamMap = new Map<number, Team>(allTeams.map(t => [t.id, t]));
 
-    // Filter to MLB batters (not pitchers on MLB rosters)
+    // Filter to MLB batters (not pitchers on MLB rosters, not retired)
     const mlbBatters = allPlayers.filter((p: Player) => {
+      if (p.retired) return false; // Skip retired players
       const team = teamMap.get(p.teamId);
       if (!team || team.parentTeamId !== 0) return false; // Must be on MLB roster
       if (p.position === 1) return false; // Skip pitchers

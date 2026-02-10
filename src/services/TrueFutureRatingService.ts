@@ -18,6 +18,7 @@ import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { trueRatingsService } from './TrueRatingsService';
 import { trueRatingsCalculationService } from './TrueRatingsCalculationService';
 import { contractService } from './ContractService';
+import { playerService } from './PlayerService';
 
 // ============================================================================
 // Interfaces
@@ -772,6 +773,10 @@ class TrueFutureRatingService {
       year
     );
 
+    // Fetch all players for age lookup (scouting CSVs often lack age)
+    const allPlayers = await playerService.getAllPlayers();
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
     for (const scouting of scoutingRatings) {
       // Skip if no valid ID or ratings
       if (scouting.playerId <= 0) continue;
@@ -787,7 +792,7 @@ class TrueFutureRatingService {
       // This excludes amateur/draft prospects who have scouting ratings but haven't debuted yet
       // UNLESS they are signed to a pro team (e.g. International Complex players with no stats)
       const totalIp = minorStats.reduce((sum, stat) => sum + stat.ip, 0);
-      
+
       if (totalIp === 0) {
           // If no stats, check if they have a professional contract
           // Amateurs (Draft Pool) usually don't have a contract entry or have league_id=0/null
@@ -798,8 +803,9 @@ class TrueFutureRatingService {
           // If they have a contract (e.g. league_id = -200 for IC, or others), include them
       }
 
-      // Get age (from scouting data or estimate)
-      const age = scouting.age ?? 22; // Default to 22 if not available
+      // Get age from player database (preferred), then scouting CSV, then fallback to 22
+      const player = playerMap.get(scouting.playerId);
+      const age = player?.age ?? scouting.age ?? 22;
 
       prospectInputs.push({
         playerId: scouting.playerId,

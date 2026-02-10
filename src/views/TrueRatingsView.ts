@@ -264,7 +264,7 @@ export class TrueRatingsView {
       this.selectedPosition = this.preferences.selectedPosition;
       // Restore mode based on position
       const pitcherPositions = ['all-pitchers', 'SP', 'RP'];
-      const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+      const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH', 'all-of', 'all-middle-if'];
       if (pitcherPositions.includes(this.selectedPosition)) {
         this.mode = 'pitchers';
       } else if (batterPositions.includes(this.selectedPosition)) {
@@ -1018,7 +1018,13 @@ export class TrueRatingsView {
         } else {
           // For batters, use the position field directly
           const position = getPositionLabel((row as BatterRow).position);
-          if (position !== this.selectedPosition) return false;
+          if (this.selectedPosition === 'all-of') {
+            if (position !== 'LF' && position !== 'CF' && position !== 'RF') return false;
+          } else if (this.selectedPosition === 'all-middle-if') {
+            if (position !== '2B' && position !== 'SS') return false;
+          } else {
+            if (position !== this.selectedPosition) return false;
+          }
         }
       }
 
@@ -1513,10 +1519,14 @@ export class TrueRatingsView {
         blendedHrPct: result.blendedHrPct,
         blendedIso: result.blendedIso,
         blendedAvg: result.blendedAvg,
+        blendedDoublesRate: result.blendedDoublesRate,
+        blendedTriplesRate: result.blendedTriplesRate,
         estimatedPower: result.estimatedPower,
         estimatedEye: result.estimatedEye,
         estimatedAvoidK: result.estimatedAvoidK,
         estimatedContact: result.estimatedContact,
+        estimatedGap: result.estimatedGap,
+        estimatedSpeed: result.estimatedSpeed,
         totalPa: result.totalPa,
       };
     });
@@ -2435,7 +2445,15 @@ export class TrueRatingsView {
         sortKey: 'woba',
         accessor: (row) => typeof row.woba === 'number' ? row.woba.toFixed(3) : '',
       },
-      { key: 'war', label: 'WAR', sortKey: 'war' },
+      {
+        key: 'war',
+        label: 'WAR',
+        sortKey: 'war',
+        accessor: (row) => {
+          const war = this.calculateOffensiveWar(row);
+          return war !== undefined ? war.toFixed(1) : '';
+        }
+      },
     ];
 
     return [...baseColumns, ...rawColumns];
@@ -2623,6 +2641,19 @@ export class TrueRatingsView {
     cells.forEach(cell => cell.classList.toggle(className, add));
   }
 
+  private calculateOffensiveWar(row: any): number | undefined {
+    if (!this.cachedLeagueBattingAverages || typeof row.obp !== 'number' || !row.ab || row.ab <= 0 || !row.pa) {
+      return undefined;
+    }
+    const singles = (row.h ?? 0) - (row.d ?? 0) - (row.t ?? 0) - (row.hr ?? 0);
+    const slg = (singles + 2 * (row.d ?? 0) + 3 * (row.t ?? 0) + 4 * (row.hr ?? 0)) / row.ab;
+    const opsPlus = leagueBattingAveragesService.calculateOpsPlus(row.obp, slg, this.cachedLeagueBattingAverages);
+    const runsPerWin = 10;
+    const runsAboveAvg = ((opsPlus - 100) / 10) * (row.pa / 600) * 10;
+    const replacementRuns = (row.pa / 600) * 20;
+    return (runsAboveAvg + replacementRuns) / runsPerWin;
+  }
+
   private sortStats(): void {
     if (!this.sortKey) return;
     const key = this.sortKey;
@@ -2645,6 +2676,12 @@ export class TrueRatingsView {
         const bProspect = (b as any).isProspect;
         if (aProspect) aVal = (a as any).tfrPercentile;
         if (bProspect) bVal = (b as any).tfrPercentile;
+      }
+
+      // For batter WAR sort, use calculated offensive WAR (matches displayed value)
+      if (key === 'war' && this.mode === 'batters') {
+        aVal = this.calculateOffensiveWar(a) ?? -999;
+        bVal = this.calculateOffensiveWar(b) ?? -999;
       }
 
       let compare = 0;
@@ -2689,9 +2726,11 @@ export class TrueRatingsView {
       }
     }
 
-    // Fallback to role from player model if available
+    // Fallback to role from player model or prospect role determination
     const role = (row as any).role;
-    if (role === 11 || role === 12) return 'SP'; // SP or Long Relief/Emergency SP usually
+    if (role === 'SP' || role === 'SW') return 'SP';
+    if (role === 'RP') return 'RP';
+    if (role === 11 || role === 12) return 'SP'; // Numeric OOTP role codes
 
     return 'RP';
   }
@@ -3337,15 +3376,20 @@ export class TrueRatingsView {
       : undefined;
 
     // For prospects, fetch full data from hitter farm data
-    let projWar = row.war;
-    let projWoba: number | undefined;
-    let projAvg: number | undefined;
-    let projObp: number | undefined;
-    let projSlg: number | undefined;
+    // For MLB players, pass blended rates so the modal doesn't re-derive from percentile-based True Ratings
+    let projWar: number | undefined = row.isProspect ? row.war : undefined;
+    let projWoba: number | undefined = !row.isProspect ? row.woba : undefined;
+    let projAvg: number | undefined = !row.isProspect ? row.blendedAvg : undefined;
+    let projObp: number | undefined = !row.isProspect && row.blendedAvg !== undefined && row.blendedBbPct !== undefined
+      ? Math.min(0.450, row.blendedAvg + (row.blendedBbPct / 100)) : undefined;
+    let projSlg: number | undefined = !row.isProspect && row.blendedAvg !== undefined && row.blendedIso !== undefined
+      ? row.blendedAvg + row.blendedIso : undefined;
     let projPa: number | undefined;
-    let projBbPct: number | undefined;
-    let projKPct: number | undefined;
-    let projHrPct: number | undefined;
+    let projBbPct: number | undefined = !row.isProspect ? row.blendedBbPct : undefined;
+    let projKPct: number | undefined = !row.isProspect ? row.blendedKPct : undefined;
+    let projHrPct: number | undefined = !row.isProspect ? row.blendedHrPct : undefined;
+    let projDoublesRate: number | undefined = !row.isProspect ? row.blendedDoublesRate : undefined;
+    let projTriplesRate: number | undefined = !row.isProspect ? row.blendedTriplesRate : undefined;
     let trueFutureRating = row.trueFutureRating;
     let tfrPercentile = row.tfrPercentile;
     let estimatedPower = row.estimatedPower;
@@ -3425,6 +3469,8 @@ export class TrueRatingsView {
       projBbPct,
       projKPct,
       projHrPct,
+      projDoublesRate,
+      projTriplesRate,
 
       // Prospect info
       isProspect: Boolean(row.isProspect),
@@ -3476,7 +3522,7 @@ export class TrueRatingsView {
 
         // Determine mode based on position selection
         const pitcherPositions = ['all-pitchers', 'SP', 'RP'];
-        const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+        const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH', 'all-of', 'all-middle-if'];
 
         if (pitcherPositions.includes(value)) {
           this.mode = 'pitchers';
@@ -3561,6 +3607,8 @@ export class TrueRatingsView {
   private getPositionDisplayName(position: string): string {
     if (position === 'all-pitchers') return 'All Pitchers';
     if (position === 'all-batters') return 'All Batters';
+    if (position === 'all-of') return 'All OFers';
+    if (position === 'all-middle-if') return 'All Middle IFers';
     return position;
   }
 
@@ -3572,9 +3620,11 @@ export class TrueRatingsView {
       { value: 'all-batters', label: 'All Batters' },
       { value: 'C', label: 'C' },
       { value: '1B', label: '1B' },
+      { value: 'all-middle-if', label: 'All Middle IFers' },
       { value: '2B', label: '2B' },
-      { value: '3B', label: '3B' },
       { value: 'SS', label: 'SS' },
+      { value: '3B', label: '3B' },
+      { value: 'all-of', label: 'All OFers' },
       { value: 'LF', label: 'LF' },
       { value: 'CF', label: 'CF' },
       { value: 'RF', label: 'RF' },

@@ -70,6 +70,8 @@ export interface BatterProfileData {
   projBbPct?: number;
   projKPct?: number;
   projHrPct?: number;
+  projDoublesRate?: number;  // per AB
+  projTriplesRate?: number;  // per AB
 
   // TFR for prospects
   isProspect?: boolean;
@@ -81,10 +83,13 @@ interface BatterSeasonStats {
   year: number;
   level: string;
   pa: number;
+  ab: number;
   avg: number;
   obp: number;
   slg: number;
   hr: number;
+  d: number;
+  t: number;
   rbi: number;
   sb: number;
   bb: number;
@@ -313,10 +318,13 @@ export class BatterProfileModal {
           year: s.year,
           level: s.level,
           pa: s.pa,
+          ab: s.ab,
           avg: s.avg,
           obp: s.obp,
           slg: s.slg,
           hr: s.hr,
+          d: s.d,
+          t: s.t,
           rbi: 0,
           sb: s.sb,
           bb: s.bb,
@@ -343,10 +351,13 @@ export class BatterProfileModal {
               year: year,
               level: 'MLB',
               pa: playerStat.pa,
+              ab: playerStat.ab,
               avg: playerStat.avg,
               obp: playerStat.obp,
               slg: Math.round(slg * 1000) / 1000,
               hr: playerStat.hr,
+              d: playerStat.d,
+              t: playerStat.t,
               rbi: playerStat.rbi,
               sb: playerStat.sb,
               bb: playerStat.bb,
@@ -557,9 +568,38 @@ export class BatterProfileModal {
       ? `${ovr.toFixed(1)}★ / ${pot.toFixed(1)}★`
       : '--';
 
-    // WAR badge - use projWar for both prospects (peak) and MLB players (projected season)
-    // projWar is calculated in the calling views and passed appropriately
-    const projWar = data.projWar;
+    // WAR badge - use projWar if provided, otherwise calculate from blended rates or estimated ratings
+    let projWar = data.projWar;
+    if (projWar === undefined) {
+      const age = data.age ?? 27;
+      const injuryProneness = s?.injuryProneness ?? data.injuryProneness;
+      const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+      let badgeObp: number | undefined;
+      let badgeSlg: number | undefined;
+
+      // Prefer blended rates (passed for MLB players) over re-deriving from True Ratings
+      if (data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
+        badgeObp = data.projObp;
+        badgeSlg = data.projSlg;
+      } else if (data.estimatedPower !== undefined && data.estimatedEye !== undefined &&
+                 data.estimatedContact !== undefined) {
+        const projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
+        const projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
+        const iso = HitterRatingEstimatorService.expectedIso(data.estimatedPower);
+        badgeObp = Math.min(0.450, projAvg + (projBbPct / 100));
+        badgeSlg = projAvg + iso;
+      }
+
+      if (badgeObp !== undefined && badgeSlg !== undefined) {
+        const lgObp = 0.320;
+        const lgSlg = 0.400;
+        const projOpsPlus = Math.round(100 * ((badgeObp / lgObp) + (badgeSlg / lgSlg) - 1));
+        const runsPerWin = 10;
+        const replacementRuns = (projPa / 600) * 20;
+        const runsAboveAvg = ((projOpsPlus - 100) / 10) * (projPa / 600) * 10;
+        projWar = Math.round(((runsAboveAvg + replacementRuns) / runsPerWin) * 10) / 10;
+      }
+    }
     const warBadgeClass = this.getWarBadgeClass(projWar);
     const warText = typeof projWar === 'number' ? projWar.toFixed(1) : '--';
     const warLabel = data.isProspect ? 'Proj Peak WAR' : 'Proj WAR';
@@ -858,6 +898,26 @@ export class BatterProfileModal {
       projHr = Math.round((projSlg - projAvg) * 100); // Fallback: rough estimate from SLG-AVG
     }
 
+    // Calculate projected 2B and 3B from doubles/triples rates
+    const abPerPa = 0.88;
+    const projAb = Math.round(projPa * abPerPa);
+    let proj2b: number;
+    let proj3b: number;
+    if (data.projDoublesRate !== undefined) {
+      proj2b = Math.round(projAb * data.projDoublesRate);
+    } else if (data.estimatedGap !== undefined) {
+      proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(data.estimatedGap));
+    } else {
+      proj2b = Math.round(projAb * 0.04); // ~24 doubles per 600 AB fallback
+    }
+    if (data.projTriplesRate !== undefined) {
+      proj3b = Math.round(projAb * data.projTriplesRate);
+    } else if (data.estimatedSpeed !== undefined) {
+      proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(data.estimatedSpeed));
+    } else {
+      proj3b = Math.round(projAb * 0.005); // ~3 triples per 600 AB fallback
+    }
+
     // Calculate OPS and OPS+
     const projOps = projObp + projSlg;
     const projOpsPlus = Math.round(100 * ((projObp / lgObp) + (projSlg / lgSlg) - 1));
@@ -880,10 +940,15 @@ export class BatterProfileModal {
     const eyeRating = this.clampRatingForDisplay(data.estimatedEye ?? 50);
     const powerRating = this.clampRatingForDisplay(data.estimatedPower ?? 50);
 
+    const gapRating = this.clampRatingForDisplay(data.estimatedGap ?? 50);
+    const speedRating = this.clampRatingForDisplay(data.estimatedSpeed ?? 50);
+
     const avgFlip = this.renderFlipCell(formatStat(projAvg), contactRating.toString(), 'Estimated Contact');
     const bbPctFlip = this.renderFlipCell(formatPct(projBbPct), eyeRating.toString(), 'Estimated Eye');
     const kPctDisplay = formatPct(projKPct);
     const hrPctFlip = this.renderFlipCell(formatPct(projHrPct), powerRating.toString(), 'Estimated Power');
+    const doublesFlip = this.renderFlipCell(proj2b.toString(), gapRating.toString(), 'Estimated Gap');
+    const triplesFlip = this.renderFlipCell(proj3b.toString(), speedRating.toString(), 'Estimated Speed');
 
     // Show comparison to actual if we have stats
     let comparisonRow = '';
@@ -893,6 +958,11 @@ export class BatterProfileModal {
       const actualHrPct = latestStat.pa > 0 ? (latestStat.hr / latestStat.pa) * 100 : 0;
       const actualOps = latestStat.obp + latestStat.slg;
       const actualOpsPlus = Math.round(100 * ((latestStat.obp / lgObp) + (latestStat.slg / lgSlg) - 1));
+
+      // Calculate actual WAR using same offensive-only formula as projections (apples to apples)
+      const actualRunsAboveAvg = ((actualOpsPlus - 100) / 10) * (latestStat.pa / 600) * 10;
+      const actualReplacementRuns = (latestStat.pa / 600) * 20;
+      const actualWar = Math.round(((actualRunsAboveAvg + actualReplacementRuns) / runsPerWin) * 10) / 10;
 
       comparisonRow = `
         <tr class="actual-row">
@@ -904,10 +974,12 @@ export class BatterProfileModal {
           <td>${formatPct(actualKPct)}</td>
           <td>${formatPct(actualHrPct)}</td>
           <td>${latestStat.hr}</td>
+          <td>${latestStat.d ?? '—'}</td>
+          <td>${latestStat.t ?? '—'}</td>
           <td>${formatStat(latestStat.slg)}</td>
           <td>${formatStat(actualOps)}</td>
           <td>${actualOpsPlus}</td>
-          <td>${typeof latestStat.war === 'number' ? formatStat(latestStat.war, 1) : '—'}</td>
+          <td>${formatStat(actualWar, 1)}</td>
         </tr>
       `;
     }
@@ -933,6 +1005,8 @@ export class BatterProfileModal {
                 <th style="width: 60px;">K%</th>
                 <th style="width: 60px;">HR%</th>
                 <th style="width: 50px;">HR</th>
+                <th style="width: 50px;">2B</th>
+                <th style="width: 50px;">3B</th>
                 <th style="width: 60px;">SLG</th>
                 <th style="width: 60px;">OPS</th>
                 <th style="width: 50px;">OPS+</th>
@@ -949,6 +1023,8 @@ export class BatterProfileModal {
                 <td>${kPctDisplay}</td>
                 <td>${hrPctFlip}</td>
                 <td>${projHr}</td>
+                <td>${doublesFlip}</td>
+                <td>${triplesFlip}</td>
                 <td>${formatStat(projSlg)}</td>
                 <td>${formatStat(projOps)}</td>
                 <td><strong>${projOpsPlus}</strong></td>
@@ -1262,14 +1338,19 @@ export class BatterProfileModal {
         ? '<span class="level-badge level-mlb">MLB</span>'
         : `<span class="level-badge level-${s.level.toLowerCase()}">${s.level.toUpperCase()}</span>`;
       const isMinor = s.level !== 'MLB';
-      const warCell = isMinor ? '<td class="stat-na">—</td>' : `<td style="text-align: center;">${(s.war ?? 0).toFixed(1)}</td>`;
-
       // Calculate rate stats
       const bbPct = s.pa > 0 ? (s.bb / s.pa) * 100 : 0;
       const kPct = s.pa > 0 ? (s.k / s.pa) * 100 : 0;
       const hrPct = s.pa > 0 ? (s.hr / s.pa) * 100 : 0;
       const ops = s.obp + s.slg;
       const opsPlus = Math.round(100 * ((s.obp / lgObp) + (s.slg / lgSlg) - 1));
+
+      // Calculate offensive-only WAR (same formula as projections for apples-to-apples comparison)
+      const runsPerWin = 10;
+      const runsAboveAvg = ((opsPlus - 100) / 10) * (s.pa / 600) * 10;
+      const replacementRuns = (s.pa / 600) * 20;
+      const calcWar = Math.round(((runsAboveAvg + replacementRuns) / runsPerWin) * 10) / 10;
+      const warCell = isMinor ? '<td class="stat-na">—</td>' : `<td style="text-align: center;">${calcWar.toFixed(1)}</td>`;
 
       // Estimate ratings
       const estContact = HitterRatingEstimatorService.estimateContact(s.avg, s.pa).rating;

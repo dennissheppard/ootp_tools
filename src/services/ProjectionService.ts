@@ -198,7 +198,7 @@ class ProjectionService {
 
     for (const tr of trResults) {
         const player = playerMap.get(tr.playerId);
-        if (!player) continue;
+        if (!player || player.retired) continue;
 
         const ageInYear = this.calculateAgeAtYear(player, currentYear, statsYear);
         const currentStats = statsMap.get(tr.playerId);
