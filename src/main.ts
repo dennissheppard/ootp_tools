@@ -4,7 +4,7 @@ import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
 import { indexedDBService } from './services/IndexedDBService';
-import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TradeAnalyzerView, AboutView } from './views';
+import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
 
 class App {
@@ -21,11 +21,13 @@ class App {
   private projectionsView?: ProjectionsView;
   private teamRatingsView?: TeamRatingsView;
   private devTrackerView?: DevTrackerView;
+  private teamPlanningView?: TeamPlanningView;
   private tradeAnalyzerView?: TradeAnalyzerView;
   private aboutView!: AboutView;
   private projectionsContainer!: HTMLElement;
   private teamRatingsContainer!: HTMLElement;
   private devTrackerContainer!: HTMLElement;
+  private teamPlanningContainer!: HTMLElement;
   private tradeAnalyzerContainer!: HTMLElement;
 
   private selectedYear?: number;
@@ -100,8 +102,8 @@ class App {
 
   private restoreTabPreference(): void {
     const savedTab = localStorage.getItem(this.TAB_PREF_KEY);
-    if (savedTab) {
-      this.activeTabId = savedTab;
+    if (savedTab) {      
+        this.activeTabId = savedTab;      
     }
   }
 
@@ -144,9 +146,9 @@ class App {
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
           <span>Team Ratings</span>
         </button>
-        <button class="tab-button ${this.activeTabId === 'tab-dev-tracker' ? 'active' : ''}" data-tab-target="tab-dev-tracker">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M12 2v10l4.5 4.5"/><circle cx="12" cy="12" r="10"/></svg>
-          <span>Dev Tracker</span>
+        <button class="tab-button ${this.activeTabId === 'tab-team-planning' ? 'active' : ''}" data-tab-target="tab-team-planning">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span>Team Planning</span>
         </button>
         <button class="tab-button ${this.activeTabId === 'tab-trade-analyzer' ? 'active' : ''}" data-tab-target="tab-trade-analyzer">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M16 3h5v5"></path><path d="M8 21H3v-5"></path><path d="M21 3l-7.5 7.5"></path><path d="M10.5 13.5L3 21"></path></svg>
@@ -190,7 +192,11 @@ class App {
           <div id="team-ratings-container">Team Ratings Content Here</div>
         </section>
 
-        <section id="tab-dev-tracker" class="tab-panel ${this.activeTabId === 'tab-dev-tracker' ? 'active' : ''}">
+        <section id="tab-team-planning" class="tab-panel ${this.activeTabId === 'tab-team-planning' ? 'active' : ''}">
+          <div id="team-planning-container"></div>
+        </section>
+
+        <section id="tab-dev-tracker" class="tab-panel" style="display:none;">
           <div id="dev-tracker-container"></div>
         </section>
 
@@ -218,6 +224,7 @@ class App {
     const farmRankingsContainer = document.querySelector<HTMLElement>('#farm-rankings-container')!;
     const teamRatingsContainer = document.querySelector<HTMLElement>('#team-ratings-container')!;
     const devTrackerContainer = document.querySelector<HTMLElement>('#dev-tracker-container')!;
+    const teamPlanningContainer = document.querySelector<HTMLElement>('#team-planning-container')!;
     const tradeAnalyzerContainer = document.querySelector<HTMLElement>('#trade-analyzer-container')!;
     const dataManagementContainer = document.querySelector<HTMLElement>('#data-management-container')!;
     const loadingContainer = document.querySelector<HTMLElement>('#loading-container')!;
@@ -255,6 +262,7 @@ class App {
     new FarmRankingsView(farmRankingsContainer);
     this.teamRatingsContainer = teamRatingsContainer;
     this.devTrackerContainer = devTrackerContainer;
+    this.teamPlanningContainer = teamPlanningContainer;
     this.tradeAnalyzerContainer = tradeAnalyzerContainer;
     new DataManagementView(dataManagementContainer);
     this.loadingView = new LoadingView(loadingContainer);
@@ -269,6 +277,9 @@ class App {
     }
     if (this.activeTabId === 'tab-team-ratings') {
       this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);
+    }
+    if (this.activeTabId === 'tab-team-planning') {
+      this.teamPlanningView = new TeamPlanningView(this.teamPlanningContainer);
     }
     if (this.activeTabId === 'tab-dev-tracker') {
       this.devTrackerView = new DevTrackerView(this.devTrackerContainer);
@@ -354,6 +365,9 @@ class App {
     }
     if (tabId === 'tab-team-ratings' && !this.teamRatingsView) {
       this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);
+    }
+    if (tabId === 'tab-team-planning' && !this.teamPlanningView) {
+      this.teamPlanningView = new TeamPlanningView(this.teamPlanningContainer);
     }
     if (tabId === 'tab-dev-tracker' && !this.devTrackerView) {
       this.devTrackerView = new DevTrackerView(this.devTrackerContainer);

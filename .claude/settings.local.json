@@ -38,7 +38,9 @@
       "Bash(test:*)",
       "Bash(powershell:*)",
       "Bash(npx vite:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" -Recurse -Filter \"*contract*\" -ErrorAction SilentlyContinue)",
+      "Bash(Select-Object -ExpandProperty FullName)"
     ]
   }
 }

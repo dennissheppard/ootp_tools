@@ -299,6 +299,36 @@ K%      1.724  2.214   -0.400
 HR%     0.648  0.849   -0.069
 ```
 
+### Team Planning
+
+A year-by-year roster planning grid that shows contract obligations, projected gaps, and where farm system prospects slot in. Select a team and see 6 years of roster planning across lineup, rotation, and bullpen.
+
+**Grid Structure:**
+- Position rows: C, 1B, 2B, SS, 3B, LF, CF, RF, DH (lineup), SP1-5 (rotation), CL/SU/MR (bullpen)
+- Year columns: current year + 5 forward years
+- Each cell shows abbreviated name, age, True Rating, and salary
+
+**Contract Intelligence:**
+- Parses full contract data from `ContractService` (salary schedule, years, options)
+- League minimum contracts (≤$300K) are automatically extended to estimate full team control (3 pre-arb + 3 arb years from typical debut age)
+- Salary formatting: `$228K` for thousands, `$9.7M` / `$21.1M` for millions
+- Color coding: green (under contract), yellow (final year), red (empty/gap)
+
+**Prospect Integration:**
+- Fetches hitter prospects from `TeamRatingsService.getHitterFarmData()` and pitcher prospects from `getFarmData()`
+- **ETA estimation** based on current minor league level: MLB=0yr, AAA=1yr, AA=2yr, A=3yr, R=4yr, IC=5yr
+  - Elite prospects (TFR ≥ 4.0) get 1 year acceleration; strong prospects (≥ 3.5) get 0.5yr
+- **Scarcity-based position assignment** (same algorithm as `constructOptimalLineup`): fills most constrained positions first (C, SS, CF) before flexible ones, respecting positional flexibility rules (SS can play 1B/2B/3B, CF can play corner OF, etc.)
+- **Year-independent evaluation**: each year column runs a fresh assignment — better prospects arriving later supersede lesser ones (a 5★ catcher in year 3 replaces a 4.5★ from year 1)
+- **Min-contract upgradeability**: league-minimum incumbents can be replaced by higher-rated prospects
+- Pitcher prospects classified as SP (3+ pitches, stamina ≥ 30) or RP; rotation fills with SP prospects, bullpen fills with RP then overflow SP
+- Prospect cells shown in blue tint with level indicator (AAA, AA, etc.)
+
+**UI:**
+- Team selector uses the standard `filter-dropdown` pattern (consistent with TrueRatingsView/ProjectionsView)
+- Only real MLB teams shown (filtered by power rankings data — excludes all-star/phantom teams)
+- All cells clickable to open player profile modals (with `isProspect` flag for prospect-specific views)
+
 ### Farm System Rankings
 
 Organizations are ranked by **Farm Score**, a tier-based system that weights prospect quality:
@@ -378,6 +408,7 @@ Three-model ensemble for future performance:
 
 | Service | Purpose |
 |---------|---------|
+| `ContractService` | Contract parsing, salary schedules, years remaining, team control |
 | `TeamRatingsService` | Farm rankings, organizational depth analysis, Farm Score |
 | `DevTrackerService` | Org development scoring (youth dev, peak WAR, aging curves, trade impact) |
 | `ProjectionService` | Future performance projections |
@@ -448,6 +479,7 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - **BatterTrueRatingsView**: MLB batter dashboard with TR/projections
 - **FarmRankingsView**: Top 100 prospects, org rankings with Farm Score, sortable/draggable columns
 - **ProjectionsView**: Future performance projections with 3-model ensemble
+- **TeamPlanningView**: 6-year roster planning grid with contract tracking, prospect ETA, and scarcity-based position assignment
 - **DevTrackerView**: Org-level development rankings (2015-2021 WAR), expandable rows with player trajectories and trade impact
 - **TradeAnalyzerView**: Side-by-side player comparisons
 - **DataManagementView**: File uploads with header validation, filename mismatch detection, data refresh

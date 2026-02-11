@@ -364,33 +364,30 @@ POSITIONAL NEEDS FROM GRID:
 
 ## Implementation Phases
 
-### Phase 0: Contract Data Pipeline
-**Must happen first — everything depends on knowing when players are under contract.**
+### Phase 0: Contract Data Pipeline — COMPLETE
+- [x] Full `ContractService` parsing: salary schedules, years, options, team/player/vesting options
+- [x] League minimum contract detection with estimated team control (6 years from debut)
+- [x] Salary formatting ($228K / $9.7M)
 
-- [ ] Determine OOTP contract export format (what fields are available?)
-- [ ] Design `Contract` model: `playerId, salary[], years, options, faYear, arbEligible`
-- [ ] Expand `ContractService` to parse full contract data
-- [ ] Or: build a simple manual entry UI / CSV import as a starting point
+### Phase 1: Basic Roster Grid — COMPLETE
+- [x] `TeamPlanningView.ts` registered as tab
+- [x] Team selector using `filter-dropdown` pattern (consistent with other views)
+- [x] Only real MLB teams (filtered via power rankings, excludes all-star/phantom)
+- [x] 6 year columns (current + 5 forward)
+- [x] Position rows: C, 1B, 2B, SS, 3B, LF, CF, RF, DH, SP1-5, CL, SU1-2, MR1-5
+- [x] Cells populated from `getPowerRankings()` + contract data
+- [x] Color coding: green (under contract), yellow (final year), red (empty), blue (prospect)
+- [x] Position assignment via `positionLabel` matching (not array index)
+- [x] Click cells to open player profile modals
 
-### Phase 1: Basic Roster Grid (MVP)
-**Goal: replicate the spreadsheet, but in the app.**
-
-- [ ] New `TeamPlanningView.ts` (register as a new tab)
-- [ ] Team selector dropdown (like other views)
-- [ ] Year columns: current year + 5 forward years
-- [ ] Position rows: C, 1B, 2B, SS, 3B, LF, CF, RF, DH, Bench x3, SP1-5, CL, SU1-2, MR1-3
-- [ ] Populate cells from roster data + contract years
-- [ ] Color cells: green (under contract), red (empty), yellow (final year)
-- [ ] Click a cell to open the existing player profile modal
-
-### Phase 2: Prospect Pipeline Integration
-**Goal: show where the farm can fill future gaps.**
-
-- [ ] Pull farm data from `TeamRatingsService.getHitterFarmData()` / `getFarmData()`
-- [ ] For each position with a future gap (red cell), check if there's a prospect at that position
-- [ ] Show prospect name in blue cells with readiness tier tag
-- [ ] "Best prospect at position" logic — match farm players to positions with gaps
-- [ ] Prospect hover/tooltip: show TFR star, OVR/POT, age, current level
+### Phase 2: Prospect Pipeline Integration — COMPLETE
+- [x] Hitter prospects from `getHitterFarmData()`, pitcher prospects from `getFarmData()`
+- [x] ETA estimation by level: MLB=0, AAA=1, AA=2, A=3, R=4, IC=5 (with TFR-based acceleration)
+- [x] Scarcity-based position assignment (mirrors `constructOptimalLineup` algorithm)
+- [x] Year-independent evaluation: better prospects supersede lesser ones in later years
+- [x] Min-contract players upgradeable by higher-rated prospects
+- [x] SP/RP classification for pitcher prospects (3+ pitches + stamina ≥ 30 = SP)
+- [x] Prospect cells show name, projected age, TFR rating, and level indicator
 
 ### Phase 2.5: Draft Capital (see Draft Capital Planning section above)
 **Goal: connect roster gaps to draft strategy.**

@@ -6887,3 +6887,406 @@ th .stat-tooltip {
   background: rgba(248, 113, 113, 0.15);
   color: #f87171;
 }
+
+/* ========================================
+   TEAM PLANNING VIEW STYLES
+   ======================================== */
+
+.team-planning-view {
+  padding: 1rem;
+}
+
+
+
+.team-planning-grid-container {
+  min-height: 200px;
+}
+
+.team-planning-table-wrapper {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+}
+
+.team-planning-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  min-width: 700px;
+}
+
+.team-planning-table thead {
+  background: rgba(29, 155, 240, 0.1);
+}
+
+.team-planning-table th {
+  padding: 0.6rem 0.75rem;
+  text-align: center;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 2px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.grid-position-header {
+  text-align: left !important;
+  width: 60px;
+}
+
+.grid-year-header {
+  min-width: 100px;
+}
+
+/* Section headers (LINEUP, ROTATION, BULLPEN) */
+.grid-section-row .grid-section-header {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--color-primary);
+  background: rgba(29, 155, 240, 0.06);
+  border-bottom: 1px solid rgba(29, 155, 240, 0.2);
+  border-top: 1px solid rgba(29, 155, 240, 0.2);
+}
+
+.grid-data-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.grid-position-label {
+  padding: 0.5rem 0.75rem;
+  font-weight: 600;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  white-space: nowrap;
+}
+
+/* Grid cells */
+.grid-cell {
+  padding: 0.4rem 0.5rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-left: 1px solid rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: background 0.15s ease;
+  vertical-align: top;
+}
+
+.grid-cell:hover {
+  filter: brightness(1.2);
+}
+
+.grid-cell[data-player-id]:hover {
+  background: rgba(29, 155, 240, 0.08);
+}
+
+/* Cell content layout */
+.cell-name {
+  font-weight: 500;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-bottom: 0.15rem;
+}
+
+.cell-meta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.cell-age {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+}
+
+.cell-rating {
+  font-size: 0.65rem !important;
+  padding: 0.1rem 0.3rem !important;
+}
+
+.cell-salary {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  margin-top: 0.1rem;
+}
+
+/* Contract status colors */
+.cell-under-contract {
+  background: rgba(0, 186, 124, 0.08);
+}
+
+.cell-final-year {
+  background: rgba(255, 193, 7, 0.12);
+}
+
+.cell-final-year .cell-name {
+  color: #ffc107;
+}
+
+.cell-empty {
+  background: rgba(244, 33, 46, 0.06);
+  cursor: default;
+}
+
+.cell-empty:hover {
+  filter: none;
+}
+
+.cell-empty-label {
+  font-size: 0.75rem;
+  color: rgba(244, 33, 46, 0.4);
+}
+
+.cell-arb-eligible {
+  background: rgba(139, 92, 246, 0.1);
+}
+
+.cell-minor-league {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+/* Responsive: ensure horizontal scroll on small screens */
+@media (max-width: 768px) {
+  .team-planning-view {
+    padding: 0.5rem;
+  }
+}
+
+/* ===== Cell Indicators (Phase 3) ===== */
+
+.cell-indicators {
+  display: flex;
+  gap: 0.2rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 0.15rem;
+}
+
+.cell-indicator {
+  font-size: 0.55rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 0.05rem 0.25rem;
+  border-radius: 3px;
+  cursor: default;
+  line-height: 1.3;
+}
+
+.cell-indicator-cliff {
+  background: rgba(244, 33, 46, 0.15);
+  color: #f4212e;
+  border: 1px solid rgba(244, 33, 46, 0.3);
+}
+
+.cell-indicator-ext {
+  background: rgba(0, 186, 124, 0.15);
+  color: #00ba7c;
+  border: 1px solid rgba(0, 186, 124, 0.3);
+}
+
+.cell-indicator-fa {
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.cell-indicator-tr {
+  background: rgba(139, 92, 246, 0.15);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.cell-indicator-expensive {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* ===== Salary Summary Rows (Phase 4) ===== */
+
+.grid-salary-row {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.salary-cell {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.salary-label {
+  text-align: left !important;
+  font-weight: 600;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.grid-salary-total-row {
+  background: rgba(29, 155, 240, 0.06);
+}
+
+.salary-total-cell {
+  padding: 0.4rem 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  text-align: center;
+  border-top: 2px solid rgba(29, 155, 240, 0.3);
+  border-bottom: 2px solid rgba(29, 155, 240, 0.3);
+}
+
+/* ===== Planning Summary Section (Phase 3) ===== */
+
+.planning-summary-section {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.planning-summary-card {
+  background: var(--color-surface);
+  border-radius: var(--border-radius);
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.summary-card-header {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.summary-header-strength {
+  background: rgba(0, 186, 124, 0.12);
+  color: #00ba7c;
+  border-bottom: 1px solid rgba(0, 186, 124, 0.2);
+}
+
+.summary-header-need {
+  background: rgba(244, 33, 46, 0.1);
+  color: #f4212e;
+  border-bottom: 1px solid rgba(244, 33, 46, 0.2);
+}
+
+.summary-header-extension {
+  background: rgba(255, 193, 7, 0.1);
+  color: #ffc107;
+  border-bottom: 1px solid rgba(255, 193, 7, 0.2);
+}
+
+.summary-list {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+}
+
+.summary-list li {
+  padding: 0.3rem 0;
+  font-size: 0.8rem;
+  color: var(--color-text);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.summary-list li:last-child {
+  border-bottom: none;
+}
+
+.summary-empty {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+/* ===== Draft Reference Section (Phase 2.5) ===== */
+
+.draft-reference-section {
+  margin-top: 1.5rem;
+}
+
+.draft-section-header {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--color-primary);
+  margin-bottom: 0.75rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 2px solid rgba(29, 155, 240, 0.2);
+}
+
+.draft-gap-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.draft-gap-header {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--color-text);
+  margin-bottom: 0.4rem;
+}
+
+.draft-gap-recommendation {
+  font-size: 0.8rem;
+  color: var(--color-primary);
+  font-weight: 500;
+  margin-bottom: 0.3rem;
+}
+
+.draft-gap-stats {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.3rem;
+}
+
+.draft-stat {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(29, 155, 240, 0.1);
+  color: var(--color-primary);
+}
+
+.draft-gap-timeline {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.2rem;
+}
+
+.draft-gap-insight {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* ===== Responsive: summary stacks at narrow widths ===== */
+
+@media (max-width: 768px) {
+  .planning-summary-section {
+    grid-template-columns: 1fr;
+  }
+}
