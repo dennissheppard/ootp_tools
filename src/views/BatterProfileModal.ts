@@ -87,6 +87,15 @@ export interface BatterProfileData {
   tfrContact?: number;
   tfrGap?: number;
   tfrSpeed?: number;
+
+  // TFR blended rates (for peak projection — avoids lossy rating→rate round-trip)
+  tfrBbPct?: number;
+  tfrKPct?: number;
+  tfrHrPct?: number;
+  tfrAvg?: number;
+  tfrObp?: number;
+  tfrSlg?: number;
+  tfrPa?: number;
 }
 
 interface BatterSeasonStats {
@@ -617,7 +626,11 @@ export class BatterProfileModal {
                  data.estimatedContact !== undefined) {
         const projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
         const projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
-        const iso = HitterRatingEstimatorService.expectedIso(data.estimatedPower);
+        // Compute ISO from all XBH components when Gap/Speed available
+        const hrPerAb = (HitterRatingEstimatorService.expectedHrPct(data.estimatedPower) / 100) / 0.88;
+        const doublesPerAb = data.estimatedGap !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(data.estimatedGap) : 0.04;
+        const triplesPerAb = data.estimatedSpeed !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(data.estimatedSpeed) : 0.005;
+        const iso = doublesPerAb + 2 * triplesPerAb + 3 * hrPerAb;
         badgeObp = Math.min(0.450, projAvg + (projBbPct / 100));
         badgeSlg = projAvg + iso;
       }
@@ -916,21 +929,34 @@ export class BatterProfileModal {
     let projBbPct: number;
     let projKPct: number;
 
-    // In peak mode, always derive from TFR ratings (never use pre-computed projections)
-    if (!isPeakMode && data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
+    // Peak mode: use TFR blended rates directly (avoids lossy rating→rate round-trip)
+    if (isPeakMode && data.tfrAvg !== undefined && data.tfrObp !== undefined && data.tfrSlg !== undefined) {
+      projAvg = data.tfrAvg;
+      projObp = data.tfrObp;
+      projSlg = data.tfrSlg;
+      projBbPct = data.tfrBbPct ?? 8.5;
+      projKPct = data.tfrKPct ?? 22.0;
+    }
+    // Current mode: use pre-computed TR blended projections
+    else if (!isPeakMode && data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
       projAvg = data.projAvg;
       projObp = data.projObp;
       projSlg = data.projSlg;
       projBbPct = data.projBbPct ?? 8.5;
       projKPct = data.projKPct ?? 22.0;
     }
+    // Fallback: derive from component ratings
     else if (usePower !== undefined && useEye !== undefined &&
              useAvoidK !== undefined && useContact !== undefined) {
-      projBbPct = isPeakMode ? HitterRatingEstimatorService.expectedBbPct(useEye) : (data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(useEye));
-      projKPct = isPeakMode ? HitterRatingEstimatorService.expectedKPct(useAvoidK) : (data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK));
-      const iso = HitterRatingEstimatorService.expectedIso(usePower);
+      projBbPct = data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(useEye);
+      projKPct = data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK);
       projAvg = HitterRatingEstimatorService.expectedAvg(useContact);
       projObp = Math.min(0.450, projAvg + (projBbPct / 100));
+      // Compute ISO from all XBH components (HR + 2B + 3B) — not the deprecated expectedIso which ignores Gap/Speed
+      const hrPerAb = (HitterRatingEstimatorService.expectedHrPct(usePower) / 100) / 0.88;
+      const doublesPerAb = useGap !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(useGap) : 0.04;
+      const triplesPerAb = useSpeed !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(useSpeed) : 0.005;
+      const iso = doublesPerAb + 2 * triplesPerAb + 3 * hrPerAb;
       projSlg = projAvg + iso;
     }
     else {
@@ -944,12 +970,14 @@ export class BatterProfileModal {
     // Calculate projected PA based on age and injury proneness
     const injuryProneness = this.scoutingData?.injuryProneness ?? data.injuryProneness;
     const projPa = isPeakMode
-      ? leagueBattingAveragesService.getProjectedPa(injuryProneness, 27)
+      ? (data.tfrPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, 27))
       : (data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age));
 
     // Calculate projected HR from HR%
     let projHr: number;
-    if (!isPeakMode && data.projHr !== undefined) {
+    if (isPeakMode && data.tfrHrPct !== undefined) {
+      projHr = Math.round(projPa * (data.tfrHrPct / 100));
+    } else if (!isPeakMode && data.projHr !== undefined) {
       projHr = data.projHr;
     } else if (!isPeakMode && data.projHrPct !== undefined) {
       projHr = Math.round(projPa * (data.projHrPct / 100));
@@ -1256,7 +1284,8 @@ export class BatterProfileModal {
 
     // Ceiling bar (TFR component extension) — only show when ceiling > true value
     let ceilingHtml = '';
-    let barValueContent = `${trueDisplay}`;
+    let barInnerHtml = '';
+    let barValueHtml = `<span class="bar-value">${trueDisplay}</span>`;
     if (ceiling !== undefined && !isNaN(ceiling)) {
       const ceilingClamped = Math.round(Math.max(20, Math.min(80, ceiling)));
       if (ceilingClamped > trueDisplay) {
@@ -1264,7 +1293,8 @@ export class BatterProfileModal {
         const ceilingPercent = Math.max(0, Math.min(100, ((ceilingClamped - 20) / 60) * 100));
         const extensionPercent = ceilingPercent - truePercent;
         ceilingHtml = `<div class="bar bar-ceiling ${ceilingClass}" style="left: ${truePercent}%; width: ${extensionPercent}%" title="TFR Ceiling: ${ceilingClamped}"></div>`;
-        barValueContent = `${trueDisplay}<span class="bar-value-ceiling"> → ${ceilingClamped}</span>`;
+        barInnerHtml = `<span class="bar-value-inner">${trueDisplay}</span>`;
+        barValueHtml = `<span class="bar-value">${ceilingClamped}</span>`;
       }
     }
 
@@ -1274,9 +1304,9 @@ export class BatterProfileModal {
         <div class="rating-bars">
           <div class="rating-bars-left">
             <div class="bar-container">
-              <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%"></div>
+              <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%">${barInnerHtml}</div>
               ${ceilingHtml}
-              <span class="bar-value">${barValueContent}</span>
+              ${barValueHtml}
             </div>
           </div>
           <div class="rating-bars-center">
@@ -1364,7 +1394,8 @@ export class BatterProfileModal {
 
     // Ceiling bar for advanced ratings
     let ceilingHtml = '';
-    let barValueContent = `${trueDisplay}`;
+    let barInnerHtml = '';
+    let barValueHtml = `<span class="bar-value">${trueDisplay}</span>`;
     if (ceiling !== undefined && !isNaN(ceiling)) {
       const ceilingClamped = Math.round(Math.max(min, Math.min(max, ceiling)));
       if (ceilingClamped > trueDisplay) {
@@ -1372,7 +1403,8 @@ export class BatterProfileModal {
         const ceilingPercent = Math.max(0, Math.min(100, ((ceilingClamped - min) / (max - min)) * 100));
         const extensionPercent = ceilingPercent - truePercent;
         ceilingHtml = `<div class="bar bar-ceiling ${ceilingClass}" style="left: ${truePercent}%; width: ${extensionPercent}%" title="TFR Ceiling: ${ceilingClamped}"></div>`;
-        barValueContent = `${trueDisplay}<span class="bar-value-ceiling"> → ${ceilingClamped}</span>`;
+        barInnerHtml = `<span class="bar-value-inner">${trueDisplay}</span>`;
+        barValueHtml = `<span class="bar-value">${ceilingClamped}</span>`;
       }
     }
 
@@ -1382,9 +1414,9 @@ export class BatterProfileModal {
         <div class="rating-bars">
           <div class="rating-bars-left">
             <div class="bar-container">
-              <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%"></div>
+              <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%">${barInnerHtml}</div>
               ${ceilingHtml}
-              <span class="bar-value">${barValueContent}</span>
+              ${barValueHtml}
             </div>
           </div>
           <div class="rating-bars-center">

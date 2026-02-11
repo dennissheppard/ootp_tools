@@ -625,7 +625,8 @@ export class PlayerRatingsCard {
 
     // Ceiling bar (TFR component extension) — only show when ceiling > true value
     let ceilingHtml = '';
-    let barValueContent = `${estValue}`;
+    let barInnerHtml = '';
+    let barValueHtml = `<span class="bar-value">${estValue}</span>`;
     if (ceiling !== undefined && !isNaN(ceiling)) {
       const ceilingClamped = this.clampRatingForDisplay(ceiling);
       if (ceilingClamped > estValue) {
@@ -634,7 +635,8 @@ export class PlayerRatingsCard {
         const ceilingWidth = Math.max(20, Math.min(80, ceilingClamped));
         const extensionPercent = ceilingWidth - truePercent;
         ceilingHtml = `<div class="bar bar-ceiling ${ceilingClass}" style="left: ${truePercent}%; width: ${extensionPercent}%" title="TFR Ceiling: ${ceilingClamped}"></div>`;
-        barValueContent = `${estValue}<span class="bar-value-ceiling"> → ${ceilingClamped}</span>`;
+        barInnerHtml = `<span class="bar-value-inner">${estValue}</span>`;
+        barValueHtml = `<span class="bar-value">${ceilingClamped}</span>`;
       }
     }
 
@@ -643,9 +645,9 @@ export class PlayerRatingsCard {
         <span class="rating-label">${label}</span>
           <div class="rating-bars">
             <div class="bar-container">
-              <div class="bar bar-estimated ${estClass}" style="width: ${estWidth}%"></div>
+              <div class="bar bar-estimated ${estClass}" style="width: ${estWidth}%">${barInnerHtml}</div>
               ${ceilingHtml}
-              <span class="bar-value">${barValueContent}</span>
+              ${barValueHtml}
             </div>
             <span class="rating-diff ${diffClass}">${diffText}</span>
             <span class="bar-vs">vs</span>

@@ -3416,6 +3416,14 @@ export class TrueRatingsView {
     let tfrContact: number | undefined;
     let tfrGap: number | undefined;
     let tfrSpeed: number | undefined;
+    // TFR blended rates for peak projection (avoids lossy rating→rate round-trip)
+    let tfrBbPct: number | undefined;
+    let tfrKPct: number | undefined;
+    let tfrHrPct: number | undefined;
+    let tfrAvg: number | undefined;
+    let tfrObp: number | undefined;
+    let tfrSlg: number | undefined;
+    let tfrPa: number | undefined;
 
     try {
       const unifiedData = this._cachedUnifiedHitterTfrData
@@ -3430,6 +3438,14 @@ export class TrueRatingsView {
         tfrContact = tfrEntry.trueRatings.contact;
         tfrGap = tfrEntry.trueRatings.gap;
         tfrSpeed = tfrEntry.trueRatings.speed;
+        // Always extract blended rates for peak projection use
+        tfrBbPct = tfrEntry.projBbPct;
+        tfrKPct = tfrEntry.projKPct;
+        tfrHrPct = tfrEntry.projHrPct;
+        tfrAvg = tfrEntry.projAvg;
+        tfrObp = tfrEntry.projObp;
+        tfrSlg = tfrEntry.projSlg;
+        tfrPa = tfrEntry.projPa;
 
         if (row.isProspect) {
           // Pure prospect: use TFR-derived true ratings as estimated ratings
@@ -3517,6 +3533,15 @@ export class TrueRatingsView {
       tfrContact,
       tfrGap,
       tfrSpeed,
+
+      // TFR blended rates for peak projection
+      tfrBbPct,
+      tfrKPct,
+      tfrHrPct,
+      tfrAvg,
+      tfrObp,
+      tfrSlg,
+      tfrPa,
     };
 
     await batterProfileModal.show(profileData, this.selectedYear);

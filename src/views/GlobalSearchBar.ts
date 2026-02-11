@@ -659,6 +659,14 @@ export class GlobalSearchBar {
       let tfrContact: number | undefined;
       let tfrGap: number | undefined;
       let tfrSpeed: number | undefined;
+      // TFR blended rates for peak projection
+      let tfrBbPct: number | undefined;
+      let tfrKPct: number | undefined;
+      let tfrHrPct: number | undefined;
+      let tfrAvg: number | undefined;
+      let tfrObp: number | undefined;
+      let tfrSlg: number | undefined;
+      let tfrPa: number | undefined;
 
       try {
         const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(year);
@@ -672,6 +680,14 @@ export class GlobalSearchBar {
           tfrContact = tfrEntry.trueRatings.contact;
           tfrGap = tfrEntry.trueRatings.gap;
           tfrSpeed = tfrEntry.trueRatings.speed;
+          // Always extract blended rates for peak projection use
+          tfrBbPct = tfrEntry.projBbPct;
+          tfrKPct = tfrEntry.projKPct;
+          tfrHrPct = tfrEntry.projHrPct;
+          tfrAvg = tfrEntry.projAvg;
+          tfrObp = tfrEntry.projObp;
+          tfrSlg = tfrEntry.projSlg;
+          tfrPa = tfrEntry.projPa;
 
           if (isProspect) {
             // Pure prospect: use TFR data for everything
@@ -750,6 +766,15 @@ export class GlobalSearchBar {
         tfrContact,
         tfrGap,
         tfrSpeed,
+
+        // TFR blended rates for peak projection
+        tfrBbPct,
+        tfrKPct,
+        tfrHrPct,
+        tfrAvg,
+        tfrObp,
+        tfrSlg,
+        tfrPa,
       };
     } catch (error) {
       console.error('Error fetching batter ratings:', error);

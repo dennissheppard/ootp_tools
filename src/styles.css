@@ -3076,6 +3076,7 @@ th .stat-tooltip {
 }
 
 .bar-estimated {
+  position: relative;
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0));
 }
 
@@ -3115,11 +3116,18 @@ th .stat-tooltip {
   background: rgba(244, 33, 46, 0.75);
 }
 
-/* Arrow indicator for ceiling value inside .bar-value: "55 → 60" */
-.bar-value-ceiling {
-  opacity: 0.7;
-  font-size: 0.65rem;
-  margin-left: 1px;
+/* TR value inside the estimated bar when ceiling is shown */
+.bar-value-inner {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  white-space: nowrap;
+  z-index: 2;
 }
 
 .bar.rating-elite {
@@ -6539,6 +6547,19 @@ th .stat-tooltip {
   align-items: center;
 }
 
+.batter-profile-modal .bar-value-inner {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  white-space: nowrap;
+  z-index: 2;
+}
+
 .batter-profile-modal .bar {
   height: 100%;
   border-radius: 4px;
@@ -6562,6 +6583,7 @@ th .stat-tooltip {
 
 /* True Rating bars - bright with shimmer animation */
 .batter-profile-modal .bar-estimated {
+  position: relative;
   background: linear-gradient(90deg, rgba(255,255,255,0.35), rgba(255,255,255,0));
 }
 
