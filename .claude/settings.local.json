@@ -37,7 +37,8 @@
       "Bash(powershell -Command \"Remove-Item ''.\\\\nul''\")",
       "Bash(test:*)",
       "Bash(powershell:*)",
-      "Bash(npx vite:*)"
+      "Bash(npx vite:*)",
+      "Bash(cd:*)"
     ]
   }
 }

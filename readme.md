@@ -556,3 +556,18 @@ These coefficients are still used for TFR (prospect projections) and scouting co
 - Contact rating (not Hit Tool) for AVG predictions
 - Component-specific scouting weights based on MiLB→MLB correlations
 - Tier-aware regression prevents over-regressing elite talent
+- **TFR/TR unification** — TFR shown alongside TR when TFR > TR; hidden when fully realized (see below)
+
+### TFR/TR Unified Display
+
+TFR and TR are unified across all views. Instead of proxy thresholds (`isProspect`, `careerAb <= 130`, etc.), the actual ratings comparison determines display:
+
+- **TFR > TR** → Show both: TR as primary + TFR ceiling bars with `TR → TFR` labels, Peak badge, Current/Peak projection toggle
+- **TFR <= TR** → TFR disappears entirely, player is "fully realized"
+- **No TR** (pure prospect) → Show TFR only with peak projection
+
+**Gate check** (skip TFR calculation entirely if): age >= 26 AND star gap < 0.5
+
+**Projection toggle**: MLB players with unrealized upside (`hasTfrUpside`) get a Current/Peak toggle on their projection table. Current uses TR-derived rates at current age; Peak uses TFR component ratings at age 27. Pitcher peak projections are pre-computed async; batter peak projections re-render inline.
+
+See `roadmap/tfr-tr-unification.md` for full implementation details.

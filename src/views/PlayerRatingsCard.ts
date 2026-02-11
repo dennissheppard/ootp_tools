@@ -59,7 +59,6 @@ export interface PlayerRatingsData {
   isProspect?: boolean;
   trueFutureRating?: number;
   tfrPercentile?: number;
-  starGap?: number;
   year?: number;
   showYearLabel?: boolean; // Only show year in badge if this is true (for historical data)
   projectionYear?: number;
@@ -81,6 +80,12 @@ export interface PlayerRatingsData {
     };
   };
 
+  // TFR ceiling data (for ceiling bars when both TR and TFR exist)
+  hasTfrUpside?: boolean;
+  tfrStuff?: number;
+  tfrControl?: number;
+  tfrHra?: number;
+
   // Toggle state
   activeScoutSource?: 'my' | 'osa';  // Which source is currently displayed
   hasMyScout?: boolean;               // Does 'my' data exist for this player?
@@ -97,41 +102,15 @@ export class PlayerRatingsCard {
     isProspect: boolean;
     ratingValue: number;
   } | null {
-    // Determine whether to show TFR or TR:
-    // - Prospects (isProspect=true) → always TFR
-    // - MLB players with significant upside (starGap ≥ 0.5) → TFR
-    // - MLB players with limited experience → TFR
-    // - Established MLB players (≥50 IP, fully developed) → TR
-    const isProspect = data.isProspect === true;
+    // Unified TFR/TR display logic:
+    // - Has TR → show TR as primary badge
+    // - No TR but has TFR → show TFR as primary badge (pure prospect)
     const hasTfr = typeof data.trueFutureRating === 'number';
     const hasTr = typeof data.trueRating === 'number';
 
-    // Star gap indicates development stage (POT - OVR)
-    // If undefined (no scouting), default to showing TFR if it was calculated
-    // (TFR only calculated for <50 IP players, indicating limited MLB experience)
-    const starGap = data.starGap;
-    const isFullyDeveloped = starGap !== undefined && starGap < 0.5;
-
-    // DEBUG for young players
-    const isYoung = (data.age ?? 30) < 25;
-    if (isYoung && hasTfr && hasTr) {
-      console.log(`BADGE: ${data.playerName} - isProspect=${isProspect}, hasTfr=${hasTfr}, hasTr=${hasTr}, starGap=${starGap}, isFullyDeveloped=${isFullyDeveloped}`);
-      console.log(`BADGE:   TR=${data.trueRating?.toFixed(1)}, TFR=${data.trueFutureRating?.toFixed(1)}, age=${data.age}`);
-    }
-
-    // Use TFR if:
-    // (1) marked as prospect, OR
-    // (2) has TFR but no TR (pure prospect), OR
-    // (3) has both TFR and TR, but NOT fully developed
-    //     - If starGap ≥ 0.5 → still developing, show TFR
-    //     - If starGap undefined → no scouting data, but TFR exists (limited IP), show TFR
-    const useTfr = isProspect || (hasTfr && !hasTr) || (hasTfr && hasTr && !isFullyDeveloped);
+    const useTfr = !hasTr && hasTfr;
     const ratingValue = useTfr ? data.trueFutureRating : data.trueRating;
     const percentileValue = useTfr ? data.tfrPercentile : data.percentile;
-
-    if (isYoung && hasTfr && hasTr) {
-      console.log(`BADGE:   Decision: useTfr=${useTfr}, showing ${useTfr ? 'TFR' : 'TR'} = ${ratingValue?.toFixed(1)}`);
-    }
 
     if (typeof ratingValue !== 'number' || isNaN(ratingValue)) return null;
 
@@ -235,8 +214,9 @@ export class PlayerRatingsCard {
     const emblemClass = badgeInfo.isProspect ? 'rating-emblem tfr-emblem' : 'rating-emblem';
 
     // Check for "Upside" display (MLB player with higher TFR)
+    // Show "Peak" indicator when player has TFR upside (TFR > TR by ≥ 0.25 stars)
     let upsideHtml = '';
-    if (!badgeInfo.isProspect && data.trueFutureRating && data.trueRating && (data.trueFutureRating - data.trueRating >= 0.25)) {
+    if (data.hasTfrUpside && data.trueRating && data.trueFutureRating && (data.trueFutureRating - data.trueRating >= 0.25)) {
         upsideHtml = `<div class="rating-emblem-upside" title="True Future Rating: ${data.trueFutureRating.toFixed(1)}">
             <span class="upside-label">↗ Peak</span>
             <span class="upside-value">${data.trueFutureRating.toFixed(1)}</span>
@@ -568,9 +548,9 @@ export class PlayerRatingsCard {
               <span class="rating-diff"></span>
             </div>
           </div>
-          ${this.renderRatingBar('Stuff', data.estimatedStuff, scoutStuff)}
-          ${this.renderRatingBar('Control', data.estimatedControl, scoutControl)}
-          ${this.renderRatingBar('HRA', data.estimatedHra, scoutHra)}
+          ${this.renderRatingBar('Stuff', data.estimatedStuff, scoutStuff, data.tfrStuff)}
+          ${this.renderRatingBar('Control', data.estimatedControl, scoutControl, data.tfrControl)}
+          ${this.renderRatingBar('HRA', data.estimatedHra, scoutHra, data.tfrHra)}
         </div>
       `;
     }
@@ -609,7 +589,7 @@ export class PlayerRatingsCard {
   /**
    * Render a comparison bar (estimated vs scout)
    */
-  static renderRatingBar(label: string, estimated?: number, scout?: number): string {
+  static renderRatingBar(label: string, estimated?: number, scout?: number, ceiling?: number): string {
     const scoutValue = scout ?? 0;
     const scoutWidth = Math.max(20, Math.min(80, scoutValue));
     const scoutClass = this.getRatingClassForValue(scoutValue);
@@ -643,13 +623,29 @@ export class PlayerRatingsCard {
     const estWidth = Math.max(20, Math.min(80, estValue));
     const estClass = this.getRatingClassForValue(estValue);
 
+    // Ceiling bar (TFR component extension) — only show when ceiling > true value
+    let ceilingHtml = '';
+    let barValueContent = `${estValue}`;
+    if (ceiling !== undefined && !isNaN(ceiling)) {
+      const ceilingClamped = this.clampRatingForDisplay(ceiling);
+      if (ceilingClamped > estValue) {
+        const ceilingClass = this.getRatingClassForValue(ceilingClamped);
+        const truePercent = estWidth;
+        const ceilingWidth = Math.max(20, Math.min(80, ceilingClamped));
+        const extensionPercent = ceilingWidth - truePercent;
+        ceilingHtml = `<div class="bar bar-ceiling ${ceilingClass}" style="left: ${truePercent}%; width: ${extensionPercent}%" title="TFR Ceiling: ${ceilingClamped}"></div>`;
+        barValueContent = `${estValue}<span class="bar-value-ceiling"> → ${ceilingClamped}</span>`;
+      }
+    }
+
     return `
       <div class="rating-row">
         <span class="rating-label">${label}</span>
           <div class="rating-bars">
             <div class="bar-container">
               <div class="bar bar-estimated ${estClass}" style="width: ${estWidth}%"></div>
-              <span class="bar-value">${estValue}</span>
+              ${ceilingHtml}
+              <span class="bar-value">${barValueContent}</span>
             </div>
             <span class="rating-diff ${diffClass}">${diffText}</span>
             <span class="bar-vs">vs</span>

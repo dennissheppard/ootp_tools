@@ -202,7 +202,7 @@ export class TrueRatingsView {
   private cachedLeagueAverages: any = null; // Store for passing to modal
   private cachedLeagueBattingAverages: LeagueBattingAverages | null = null; // For OPS+ calculation
   private hasLoadedData = false; // Track if data has been loaded (for lazy loading)
-  private _cachedHitterFarmData: HitterFarmData | null = null;
+  private _cachedUnifiedHitterTfrData: HitterFarmData | null = null;
   // @ts-ignore - Written in buildProspectRows, available for future pitcher modal use
   private _cachedPitcherFarmData: FarmData | null = null;
 
@@ -772,7 +772,7 @@ export class TrueRatingsView {
     tableContainer.innerHTML = this.renderTableLoadingState();
 
     // Clear cached farm data so it gets re-fetched with fresh data
-    this._cachedHitterFarmData = null;
+    this._cachedUnifiedHitterTfrData = null;
     this._cachedPitcherFarmData = null;
 
     try {
@@ -1588,10 +1588,16 @@ export class TrueRatingsView {
   private async buildBatterProspectRows(
     mlbPlayerIds: Set<number>
   ): Promise<BatterRow[]> {
-    // Use getHitterFarmData() as the single source of truth for TFR calculations
-    // This ensures TFR values match across True Ratings table, Farm Rankings, and modal
-    const hitterFarmData = await teamRatingsService.getHitterFarmData(this.selectedYear);
-    this._cachedHitterFarmData = hitterFarmData;
+    // Use getUnifiedHitterTfrData() for expanded TFR pool (includes young MLB players)
+    // Then filter to farm-eligible for the prospect table rows
+    const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(this.selectedYear);
+    this._cachedUnifiedHitterTfrData = unifiedData;
+    // Farm-eligible subset for prospect table rows
+    const hitterFarmData: HitterFarmData = {
+        reports: unifiedData.reports,
+        systems: unifiedData.systems,
+        prospects: unifiedData.prospects.filter(p => p.isFarmEligible),
+    };
 
     // Filter to prospects not shown in the MLB table
     const farmProspects = hitterFarmData.prospects.filter(p => !mlbPlayerIds.has(p.playerId));
@@ -3316,7 +3322,10 @@ export class TrueRatingsView {
       // TFR fields for prospects
       trueFutureRating: row.trueFutureRating,
       tfrPercentile: row.tfrPercentile,
-      starGap: row.starGap,
+      hasTfrUpside: row.isProspect ? true : undefined,
+      tfrStuff: row.isProspect ? prospectEstimatedStuff : undefined,
+      tfrControl: row.isProspect ? prospectEstimatedControl : undefined,
+      tfrHra: row.isProspect ? prospectEstimatedHra : undefined,
       isProspect: row.isProspect,
       year: this.selectedYear,
       projectionYear: this.selectedYear,
@@ -3399,36 +3408,59 @@ export class TrueRatingsView {
     let estimatedGap = row.estimatedGap;
     let estimatedSpeed = row.estimatedSpeed;
 
-    if (row.isProspect) {
-      try {
-        const hitterFarmData = this._cachedHitterFarmData
-            ?? await teamRatingsService.getHitterFarmData(this.selectedYear);
-        const prospectData = hitterFarmData.prospects.find(p => p.playerId === playerId);
-        if (prospectData) {
-          projWar = prospectData.projWar;
-          projWoba = prospectData.projWoba;
-          projAvg = prospectData.projAvg;
-          projObp = prospectData.projObp;
-          projSlg = prospectData.projSlg;
-          projPa = prospectData.projPa;
-          projBbPct = prospectData.projBbPct;
-          projKPct = prospectData.projKPct;
-          projHrPct = prospectData.projHrPct;
-          trueFutureRating = prospectData.trueFutureRating;
-          tfrPercentile = prospectData.percentile;
-          estimatedPower = prospectData.trueRatings.power;
-          estimatedEye = prospectData.trueRatings.eye;
-          estimatedAvoidK = prospectData.trueRatings.avoidK;
-          estimatedContact = prospectData.trueRatings.contact;
-          estimatedGap = prospectData.trueRatings.gap;
-          estimatedSpeed = prospectData.trueRatings.speed;
+    // TFR ceiling data — look up from unified TFR data for both prospects and MLB players
+    let hasTfrUpside = false;
+    let tfrPower: number | undefined;
+    let tfrEye: number | undefined;
+    let tfrAvoidK: number | undefined;
+    let tfrContact: number | undefined;
+    let tfrGap: number | undefined;
+    let tfrSpeed: number | undefined;
+
+    try {
+      const unifiedData = this._cachedUnifiedHitterTfrData
+          ?? await teamRatingsService.getUnifiedHitterTfrData(this.selectedYear);
+      const tfrEntry = unifiedData.prospects.find(p => p.playerId === playerId);
+      if (tfrEntry) {
+        trueFutureRating = tfrEntry.trueFutureRating;
+        tfrPercentile = tfrEntry.percentile;
+        tfrPower = tfrEntry.trueRatings.power;
+        tfrEye = tfrEntry.trueRatings.eye;
+        tfrAvoidK = tfrEntry.trueRatings.avoidK;
+        tfrContact = tfrEntry.trueRatings.contact;
+        tfrGap = tfrEntry.trueRatings.gap;
+        tfrSpeed = tfrEntry.trueRatings.speed;
+
+        if (row.isProspect) {
+          // Pure prospect: use TFR-derived true ratings as estimated ratings
+          projWar = tfrEntry.projWar;
+          projWoba = tfrEntry.projWoba;
+          projAvg = tfrEntry.projAvg;
+          projObp = tfrEntry.projObp;
+          projSlg = tfrEntry.projSlg;
+          projPa = tfrEntry.projPa;
+          projBbPct = tfrEntry.projBbPct;
+          projKPct = tfrEntry.projKPct;
+          projHrPct = tfrEntry.projHrPct;
+          estimatedPower = tfrEntry.trueRatings.power;
+          estimatedEye = tfrEntry.trueRatings.eye;
+          estimatedAvoidK = tfrEntry.trueRatings.avoidK;
+          estimatedContact = tfrEntry.trueRatings.contact;
+          estimatedGap = tfrEntry.trueRatings.gap;
+          estimatedSpeed = tfrEntry.trueRatings.speed;
+          hasTfrUpside = true; // Pure prospects always show TFR
+        } else {
+          // MLB player: check if TFR > TR
+          hasTfrUpside = row.trueRating !== undefined && trueFutureRating > row.trueRating;
         }
-      } catch (e) {
-        console.warn('Could not load hitter farm data for prospect lookup:', e);
       }
+    } catch (e) {
+      console.warn('Could not load unified hitter TFR data:', e);
     }
 
     // Build profile data for the modal
+    // trueRating = actual MLB TR (undefined for pure prospects)
+    // trueFutureRating = TFR (if available from unified data)
     const profileData: BatterProfileData = {
       playerId: row.player_id,
       playerName: row.playerName,
@@ -3438,9 +3470,9 @@ export class TrueRatingsView {
       position: player?.position,
       positionLabel: player ? getPositionLabel(player.position) : undefined,
 
-      // True Ratings
-      trueRating: row.isProspect ? trueFutureRating : row.trueRating,
-      percentile: row.isProspect ? tfrPercentile : row.percentile,
+      // True Ratings — always use actual TR from MLB stats (undefined for prospects)
+      trueRating: row.isProspect ? undefined : row.trueRating,
+      percentile: row.isProspect ? undefined : row.percentile,
       woba: row.woba,
 
       // Estimated ratings
@@ -3472,10 +3504,19 @@ export class TrueRatingsView {
       projDoublesRate,
       projTriplesRate,
 
-      // Prospect info
+      // TFR data
       isProspect: Boolean(row.isProspect),
       trueFutureRating,
       tfrPercentile,
+
+      // TFR ceiling data
+      hasTfrUpside,
+      tfrPower,
+      tfrEye,
+      tfrAvoidK,
+      tfrContact,
+      tfrGap,
+      tfrSpeed,
     };
 
     await batterProfileModal.show(profileData, this.selectedYear);

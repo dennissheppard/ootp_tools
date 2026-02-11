@@ -2367,15 +2367,12 @@ export class FarmRankingsView {
           // TFR
           isProspect: true,
           trueFutureRating: prospect?.trueFutureRating,
-          tfrPercentile: undefined, // TFR Service calculates this but doesn't store it on RatedProspect?
-          // Actually RatedProspect interface doesn't have percentile. 
-          // We can calculate it here or let modal handle it if we passed leagueFipLikes? 
-          // No, TFR percentile is relative to *MLB* FIPs.
-          // TFR Service returns `percentile` in `TrueFutureRatingResult`.
-          // `RatedProspect` is a transformation of that. 
-          // We can try to recover it or re-calc. 
-          // For now let's leave undefined, modal might hide it or we rely on 'trueFutureRating' display.
-          
+          tfrPercentile: prospect?.percentile,
+          hasTfrUpside: true,
+          tfrStuff: prospect?.trueRatings?.stuff,
+          tfrControl: prospect?.trueRatings?.control,
+          tfrHra: prospect?.trueRatings?.hra,
+
           year: this.selectedYear,
           showYearLabel: true,
           forceProjection: true,
@@ -2405,6 +2402,7 @@ export class FarmRankingsView {
       const estimatedSpeed = hitterProspect?.trueRatings.speed;
 
       // Build batter profile data
+      // Farm prospects: trueRating is undefined (no MLB stats), trueFutureRating carries TFR
       const batterData: BatterProfileData = {
           playerId: player.id,
           playerName: getFullName(player),
@@ -2414,9 +2412,9 @@ export class FarmRankingsView {
           position: player.position,
           positionLabel: getPositionLabel(player.position),
 
-          // True Future Rating from prospect data
-          trueRating: hitterProspect?.trueFutureRating,
-          percentile: hitterProspect?.percentile,
+          // No MLB TR for farm prospects — badge logic will show TFR via trueFutureRating
+          trueRating: undefined,
+          percentile: undefined,
 
           // Estimated ratings derived from projected stats
           estimatedPower,
@@ -2449,10 +2447,17 @@ export class FarmRankingsView {
           projKPct: hitterProspect?.projKPct,
           projHrPct: hitterProspect?.projHrPct,
 
-          // Mark as prospect for peak projection display
+          // TFR data — pure prospects always have TFR upside
           isProspect: true,
           trueFutureRating: hitterProspect?.trueFutureRating,
           tfrPercentile: hitterProspect?.percentile,
+          hasTfrUpside: true,
+          tfrPower: hitterProspect?.trueRatings.power,
+          tfrEye: hitterProspect?.trueRatings.eye,
+          tfrAvoidK: hitterProspect?.trueRatings.avoidK,
+          tfrContact: hitterProspect?.trueRatings.contact,
+          tfrGap: hitterProspect?.trueRatings.gap,
+          tfrSpeed: hitterProspect?.trueRatings.speed,
       };
 
       await batterProfileModal.show(batterData, this.selectedYear);

@@ -35,6 +35,11 @@ export class PlayerProfileModal {
   // private cachedLeagueAverages: any = null; // Store league averages from table for consistent recalculation
   private cachedMlbStats: YearlyPitchingStats[] | null = null; // Store MLB stats from table for consistent recalculation
 
+  // Projection toggle state (Current vs Peak)
+  private projectionMode: 'current' | 'peak' = 'current';
+  private currentProjectionHtml: string = '';
+  private peakProjectionHtml: string = '';
+
   // Development chart state
   private developmentChart: DevelopmentChart | null = null;
   private activeDevMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra'];
@@ -155,6 +160,11 @@ export class PlayerProfileModal {
     if (context?.mlbStats) {
         this.cachedMlbStats = context.mlbStats;
     }
+
+    // Reset projection toggle state
+    this.projectionMode = 'current';
+    this.currentProjectionHtml = '';
+    this.peakProjectionHtml = '';
 
     // Store current data for interactive year selection
     this.currentPlayerData = data;
@@ -360,10 +370,15 @@ export class PlayerProfileModal {
                     if (tfrResult) {
                         data.trueFutureRating = tfrResult.trueFutureRating;
                         data.tfrPercentile = tfrResult.percentile;
-                        data.starGap = Math.max(0, (scouting.pot ?? scouting.ovr ?? 0) - (scouting.ovr ?? 0));
-                        // data.isProspect = true; // REMOVED: Keep as MLB player to show current year stats/projections
-                        
-                        // Re-render header to show TFR badge
+                        // Set TFR ceiling data for Peak indicator and ceiling bars
+                        data.hasTfrUpside = typeof data.trueRating === 'number'
+                            ? tfrResult.trueFutureRating > data.trueRating
+                            : true;
+                        data.tfrStuff = tfrResult.trueStuff;
+                        data.tfrControl = tfrResult.trueControl;
+                        data.tfrHra = tfrResult.trueHra;
+
+                        // Re-render header to show TFR badge / Peak indicator
                         if (headerSlot) {
                             headerSlot.innerHTML = PlayerRatingsCard.renderRatingEmblem(data);
                             const emblem = headerSlot.querySelector<HTMLElement>('.rating-emblem');
@@ -529,6 +544,64 @@ export class PlayerProfileModal {
                   data.estimatedControl = proj.projectedRatings.control;
                   data.estimatedHra = proj.projectedRatings.hra;
                 }
+
+                // Pre-compute peak projection for toggle (MLB players with TFR upside only)
+                const showProjToggle = data.hasTfrUpside === true && data.trueRating !== undefined && data.tfrStuff !== undefined;
+                if (showProjToggle && !isProspectProjection) {
+                    this.currentProjectionHtml = projectionHtml;
+                    try {
+                        const peakActiveSource = data.activeScoutSource || 'my';
+                        const peakPitchRatings = peakActiveSource === 'osa' ? data.osaPitchRatings : data.myPitchRatings;
+                        const peakStamina = peakActiveSource === 'osa' ? data.osaStamina : data.scoutStamina;
+                        const peakInjury = peakActiveSource === 'osa' ? data.osaInjuryProneness : data.scoutInjuryProneness;
+                        const peakPitchCount = peakPitchRatings ? Object.values(peakPitchRatings).filter(v => v >= 45).length : 0;
+
+                        const peakLeagueStats = await leagueStatsService.getLeagueStats(2020);
+                        const peakLeagueContext = {
+                            fipConstant: peakLeagueStats.fipConstant,
+                            avgFip: peakLeagueStats.avgFip,
+                            runsPerWin: 8.5
+                        };
+
+                        const peakRecent = mlbStats[0];
+                        let peakIsSp = peakRecent && peakRecent.ip > 80;
+                        if (peakPitchCount >= 3 && (peakStamina ?? 0) >= 35) peakIsSp = true;
+
+                        const peakProj = await projectionService.calculateProjection(
+                            { stuff: data.tfrStuff!, control: data.tfrControl!, hra: data.tfrHra! },
+                            26, // Service adds 1 → 27
+                            peakPitchCount,
+                            peakIsSp ? 20 : 0,
+                            peakLeagueContext,
+                            peakStamina,
+                            peakInjury,
+                            mlbStats,
+                            data.trueRating ?? 0,
+                            peakPitchRatings
+                        );
+
+                        if (peakProj) {
+                            // Temporarily set mode to 'peak' so toggle renders correct active state
+                            this.projectionMode = 'peak';
+                            this.peakProjectionHtml = this.renderProjection(
+                                peakProj, 27, projectionTargetYear, undefined,
+                                true, currentYear, this.mlbDebutYear, true
+                            );
+                            this.projectionMode = 'current';
+                        }
+                    } catch (e) {
+                        console.warn('Failed to compute peak projection for toggle:', e);
+                    }
+
+                    // Re-render current projection with toggle buttons included
+                    if (this.peakProjectionHtml) {
+                        projectionHtml = this.renderProjection(
+                            proj, historicalAge + 1, projectionTargetYear,
+                            comparison, false, currentYear, this.mlbDebutYear, true
+                        );
+                        this.currentProjectionHtml = projectionHtml;
+                    }
+                }
             }
         }
 
@@ -537,6 +610,7 @@ export class PlayerProfileModal {
         this.bindScoutUploadLink();
         this.bindScoutSourceToggle(data, combinedStats, hasMinorLeague, projectionHtml);
         this.bindTabSwitching();
+        this.bindProjectionToggle();
         // Trigger shimmer animation on True Ratings bars only (not scout bars)
         requestAnimationFrame(() => {
           const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
@@ -815,14 +889,15 @@ export class PlayerProfileModal {
     comparison?: any,
     isProspect: boolean = false,
     currentYear: number = 2021,
-    mlbDebutYear: number | null = null
+    mlbDebutYear: number | null = null,
+    showToggle: boolean = false
   ): string {
       const s = proj.projectedStats;
       const r = proj.projectedRatings;
 
-      // Build year selector for non-prospects
+      // Build year selector for non-prospects (not shown for peak mode either)
       let yearDisplay = `${projectedYear}`;
-      if (!isProspect && mlbDebutYear !== null) {
+      if (!isProspect && !showToggle && mlbDebutYear !== null) {
         const validYears: number[] = [];
         for (let y = mlbDebutYear; y <= currentYear; y++) {
           validYears.push(y);
@@ -905,8 +980,16 @@ export class PlayerProfileModal {
           `;
       }
 
+      const toggleHtml = showToggle ? `
+        <div class="projection-toggle">
+          <button class="projection-toggle-btn ${this.projectionMode === 'current' ? 'active' : ''}" data-mode="current">Current</button>
+          <button class="projection-toggle-btn ${this.projectionMode === 'peak' ? 'active' : ''}" data-mode="peak">Peak</button>
+        </div>
+      ` : '';
+
       return `
         <div class="projection-section" style="margin-top: 1.5rem; border-top: 1px solid var(--color-border); padding-top: 1rem;">
+            ${toggleHtml}
             <h4 style="margin-bottom: 0.5rem; color: var(--color-text-muted); font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.05em;">${title}</h4>
             <div class="stats-table-container">
                 <table class="stats-table" style="table-layout: fixed;">
@@ -964,6 +1047,33 @@ export class PlayerProfileModal {
    */
   private clampRatingForDisplay(rating: number): number {
     return Math.max(20, Math.min(80, Math.round(rating)));
+  }
+
+  private bindProjectionToggle(): void {
+    if (!this.overlay) return;
+    const buttons = this.overlay.querySelectorAll<HTMLButtonElement>('.projection-toggle-btn');
+    if (buttons.length === 0) return;
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const newMode = btn.dataset.mode as 'current' | 'peak';
+        if (!newMode || newMode === this.projectionMode) return;
+
+        this.projectionMode = newMode;
+
+        // Swap projection section HTML
+        const projSection = this.overlay?.querySelector('.projection-section');
+        if (projSection) {
+          const newHtml = newMode === 'peak' ? this.peakProjectionHtml : this.currentProjectionHtml;
+          if (newHtml) {
+            projSection.outerHTML = newHtml;
+            // Re-bind toggle and flip card events on the new section
+            this.bindProjectionToggle();
+            this.bindFlipCardLocking();
+          }
+        }
+      });
+    });
   }
 
   private bindScoutUploadLink(): void {

@@ -176,6 +176,8 @@ export interface RatedHitterProspect {
     };
     /** Position */
     position: number;
+    /** Whether this player qualifies for Farm Rankings (career AB <= 130) */
+    isFarmEligible?: boolean;
 }
 
 export interface HitterFarmSystemRankings {
@@ -921,10 +923,11 @@ class TeamRatingsService {
   }
 
   /**
-   * Get hitter prospect farm data for all organizations.
-   * Similar to getFarmData() but for hitters.
+   * Get unified hitter TFR data for an expanded pool of players.
+   * Uses gate check (age < 26 OR starGap >= 0.5) instead of careerAb <= 130.
+   * Each result includes isFarmEligible for backward compat with Farm Rankings.
    */
-  async getHitterFarmData(year: number): Promise<HitterFarmData> {
+  async getUnifiedHitterTfrData(year: number): Promise<HitterFarmData> {
       // Fetch hitter scouting data and league averages in parallel
       const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerAbMap, contracts] = await Promise.all([
           hitterScoutingDataService.getLatestScoutingRatings('my'),
@@ -944,12 +947,12 @@ class TeamRatingsService {
       }
 
       if (scoutingMap.size === 0) {
-          console.warn(`[HitterFarmRankings] No hitter scouting data found.`);
+          console.warn(`[UnifiedHitterTfr] No hitter scouting data found.`);
           return { reports: [], systems: [], prospects: [] };
       }
 
       if (!leagueAvg) {
-          console.warn(`[HitterFarmRankings] No league averages found for ${year}, using defaults.`);
+          console.warn(`[UnifiedHitterTfr] No league averages found for ${year}, using defaults.`);
       }
 
       // Fetch player and team data
@@ -967,40 +970,33 @@ class TeamRatingsService {
           year
       );
 
-      // Build TFR inputs for all prospects with scouting data
+      // Build TFR inputs using expanded gate check
       const tfrInputs: HitterTrueFutureRatingInput[] = [];
-      const prospectPlayerMap = new Map<number, { player: any; scouting: HitterScoutingRatings }>();
+      const prospectPlayerMap = new Map<number, { player: any; scouting: HitterScoutingRatings; careerAb: number }>();
 
       scoutingMap.forEach((scouting, playerId) => {
           const player = playerMap.get(playerId);
           if (!player) return;
 
-          // Only include minor leaguers (not on MLB roster)
           const team = teamMap.get(player.teamId);
           if (!team) return;
 
-          // Skip MLB-level teams, but allow IC players through
-          if (team.parentTeamId === 0) {
-              const contract = contracts.get(playerId);
-              if (!contract || contract.leagueId !== -200) return; // Skip MLB players
-          }
-
-          // Exclude veterans with significant MLB experience (> 130 AB)
           const careerAb = careerAbMap.get(playerId) ?? 0;
-          if (careerAb > 130) return;
+          const starGap = (scouting.pot ?? 0) - (scouting.ovr ?? 0);
 
+          // Gate check: only calculate TFR if age < 26 OR starGap >= 0.5
+          if (player.age >= 26 && starGap < 0.5) return;
+
+          // Still need some evidence of professional activity
           const minorStats = allMinorStats.get(playerId) ?? [];
-
-          // Skip players with no minor league experience in this period
           const totalPa = minorStats.reduce((sum, s) => sum + s.pa, 0);
-          
-          if (totalPa === 0) {
-              // If no stats, check if they have a professional contract
+
+          if (totalPa === 0 && careerAb === 0) {
+              // No stats at all — check for a professional contract
               const contract = contracts.get(playerId);
               if (!contract || contract.leagueId === 0) {
                   return; // Truly amateur/unsigned, skip
               }
-              // If they have a contract (e.g. IC players), include them
           }
 
           tfrInputs.push({
@@ -1011,7 +1007,7 @@ class TeamRatingsService {
               minorLeagueStats: minorStats,
           });
 
-          prospectPlayerMap.set(playerId, { player, scouting });
+          prospectPlayerMap.set(playerId, { player, scouting, careerAb });
       });
 
       // Calculate True Future Ratings
@@ -1028,7 +1024,7 @@ class TeamRatingsService {
           const prospectInfo = prospectPlayerMap.get(tfr.playerId);
           if (!prospectInfo) return;
 
-          const { player, scouting } = prospectInfo;
+          const { player, scouting, careerAb } = prospectInfo;
           const team = teamMap.get(player.teamId);
           if (!team) return;
 
@@ -1110,14 +1106,18 @@ class TeamRatingsService {
                   speed: tfr.trueSpeed,
               },
               position: player.position,
+              isFarmEligible: careerAb <= 130,
           };
 
           allProspects.push(prospect);
 
-          if (!orgGroups.has(orgId)) {
-              orgGroups.set(orgId, []);
+          // Only include farm-eligible players in org groups (for Farm Rankings reports)
+          if (prospect.isFarmEligible) {
+              if (!orgGroups.has(orgId)) {
+                  orgGroups.set(orgId, []);
+              }
+              orgGroups.get(orgId)!.push(prospect);
           }
-          orgGroups.get(orgId)!.push(prospect);
       });
 
       // Sort all prospects by percentile and assign global ranks
@@ -1186,6 +1186,19 @@ class TeamRatingsService {
           reports: reports.sort((a, b) => b.totalScore - a.totalScore),
           systems: systems.sort((a, b) => b.totalScore - a.totalScore),
           prospects: allProspects,
+      };
+  }
+
+  /**
+   * Get hitter prospect farm data for all organizations.
+   * Delegates to getUnifiedHitterTfrData() and filters to farm-eligible players only.
+   */
+  async getHitterFarmData(year: number): Promise<HitterFarmData> {
+      const unified = await this.getUnifiedHitterTfrData(year);
+      return {
+          reports: unified.reports,
+          systems: unified.systems,
+          prospects: unified.prospects.filter(p => p.isFarmEligible),
       };
   }
 

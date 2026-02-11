@@ -78,6 +78,15 @@ export interface BatterProfileData {
   isProspect?: boolean;
   trueFutureRating?: number;
   tfrPercentile?: number;
+
+  // TFR ceiling data (for ceiling bars when both TR and TFR exist)
+  hasTfrUpside?: boolean;    // TFR > TR
+  tfrPower?: number;         // TFR component (20-80)
+  tfrEye?: number;
+  tfrAvoidK?: number;
+  tfrContact?: number;
+  tfrGap?: number;
+  tfrSpeed?: number;
 }
 
 interface BatterSeasonStats {
@@ -120,6 +129,10 @@ export class BatterProfileModal {
 
   // Advanced ratings accordion state
   private advancedRatingsExpanded = false;
+
+  // Projection toggle state (Current vs Peak)
+  private projectionMode: 'current' | 'peak' = 'current';
+  private currentStats: BatterSeasonStats[] = [];
 
   constructor() {
     this.advancedRatingsExpanded = localStorage.getItem('wbl_expanded_ratings_expanded') === 'true';
@@ -223,6 +236,9 @@ export class BatterProfileModal {
   async show(data: BatterProfileData, _selectedYear: number): Promise<void> {
     this.ensureOverlayExists();
     if (!this.overlay) return;
+
+    // Reset projection toggle
+    this.projectionMode = 'current';
 
     // Store current data for re-rendering on toggle
     this.currentData = data;
@@ -378,6 +394,9 @@ export class BatterProfileModal {
         return (levelOrder[a.level] ?? 5) - (levelOrder[b.level] ?? 5);
       });
 
+      // Store stats for projection re-rendering
+      this.currentStats = allStats;
+
       // Render full body
       if (bodyEl) {
         bodyEl.innerHTML = this.renderBody(data, allStats);
@@ -519,8 +538,10 @@ export class BatterProfileModal {
   }
 
   private renderRatingEmblem(data: BatterProfileData): string {
-    const isProspect = data.isProspect === true;
-    const useTfr = isProspect && typeof data.trueFutureRating === 'number';
+    // Unified: has TR → show TR; no TR but has TFR → show TFR (pure prospect)
+    const hasTr = typeof data.trueRating === 'number';
+    const hasTfr = typeof data.trueFutureRating === 'number';
+    const useTfr = !hasTr && hasTfr;
     const ratingValue = useTfr ? data.trueFutureRating : data.trueRating;
 
     if (typeof ratingValue !== 'number') {
@@ -532,6 +553,15 @@ export class BatterProfileModal {
     const percentileText = typeof percentile === 'number' ? `${this.formatPercentile(percentile)} Percentile` : '';
     const barWidth = Math.max(10, Math.min(100, (ratingValue / 5) * 100));
     const label = useTfr ? 'True Future Rating' : 'True Rating';
+
+    // Show "Peak" indicator when player has TFR upside (TFR > TR by ≥ 0.25 stars)
+    let upsideHtml = '';
+    if (data.hasTfrUpside && hasTr && hasTfr && (data.trueFutureRating! - data.trueRating! >= 0.25)) {
+        upsideHtml = `<div class="rating-emblem-upside" title="True Future Rating: ${data.trueFutureRating!.toFixed(1)}">
+            <span class="upside-label">↗ Peak</span>
+            <span class="upside-value">${data.trueFutureRating!.toFixed(1)}</span>
+        </div>`;
+    }
 
     return `
       <div class="rating-emblem ${badgeClass}">
@@ -545,6 +575,7 @@ export class BatterProfileModal {
           <div class="rating-emblem-score">${ratingValue.toFixed(1)}</div>
         </div>
         ${percentileText ? `<div class="rating-emblem-meta">${percentileText}</div>` : ''}
+        ${upsideHtml}
       </div>
     `;
   }
@@ -856,40 +887,52 @@ export class BatterProfileModal {
   }
 
   private renderProjection(data: BatterProfileData, stats: BatterSeasonStats[]): string {
-    // Get most recent year stats for comparison
-    const latestStat = stats.find(s => s.level === 'MLB');
-    const age = data.age ?? 27;
+    // Determine if toggle should be shown: MLB player with TFR upside
+    const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
+
+    // In peak mode, use TFR component ratings and peak age
+    const isPeakMode = this.projectionMode === 'peak' && showToggle;
+
+    // Select ratings source based on mode
+    const usePower = isPeakMode ? (data.tfrPower ?? data.estimatedPower) : data.estimatedPower;
+    const useEye = isPeakMode ? (data.tfrEye ?? data.estimatedEye) : data.estimatedEye;
+    const useAvoidK = isPeakMode ? (data.tfrAvoidK ?? data.estimatedAvoidK) : data.estimatedAvoidK;
+    const useContact = isPeakMode ? (data.tfrContact ?? data.estimatedContact) : data.estimatedContact;
+    const useGap = isPeakMode ? (data.tfrGap ?? data.estimatedGap) : data.estimatedGap;
+    const useSpeed = isPeakMode ? (data.tfrSpeed ?? data.estimatedSpeed) : data.estimatedSpeed;
+
+    // Get most recent year stats for comparison (only in current mode)
+    const latestStat = isPeakMode ? undefined : stats.find(s => s.level === 'MLB');
+    const age = isPeakMode ? 27 : (data.age ?? 27);
 
     // League averages for OPS+ calculation
     const lgObp = 0.320;
     const lgSlg = 0.400;
 
-    // Calculate projected stats from estimated ratings if not provided
+    // Calculate projected stats from ratings
     let projAvg: number;
     let projObp: number;
     let projSlg: number;
     let projBbPct: number;
     let projKPct: number;
 
-    // If we have projection data, use it
-    if (data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
+    // In peak mode, always derive from TFR ratings (never use pre-computed projections)
+    if (!isPeakMode && data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
       projAvg = data.projAvg;
       projObp = data.projObp;
       projSlg = data.projSlg;
       projBbPct = data.projBbPct ?? 8.5;
       projKPct = data.projKPct ?? 22.0;
     }
-    // Otherwise, if we have estimated ratings, calculate from them
-    else if (data.estimatedPower !== undefined && data.estimatedEye !== undefined &&
-             data.estimatedAvoidK !== undefined && data.estimatedContact !== undefined) {
-      projBbPct = data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
-      projKPct = data.projKPct ?? HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
-      const iso = HitterRatingEstimatorService.expectedIso(data.estimatedPower);
-      projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
+    else if (usePower !== undefined && useEye !== undefined &&
+             useAvoidK !== undefined && useContact !== undefined) {
+      projBbPct = isPeakMode ? HitterRatingEstimatorService.expectedBbPct(useEye) : (data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(useEye));
+      projKPct = isPeakMode ? HitterRatingEstimatorService.expectedKPct(useAvoidK) : (data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK));
+      const iso = HitterRatingEstimatorService.expectedIso(usePower);
+      projAvg = HitterRatingEstimatorService.expectedAvg(useContact);
       projObp = Math.min(0.450, projAvg + (projBbPct / 100));
       projSlg = projAvg + iso;
     }
-    // Fall back to defaults if neither is available
     else {
       projAvg = 0.260;
       projObp = 0.330;
@@ -898,22 +941,23 @@ export class BatterProfileModal {
       projKPct = 22.0;
     }
 
-    // Calculate projected PA based on age and injury proneness if not provided
+    // Calculate projected PA based on age and injury proneness
     const injuryProneness = this.scoutingData?.injuryProneness ?? data.injuryProneness;
-    const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+    const projPa = isPeakMode
+      ? leagueBattingAveragesService.getProjectedPa(injuryProneness, 27)
+      : (data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age));
 
     // Calculate projected HR from HR%
     let projHr: number;
-    if (data.projHr !== undefined) {
+    if (!isPeakMode && data.projHr !== undefined) {
       projHr = data.projHr;
-    } else if (data.projHrPct !== undefined) {
-      // Use projected HR% directly (most accurate for prospects)
+    } else if (!isPeakMode && data.projHrPct !== undefined) {
       projHr = Math.round(projPa * (data.projHrPct / 100));
-    } else if (data.estimatedPower !== undefined) {
-      const derivedHrPct = HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
+    } else if (usePower !== undefined) {
+      const derivedHrPct = HitterRatingEstimatorService.expectedHrPct(usePower);
       projHr = Math.round(projPa * (derivedHrPct / 100));
     } else {
-      projHr = Math.round((projSlg - projAvg) * 100); // Fallback: rough estimate from SLG-AVG
+      projHr = Math.round((projSlg - projAvg) * 100);
     }
 
     // Calculate projected 2B and 3B from doubles/triples rates
@@ -921,19 +965,19 @@ export class BatterProfileModal {
     const projAb = Math.round(projPa * abPerPa);
     let proj2b: number;
     let proj3b: number;
-    if (data.projDoublesRate !== undefined) {
+    if (!isPeakMode && data.projDoublesRate !== undefined) {
       proj2b = Math.round(projAb * data.projDoublesRate);
-    } else if (data.estimatedGap !== undefined) {
-      proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(data.estimatedGap));
+    } else if (useGap !== undefined) {
+      proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(useGap));
     } else {
-      proj2b = Math.round(projAb * 0.04); // ~24 doubles per 600 AB fallback
+      proj2b = Math.round(projAb * 0.04);
     }
-    if (data.projTriplesRate !== undefined) {
+    if (!isPeakMode && data.projTriplesRate !== undefined) {
       proj3b = Math.round(projAb * data.projTriplesRate);
-    } else if (data.estimatedSpeed !== undefined) {
-      proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(data.estimatedSpeed));
+    } else if (useSpeed !== undefined) {
+      proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(useSpeed));
     } else {
-      proj3b = Math.round(projAb * 0.005); // ~3 triples per 600 AB fallback
+      proj3b = Math.round(projAb * 0.005);
     }
 
     // Calculate OPS and OPS+
@@ -945,7 +989,7 @@ export class BatterProfileModal {
     const replacementRuns = (projPa / 600) * 20;
     const runsAboveAvg = ((projOpsPlus - 100) / 10) * (projPa / 600) * 10;
     const calculatedWar = (runsAboveAvg + replacementRuns) / runsPerWin;
-    const projWar = data.projWar ?? Math.round(calculatedWar * 10) / 10;
+    const projWar = isPeakMode ? Math.round(calculatedWar * 10) / 10 : (data.projWar ?? Math.round(calculatedWar * 10) / 10);
 
     const formatStat = (val: number, decimals: number = 3) => val.toFixed(decimals);
     const formatPct = (val: number) => val.toFixed(1) + '%';
@@ -953,22 +997,22 @@ export class BatterProfileModal {
     // Calculate derived HR% for display
     const projHrPct = projPa > 0 ? (projHr / projPa) * 100 : 0;
 
-    // Prepare Flip Cards
-    const contactRating = this.clampRatingForDisplay(data.estimatedContact ?? 50);
-    const eyeRating = this.clampRatingForDisplay(data.estimatedEye ?? 50);
-    const powerRating = this.clampRatingForDisplay(data.estimatedPower ?? 50);
+    // Prepare Flip Cards — in peak mode show TFR ratings, in current mode show estimated ratings
+    const contactRating = this.clampRatingForDisplay(useContact ?? 50);
+    const eyeRating = this.clampRatingForDisplay(useEye ?? 50);
+    const powerRating = this.clampRatingForDisplay(usePower ?? 50);
+    const gapRating = this.clampRatingForDisplay(useGap ?? 50);
+    const speedRating = this.clampRatingForDisplay(useSpeed ?? 50);
 
-    const gapRating = this.clampRatingForDisplay(data.estimatedGap ?? 50);
-    const speedRating = this.clampRatingForDisplay(data.estimatedSpeed ?? 50);
-
-    const avgFlip = this.renderFlipCell(formatStat(projAvg), contactRating.toString(), 'Estimated Contact');
-    const bbPctFlip = this.renderFlipCell(formatPct(projBbPct), eyeRating.toString(), 'Estimated Eye');
+    const ratingLabel = isPeakMode ? 'TFR' : 'Estimated';
+    const avgFlip = this.renderFlipCell(formatStat(projAvg), contactRating.toString(), `${ratingLabel} Contact`);
+    const bbPctFlip = this.renderFlipCell(formatPct(projBbPct), eyeRating.toString(), `${ratingLabel} Eye`);
     const kPctDisplay = formatPct(projKPct);
-    const hrPctFlip = this.renderFlipCell(formatPct(projHrPct), powerRating.toString(), 'Estimated Power');
-    const doublesFlip = this.renderFlipCell(proj2b.toString(), gapRating.toString(), 'Estimated Gap');
-    const triplesFlip = this.renderFlipCell(proj3b.toString(), speedRating.toString(), 'Estimated Speed');
+    const hrPctFlip = this.renderFlipCell(formatPct(projHrPct), powerRating.toString(), `${ratingLabel} Power`);
+    const doublesFlip = this.renderFlipCell(proj2b.toString(), gapRating.toString(), `${ratingLabel} Gap`);
+    const triplesFlip = this.renderFlipCell(proj3b.toString(), speedRating.toString(), `${ratingLabel} Speed`);
 
-    // Show comparison to actual if we have stats
+    // Show comparison to actual if we have stats (not in peak mode)
     let comparisonRow = '';
     if (latestStat) {
       const actualBbPct = latestStat.pa > 0 ? (latestStat.bb / latestStat.pa) * 100 : 0;
@@ -977,7 +1021,6 @@ export class BatterProfileModal {
       const actualOps = latestStat.obp + latestStat.slg;
       const actualOpsPlus = Math.round(100 * ((latestStat.obp / lgObp) + (latestStat.slg / lgSlg) - 1));
 
-      // Calculate actual WAR using same offensive-only formula as projections (apples to apples)
       const actualRunsAboveAvg = ((actualOpsPlus - 100) / 10) * (latestStat.pa / 600) * 10;
       const actualReplacementRuns = (latestStat.pa / 600) * 20;
       const actualWar = Math.round(((actualRunsAboveAvg + actualReplacementRuns) / runsPerWin) * 10) / 10;
@@ -1002,14 +1045,32 @@ export class BatterProfileModal {
       `;
     }
 
-    // For prospects, show "Peak Projection (27yo)" instead of current year
+    // Projection label
     const isProspect = data.isProspect === true;
-    const projectionLabel = isProspect
-        ? 'Peak Projection <span class="projection-age">(27yo)</span>'
-        : `${this.projectionYear} Projection <span class="projection-age">(${age}yo)</span>`;
+    let projectionLabel: string;
+    if (isPeakMode) {
+      projectionLabel = 'Peak Projection <span class="projection-age">(27yo)</span>';
+    } else if (isProspect) {
+      projectionLabel = 'Peak Projection <span class="projection-age">(27yo)</span>';
+    } else {
+      projectionLabel = `${this.projectionYear} Projection <span class="projection-age">(${age}yo)</span>`;
+    }
+
+    // Toggle HTML
+    const toggleHtml = showToggle ? `
+      <div class="projection-toggle">
+        <button class="projection-toggle-btn ${this.projectionMode === 'current' ? 'active' : ''}" data-mode="current">Current</button>
+        <button class="projection-toggle-btn ${this.projectionMode === 'peak' ? 'active' : ''}" data-mode="peak">Peak</button>
+      </div>
+    ` : '';
+
+    const projNote = isPeakMode
+      ? '* Peak projection based on True Future Rating. Assumes full development and optimal performance.'
+      : '* Projection based on True Ratings. Assumes full season health, and EVERYTHING going right for this guy.';
 
     return `
       <div class="projection-section">
+        ${toggleHtml}
         <h4 class="section-label">${projectionLabel}</h4>
         <div class="stats-table-scroll">
           <table class="profile-stats-table projection-table" style="table-layout: fixed;">
@@ -1052,7 +1113,7 @@ export class BatterProfileModal {
             </tbody>
           </table>
         </div>
-        <p class="projection-note">* Projection based on True Ratings. Assumes full season health, and EVERYTHING going right for this guy.</p>
+        <p class="projection-note">${projNote}</p>
       </div>
     `;
   }
@@ -1154,9 +1215,9 @@ export class BatterProfileModal {
             </div>
           </div>
         </div>
-        ${this.renderRatingBarComparison('Contact', data.estimatedContact, s.contact ?? 50)}
-        ${this.renderRatingBarComparison('Power', data.estimatedPower, s.power)}
-        ${this.renderRatingBarComparison('Eye', data.estimatedEye, s.eye)}
+        ${this.renderRatingBarComparison('Contact', data.estimatedContact, s.contact ?? 50, data.tfrContact)}
+        ${this.renderRatingBarComparison('Power', data.estimatedPower, s.power, data.tfrPower)}
+        ${this.renderRatingBarComparison('Eye', data.estimatedEye, s.eye, data.tfrEye)}
       </div>
     `;
   }
@@ -1180,7 +1241,7 @@ export class BatterProfileModal {
     `;
   }
 
-  private renderRatingBarComparison(label: string, trueValue?: number, scoutValue?: number): string {
+  private renderRatingBarComparison(label: string, trueValue?: number, scoutValue?: number, ceiling?: number): string {
     const tv = trueValue ?? 50;
     const sv = scoutValue ?? 50;
     const truePercent = Math.max(0, Math.min(100, ((tv - 20) / 60) * 100));
@@ -1193,6 +1254,20 @@ export class BatterProfileModal {
     const diffText = diff > 0 ? `+${diff}` : diff === 0 ? '—' : `${diff}`;
     const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
 
+    // Ceiling bar (TFR component extension) — only show when ceiling > true value
+    let ceilingHtml = '';
+    let barValueContent = `${trueDisplay}`;
+    if (ceiling !== undefined && !isNaN(ceiling)) {
+      const ceilingClamped = Math.round(Math.max(20, Math.min(80, ceiling)));
+      if (ceilingClamped > trueDisplay) {
+        const ceilingClass = this.getRatingBarClass(ceilingClamped);
+        const ceilingPercent = Math.max(0, Math.min(100, ((ceilingClamped - 20) / 60) * 100));
+        const extensionPercent = ceilingPercent - truePercent;
+        ceilingHtml = `<div class="bar bar-ceiling ${ceilingClass}" style="left: ${truePercent}%; width: ${extensionPercent}%" title="TFR Ceiling: ${ceilingClamped}"></div>`;
+        barValueContent = `${trueDisplay}<span class="bar-value-ceiling"> → ${ceilingClamped}</span>`;
+      }
+    }
+
     return `
       <div class="rating-row">
         <span class="rating-label">${label}</span>
@@ -1200,7 +1275,8 @@ export class BatterProfileModal {
           <div class="rating-bars-left">
             <div class="bar-container">
               <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%"></div>
-              <span class="bar-value">${trueDisplay}</span>
+              ${ceilingHtml}
+              <span class="bar-value">${barValueContent}</span>
             </div>
           </div>
           <div class="rating-bars-center">
@@ -1248,8 +1324,8 @@ export class BatterProfileModal {
               <span class="bar-header">Scout</span>
             </div>
           </div>
-          ${this.renderAdvancedRatingComparison('Gap', trueGap, scoutGap, 20, 80)}
-          ${this.renderAdvancedRatingComparison('AvoidK', trueAvoidK, scoutAvoidK, 20, 80)}
+          ${this.renderAdvancedRatingComparison('Gap', trueGap, scoutGap, 20, 80, this.currentData?.tfrGap)}
+          ${this.renderAdvancedRatingComparison('AvoidK', trueAvoidK, scoutAvoidK, 20, 80, this.currentData?.tfrAvoidK)}
         </div>
       `;
     } else {
@@ -1272,7 +1348,7 @@ export class BatterProfileModal {
     `;
   }
 
-  private renderAdvancedRatingComparison(label: string, trueValue: number | undefined, scoutValue: number, min: number, max: number): string {
+  private renderAdvancedRatingComparison(label: string, trueValue: number | undefined, scoutValue: number, min: number, max: number, ceiling?: number): string {
     const isSpeed = label === 'Speed';
     const tv = trueValue ?? scoutValue; // fallback to scout if no true value
     const sv = scoutValue;
@@ -1286,6 +1362,20 @@ export class BatterProfileModal {
     const diffText = diff > 0 ? `+${diff}` : diff === 0 ? '—' : `${diff}`;
     const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
 
+    // Ceiling bar for advanced ratings
+    let ceilingHtml = '';
+    let barValueContent = `${trueDisplay}`;
+    if (ceiling !== undefined && !isNaN(ceiling)) {
+      const ceilingClamped = Math.round(Math.max(min, Math.min(max, ceiling)));
+      if (ceilingClamped > trueDisplay) {
+        const ceilingClass = isSpeed ? this.getSpeedBarClass(ceilingClamped) : this.getRatingBarClass(ceilingClamped);
+        const ceilingPercent = Math.max(0, Math.min(100, ((ceilingClamped - min) / (max - min)) * 100));
+        const extensionPercent = ceilingPercent - truePercent;
+        ceilingHtml = `<div class="bar bar-ceiling ${ceilingClass}" style="left: ${truePercent}%; width: ${extensionPercent}%" title="TFR Ceiling: ${ceilingClamped}"></div>`;
+        barValueContent = `${trueDisplay}<span class="bar-value-ceiling"> → ${ceilingClamped}</span>`;
+      }
+    }
+
     return `
       <div class="rating-row rating-row-advanced">
         <span class="rating-label">${label}</span>
@@ -1293,7 +1383,8 @@ export class BatterProfileModal {
           <div class="rating-bars-left">
             <div class="bar-container">
               <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%"></div>
-              <span class="bar-value">${trueDisplay}</span>
+              ${ceilingHtml}
+              <span class="bar-value">${barValueContent}</span>
             </div>
           </div>
           <div class="rating-bars-center">
@@ -1453,6 +1544,39 @@ export class BatterProfileModal {
     this.bindScoutSourceToggle();
     this.bindTabSwitching();
     this.bindAdvancedRatingsToggle();
+    this.bindProjectionToggle();
+  }
+
+  private bindProjectionToggle(): void {
+    if (!this.overlay || !this.currentData) return;
+    const buttons = this.overlay.querySelectorAll<HTMLButtonElement>('.projection-toggle-btn');
+    if (buttons.length === 0) return;
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const newMode = btn.dataset.mode as 'current' | 'peak';
+        if (!newMode || newMode === this.projectionMode) return;
+
+        this.projectionMode = newMode;
+
+        // Re-render just the projection section
+        const projSection = this.overlay?.querySelector('.projection-section');
+        if (projSection && this.currentData) {
+          const newHtml = this.renderProjection(this.currentData, this.currentStats);
+          projSection.outerHTML = newHtml;
+          // Re-bind toggle and flip card events on the new section
+          this.bindProjectionToggle();
+          // Re-bind flip cards in projection
+          const flipCells = this.overlay?.querySelectorAll<HTMLElement>('.projection-section .flip-cell');
+          flipCells?.forEach(cell => {
+            cell.addEventListener('click', (e) => {
+              e.stopPropagation();
+              cell.classList.toggle('is-flipped');
+            });
+          });
+        }
+      });
+    });
   }
 
   private bindAdvancedRatingsToggle(): void {

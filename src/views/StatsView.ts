@@ -416,7 +416,6 @@ export class StatsView {
         isProspect,
         trueFutureRating: tfrData?.trueFutureRating,
         tfrPercentile: tfrData?.percentile,
-        starGap: tfrData?.starGap,
       };
     } catch (error) {
       console.error('Error fetching player ratings:', error);

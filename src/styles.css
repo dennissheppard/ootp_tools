@@ -3083,6 +3083,45 @@ th .stat-tooltip {
   background: rgba(255, 255, 255, 0.2);
 }
 
+/* Ceiling bar — translucent TFR extension showing upside beyond current True Rating */
+.bar-ceiling {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  opacity: 0.35;
+  pointer-events: none;
+  transition: width 0.3s ease, left 0.3s ease;
+  border-left: 1px dashed rgba(255, 255, 255, 0.4);
+}
+
+.bar-ceiling.rating-elite {
+  background: rgba(29, 155, 240, 0.8);
+}
+
+.bar-ceiling.rating-plus {
+  background: rgba(0, 186, 124, 0.75);
+}
+
+.bar-ceiling.rating-avg {
+  background: rgba(255, 193, 7, 0.7);
+}
+
+.bar-ceiling.rating-fringe {
+  background: rgba(244, 162, 97, 0.7);
+}
+
+.bar-ceiling.rating-poor {
+  background: rgba(244, 33, 46, 0.75);
+}
+
+/* Arrow indicator for ceiling value inside .bar-value: "55 → 60" */
+.bar-value-ceiling {
+  opacity: 0.7;
+  font-size: 0.65rem;
+  margin-left: 1px;
+}
+
 .bar.rating-elite {
   background:
     linear-gradient(
@@ -6415,6 +6454,32 @@ th .stat-tooltip {
   margin: 0.5rem 0 0 0;
 }
 
+/* Projection Toggle (Current/Peak) */
+.projection-toggle {
+  display: inline-flex;
+  gap: 0;
+  margin-bottom: 0.5rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.projection-toggle-btn {
+  padding: 0.2rem 0.75rem;
+  font-size: 0.8rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.projection-toggle-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+.projection-toggle-btn:hover:not(.active) {
+  background: rgba(var(--color-primary-rgb), 0.1);
+}
+
 /* Skeleton Loading */
 .batter-profile-modal .loading-skeleton {
   opacity: 0.6;
@@ -6518,6 +6583,38 @@ th .stat-tooltip {
 
 .batter-profile-modal .bar-estimated.rating-poor {
   background: linear-gradient(90deg, #f4212e 0%, #f4212e 70%, rgba(244, 33, 46, 0.4) 100%);
+}
+
+/* Ceiling bars (TFR upside) — inherits base .bar-ceiling styles, scoped overrides for modal */
+.batter-profile-modal .bar-ceiling {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 0 4px 4px 0;
+  opacity: 0.35;
+  pointer-events: none;
+  transition: width 0.3s ease, left 0.3s ease;
+  border-left: 1px dashed rgba(255, 255, 255, 0.4);
+}
+
+.batter-profile-modal .bar-ceiling.rating-elite {
+  background: rgba(29, 155, 240, 0.8);
+}
+
+.batter-profile-modal .bar-ceiling.rating-plus {
+  background: rgba(0, 186, 124, 0.75);
+}
+
+.batter-profile-modal .bar-ceiling.rating-avg {
+  background: rgba(255, 193, 7, 0.7);
+}
+
+.batter-profile-modal .bar-ceiling.rating-fringe {
+  background: rgba(244, 162, 97, 0.7);
+}
+
+.batter-profile-modal .bar-ceiling.rating-poor {
+  background: rgba(244, 33, 46, 0.75);
 }
 
 /* Scout/OSA bars - muted colors */
