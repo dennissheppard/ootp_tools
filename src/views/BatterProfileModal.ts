@@ -1278,7 +1278,10 @@ export class BatterProfileModal {
     const scoutBarClass = this.getRatingBarClass(sv);
     const trueDisplay = Math.round(Math.max(20, Math.min(80, tv)));
     const scoutDisplay = Math.round(Math.max(20, Math.min(80, sv)));
-    const diff = trueDisplay - scoutDisplay;
+    // Diff uses TFR (peak) vs scout (also peak) when ceiling available, otherwise TR vs scout
+    const ceilingForDiff = (ceiling !== undefined && !isNaN(ceiling)) ? Math.round(Math.max(20, Math.min(80, ceiling))) : undefined;
+    const diffValue = (ceilingForDiff !== undefined && ceilingForDiff > trueDisplay) ? ceilingForDiff : trueDisplay;
+    const diff = diffValue - scoutDisplay;
     const diffText = diff > 0 ? `+${diff}` : diff === 0 ? '—' : `${diff}`;
     const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
 
@@ -1388,7 +1391,10 @@ export class BatterProfileModal {
     const scoutBarClass = isSpeed ? this.getSpeedBarClass(sv) : this.getRatingBarClass(sv);
     const trueDisplay = Math.round(tv);
     const scoutDisplay = Math.round(sv);
-    const diff = trueDisplay - scoutDisplay;
+    // Diff uses TFR (peak) vs scout (also peak) when ceiling available, otherwise TR vs scout
+    const ceilingForDiff = (ceiling !== undefined && !isNaN(ceiling)) ? Math.round(Math.max(min, Math.min(max, ceiling))) : undefined;
+    const diffValue = (ceilingForDiff !== undefined && ceilingForDiff > trueDisplay) ? ceilingForDiff : trueDisplay;
+    const diff = diffValue - scoutDisplay;
     const diffText = diff > 0 ? `+${diff}` : diff === 0 ? '—' : `${diff}`;
     const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
 

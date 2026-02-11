@@ -1,0 +1,145 @@
+Name,Age,Pos,B,OVR,RL,POT,WAR,LEA,WE,INT,Prone,AVG,HR,OPS+,SB,CON,POW,EYE,1B,2B,3B,SS,LF,CF,RF,SPE,STE,RUN,DEF,DEM,Sign,ID
+Chris Green,18,RF,L,1.5 Stars,3.0 Stars,5.0 Stars,6.460,N,N,N,Normal,0.315,42,172.362,5,70,80,50,55,-,-,-,55,30,50,50,50,70,50,$2.8m,Normal,14479
+Tim Bayer,18,3B,L,1.0 Stars,2.0 Stars,4.0 Stars,6.111,N,N,N,Normal,0.309,34,156.175,2,70,70,50,60,35,50,35,35,-,30,30,50,55,50,$2.0m,Extremely Hard,14509
+R.J. Hoffe,17,CF,L,1.0 Stars,2.5 Stars,5.0 Stars,6.098,N,N,H,Normal,0.333,29,173.962,6,80,65,55,65,-,-,-,60,35,55,65,45,40,35,$3.0m,Extremely Hard,15555
+Nick Cardona,18,3B,R,1.0 Stars,2.0 Stars,4.0 Stars,5.586,N,N,N,Durable,0.311,37,165.296,0,65,75,60,65,35,35,30,30,-,25,35,30,45,35,$1.7m,Extremely Hard,14592
+Raymond Farentino,21,SS,S,2.0 Stars,5.0 Stars,5.0 Stars,5.299,L,L,N,Normal,0.239,39,145.460,1,45,80,80,65,55,50,45,50,25,45,45,35,35,45,$3.4m,Easy,15569
+Tony Nogueda,21,2B,R,1.5 Stars,4.0 Stars,3.5 Stars,5.159,N,N,L,Normal,0.321,18,140.643,0,80,50,50,65,55,30,35,30,-,-,45,30,20,55,$600k,Hard,15004
+Jose Benitez,18,LF,R,1.0 Stars,2.0 Stars,4.0 Stars,4.972,N,H,N,Normal,0.293,43,156.338,11,60,80,45,50,-,-,-,45,25,35,75,60,60,45,$1.5m,Extremely Hard,14574
+Yukinobu Kotani,18,2B,R,1.0 Stars,2.0 Stars,3.5 Stars,4.654,N,N,N,Normal,0.239,41,135.103,0,45,80,55,70,50,40,40,35,-,30,40,25,45,50,$1.8m,Extremely Hard,14522
+Ray Dowd,17,3B,R,1.0 Stars,2.5 Stars,4.0 Stars,4.440,N,N,N,Normal,0.307,29,154.749,0,70,65,60,60,30,30,-,-,-,-,30,40,20,30,$700k,Extremely Hard,15002
+Cecilio Leonetti,18,SS,R,1.0 Stars,2.0 Stars,2.5 Stars,4.434,L,N,N,Normal,0.259,29,127.016,1,50,65,55,70,55,55,50,40,-,40,35,40,50,50,$440k,Extremely Hard,15024
+Jose Madrigal,18,LF,R,1.5 Stars,2.5 Stars,4.5 Stars,4.239,N,H,N,Normal,0.309,14,145.356,14,80,45,65,40,-,-,-,45,-,35,70,60,70,45,$2.6m,Extremely Hard,14445
+Mike Evans,18,SS,R,1.0 Stars,2.0 Stars,3.0 Stars,4.173,L,N,N,Normal,0.271,30,133.516,7,55,65,45,65,50,45,40,35,-,30,60,60,60,40,$300k,Extremely Hard,15563
+Javy Gonzales,18,2B,R,1.0 Stars,2.0 Stars,4.0 Stars,4.150,N,N,H,Normal,0.308,11,126.707,2,80,40,50,70,55,25,35,35,-,-,45,40,30,55,$240k,Extremely Hard,14433
+Su-min Choi,18,SS,R,1.0 Stars,2.0 Stars,2.5 Stars,4.082,N,N,N,Normal,0.214,38,115.986,0,45,75,50,75,70,60,60,55,30,50,55,20,45,60,$750k,Extremely Hard,14543
+Vince Stoddard,18,3B,R,1.0 Stars,2.0 Stars,3.0 Stars,4.008,L,H,N,Normal,0.276,34,137.392,0,55,70,50,70,40,40,35,45,-,35,30,30,20,40,$2.4m,Extremely Hard,14604
+Kazushi Yoshida,18,CF,R,1.0 Stars,2.0 Stars,3.5 Stars,3.845,N,N,L,Normal,0.266,24,141.068,2,55,60,80,75,45,30,30,55,35,50,50,40,40,35,$700k,Extremely Hard,14504
+Myung-joo Kim,17,C,R,1.0 Stars,2.0 Stars,2.5 Stars,3.676,N,N,N,Normal,0.258,18,105.185,0,55,50,55,55,-,25,-,35,-,30,30,20,40,60,$300k,Extremely Hard,14499
+Luis Torres,18,2B,L,1.0 Stars,2.0 Stars,2.5 Stars,3.640,N,N,N,Durable,0.259,30,121.098,0,50,65,50,65,50,35,35,20,-,-,30,40,40,50,$300k,Extremely Hard,14482
+Frank Hudson,22,C,L,1.5 Stars,4.0 Stars,2.5 Stars,3.590,N,H,N,Normal,0.258,18,106.925,1,55,50,55,35,-,-,-,30,-,25,35,40,30,55,$130k,Hard,15560
+John Sepkiechler,17,CF,R,1.0 Stars,2.0 Stars,3.5 Stars,3.432,N,H,N,Normal,0.296,39,148.618,2,60,75,40,65,35,30,25,45,25,40,60,35,50,25,$180k,Extremely Hard,14431
+Jose Chavez,18,CF,L,1.0 Stars,2.0 Stars,3.0 Stars,3.392,N,H,N,Normal,0.229,43,123.592,3,45,80,45,40,-,-,-,65,45,55,65,45,65,45,$2.0m,Extremely Hard,14567
+Justin Bahr,18,C,R,1.0 Stars,2.0 Stars,3.0 Stars,3.338,H,H,N,Normal,0.292,4,102.734,0,75,30,45,50,30,35,-,55,30,45,20,20,30,55,$2.6m,Extremely Hard,14547
+Bailey Harrison,18,2B,R,1.0 Stars,2.0 Stars,2.5 Stars,3.294,L,L,N,Normal,0.264,35,128.209,4,50,70,45,60,40,25,25,-,-,-,60,45,40,40,$190k,Extremely Hard,14994
+Jose Flores,21,C,R,1.5 Stars,4.0 Stars,2.5 Stars,3.272,N,L,L,Normal,0.235,17,102.426,0,50,50,65,35,-,-,-,40,-,35,35,30,25,55,Slot,Normal,15558
+Nelson Guenette,22,C,R,2.0 Stars,5.0 Stars,2.5 Stars,3.186,H,N,N,Normal,0.254,19,94.216,0,55,50,40,45,-,40,-,65,45,55,20,25,20,65,$240k,Normal,15774
+Newt Greening,18,C,R,1.0 Stars,2.0 Stars,2.5 Stars,3.163,N,N,H,Normal,0.290,15,114.422,0,70,45,45,40,-,-,-,45,20,40,25,35,20,40,$3.2m,Extremely Hard,14587
+Les Potter,22,C,R,1.5 Stars,3.5 Stars,2.5 Stars,3.102,H,N,N,Normal,0.249,22,99.072,0,50,55,45,50,25,40,-,55,30,45,20,25,20,55,Slot,Normal,15768
+Tom Pointer,17,2B,R,1.0 Stars,2.0 Stars,3.5 Stars,3.059,N,H,H,Durable,0.278,30,130.118,5,60,65,45,50,35,30,25,35,-,20,50,50,55,35,$700k,Extremely Hard,14454
+Jorge Cortinez,17,2B,R,1.0 Stars,2.0 Stars,2.5 Stars,3.037,N,N,N,Normal,0.269,39,130.174,2,50,75,40,60,35,25,-,20,-,-,40,45,50,35,$190k,Extremely Hard,14550
+Brian Kelly,18,C,R,1.0 Stars,2.0 Stars,2.5 Stars,2.981,N,N,N,Normal,0.239,14,92.054,0,50,45,50,40,-,-,-,-,-,-,30,30,20,65,$190k,Extremely Hard,14429
+Johão Montez,20,C,R,1.5 Stars,3.0 Stars,3.5 Stars,2.929,L,N,N,Durable,0.300,0,96.801,0,80,20,40,55,-,-,-,-,-,-,35,35,40,55,$1.7m,Normal,14999
+Tony Goss,18,CF,R,1.0 Stars,2.0 Stars,3.0 Stars,2.909,N,N,N,Normal,0.278,18,117.246,1,65,50,50,55,-,-,-,70,45,65,40,40,25,45,$320k,Extremely Hard,14590
+Travis Bowness,21,SS,R,1.5 Stars,3.5 Stars,2.5 Stars,2.898,L,H,N,Normal,0.244,18,102.478,4,50,50,45,75,65,65,55,35,-,30,60,45,65,55,$120k,Extremely Hard,15030
+Don Hargrove,21,CF,R,1.0 Stars,2.5 Stars,2.5 Stars,2.787,N,H,N,Normal,0.284,19,113.767,12,65,50,40,60,35,20,25,65,45,55,65,65,75,45,$1.2m,Hard,12412
+Nooh bin Khairy,18,3B,R,1.0 Stars,2.0 Stars,2.5 Stars,2.777,N,H,N,Normal,0.281,18,114.870,0,65,50,50,75,45,45,40,40,-,35,30,35,25,45,$750k,Extremely Hard,14551
+Nathan Trew,17,CF,R,1.0 Stars,2.0 Stars,2.5 Stars,2.760,N,N,H,Normal,0.253,14,107.455,13,55,45,60,50,30,-,-,65,50,55,65,65,65,50,$230k,Extremely Hard,15773
+Dave Santos,18,C,R,1.0 Stars,2.0 Stars,2.5 Stars,2.688,L,L,H,Normal,0.245,35,113.136,0,45,70,40,40,-,-,-,-,-,-,35,35,25,35,$380k,Extremely Hard,14501
+Freddy Perez,18,SS,R,1.0 Stars,2.0 Stars,3.0 Stars,2.663,N,N,N,Normal,0.284,22,125.990,2,65,55,50,50,40,40,30,45,-,40,55,35,20,30,$450k,Extremely Hard,14570
+Eric Eaves,18,SS,R,1.0 Stars,2.0 Stars,3.0 Stars,2.645,N,N,N,Normal,0.280,27,120.062,3,60,60,40,65,45,40,35,45,-,40,60,40,50,35,$180k,Extremely Hard,15000
+Chikara Saiki,18,C,R,1.0 Stars,2.5 Stars,2.5 Stars,2.641,N,H,N,Normal,0.244,18,92.544,0,50,50,45,55,-,-,-,35,-,30,30,35,40,55,$220k,Extremely Hard,14511
+Alastair Keane,17,SS,L,1.0 Stars,2.0 Stars,2.5 Stars,2.549,L,N,L,Normal,0.272,15,106.693,4,65,45,45,75,50,55,45,45,-,45,55,45,70,45,$380k,Extremely Hard,14541
+Donato Canavaro,17,C,S,1.0 Stars,2.0 Stars,3.0 Stars,2.370,N,N,N,Normal,0.249,21,114.236,0,50,55,60,45,-,20,-,-,-,-,30,35,40,30,$180k,Extremely Hard,14998
+Xavier Lubin,21,2B,S,1.5 Stars,3.5 Stars,2.5 Stars,2.229,H,N,N,Normal,0.251,14,98.171,7,55,45,50,70,55,35,40,40,-,25,55,55,60,55,$130k,Hard,15019
+Jeremy Jones,17,CF,L,1.0 Stars,2.0 Stars,2.5 Stars,2.114,N,N,N,Normal,0.244,18,98.649,8,50,50,50,65,-,-,-,65,50,55,50,65,70,50,$190k,Extremely Hard,14560
+Jonathan Cashdollar,18,C,L,1.0 Stars,2.0 Stars,2.0 Stars,2.043,L,N,L,Normal,0.211,22,84.208,0,40,55,50,45,-,-,-,-,-,-,25,20,20,55,$180k,Extremely Hard,14996
+Tim Cummings,18,C,L,1.0 Stars,2.0 Stars,2.0 Stars,1.996,N,N,N,Normal,0.225,15,80.559,0,45,45,45,50,-,25,-,40,-,40,40,30,20,60,$190k,Extremely Hard,14559
+Richard Albergati,18,SS,R,1.0 Stars,2.0 Stars,2.0 Stars,1.961,N,L,L,Normal,0.224,18,88.274,6,45,50,45,70,60,55,55,50,-,50,65,55,55,55,$190k,Extremely Hard,14439
+Robby Sinclair,18,CF,L,1.0 Stars,2.0 Stars,2.0 Stars,1.960,N,H,L,Normal,0.239,14,95.497,1,50,45,60,50,-,-,-,70,55,50,45,35,40,55,$190k,Extremely Hard,15564
+Borenko Kovacevic,21,SS,R,1.5 Stars,3.0 Stars,2.5 Stars,1.907,N,N,H,Normal,0.244,18,102.064,4,50,50,45,70,50,40,40,55,30,45,55,50,45,40,$350k,Extremely Hard,15765
+Ben Nesmith,18,2B,R,1.0 Stars,2.0 Stars,2.5 Stars,1.900,H,N,L,Normal,0.254,19,96.373,0,55,50,40,70,50,40,40,55,35,45,40,30,50,50,$180k,Extremely Hard,14462
+Arnold Albertson,21,CF,R,1.5 Stars,2.5 Stars,2.5 Stars,1.891,N,N,N,Normal,0.258,18,107.694,6,55,50,50,65,40,30,30,60,40,55,60,50,60,40,$200k,Normal,14993
+Ricardo Ponce,17,CF,L,1.0 Stars,2.0 Stars,2.5 Stars,1.873,L,L,N,Normal,0.296,8,114.269,2,75,35,50,65,-,-,-,55,35,50,45,40,55,35,$220k,Extremely Hard,15008
+Rob Yannayon,21,SS,R,1.5 Stars,3.0 Stars,2.5 Stars,1.873,H,H,N,Normal,0.256,18,102.165,1,55,50,45,65,45,50,40,50,25,45,40,40,40,40,Slot,Hard,15769
+Tim Hooks,18,C,R,1.0 Stars,2.0 Stars,2.0 Stars,1.863,N,N,N,Normal,0.230,22,90.172,0,45,55,45,40,-,-,-,-,-,-,20,45,45,45,$190k,Extremely Hard,14369
+Pedrag Simovic,18,C,R,1.0 Stars,2.0 Stars,2.0 Stars,1.764,L,N,N,Normal,0.225,14,83.250,0,45,45,50,60,-,-,-,25,-,20,35,20,20,50,$190k,Extremely Hard,14486
+Hiroshi Suzuki,18,RF,S,1.0 Stars,2.0 Stars,2.5 Stars,1.756,N,N,N,Normal,0.265,15,97.344,0,60,45,40,35,-,-,-,70,50,65,30,30,20,65,$180k,Extremely Hard,14576
+Blake Villegas,21,CF,L,1.0 Stars,2.0 Stars,2.5 Stars,1.735,H,N,L,Normal,0.254,26,110.895,5,50,60,45,60,35,20,20,55,35,50,40,60,55,35,$180k,Very Easy,12379
+Jose Pereira,22,C,R,1.5 Stars,2.5 Stars,2.5 Stars,1.677,H,H,N,Normal,0.249,23,99.002,0,50,55,40,45,-,-,-,-,-,-,35,35,20,35,Slot,Easy,13183
+Moon-soo Choi,21,1B,L,1.5 Stars,3.0 Stars,2.5 Stars,1.617,L,L,N,Normal,0.224,30,103.549,0,45,65,50,60,30,30,20,50,25,45,25,25,35,60,$330k,Normal,15572
+John Hayes,18,LF,R,1.0 Stars,2.0 Stars,2.5 Stars,1.605,H,N,H,Normal,0.273,31,121.315,0,55,65,40,30,-,-,-,35,-,30,40,30,25,35,$900k,Extremely Hard,14600
+Ayres Serdio,18,RF,L,1.5 Stars,2.5 Stars,2.5 Stars,1.569,N,N,N,Normal,0.244,18,100.132,0,50,50,50,40,-,-,-,60,40,55,30,30,40,55,$180k,Extremely Hard,14447
+Bailey Lloyd,20,C,R,1.0 Stars,2.0 Stars,2.5 Stars,1.561,N,N,N,Normal,0.230,22,97.212,0,45,55,55,40,-,-,-,-,-,-,20,20,20,35,$120k,Extremely Hard,13792
+Filippio Gradi,19,C,S,1.0 Stars,2.0 Stars,2.0 Stars,1.525,N,N,L,Normal,0.239,15,79.467,0,50,45,40,35,-,-,-,20,-,-,25,25,30,50,Slot,Very Easy,13889
+Greg Zuehlke,21,CF,L,1.5 Stars,3.5 Stars,2.0 Stars,1.483,N,H,N,Normal,0.251,15,91.807,3,55,45,40,55,35,50,35,70,50,70,60,40,40,50,Slot,Normal,15016
+Ray Dionne,18,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,1.467,N,H,N,Normal,0.272,12,97.634,3,65,40,40,60,45,40,35,40,-,35,55,40,25,45,$220k,Extremely Hard,14548
+Daniel Calzada,18,2B,S,1.0 Stars,2.0 Stars,2.0 Stars,1.399,N,N,L,Normal,0.244,18,95.509,2,50,50,45,65,45,30,30,55,35,40,40,45,50,45,$180k,Extremely Hard,14488
+Giovanni Harkness,21,C,R,1.0 Stars,2.0 Stars,2.0 Stars,1.387,N,N,H,Normal,0.220,15,74.730,0,45,45,45,50,-,25,-,-,-,-,35,25,20,55,Slot,Normal,12402
+Arthur Clark,18,C,R,1.0 Stars,2.0 Stars,2.0 Stars,1.324,N,H,N,Normal,0.238,15,82.728,0,50,45,45,40,-,-,-,20,-,-,20,20,30,45,Impos.,Impossible,15005
+Roberto Carlos,18,2B,R,1.0 Stars,2.0 Stars,2.5 Stars,1.304,L,N,N,Normal,0.250,15,94.638,4,55,45,45,75,45,20,30,45,25,30,55,45,30,45,$190k,Extremely Hard,14594
+Aguinaldo Gidts,18,C,R,1.0 Stars,2.0 Stars,2.0 Stars,1.241,N,N,N,Normal,0.250,15,81.254,0,55,45,35,45,-,25,-,-,-,-,20,20,20,45,$190k,Extremely Hard,14513
+Dante Mosquera,22,1B,R,1.5 Stars,2.5 Stars,3.0 Stars,1.197,N,N,N,Durable,0.260,31,115.324,0,55,65,40,40,-,-,-,25,-,-,25,25,20,40,$1.2m,Normal,11564
+Stewart Atkinson,18,CF,R,1.0 Stars,2.0 Stars,2.0 Stars,1.081,N,N,L,Normal,0.223,22,85.816,2,45,55,45,50,-,-,-,65,50,50,55,40,40,50,$190k,Extremely Hard,14542
+Rocco Carracci,17,CF,R,1.0 Stars,2.0 Stars,2.5 Stars,1.051,N,H,L,Normal,0.250,14,101.359,5,55,45,55,55,-,-,-,55,35,50,50,50,55,35,$700k,Extremely Hard,14562
+Dave Southcott,18,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,1.045,N,N,L,Normal,0.239,15,89.156,9,50,45,45,65,45,35,35,25,-,-,60,65,60,45,$170k,Extremely Hard,14500
+Drew Phillips,21,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,1.031,N,L,L,Durable,0.235,19,84.514,2,50,50,40,60,50,35,40,-,-,-,45,45,30,50,Slot,Extremely Hard,12384
+Josue Leon,17,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,0.998,N,H,N,Normal,0.244,18,94.841,6,50,50,45,60,40,30,30,40,-,20,55,55,65,40,$190k,Extremely Hard,14437
+Matthew Gerlach,21,1B,L,1.5 Stars,3.5 Stars,2.5 Stars,0.980,N,N,L,Normal,0.260,30,117.733,0,55,65,45,35,-,-,-,25,-,-,35,30,50,35,$280k,Hard,15033
+Joaquim Tatsuno,17,C,R,1.0 Stars,2.0 Stars,2.0 Stars,0.979,N,N,N,Durable,0.244,18,89.212,0,50,50,45,35,-,-,-,-,-,-,20,20,20,35,$180k,Extremely Hard,14450
+Alejandro Gonzalez,18,RF,L,1.0 Stars,2.0 Stars,2.0 Stars,0.970,N,N,N,Normal,0.239,14,91.989,1,50,45,50,30,-,-,-,60,40,55,35,45,35,55,$190k,Extremely Hard,14430
+Jasper Petzinger,18,CF,R,1.0 Stars,2.0 Stars,2.5 Stars,0.926,N,N,L,Normal,0.263,23,101.220,2,55,55,35,65,35,25,25,55,35,50,50,40,50,35,$180k,Extremely Hard,14456
+Israel Esparza,22,C,R,1.0 Stars,2.0 Stars,2.0 Stars,0.901,L,L,N,Durable,0.220,15,70.506,0,45,45,40,40,-,25,-,-,-,-,20,25,30,50,Slot,Easy,12316
+Mitch Nickerson,21,CF,R,1.0 Stars,2.5 Stars,2.0 Stars,0.883,N,N,N,Normal,0.235,19,88.928,1,50,50,40,70,45,25,30,60,45,55,55,35,45,45,Slot,Hard,12367
+Fernando Woodhouse,18,C,R,1.0 Stars,2.0 Stars,2.0 Stars,0.840,N,N,N,Durable,0.239,15,81.295,1,50,45,40,50,-,20,-,-,-,-,25,50,60,40,Slot,Hard,14466
+Barry Keppell,18,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,0.838,L,H,N,Normal,0.228,18,88.540,3,45,50,50,70,45,30,30,35,-,20,60,40,35,45,$350k,Extremely Hard,14503
+Chris Westlake,21,LF,S,1.0 Stars,2.0 Stars,2.0 Stars,0.817,N,N,N,Normal,0.244,18,98.152,0,50,50,50,45,-,-,-,45,-,35,30,20,20,45,Slot,Normal,12445
+Edmondo Fattori,18,SS,R,0.5 Stars,1.5 Stars,2.0 Stars,0.808,N,N,L,Normal,0.235,12,75.246,4,50,40,40,65,55,60,50,55,30,55,50,50,70,50,$180k,Extremely Hard,14453
+Leo Legge,17,C,L,1.0 Stars,2.0 Stars,2.0 Stars,0.789,H,N,N,Normal,0.230,18,86.348,0,45,50,45,30,-,-,-,-,-,-,30,20,30,35,$250k,Extremely Hard,14572
+Steve Eades,18,RF,L,1.5 Stars,2.5 Stars,2.5 Stars,0.745,N,L,L,Normal,0.284,11,108.597,0,70,40,50,35,-,-,-,45,20,35,20,20,35,35,$190k,Extremely Hard,14490
+Robby Plumer,17,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,0.715,N,H,N,Durable,0.249,15,90.948,8,55,45,40,70,40,30,30,25,-,-,70,55,55,40,$170k,Extremely Hard,14568
+Jose Avila,18,3B,R,1.0 Stars,2.5 Stars,2.0 Stars,0.701,N,N,L,Normal,0.255,11,86.744,0,60,40,45,65,45,45,35,-,-,-,55,25,20,45,$180k,Extremely Hard,15550
+Jeremy Rae,21,1B,R,1.5 Stars,2.5 Stars,2.0 Stars,0.698,N,N,N,Normal,0.249,22,102.445,0,50,55,45,45,-,-,-,30,-,-,25,45,40,45,$230k,Hard,12250
+Ethan Van buizen,20,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,0.688,N,N,N,Normal,0.244,18,96.272,6,50,50,45,50,35,20,-,45,25,35,55,55,55,35,Slot,Easy,13348
+Melvin Ramirez,18,SS,R,1.0 Stars,2.0 Stars,2.0 Stars,0.684,N,N,N,Normal,0.249,22,103.593,2,50,55,45,60,35,30,25,35,-,30,60,35,30,25,$180k,Extremely Hard,14448
+Jason Evans,17,CF,L,1.0 Stars,2.0 Stars,2.5 Stars,0.668,N,H,N,Normal,0.259,31,113.819,0,50,65,40,60,40,35,25,35,20,30,40,20,20,20,$180k,Extremely Hard,14436
+John Steyn,21,CF,R,1.5 Stars,3.0 Stars,2.0 Stars,0.638,N,N,L,Normal,0.209,26,89.140,6,45,60,50,45,-,20,-,60,40,45,55,60,40,40,Slot,Hard,15556
+Clive McThormoid,20,SS,S,1.0 Stars,2.0 Stars,2.0 Stars,0.569,N,N,N,Normal,0.239,14,89.731,2,50,45,50,65,45,40,35,40,-,35,45,40,40,35,Slot,Normal,13315
+Tanner Beaudoin,18,CF,S,1.0 Stars,2.0 Stars,2.0 Stars,0.497,N,H,H,Normal,0.251,15,93.820,0,55,45,45,45,-,-,-,55,35,50,40,30,35,35,$190k,Extremely Hard,14444
+Devon Williams,18,RF,L,1.5 Stars,2.5 Stars,2.5 Stars,0.478,N,H,N,Normal,0.261,14,104.755,6,60,45,50,30,-,-,-,45,-,35,55,50,65,35,$180k,Extremely Hard,14474
+Milovan Jovanovic,17,SS,L,1.0 Stars,2.0 Stars,2.0 Stars,0.453,N,N,N,Normal,0.256,18,99.126,1,55,50,45,65,40,25,25,50,-,45,35,40,40,25,$190k,Extremely Hard,14505
+Andy Moran,18,C,R,0.5 Stars,1.5 Stars,2.0 Stars,0.427,N,N,N,Normal,0.235,19,75.203,0,50,50,30,50,-,25,-,-,-,-,25,25,25,40,$180k,Extremely Hard,14516
+Ji-hoon Kuk,18,RF,L,1.0 Stars,2.5 Stars,2.5 Stars,0.413,N,N,N,Normal,0.292,4,95.073,1,75,30,35,35,-,-,-,55,30,45,55,30,20,45,$190k,Extremely Hard,14506
+Jamie Watkins,18,C,S,1.0 Stars,2.0 Stars,2.0 Stars,0.330,N,H,N,Durable,0.216,8,68.738,0,45,35,50,30,-,-,-,-,-,-,25,30,30,45,Slot,Normal,15015
+Márcio Nogueira,17,RF,L,1.5 Stars,2.5 Stars,2.5 Stars,0.312,N,N,N,Normal,0.263,23,103.113,0,55,55,40,45,-,-,-,45,-,35,30,35,40,35,$180k,Extremely Hard,15565
+Nate Weber,21,1B,R,1.5 Stars,2.5 Stars,2.0 Stars,0.220,N,N,H,Normal,0.253,15,87.242,0,55,45,40,55,-,-,-,25,-,-,25,25,20,55,Slot,Normal,11753
+Art Rabinovich,18,CF,L,1.0 Stars,2.0 Stars,2.0 Stars,0.203,L,N,N,Normal,0.241,8,73.847,1,55,35,40,40,-,-,-,65,50,50,55,35,20,50,Slot,Normal,14442
+Robbie Murphy,21,2B,L,1.0 Stars,2.5 Stars,2.0 Stars,0.175,N,H,N,Normal,0.265,15,95.830,1,60,45,40,55,30,-,-,-,-,-,35,45,55,30,Slot,Hard,12938
+Kirk Leroux,21,C,R,1.0 Stars,2.0 Stars,2.0 Stars,0.007,N,H,N,Normal,0.239,15,75.496,0,50,45,35,35,-,-,-,-,-,-,35,30,45,35,Slot,Easy,11618
+Devon Moore,21,CF,R,1.0 Stars,2.0 Stars,2.0 Stars,0.002,N,H,L,Normal,0.244,19,87.038,0,50,50,40,40,-,-,-,55,35,45,35,25,20,35,Slot,Normal,12447
+Elton Brophy,21,CF,R,1.5 Stars,2.5 Stars,2.0 Stars,-0.050,N,N,N,Durable,0.227,11,78.875,11,50,40,50,35,-,-,-,60,40,50,65,65,50,40,Slot,Hard,15009
+Inês Centeio,18,CF,R,1.0 Stars,2.0 Stars,2.5 Stars,-0.085,N,H,N,Normal,0.248,22,103.918,1,50,55,45,55,20,-,-,40,-,35,55,35,45,-,$230k,Extremely Hard,14591
+Marmaduke Mess,17,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.100,N,N,N,Normal,0.225,15,79.404,0,45,45,45,65,40,30,30,-,-,-,40,25,25,40,$170k,Extremely Hard,14470
+Gordon Mansfield,21,C,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.100,N,N,N,Normal,0.238,4,62.319,0,55,30,35,35,-,-,-,-,-,-,35,30,25,45,Slot,Extremely Hard,12416
+Drees Schiphorst,18,C,S,1.0 Stars,2.0 Stars,2.0 Stars,-0.170,N,N,N,Normal,0.211,18,78.448,0,40,50,50,30,-,-,-,30,-,25,20,20,20,30,$180k,Extremely Hard,15025
+Toshishige Nii,20,LF,R,1.5 Stars,2.5 Stars,2.0 Stars,-0.191,N,H,N,Normal,0.233,32,90.467,0,45,65,30,60,25,-,-,40,-,35,30,20,20,40,Slot,Hard,12438
+Jeremy Sandoval,18,C,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.212,N,N,H,Normal,0.221,12,60.602,0,45,40,35,45,-,-,-,-,-,-,30,20,25,45,$180k,Extremely Hard,14573
+Gabriel Perez,20,SS,R,1.5 Stars,2.5 Stars,2.0 Stars,-0.217,N,H,N,Normal,0.204,14,72.527,1,45,45,50,65,45,45,40,-,-,-,45,35,20,40,Slot,Extremely Hard,15006
+Ray Luckwell,21,SS,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.228,N,N,N,Normal,0.239,15,77.410,6,50,45,35,65,45,45,35,50,25,45,45,65,50,35,Slot,Normal,12408
+Ben Lonsdale,18,RF,L,1.5 Stars,2.5 Stars,2.0 Stars,-0.273,N,N,N,Normal,0.253,8,83.586,0,60,35,45,65,-,-,-,45,-,45,40,35,55,45,$190k,Extremely Hard,14467
+Howard McMinn,17,CF,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.284,N,N,N,Normal,0.250,15,87.959,10,55,45,40,60,25,35,-,60,30,55,60,65,45,30,$190k,Extremely Hard,14588
+Ezechiele Baltistuzzi,18,CF,L,1.0 Stars,2.5 Stars,2.0 Stars,-0.302,N,L,L,Normal,0.239,15,89.028,3,50,45,45,50,-,-,-,55,30,45,55,45,65,30,$190k,Extremely Hard,14475
+Ernst Coady,18,CF,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.346,N,H,H,Normal,0.239,14,92.575,3,50,45,55,50,-,-,-,45,25,35,40,50,50,25,$180k,Extremely Hard,15010
+Timothy Tinter,18,2B,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.358,H,H,N,Durable,0.262,11,94.498,6,60,40,45,60,25,-,-,35,-,20,70,45,40,25,Slot,Normal,14489
+Hideki Tsuchida,18,SS,L,1.0 Stars,2.0 Stars,2.0 Stars,-0.422,N,N,N,Normal,0.264,4,93.827,2,65,30,55,55,35,40,-,30,-,25,60,35,35,-,$190k,Extremely Hard,14521
+Fortunato Paoli,21,C,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.434,L,L,L,Normal,0.206,15,63.085,0,40,45,40,45,-,-,-,30,-,-,30,30,30,40,Slot,Easy,11602
+Oliver Mackenzie,18,1B,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.525,N,N,N,Normal,0.239,15,76.782,0,50,45,35,55,-,-,-,-,-,-,25,20,20,55,$180k,Extremely Hard,15003
+Kane Shiston,18,C,R,1.0 Stars,2.0 Stars,2.0 Stars,-0.731,N,N,N,Normal,0.222,8,65.005,0,50,35,45,30,-,-,-,-,-,-,20,20,25,35,$190k,Extremely Hard,14510
+Travis Pittman,21,2B,R,1.5 Stars,2.5 Stars,2.0 Stars,-0.754,N,H,N,Normal,0.233,11,76.081,3,50,40,45,45,35,-,-,25,-,-,35,55,65,35,Slot,Hard,15017
+Nadim Ghassan,18,1B,L,1.0 Stars,2.0 Stars,2.0 Stars,-0.796,N,N,N,Normal,0.253,15,87.374,0,55,45,40,40,-,-,-,-,-,-,30,25,20,40,$180k,Extremely Hard,14502
+Gabriel Elliott,18,CF,R,1.0 Stars,2.0 Stars,2.0 Stars,-1.020,N,N,N,Durable,0.218,18,79.095,2,45,50,45,35,-,-,-,55,30,45,55,40,35,30,$180k,Extremely Hard,14601
+Hide Kato,18,LF,S,1.5 Stars,2.5 Stars,2.0 Stars,-1.160,L,H,N,Normal,0.216,11,70.221,0,45,40,50,35,-,-,-,45,-,40,30,25,45,45,Impos.,Impossible,14519
+Vivien Jacquot,22,2B,R,1.5 Stars,2.5 Stars,2.0 Stars,-1.191,N,L,N,Normal,0.229,8,70.845,0,50,35,45,55,35,20,20,35,-,25,50,30,40,35,Slot,Very Easy,15568
+Floyd Adronyk,17,3B,R,1.0 Stars,2.0 Stars,2.0 Stars,-1.198,N,N,N,Normal,0.209,18,75.437,0,45,50,45,50,-,30,-,-,-,-,40,20,35,30,Slot,Hard,14461
+Adrian Nava,21,SS,L,1.0 Stars,2.0 Stars,2.0 Stars,-1.240,N,H,H,Fragile,0.226,4,59.141,1,50,30,40,65,45,55,40,-,-,-,55,35,25,40,Slot,Extremely Hard,12257
+Tony Hernandez,20,CF,L,1.0 Stars,2.0 Stars,2.0 Stars,-1.253,N,N,N,Durable,0.239,16,75.460,6,50,45,30,60,-,-,-,50,30,40,60,60,65,30,Slot,Hard,13366
+Robert Vellinga,17,3B,R,1.0 Stars,2.0 Stars,2.0 Stars,-1.276,N,N,N,Normal,0.268,4,87.417,1,65,30,45,65,30,20,-,35,-,30,50,35,40,20,$180k,Extremely Hard,14478
+Brian Calvano,20,2B,S,1.0 Stars,2.0 Stars,2.0 Stars,-1.284,N,N,N,Normal,0.231,8,63.529,2,50,35,35,60,40,-,20,50,35,35,45,45,40,40,Slot,Extremely Hard,13089
+Jim Burkholder,17,CF,R,1.0 Stars,2.0 Stars,2.0 Stars,-1.578,N,N,N,Normal,0.250,15,83.403,1,55,45,35,40,-,-,-,55,20,55,45,35,25,20,$190k,Extremely Hard,14440
+Carlos Chaidez,21,LF,R,1.5 Stars,2.5 Stars,2.0 Stars,-1.737,L,N,N,Normal,0.220,15,72.663,7,45,45,40,35,-,-,-,35,-,20,40,75,70,35,Slot,Extremely Hard,12404
+Jason Sloan,20,RF,R,1.5 Stars,2.5 Stars,2.0 Stars,-2.444,N,L,N,Normal,0.218,4,57.880,0,50,30,45,50,-,-,-,45,-,40,30,35,30,40,Slot,Normal,15020
+John Stonecipher,17,LF,R,1.0 Stars,2.0 Stars,2.0 Stars,-2.475,L,N,N,Normal,0.218,19,75.024,0,45,50,40,30,-,-,-,25,-,20,50,20,20,25,$190k,Extremely Hard,14569
+Raymond Krajancic,18,RF,R,1.0 Stars,2.0 Stars,2.0 Stars,-2.829,N,N,H,Normal,0.238,4,74.798,0,55,30,50,30,-,-,-,30,-,20,40,30,20,20,$190k,Extremely Hard,14463
+Jesús Casaca,21,RF,L,1.0 Stars,2.5 Stars,1.5 Stars,-3.780,N,H,L,Normal,0.197,1,33.876,0,45,25,35,30,-,-,-,45,-,45,40,30,20,45,Slot,Hard,12383
+Zenichiro Ishii,22,CF,L,1.0 Stars,2.5 Stars,1.5 Stars,-4.263,H,N,N,Normal,0.207,1,39.355,1,45,25,35,55,-,-,-,50,25,45,45,40,45,25,Slot,Easy,12308
+Eric Hettich,18,,R,1.0 Stars,2.0 Stars,2.5 Stars,,H,N,N,Normal,,,,,60,40,80,40,-,20,-,45,-,45,45,45,60,20,$900k,Extremely Hard,14471

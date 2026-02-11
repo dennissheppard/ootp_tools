@@ -171,57 +171,137 @@ The planning grid shows future roster gaps — but gaps 3-5 years out can't alwa
 
 This connects the roster grid directly to draft strategy: **identify the gap → value the pick → target the position → track the prospect.**
 
-### Data We Need to Acquire
+### Data Available
 
-**Must Have: Draft Logs**
-A CSV per draft year with at minimum:
-- `player_id` — must match our existing stats data player IDs
-- `draft_year`
-- `draft_round`
-- `draft_pick` (overall pick number)
-- `drafting_team_id`
-- `position` at time of draft
+**Draft Logs**: 2,887 picks scraped from StatsPlus (2008-2020), with career WAR already computed. Pure stats — no snapshot dependency.
 
-This is the core — with just this + our existing 20 years of minor league and MLB stats, we can derive almost everything.
+**Personality Snapshots** (see `data/draft_data/`):
+- `batters_2010.csv` + `pitchers_2010.csv` — all active players in 2010 (3,943 players)
+- `batters_2017.csv` + `pitchers_2017.csv` — all active players in 2017 (5,801 players)
+- Merged: 8,282 unique players; 1,758 drafted players with personality data (2008-2017)
+- Draft-year scouting CSVs (2016-2021) with WAR embedded — too recent for long-term conclusions
 
-**Where to get it**: OOTP draft history exports, or scrape from StatsPlus league pages if available. One CSV per year (2000-2021) or a single combined file.
+**Analysis scripts**: `analyze_2010.py`, `analyze_drafts.py`, `analyze_merged.py`, `draft_pick_value.py`, `triple_h_deep_dive.py`
 
-**Nice to Have (but not available)**:
-- Scouting ratings at time of draft (OVR/POT when drafted) — would be great for "what did the scouts think vs what happened" but we don't have historical snapshots of scouting data
-- Signing bonus amounts
+### Data Validity Boundaries (IMPORTANT)
 
-### What We Can Analyze (Stats-Focused)
+**Personality traits (WE, INT, AD, etc.)** — IMMUTABLE. Never change.
+- 2010 snapshot covers 2008-2010 draft classes (663 players, minimal attrition)
+- 2017 snapshot adds 2011-2017 draft classes (1,095 new players; some survivor bias for 2011-2013)
+- Combined: **1,758 drafted players with personality data** across 10 draft classes
+- Personality findings validated across both snapshots — direction and ranking consistent
 
-Once we have draft logs mapped to our stats data, we can answer:
+**POT/OVR star ratings** — MUTABLE. Change year to year.
+- Only accurate at draft-day values for **same-year draftees** (2010 class in 2010 snapshot, 2017 class in 2017 snapshot)
+- For older draftees in a snapshot, POT/OVR reflect post-draft development, not draft-day values
+- POT findings based on 2010+2017 same-year draftees combined (n=408) — better than single-year but still limited
 
-**1. Pick Value Curves — "What is a 2nd round pick worth?"**
-- % of picks that reach MLB, by round and by pick range (1-5, 6-10, 11-20, 21-40, etc.)
-- Average and median career MLB WAR by pick range
-- Expected years to MLB by pick range
-- Basically: an "expected value" number for each draft slot
+**Stats/WAR** — ACCUMULATED. Available 2000-2021 for all players.
+- Completely independent of any snapshot
+- Pick value curves use 2,887 picks — the most robust data
 
-**2. Positional Draft Value — "Is drafting a SS in round 2 smart?"**
-- Hit rate by position and round (are catchers drafted in round 1 more/less likely to pan out than SS?)
-- WAR by position and draft slot
-- Time to MLB by position (catchers take longer? pitchers bust more?)
-- This tells you: "historically, a 2nd-round SS has a 35% chance of reaching MLB and averages 4.2 career WAR"
+### Key Findings (Validated with Expanded Data)
 
-**3. Development Timelines — "When will my 2023 draft pick be ready?"**
-- Average time from draft to MLB debut by round
-- Average time from draft to peak WAR season by round
-- Distribution: what % of 1st rounders arrive in 2 years? 3? 4? 5?
-- This feeds directly into the roster grid — "expect this pick to fill your SS gap in ~3 years"
+**1. Pick Value Curves [HIGH CONFIDENCE — 2,010 mature picks, pure stats]**
 
-**4. Attrition/Bust Rates — "What are the odds this pick never makes it?"**
-- % of picks per round that never reach MLB
-- % that reach MLB but produce <0 career WAR (busts)
-- % that produce 1+ WAR (contributors), 5+ WAR (starters), 10+ WAR (stars)
-- By round and by position
+| Pick Group | Avg WAR | MLB% | WAR>=5 | WAR>=15 |
+|------------|---------|------|--------|---------|
+| #1-5 | **11.6** | 76% | 53% | 27% |
+| #6-10 | **7.4** | 66% | 39% | 20% |
+| #11-15 | **7.9** | 57% | 27% | 16% |
+| #16-20 | 4.3 | 55% | 20% | 11% |
+| #21-30 | 1.9 | 29% | 12% | 6% |
+| #31-55 | 2.9 | 47% | 19% | 7% |
+| #56-100 | 1.1 | 25% | 8% | 2% |
+| #101+ | 0.2 | 11% | 2% | 0% |
 
-**5. Late Round Value — "Are rounds 3-5 worth planning around?"**
-- How often do later picks surprise?
-- Is there a round where hit rate drops off a cliff?
-- Are certain positions better late-round bets than others?
+**2. Round-Level Value [HIGH CONFIDENCE — mature classes 2008-2016]**
+
+| Round | Avg WAR | MLB% | WAR>=5 | WAR>=15 |
+|-------|---------|------|--------|---------|
+| 1 | 7.0 | 84% | 31% | 16% |
+| 2 | 3.1 | 67% | 19% | 8% |
+| 3 | 2.0 | 60% | 12% | 3% |
+| 4 | 1.6 | 42% | 10% | 4% |
+| 5 | 0.8 | 41% | 5% | 2% |
+| 6 | 0.7 | 41% | 6% | 2% |
+| 7+ | ~0.1 | ~20% | ~1% | ~0% |
+
+Sharp dropoff after Round 4. Rounds 7+ are near-zero expected value.
+
+**3. Personality As Draft Edge [HIGH CONFIDENCE — validated across 1,758 players, 10 draft classes]**
+
+Trait ranking by effect size (expanded 2008-2017 pool):
+
+| Trait | H-L Delta (2008-2010, n=663) | H-L Delta (2008-2017, n=1,758) | Direction Holds? |
+|-------|-----|-----|-----|
+| AD | +4.3 | **+1.8** | YES — still #1 |
+| WE | +3.0 | **+1.6** | YES — still #2 |
+| INT | +0.9 | +0.5 | yes, small |
+| LEA | +0.8 | -0.0 | NO — essentially zero |
+| FIN | -1.0 | -0.5 | yes, greed still negative |
+
+Deltas shrink with expanded pool partly because 2011-2017 classes have fewer career years. But **the ranking and direction are rock solid** — AD and WE are the traits that matter.
+
+Key personality rules (all validated):
+- **Low WE is devastating**: batters 16% MLB rate (vs 40% for H WE), pitchers 27% (vs 49%)
+- **2+ Low in WE/INT/AD = auto-avoid**: 91% bust rate, 0% WAR>=10 (n=133)
+- **Triple-H (WE+INT+AD all High)**: avg 4.6 WAR (n=23) vs 1.3 for All Normal (n=666) — ~3.5x multiplier
+- **H WE + H AD is the best double combo**: avg 2.4 WAR (n=150), 47% MLB, 13% WAR>=5
+- **The draft doesn't price personality** — market inefficiency still present
+
+**4. Development Timelines [HIGH CONFIDENCE — derived from stats files, mature classes 2008-2016]**
+
+*How long from draft to MLB debut?*
+
+| Round | Avg Years | Median | Arrive in 2yr | 3yr | 4yr | 5yr |
+|-------|-----------|--------|--------------|-----|-----|-----|
+| 1 | 3.0 | 3 | 35% | 60% | 83% | 98% |
+| 2 | 3.4 | 3 | 24% | 56% | 74% | 91% |
+| 3 | 3.4 | 3 | 31% | 58% | 74% | 92% |
+| 4 | 3.6 | 4 | 35% | 44% | 59% | 87% |
+| 5 | 4.1 | 4 | 13% | 35% | 56% | 87% |
+| 6 | 4.3 | 5 | 22% | 24% | 50% | 82% |
+
+**Pitchers arrive ~0.5yr faster than batters.** Rd 1 pitchers: 43% arrive in 2yr. Rd 1 batters: 29% in 2yr.
+
+*This directly feeds the roster grid*: "You draft a SS in Round 2 → median 4 years to MLB → plan for him to fill your 2026 gap if drafting in 2022."
+
+**5. Position-Specific Draft Outcomes [HIGH CONFIDENCE — mature classes 2008-2016]**
+
+| Position | n | MLB% | Avg WAR | WAR>=5 | Avg Yrs to MLB |
+|----------|---|------|---------|--------|----------------|
+| SP | 397 | 46% | 1.9 | 10% | 3.9 |
+| RP | 315 | 37% | 0.7 | 5% | 3.4 |
+| CF | 115 | 50% | 2.3 | 9% | 4.1 |
+| 2B | 107 | 34% | 2.8 | 13% | 3.3 |
+| SS | 101 | 39% | 1.1 | 10% | 3.6 |
+| LF | 92 | 32% | 1.4 | 8% | 4.3 |
+| 1B | 85 | 38% | 2.2 | 7% | 3.5 |
+| RF | 84 | 44% | 1.2 | 7% | 3.9 |
+| 3B | 80 | 34% | 1.3 | 8% | 3.7 |
+| C | 127 | 25% | 0.7 | 5% | 3.9 |
+
+**Position x Round highlights** (Rounds 1-4):
+- **Best Rd 1 position**: 2B (15.6 avg WAR, 50% WAR>=5) and 1B (14.0 avg WAR)
+- **SS Rd 1**: 100% MLB rate but only 3.2 avg WAR — they all make it but rarely become stars
+- **SS Rd 2-3**: Better value plays (3.6 and 4.8 avg WAR respectively)
+- **C Rd 1**: Risky (40% MLB, 3.0 avg WAR). **C Rd 2 is the sweet spot** (67% MLB, 6.2 avg WAR, 44% WAR>=5)
+- **SP Rd 1**: 7.4 avg WAR, 36% WAR>=5 — the safest high-end pick
+- **CF Rd 1**: 93% MLB rate but only 3.7 avg WAR — high floor, low ceiling
+
+**6. Draft Slot Tier System [HIGH CONFIDENCE]**
+- Tier 1 (Picks 1-8): Avg 11+ WAR, franchise-altering, 75%+ MLB rate
+- Tier 2 (Picks 9-20): Avg 3-8 WAR, solid starters, ~50% MLB rate
+- Tier 3 (Picks 21-55): Avg 1.5-4 WAR, lottery tickets, ~35% MLB rate
+- Tier 4 (Picks 56-100): Avg 0.5-2 WAR, long shots, personality matters most here
+- Tier 5 (Picks 101+): Avg <0.5 WAR, near-zero expected value
+
+### Still Needed for Team Planning Integration
+
+**Upcoming draft pool integration** — future work:
+- Can we get pre-draft prospect lists from OOTP for upcoming drafts?
+- If so, overlay personality data + POT to project which available players fit positional needs
 
 ### How This Integrates With the Roster Grid
 
@@ -229,10 +309,12 @@ Once we have draft logs mapped to our stats data, we can answer:
 
 The draft module would show:
 1. "SS gap projected starting 2025" (from roster grid)
-2. "Historical 2nd-round SS: 35% MLB rate, avg 3.8 WAR, ~3yr development time" (from draft analysis)
-3. "You have pick #47 overall in the upcoming draft" (from draft capital data)
-4. "Picks in the 40-50 range historically produce: X% MLB rate, Y avg WAR" (from pick value curve)
-5. If we have upcoming draft pool data: "Here are the SS-eligible prospects projected for that range"
+2. "Rd 1 SS: 100% MLB rate, 3.2 avg WAR, median 3yr to debut. Rd 2 SS: 57% MLB, 3.6 avg WAR. Rd 3 SS: 56% MLB, 4.8 avg WAR" (from position x round data)
+3. "You have pick #47 overall (early Rd 3) in the 2022 draft" (from draft capital data)
+4. "Picks #41-50 historically: 42% MLB rate, 1.6 avg WAR" (from pick value curve)
+5. "At Rd 3, a SS takes median 3yr to arrive → projected MLB debut 2025 — right when you need him"
+6. "Prioritize H WE + H AD prospects — they outperform Normal by 2-3x at this draft range"
+7. If we have upcoming draft pool data: "Here are the SS-eligible prospects projected for that range"
 
 ### Draft Board View (Part of Team Planning)
 
@@ -258,11 +340,11 @@ POSITIONAL NEEDS FROM GRID:
 
 ### Implementation: Phase 2.5 (After Prospect Pipeline, Before Indicators)
 
-**Phase 2.5a: Data Acquisition & Analysis**
-- [ ] Acquire draft log data (CSV export from OOTP) — all available years
-- [ ] Build `DraftService.ts` to parse draft logs and map `player_id` to existing stats data
-- [ ] Run analysis script (like our batting analysis): pick value curves, positional breakdown, development timelines, bust rates
-- [ ] Store derived data: expected WAR by pick, MLB% by pick, years-to-MLB by pick and position
+**Phase 2.5a: Data Acquisition & Analysis — COMPLETE**
+- [x] Draft logs scraped (2,887 picks, 2008-2020)
+- [x] Personality snapshots merged (2010 + 2017 → 1,758 drafted players)
+- [x] Analysis scripts: `analyze_merged.py`, `draft_pick_value.py`, `analyze_2010.py`
+- [x] All key metrics computed: pick value curves, round-level value, position x round, development timelines, personality effects, bust rates
 
 **Phase 2.5b: Draft Value Integration**
 - [ ] Add draft capital section below the roster grid (or as a tab within Team Planning)
@@ -277,14 +359,6 @@ POSITIONAL NEEDS FROM GRID:
 - [ ] Show prospect's current minor league stats (from our existing data)
 - [ ] Tag picks: "fills SS gap in ~3yr" or "BPA — no positional need"
 - [ ] Track post-draft: once drafted, prospect flows into the Phase 2 prospect pipeline on the grid
-
-### Research We Can Do NOW (Before Acquiring Draft Data)
-
-Even without draft logs, we can do some prep work:
-- We already have the aging/career curve analysis (peak yr 3-4, median career 3 seasons)
-- We already have the minor league stat translation data (rates carry over, WAR doesn't correlate)
-- We can pre-build the analysis scripts that will process draft data once we have it
-- We can build the `DraftService` skeleton and the grid UI slots for draft capital
 
 ---
 
@@ -321,11 +395,21 @@ Even without draft logs, we can do some prep work:
 ### Phase 2.5: Draft Capital (see Draft Capital Planning section above)
 **Goal: connect roster gaps to draft strategy.**
 
-- [ ] Acquire draft log data from OOTP
-- [ ] Build `DraftService.ts`, run draft value analysis
+Research complete (in `data/draft_data/`):
+- [x] Draft logs scraped (2,887 picks, 2008-2020)
+- [x] Pick value curves, round-level value, draft slot tiers
+- [x] Personality analysis validated with expanded pool (1,758 players, 2008-2017 via merged 2010+2017 snapshots)
+- [x] Development timelines by round (years from draft to MLB debut)
+- [x] Position-specific draft outcomes (position x round matrix)
+- [x] Bust rates by POT tier (2010+2017 same-year draftees)
+
+Implementation needed:
+- [ ] Build `DraftService.ts` to expose pick value data, personality flags, development timelines, and team draft capital
 - [ ] Add draft capital section to planning view
-- [ ] Connect positional gaps → draft targets
-- [ ] Draft board with prospect filtering by need
+- [ ] Connect positional gaps from roster grid → draft targets using position x round data
+- [ ] Draft board: filter available prospects by positional need + personality profile
+- [ ] Integrate personality data into prospect evaluation (flag H WE/AD prospects as higher value)
+- [ ] Use development timelines to project "fills gap in ~Xyr" for each draft pick
 
 ### Phase 3: Actionable Indicators
 **Goal: turn the grid into a decision-making tool.**
@@ -366,9 +450,8 @@ Even without draft logs, we can do some prep work:
 
 1. **Readiness calibration**: Need to analyze historical OVR/POT gap vs actual MLB arrival timing to set tier thresholds.
 2. **How many forward years?** 5 feels right for planning. 3 for a "win now" view?
-3. **Draft log format**: What exactly does OOTP export for draft history? Need to confirm fields available (player_id, round, pick, team, position at minimum). How many years of draft history are available?
-4. **Draft pool / upcoming draft**: Can we get pre-draft prospect lists from OOTP for upcoming drafts? Or only historical completed drafts?
-5. **Traded picks**: Can we track traded draft picks (team X owns team Y's 2nd rounder)? This might require manual tracking or a separate data source.
+3. **Draft pool / upcoming draft**: Can we get pre-draft prospect lists from OOTP for upcoming drafts? If so, we can overlay personality + POT to flag positional fits.
+4. **Traded picks**: Can we track traded draft picks (team X owns team Y's 2nd rounder)? Might require manual tracking or a separate data source.
 
 ---
 
@@ -379,12 +462,12 @@ Even without draft logs, we can do some prep work:
 - `HitterTrueFutureRatingService` / `TrueFutureRatingService` for prospect readiness (already exists)
 - Player aging curve data (from our analysis: peak yr 3-4, decline yr 10+)
 - Scouting data for OVR/POT ratings (already exists)
-- **Draft log CSVs** (need to acquire from OOTP — Phase 2.5 blocker)
-- Existing minor league + MLB stats data for mapping draft picks to outcomes (already have 2000-2021)
+- Draft research complete in `data/draft_data/` — 2,887 picks (2008-2020), 1,758 with personality data (2010+2017 snapshots merged), pick value curves, position x round outcomes, development timelines all computed
+- Existing minor league + MLB stats data (2000-2021)
 
 ## Related Roadmap Items
 
 - **Player Development Tracker**: complements this — shows individual trajectory, while Team Planning shows the team-level view
 - **Trade Analyzer**: a "TR" indicator in the grid could link directly to the trade analyzer for that position. Draft picks involved in trades get valued using the pick value curves.
 - **Advanced Projections**: win projections could be enhanced by knowing your future roster composition
-- **What is the value of a draft pick?** (already on main roadmap as Low priority) — this feature absorbs and supersedes that item
+- **What is the value of a draft pick?** (already on main roadmap as Low priority) — this feature absorbs and supersedes that item. Core analysis already done in `data/draft_data/`

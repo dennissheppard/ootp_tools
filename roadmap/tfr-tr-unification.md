@@ -162,14 +162,19 @@ Only players where `data.hasTfrUpside === true && data.trueRating !== undefined`
 **`src/styles.css`**
 - Added `.projection-toggle` (inline-flex container with border) and `.projection-toggle-btn` (active state uses `--color-primary`)
 
-### Ceiling Bar Value Labels (Also Completed)
+### Ceiling Bar Value Labels (Revised Feb 2026)
 
-Rating bars with TFR upside now show `TR → TFR` format in the bar-value label (e.g., "55 → 60") instead of just the TR number. This applies to:
+Rating bars with TFR upside show two separate values:
+- **TR value**: shown inside the colored TR bar portion (`.bar-value-inner` child of `.bar-estimated`)
+- **TFR value**: shown at the end of the bar container (standard `.bar-value` at `right: 8px`)
+- **Diff column**: compares TFR vs Scout (both are peak projections), not current TR vs Scout
+
+This applies to:
 - `BatterProfileModal.renderRatingBarComparison()` (main: Contact, Power, Eye)
 - `BatterProfileModal.renderAdvancedRatingComparison()` (expanded: Gap, AvoidK)
 - `PlayerRatingsCard.renderRatingBar()` (TrueRatings table view for pitchers)
 
-CSS: `.bar-value-ceiling` — slightly smaller font, 70% opacity, for the ` → 60` portion
+CSS: `.bar-value-inner` positioned inside `.bar-estimated` (which has `position: relative`), `.bar-estimated` must have `position: relative` in both generic and batter-modal scoped CSS
 
 ---
 
@@ -207,8 +212,8 @@ Player opens modal
   │   ├─ YES → Calculate TFR (via getUnifiedHitterTfrData / on-the-fly)
   │   │   ├─ TFR > TR? → hasTfrUpside = true
   │   │   │   ├─ Badge: show TR star + "Peak" with TFR value
-  │   │   │   ├─ Bars: TR solid + TFR ceiling extension + "TR → TFR" labels
-  │   │   │   └─ Projections: Current/Peak toggle (batter inline, pitcher pre-computed)
+  │   │   │   ├─ Bars: TR solid (value inside) + TFR ceiling extension (value at end), diff = TFR vs Scout
+  │   │   │   └─ Projections: Current/Peak toggle (peak uses TFR blended rates directly)
   │   │   └─ TFR <= TR? → hasTfrUpside = false
   │   │       ├─ Badge: show TR star only
   │   │       ├─ Bars: TR solid only
@@ -236,6 +241,29 @@ USER ANSWER: Caching is always preferred, but calculations have never shown more
 
 3. **Historical TFR**: The new Development tab shows historical TR (just implemented). Should it also show historical TFR trajectory for players with upside? Probably not — we don't have historical scouting data, so historical TFR can't be calculated. Current-year TFR vs historical TR is the best we can do.
 USER ANSWER: Correct, we don't have scouting data, so can't do that, but it might be something we implement in the future when/if we make this whole app league agnostic, and/or we have historical scouting data for this league
+
+---
+
+## Post-Completion Fixes (Feb 2026)
+
+### Bar Display Overhaul
+- **Old**: Single `30 → 55` arrow label at bar end
+- **New**: TR value inside the colored bar; TFR value at the container's right edge (like scouting bars)
+- **Diff column**: Now compares TFR vs Scout (both peak projections) instead of current TR vs Scout
+- Removed: `.bar-value-ceiling` CSS class, `has-ceiling` overflow hack
+- Added: `.bar-value-inner` (child of `.bar-estimated`), `.bar-estimated { position: relative }`
+
+### Peak Projection: Use TFR Blended Rates Directly
+- **Problem**: Peak projection converted TFR 20-80 ratings back to rates via regression formulas (`expectedBbPct(eye)`, `expectedAvg(contact)`, etc.). This was lossy — the TFR ratings come from percentile ranking, not the same formulas. Result: Power 29 (current) with 1.6% HR could show Power 35 (TFR) with only 1.2% HR.
+- **Fix**: Added `tfrBbPct`, `tfrKPct`, `tfrHrPct`, `tfrAvg`, `tfrObp`, `tfrSlg`, `tfrPa` fields to `BatterProfileData`. These are the actual blended rates from the TFR pipeline — the same rates that determine the TFR star rating.
+- Peak projection now uses these rates directly instead of reverse-engineering from 20-80 ratings.
+- Also uses empirical PA (from `tfrPa`, e.g. 640 for Normal) instead of old `getProjectedPa()` (which returned 600).
+- **Files**: `BatterProfileModal.ts` (interface + renderProjection), `TrueRatingsView.ts` (openBatterProfile), `GlobalSearchBar.ts`
+
+### ISO Calculation Fix
+- **Problem**: `expectedIso(power)` was deprecated and only used HR for ISO, ignoring Gap/Speed entirely. A doubles machine with Gap=78 would get ISO=.086 instead of correct ~.140.
+- **Fix**: ISO now computed from all XBH components: `ISO = doublesRate + 2*triplesRate + 3*hrPerAb`. This is used in the fallback projection path (when pre-computed rates aren't available) and the badge WAR calculation.
+- The peak projection path now bypasses this entirely by using `tfrSlg` directly from the pipeline.
 
 4. **Component ceiling when no TR exists**: For pure prospects (no MLB stats), the bar chart shows scouting values. There's no TR to compare against, so no "ceiling" extension. The scouting values ARE the projection. This is fine — ceiling bars only make sense when both TR and TFR exist.
 USER ANSWER: I think in this case we *only* show the ceiling? I guess whatever we currently do, as I think that is already kind of the current ceiling, and we can revisit that after.

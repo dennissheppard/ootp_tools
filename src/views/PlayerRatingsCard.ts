@@ -616,20 +616,19 @@ export class PlayerRatingsCard {
 
     // Clamp estimated rating for display (backend may have values >80 for elite prospects)
     const estValue = this.clampRatingForDisplay(estimated);
-    const diff = estValue - scoutValue;
-    const diffText = diff > 0 ? `+${diff}` : `${diff}`;
-    const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
-
     const estWidth = Math.max(20, Math.min(80, estValue));
     const estClass = this.getRatingClassForValue(estValue);
 
     // Ceiling bar (TFR component extension) — only show when ceiling > true value
+    // Diff uses TFR (peak) vs scout (also peak) when ceiling available, otherwise TR vs scout
     let ceilingHtml = '';
     let barInnerHtml = '';
     let barValueHtml = `<span class="bar-value">${estValue}</span>`;
+    let diffValue = estValue;
     if (ceiling !== undefined && !isNaN(ceiling)) {
       const ceilingClamped = this.clampRatingForDisplay(ceiling);
       if (ceilingClamped > estValue) {
+        diffValue = ceilingClamped;
         const ceilingClass = this.getRatingClassForValue(ceilingClamped);
         const truePercent = estWidth;
         const ceilingWidth = Math.max(20, Math.min(80, ceilingClamped));
@@ -639,6 +638,10 @@ export class PlayerRatingsCard {
         barValueHtml = `<span class="bar-value">${ceilingClamped}</span>`;
       }
     }
+
+    const diff = diffValue - scoutValue;
+    const diffText = diff > 0 ? `+${diff}` : `${diff}`;
+    const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
 
     return `
       <div class="rating-row">

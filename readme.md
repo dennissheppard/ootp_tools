@@ -562,12 +562,14 @@ These coefficients are still used for TFR (prospect projections) and scouting co
 
 TFR and TR are unified across all views. Instead of proxy thresholds (`isProspect`, `careerAb <= 130`, etc.), the actual ratings comparison determines display:
 
-- **TFR > TR** → Show both: TR as primary + TFR ceiling bars with `TR → TFR` labels, Peak badge, Current/Peak projection toggle
+- **TFR > TR** → Show both: TR as primary + TFR ceiling bars, Peak badge, Current/Peak projection toggle
+  - Rating bars show TR value inside the colored bar, TFR value at the bar's end
+  - Diff column compares TFR vs Scout (both are peak projections), not current TR vs Scout
 - **TFR <= TR** → TFR disappears entirely, player is "fully realized"
 - **No TR** (pure prospect) → Show TFR only with peak projection
 
 **Gate check** (skip TFR calculation entirely if): age >= 26 AND star gap < 0.5
 
-**Projection toggle**: MLB players with unrealized upside (`hasTfrUpside`) get a Current/Peak toggle on their projection table. Current uses TR-derived rates at current age; Peak uses TFR component ratings at age 27. Pitcher peak projections are pre-computed async; batter peak projections re-render inline.
+**Projection toggle**: MLB players with unrealized upside (`hasTfrUpside`) get a Current/Peak toggle on their projection table. Current uses TR blended rates at current age; Peak uses TFR blended rates directly (from the same pipeline that produces the TFR star rating) at peak age with empirical PA projections. Pitcher peak projections are pre-computed async; batter peak projections re-render inline.
 
-See `roadmap/tfr-tr-unification.md` for full implementation details.
+**Important**: Peak projections use the TFR pipeline's blended rates directly (`tfrBbPct`, `tfrAvg`, `tfrSlg`, etc.), NOT rates derived from converting 20-80 TFR ratings back through regression formulas. The round-trip (rate → percentile → 20-80 → formula → rate) is lossy and produces inconsistent projections.

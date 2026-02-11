@@ -1,0 +1,178 @@
+Name,Pos,T,Age,ERA+,WAR,OVR,OVR_RL,POT,LEA,WE,INT,Prone,STU P,MOV P,CON P,STM,PIT,FBP,CHP,CBP,SLP,SIP,SPP,CTP,FOP,CCP,SCP,KCP,KNP,DEM,Sign,ID
+Takahiro Lcio,SP,R,19,138.0,5.60,1.5 Stars,2.5 Stars,5.0 Stars,N,H,H,Normal,70,60,80,55,3,80,75,-,80,-,-,-,-,-,-,-,-,$2.6m,Extremely Hard,15868
+Hideyoshi Akamatsu,SP,L,18,119.5,4.66,0.5 Stars,2.0 Stars,4.5 Stars,N,H,N,Normal,80,55,45,70,3,80,80,-,80,-,-,-,-,-,-,-,-,$2.6m,Extremely Hard,15707
+Valerio Lopez,SP,R,18,120.0,4.59,1.5 ,3.0 ,4.0 ,N,H,N,Normal,45,70,75,60,3,45,-,-,-,-,55,65,-,-,-,-,-,$220k,Extremely Hard,16224
+Odwin MacDonald,SP,R,21,139.2,4.37,2.0 ,5.0 ,3.5 ,N,N,N,Normal,55,80,60,40,3,75,-,-,-,75,-,70,-,-,-,-,-,$270k,Normal,16225
+Riccardo van Delft,SP,R,18,116.9,4.36,1.5 ,4.0 ,3.5 ,N,H,N,Fragile,55,65,55,55,5,65,55,-,60,45,-,70,-,-,-,-,-,$460k,Extremely Hard,16247
+Brian Acorn,SP,R,18,114.7,4.25,1.5 ,3.0 ,3.5 ,H,N,N,Durable,50,65,55,65,3,65,60,-,65,-,-,-,-,-,-,-,-,Impos.,Impossible,15663
+Rafael Lagos,SP,R,18,145.9,4.14,1.0 ,2.5 ,4.0 ,N,H,N,Normal,65,80,55,35,4,80,75,-,80,75,-,-,-,-,-,-,-,$3.4m,Extremely Hard,15690
+Lee Jordan,SP,R,21,115.2,4.08,2.0 ,5.0 ,3.5 ,L,N,N,Durable,80,70,30,70,5,80,80,-,55,80,-,-,-,-,-,80,-,$290k,Extremely Hard,16407
+Jong-hun Lee,SP,R,18,121.1,4.01,1.0 ,2.5 ,3.0 ,L,N,L,Normal,45,70,80,45,4,-,-,-,35,50,70,50,-,-,-,-,-,$1.5m,Extremely Hard,15854
+Bill Muncey,SP,R,17,112.0,3.78,1.0 ,2.5 ,3.5 ,N,N,N,Normal,60,65,45,55,4,70,80,-,80,70,-,-,-,-,-,-,-,$290k,Extremely Hard,15709
+Elmar Tijhuis,SP,L,18,111.9,3.74,1.0 ,2.5 ,3.5 ,N,N,N,Normal,40,65,80,50,4,45,50,50,-,40,-,-,-,-,-,-,-,$1.8m,Hard,15689
+John Shnairson,SP,L,18,117.8,3.65,1.0 ,2.5 ,3.5 ,H,N,H,Normal,55,55,75,45,5,-,55,75,70,-,65,55,-,-,-,-,-,$600k,Extremely Hard,15661
+Jude Lea,SP,R,17,110.0,3.54,1.0 ,2.0 ,3.0 ,L,N,N,Fragile,45,65,60,50,4,50,45,-,40,45,-,-,-,-,-,-,-,$230k,Extremely Hard,15849
+Jean Mancelo,SP,R,18,103.0,3.52,1.0 ,2.5 ,3.0 ,N,N,N,Durable,55,50,50,70,3,80,60,-,-,-,50,-,-,-,-,-,-,$230k,Extremely Hard,15664
+Craig Glidden,SP,R,17,106.1,3.50,1.0 ,2.5 ,2.5 ,H,N,N,Normal,60,50,50,65,4,55,60,80,80,-,-,-,-,-,-,-,-,$220k,Extremely Hard,15848
+Arnaud Roche,SP,R,18,108.0,3.43,1.0 ,2.5 ,3.0 ,N,N,N,Normal,45,55,75,50,3,55,50,-,-,-,60,-,-,-,-,-,-,$900k,Extremely Hard,15737
+Srdjan Popovic,SP,R,18,105.5,3.37,1.0 ,2.5 ,2.5 ,N,N,N,Durable,45,55,70,55,4,-,45,60,-,-,65,50,-,-,-,-,-,$350k,Normal,15827
+Slobodan Zujovic,SP,R,17,105.1,3.24,1.0 ,2.5 ,3.0 ,N,N,N,Normal,45,50,80,50,6,50,35,50,50,-,45,-,-,-,-,50,-,$190k,Extremely Hard,15830
+Rick Williams,SP,R,18,117.8,3.22,1.0 ,2.5 ,2.5 ,N,N,L,Normal,75,50,50,40,3,80,-,-,80,80,-,-,-,-,-,-,-,$190k,Extremely Hard,15691
+Nate Wiggins,SP,R,17,116.5,3.12,0.5 ,2.0 ,2.5 ,N,N,N,Normal,80,50,50,40,4,80,75,80,80,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15858
+Asher Mahony,SP,R,18,108.7,3.05,0.5 ,2.0 ,2.5 ,N,N,N,Normal,60,50,55,45,3,70,-,-,-,60,-,80,-,-,-,-,-,$700k,Extremely Hard,15745
+Chris Whiteway,SP,R,17,113.9,2.94,0.5 ,2.0 ,2.5 ,N,N,N,Normal,80,50,45,40,4,-,70,80,80,-,-,80,-,-,-,-,-,$440k,Extremely Hard,15697
+Momsilo Mitevic,SP,L,17,119.7,2.88,1.5 ,2.5 ,3.0 ,L,N,H,Normal,45,70,70,35,4,45,50,-,45,45,-,-,-,-,-,-,-,$180k,Extremely Hard,16218
+Matt Stalker,SP,L,18,99.9,2.86,0.5 ,2.0 ,2.5 ,N,N,N,Normal,50,50,50,60,3,65,70,-,55,-,-,-,-,-,-,-,-,$300k,Extremely Hard,15507
+Zivojin Rankovic,SP,R,18,100.3,2.84,0.5 ,2.0 ,2.5 ,N,N,N,Normal,40,65,50,50,4,45,45,35,45,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15735
+Rex Grenfell,SP,R,17,101.5,2.83,0.5 ,1.5 ,2.5 ,L,L,N,Normal,55,55,45,50,3,80,-,-,80,55,-,-,-,-,-,-,-,$950k,Extremely Hard,15712
+Cullen Lindelof,SP,R,18,116.2,2.80,1.0 ,2.0 ,2.5 ,N,H,N,Normal,60,50,75,35,3,80,65,-,-,-,-,80,-,-,-,-,-,$450k,Extremely Hard,15684
+Jun-hun Cho,SP,R,18,98.6,2.78,0.5 ,2.0 ,2.5 ,N,H,N,Normal,45,55,50,55,4,50,50,-,45,-,-,45,-,-,-,-,-,$220k,Extremely Hard,15517
+Campbell Ceelen,SP,L,17,104.6,2.69,1.0 ,2.5 ,2.5 ,N,N,L,Normal,50,50,65,45,3,55,65,-,-,-,70,-,-,-,-,-,-,$220k,Extremely Hard,15676
+Theo Robinson,SP,R,17,96.0,2.63,1.0 ,2.0 ,2.5 ,N,N,N,Normal,45,50,55,55,3,65,50,-,-,-,-,50,-,-,-,-,-,$370k,Extremely Hard,15864
+Harm Heijkamp,SP,R,18,92.7,2.55,0.5 ,1.5 ,2.5 ,N,N,N,Normal,45,55,45,75,4,60,50,-,55,-,-,50,-,-,-,-,-,$290k,Extremely Hard,15667
+Joon-ho Kim,SP,R,18,97.6,2.55,1.0 ,2.5 ,2.5 ,N,H,H,Normal,55,50,45,50,3,80,50,-,-,-,80,-,-,-,-,-,-,$550k,Extremely Hard,16239
+Edgar Zeimoto,SP,R,17,94.9,2.52,0.5 ,2.0 ,2.5 ,N,N,N,Durable,45,60,45,55,3,-,55,-,50,-,-,45,-,-,-,-,-,$240k,Extremely Hard,15514
+Jasa Perovic,SP,R,21,91.7,2.50,1.5 ,5.0 ,2.5 ,N,N,N,Normal,45,55,45,75,4,55,50,50,-,-,-,45,-,-,-,-,-,Slot,Extremely Hard,16220
+Hae-won Cho,SP,L,17,95.1,2.50,0.5 ,2.0 ,2.5 ,L,N,L,Normal,40,50,65,55,3,45,55,-,25,-,-,-,-,-,-,-,-,$240k,Hard,15696
+Galimberto Polandi,SP,R,18,100.1,2.43,1.0 ,2.5 ,2.5 ,N,N,L,Fragile,45,50,65,45,4,50,50,-,45,45,-,-,-,-,-,-,-,Slot,Hard,15515
+Don Eacott,SP,R,18,94.9,2.42,1.0 ,2.5 ,2.5 ,N,N,H,Normal,40,55,55,50,4,40,45,-,-,45,-,40,-,-,-,-,-,$350k,Extremely Hard,16234
+Neill Noij,SP,R,22,95.7,2.39,1.5 ,5.0 ,2.0 ,N,H,N,Normal,45,50,55,50,4,50,50,50,-,-,50,-,-,-,-,-,-,Slot,Hard,16223
+Dong-joo Jung,SP,R,18,92.1,2.37,1.0 ,2.0 ,2.5 ,N,L,N,Normal,50,45,60,75,4,65,-,60,-,60,40,-,-,-,-,-,-,$240k,Extremely Hard,15742
+Oliver Blackford,SP,R,18,91.9,2.32,0.5 ,2.0 ,2.5 ,N,N,N,Normal,45,55,45,60,3,55,50,-,-,-,-,45,-,-,-,-,-,$190k,Extremely Hard,15700
+Roderick Peckham,SP,R,18,92.9,2.26,1.0 ,2.5 ,2.5 ,N,H,N,Normal,55,50,40,60,3,60,75,-,-,50,-,-,-,-,-,-,-,$290k,Extremely Hard,15828
+Nick Gaspard,SP,R,18,94.3,2.25,0.5 ,1.5 ,2.0 ,N,N,N,Normal,45,50,50,50,4,50,45,50,-,-,45,-,-,-,-,-,-,$220k,Extremely Hard,15856
+Conor Beveridge,SP,R,17,100.8,2.23,0.5 ,1.5 ,2.0 ,N,N,L,Normal,40,75,45,40,3,40,55,-,-,-,-,50,-,-,-,-,-,$220k,Extremely Hard,15720
+Julian Ceron,SP,L,17,92.3,2.22,0.5 ,1.5 ,2.5 ,N,H,H,Normal,40,50,55,55,3,45,50,-,45,-,-,-,-,-,-,-,-,$190k,Extremely Hard,15675
+Frank Geurtsen,SP,L,17,98.1,2.21,0.5 ,1.5 ,2.5 ,N,H,L,Normal,50,55,45,45,3,50,80,-,-,45,-,-,-,-,-,-,-,$290k,Extremely Hard,15714
+Mart Nijsten,SP,R,18,92.7,2.20,1.0 ,2.5 ,2.0 ,N,N,N,Normal,45,55,45,55,3,50,50,-,-,-,60,-,-,-,-,-,-,$180k,Extremely Hard,16406
+Aaron Hefner,SP,L,18,97.9,2.17,0.5 ,1.5 ,2.5 ,L,N,H,Normal,55,50,45,45,4,70,50,70,-,60,-,-,-,-,-,-,-,$230k,Extremely Hard,15522
+Vince Baldwin,SP,R,19,92.6,2.07,1.5 ,4.0 ,2.5 ,L,N,N,Normal,75,45,40,60,3,80,-,-,-,80,-,80,-,-,-,-,-,$390k,Extremely Hard,16235
+Teruhide Matsubara,SP,R,18,94.4,2.06,0.5 ,2.0 ,2.0 ,L,N,L,Normal,40,55,55,45,4,-,50,45,45,-,-,45,-,-,-,-,-,$190k,Extremely Hard,15865
+Seth Sutton,SP,R,21,89.7,2.02,1.5 ,3.0 ,2.0 ,N,H,N,Normal,45,50,45,60,3,55,55,-,-,40,-,-,-,-,-,-,-,Slot,Very Easy,13969
+Fahad Nazih,SP,R,18,103.9,1.98,1.0 ,2.0 ,2.5 ,L,L,N,Normal,55,50,50,35,4,75,50,-,-,45,-,75,-,-,-,-,-,$180k,Extremely Hard,15730
+Do-hyung Kim,SP,L,22,90.0,1.97,1.5 ,4.5 ,2.0 ,N,H,N,Normal,50,50,40,55,4,70,55,-,55,45,-,-,-,-,-,-,-,Slot,Extremely Hard,13309
+Nicky Atherton,SP,R,18,94.1,1.94,0.5 ,1.5 ,2.5 ,N,H,N,Normal,50,50,45,45,3,60,55,-,-,50,-,-,-,-,-,-,-,$900k,Extremely Hard,15688
+Jong-seop Bang,SP,L,18,94.6,1.94,1.5 ,3.0 ,2.0 ,N,N,N,Normal,50,50,45,45,4,55,55,-,-,-,65,-,-,40,-,-,-,$190k,Extremely Hard,15694
+Matt Greene,SP,L,17,89.5,1.90,0.5 ,1.5 ,2.5 ,N,N,N,Normal,60,45,45,65,3,70,55,-,-,65,-,-,-,-,-,-,-,$300k,Extremely Hard,15842
+Teddy Crutcher,SP,R,18,88.0,1.78,0.5 ,2.0 ,2.0 ,N,N,N,Normal,55,50,35,60,3,60,-,-,70,70,-,-,-,-,-,-,-,$190k,Extremely Hard,16403
+Bobby Noftall,SP,R,18,89.4,1.77,0.5 ,1.5 ,2.0 ,N,N,N,Normal,50,45,55,55,4,80,45,-,55,45,-,-,-,-,-,-,-,$1.5m,Extremely Hard,15867
+Thomas Hardy,RP,R,18,151.7,1.56,1.5 ,2.5 ,5.0 ,H,N,N,Normal,80,80,45,25,2,-,-,80,-,80,-,-,-,-,-,-,-,$250k,Extremely Hard,15686
+Esteban Garcia,SP,R,21,90.0,1.54,1.5 ,3.0 ,2.0 ,N,N,N,Normal,45,50,45,45,4,50,40,-,45,-,35,-,-,-,-,-,-,Slot,Normal,13833
+Rich O'Donnell,SP,R,18,85.3,1.53,1.0 ,2.5 ,2.0 ,N,N,N,Normal,45,45,55,55,4,-,55,50,40,-,-,60,-,-,-,-,-,Impos.,Impossible,16399
+Glen Pellerin,SP,R,17,84.9,1.50,0.5 ,1.5 ,2.0 ,L,N,H,Normal,40,50,45,50,3,45,-,40,-,40,-,-,-,-,-,-,-,$190k,Extremely Hard,15740
+Martin Mccarthy,SP,L,18,85.1,1.49,0.5 ,2.0 ,2.0 ,N,N,N,Normal,45,45,50,65,3,55,45,-,-,40,-,-,-,-,-,-,-,Impos.,Impossible,15703
+Jesus Flores,SP,R,22,87.6,1.48,1.5 ,3.5 ,2.0 ,N,N,N,Normal,65,45,40,50,3,80,65,-,-,-,40,-,-,-,-,-,-,Slot,Hard,13335
+Jonathan Pinkley,SP,R,18,87.4,1.41,0.5 ,1.5 ,2.0 ,H,N,N,Normal,65,50,25,55,3,80,75,-,50,-,-,-,-,-,-,-,-,$1.5m,Extremely Hard,15729
+Shinichi Kodama,SP,L,21,87.1,1.34,0.5 ,2.0 ,2.0 ,N,H,N,Normal,55,50,35,50,3,55,80,-,55,-,-,-,-,-,-,-,-,Slot,Extremely Hard,13963
+Alan Rhodes,SP,R,19,91.5,1.34,1.0 ,2.5 ,2.0 ,N,N,N,Normal,55,45,50,40,3,50,70,-,-,45,-,-,-,-,-,-,-,$190k,Extremely Hard,15715
+Declan Young,RP,L,22,126.6,1.33,2.5 ,5.0 ,3.0 ,N,N,N,Normal,50,65,80,30,2,-,-,-,55,55,-,-,-,-,-,-,-,Slot,Hard,16246
+Alan Bigalow,SP,R,17,88.3,1.32,0.5 ,2.0 ,2.0 ,N,L,N,Normal,45,55,40,45,6,45,50,45,50,45,-,50,-,-,-,-,-,$180k,Extremely Hard,15822
+Marius Bettini,RP,R,18,118.9,1.29,1.5 ,2.0 ,3.0 ,N,H,N,Normal,50,70,55,35,2,-,-,-,60,60,-,-,-,-,-,-,-,$170k,Extremely Hard,15847
+Ishaq bin Jamal,CL,R,21,118.0,1.28,2.0 ,4.0 ,3.0 ,N,N,N,Normal,75,50,55,35,2,-,-,80,-,-,-,80,-,-,-,-,-,Slot,Extremely Hard,16230
+Dean Elliot,SP,R,18,90.4,1.25,1.5 ,2.5 ,2.0 ,N,H,N,Normal,50,45,55,40,3,65,55,-,-,-,-,65,-,-,-,-,-,$430k,Extremely Hard,15850
+Rodolfo Vasconcellos,SP,R,18,83.9,1.21,1.0 ,2.5 ,2.0 ,N,H,N,Normal,45,45,50,55,3,50,-,50,-,55,-,-,-,-,-,-,-,$180k,Extremely Hard,15512
+Matt Baker,SP,R,18,83.5,1.20,0.5 ,1.5 ,2.0 ,H,N,L,Normal,60,45,40,65,3,55,65,-,75,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15708
+Dusan Zupljanin,SP,R,18,92.9,1.20,1.0 ,2.0 ,2.0 ,N,H,N,Normal,45,55,45,35,4,45,65,-,50,40,-,-,-,-,-,-,-,$180k,Extremely Hard,15863
+Tomohito Akamine,SP,R,21,88.1,1.19,1.5 ,3.5 ,2.0 ,N,N,N,Normal,55,50,35,45,5,80,50,70,80,50,-,-,-,-,-,-,-,Slot,Easy,13938
+Dale Bois,SP,L,18,82.1,1.18,0.5 ,1.5 ,2.0 ,N,N,N,Normal,40,45,55,60,3,40,40,-,40,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15872
+Brando Capellari,SP,L,17,88.4,1.14,0.5 ,1.5 ,2.0 ,N,N,N,Normal,40,55,45,40,3,45,55,-,-,30,-,-,-,-,-,-,-,$180k,Extremely Hard,15680
+Matt Beck,SP,R,17,81.9,1.10,0.5 ,1.5 ,2.0 ,N,N,N,Normal,45,40,75,60,4,50,45,-,50,45,-,-,-,-,-,-,-,$370k,Extremely Hard,15839
+Tadasuke Gorgulha,SP,R,18,85.5,1.09,1.0 ,2.5 ,2.0 ,N,N,H,Durable,45,50,40,45,3,45,50,-,60,-,-,-,-,-,-,-,-,$180k,Extremely Hard,16231
+Jose Rodriguez,RP,L,22,113.1,0.96,2.0 ,4.0 ,2.5 ,N,N,N,Normal,40,75,60,30,2,-,-,-,40,50,-,-,-,-,-,-,-,Slot,Normal,16248
+Dane Martin,SP,R,18,80.7,0.96,0.5 ,2.0 ,2.0 ,N,N,N,Normal,40,45,50,50,5,50,45,-,45,-,-,-,-,30,25,-,-,$220k,Extremely Hard,15713
+Joshua Peet,SP,L,18,86.2,0.88,1.0 ,2.0 ,2.0 ,N,N,N,Normal,45,45,55,40,3,45,55,-,50,-,-,-,-,-,-,-,-,$190k,Extremely Hard,15726
+Ernesto Santiago,SP,L,18,86.5,0.88,1.0 ,2.0 ,2.0 ,N,N,H,Normal,45,45,55,40,3,45,50,-,-,-,-,50,-,-,-,-,-,$180k,Extremely Hard,15736
+Nenad Pasic,RP,L,17,108.9,0.83,1.0 ,1.5 ,2.5 ,H,H,N,Normal,75,55,40,35,2,80,-,80,-,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15843
+Jong-ho Kim,SP,R,20,80.3,0.73,1.5 ,3.5 ,2.0 ,N,H,N,Fragile,40,50,40,45,5,40,40,-,35,40,-,35,-,-,-,-,-,Slot,Normal,16221
+Isra'il Bahiyy al Din,RP,L,18,105.9,0.72,0.5 ,1.5 ,2.5 ,N,L,N,Normal,55,50,55,30,2,80,-,60,-,-,-,-,-,-,-,-,-,$170k,Extremely Hard,15876
+John Auclair,SP,L,23,79.3,0.72,1.5 ,4.0 ,2.0 ,L,N,N,Normal,45,45,45,55,3,50,-,-,-,55,-,50,-,-,-,-,-,Slot,Normal,15808
+Lyndon Lewis,RP,R,18,102.3,0.71,1.5 ,2.0 ,2.5 ,N,N,N,Durable,65,50,45,35,2,80,-,-,80,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15739
+Dustin Dondale,RP,L,18,104.0,0.66,1.5 ,2.0 ,2.5 ,N,N,L,Normal,55,50,50,30,2,80,-,-,55,-,-,-,-,-,-,-,-,$180k,Extremely Hard,16531
+Sadahige Okubo,RP,R,18,98.9,0.63,1.5 ,2.0 ,2.0 ,N,N,N,Normal,40,60,55,40,2,40,45,-,-,-,-,-,-,-,-,-,-,$170k,Extremely Hard,15831
+Andy Harting,SP,R,21,81.3,0.60,1.5 ,5.0 ,2.0 ,N,N,N,Normal,50,45,45,45,5,70,50,55,65,-,50,-,-,-,-,-,-,$120k,Hard,16243
+Armando Anunciada,SP,L,18,79.6,0.59,1.0 ,2.0 ,2.0 ,N,N,N,Normal,50,40,50,55,6,50,50,50,50,-,50,-,-,-,-,50,-,$190k,Extremely Hard,16241
+Kevin Hardy,SP,R,18,79.7,0.56,0.5 ,2.0 ,2.0 ,H,N,N,Normal,45,45,45,45,3,50,-,-,50,55,-,-,-,-,-,-,-,$170k,Extremely Hard,15853
+Hakim Abraha,SP,R,21,77.3,0.52,1.5 ,2.5 ,2.0 ,N,L,L,Durable,45,45,45,50,3,80,35,-,60,-,-,-,-,-,-,-,-,Slot,Easy,13331
+Renaud Baldini,RP,R,21,101.1,0.48,1.5 ,3.0 ,2.5 ,H,N,L,Durable,70,45,55,25,2,65,-,-,80,-,-,-,-,-,-,-,-,Slot,Hard,16410
+Jeremie Lambertini,RP,R,18,100.7,0.48,0.5 ,1.5 ,2.0 ,N,N,N,Normal,50,50,50,25,2,55,-,-,50,-,-,-,-,-,-,-,-,Slot,Normal,15692
+Ramon Jimenez,RP,R,18,102.2,0.48,1.0 ,1.5 ,2.5 ,N,N,L,Normal,55,55,45,25,2,80,-,80,-,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15823
+Danny Jaime,RP,R,18,98.5,0.40,1.0 ,1.5 ,2.5 ,N,N,N,Normal,60,50,45,25,3,80,-,-,-,45,-,60,-,-,-,-,-,$180k,Extremely Hard,15716
+Stanislav Zivkovic,RP,R,18,96.1,0.39,1.0 ,1.5 ,2.5 ,L,N,N,Normal,65,45,50,30,2,65,-,-,80,-,-,-,-,-,-,-,-,$190k,Extremely Hard,15844
+Carlos Mata,SP,L,22,78.8,0.35,1.0 ,2.0 ,2.0 ,N,L,N,Normal,45,50,30,45,3,50,45,-,50,-,-,-,-,-,-,-,-,Slot,Hard,13355
+Mark Gaudet,RP,L,18,94.5,0.34,0.5 ,1.0 ,2.0 ,L,N,N,Normal,45,50,50,35,3,45,50,-,45,-,-,-,-,-,-,-,-,$190k,Extremely Hard,15862
+Cecilio Jacquet,SP,R,20,78.7,0.33,1.0 ,2.5 ,2.0 ,N,L,N,Normal,50,45,40,45,3,80,60,-,45,-,-,-,-,-,-,-,-,Slot,Normal,14603
+Hugo Esparza,RP,R,18,93.5,0.29,1.5 ,2.0 ,2.0 ,H,N,N,Normal,50,50,45,35,3,45,50,-,-,-,-,55,-,-,-,-,-,$180k,Extremely Hard,15711
+Marvin Watson,SP,R,18,75.7,0.27,0.5 ,2.0 ,2.0 ,L,N,N,Normal,45,45,40,60,4,50,45,-,50,-,35,-,-,-,-,-,-,$180k,Extremely Hard,15511
+Zuhair bin Omar,SP,R,18,77.4,0.23,0.5 ,1.5 ,2.0 ,N,N,N,Normal,40,50,35,45,3,40,50,-,-,50,-,-,-,-,-,-,-,$180k,Extremely Hard,15520
+Quitério Goyoneche,SP,R,20,76.1,0.21,1.0 ,2.5 ,2.0 ,N,H,H,Normal,50,40,45,55,4,50,50,65,-,40,-,-,-,-,-,-,-,Slot,Normal,13859
+Hidenori Taira,SP,L,17,81.9,0.20,0.5 ,2.0 ,2.0 ,N,N,N,Normal,45,50,35,35,5,-,50,65,45,-,-,45,-,-,-,30,-,$180k,Extremely Hard,15749
+Dermott Cole,SP,R,21,78.4,0.14,1.5 ,3.5 ,2.0 ,H,N,N,Normal,45,45,45,40,4,45,50,45,45,-,-,-,-,-,-,-,-,Slot,Extremely Hard,16226
+Tsukasa Kato,SP,R,21,76.7,0.13,1.0 ,2.0 ,2.0 ,L,N,N,Normal,45,45,40,45,3,75,50,-,50,-,-,-,-,-,-,-,-,Slot,Hard,13395
+Alan Simmons,RP,R,18,89.5,0.05,1.0 ,1.5 ,2.0 ,N,N,N,Durable,70,40,50,30,2,-,-,-,80,-,-,75,-,-,-,-,-,$180k,Extremely Hard,16400
+Luis Hernandez,SP,L,22,73.1,0.05,1.5 ,3.0 ,2.0 ,N,N,N,Normal,40,45,40,50,4,-,45,-,45,-,45,45,-,-,-,-,-,Slot,Very Easy,15637
+Jim Latham,RP,L,17,90.9,0.04,1.0 ,1.5 ,2.0 ,N,N,L,Durable,75,40,50,30,2,80,70,-,-,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15662
+Jung-hoon Yoo,SP,R,22,80.2,0.00,1.5 ,4.0 ,2.0 ,N,N,N,Normal,50,40,55,35,3,65,-,-,-,40,-,50,-,-,-,-,-,Slot,Normal,15648
+Chris Young,SP,R,17,73.7,-0.01,0.5 ,1.5 ,2.0 ,H,N,N,Normal,45,35,65,50,4,50,45,70,-,35,-,-,-,-,-,-,-,$170k,Extremely Hard,15829
+Rolf Redman,SP,R,21,77.6,-0.03,1.0 ,2.5 ,1.5 ,L,L,N,Normal,45,50,30,40,4,55,40,-,45,-,-,45,-,-,-,-,-,Slot,Normal,13382
+Wade Deacon,SP,R,17,71.4,-0.03,0.5 ,2.0 ,2.0 ,N,L,L,Normal,35,45,45,55,3,40,40,-,-,-,45,-,-,-,-,-,-,$190k,Extremely Hard,15851
+Mario Fernandez,RP,R,18,85.1,-0.03,1.0 ,1.5 ,2.0 ,N,H,N,Fragile,40,50,45,35,2,45,40,-,-,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15826
+Juan Crisanto,SP,L,19,75.5,-0.05,0.5 ,2.0 ,2.0 ,H,N,N,Normal,65,40,35,55,3,65,80,-,50,-,-,-,-,-,-,-,-,$190k,Extremely Hard,15874
+Matthew Wantuch,SP,R,19,73.1,-0.06,0.5 ,1.5 ,1.5 ,N,N,N,Normal,45,40,45,60,4,40,50,55,-,45,-,-,-,-,-,-,-,Impos.,Impossible,15723
+Oh-min Choi,RP,L,21,86.8,-0.07,1.5 ,3.0 ,2.0 ,N,N,L,Durable,50,50,35,25,2,55,-,65,-,-,-,-,-,-,-,-,-,Slot,Easy,16409
+Kaliq Fakih,SP,R,18,72.2,-0.11,0.5 ,1.5 ,2.0 ,N,H,N,Normal,40,45,40,50,3,45,35,-,45,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15682
+Harvey Englund,RP,L,18,85.9,-0.13,0.5 ,1.0 ,2.0 ,N,N,N,Normal,60,40,55,25,2,80,-,-,-,-,65,-,-,-,-,-,-,$180k,Extremely Hard,15673
+Robby Pruett,SP,R,17,72.8,-0.14,0.5 ,2.0 ,2.0 ,L,N,N,Normal,45,35,55,50,3,55,45,-,-,-,-,55,-,-,-,-,-,Impos.,Impossible,16408
+Fernando Ortiz,RP,L,18,87.2,-0.22,0.5 ,1.5 ,2.0 ,N,H,N,Normal,80,45,30,35,2,80,-,-,-,-,80,-,-,-,-,-,-,Slot,Normal,15748
+Dave Allard,SP,R,18,73.0,-0.23,0.5 ,1.5 ,2.0 ,N,N,N,Normal,55,35,45,60,5,60,50,80,-,-,40,45,-,-,-,-,-,$180k,Extremely Hard,15683
+Moo-hyun Kim,SP,R,22,71.2,-0.28,1.5 ,4.5 ,2.0 ,N,N,N,Normal,40,45,40,50,5,40,45,45,-,40,45,-,-,-,-,-,-,Slot,Hard,16240
+Seung-jin Seol,SP,R,18,71.3,-0.28,0.5 ,1.5 ,2.0 ,N,N,N,Normal,40,45,40,50,5,40,30,40,45,-,-,-,-,-,-,30,-,$190k,Extremely Hard,15717
+Roberto Valverde,SP,L,21,72.0,-0.28,1.5 ,3.5 ,2.0 ,N,N,L,Durable,45,40,45,55,3,75,40,-,65,-,-,-,-,-,-,-,-,Slot,Hard,13386
+Jeremy Vasseur,RP,R,22,79.8,-0.32,1.5 ,2.5 ,2.0 ,N,N,N,Durable,50,45,40,25,2,75,55,-,-,-,-,-,-,-,-,-,-,Slot,Very Easy,13080
+Scott Reinhart,SP,R,22,69.6,-0.42,1.0 ,2.5 ,2.0 ,N,N,N,Normal,40,40,45,50,3,45,40,-,-,-,35,-,-,-,-,-,-,Slot,Easy,13277
+Jose Colunga,SP,R,19,76.4,-0.44,1.0 ,2.5 ,1.5 ,H,N,N,Normal,50,40,45,35,5,55,50,60,-,50,-,-,40,-,-,-,-,Slot,Normal,15088
+Jorge Espinosa,SP,R,19,71.5,-0.50,0.5 ,2.0 ,2.0 ,N,N,H,Normal,55,40,35,65,3,50,60,-,-,75,-,-,-,-,-,-,-,Slot,Normal,15124
+Petar Jigovic,RP,R,18,82.5,-0.50,1.0 ,1.5 ,2.0 ,N,N,N,Normal,80,45,25,35,2,80,-,-,80,-,-,-,-,-,-,-,-,$180k,Extremely Hard,15840
+Steve Libertini,RP,R,21,76.5,-0.54,1.5 ,2.0 ,1.5 ,N,N,N,Normal,50,45,35,30,2,80,40,-,-,-,-,-,-,-,-,-,-,Slot,Extremely Hard,13845
+Jordan Pond,SP,L,20,72.0,-0.54,1.0 ,2.0 ,1.5 ,N,N,N,Normal,45,40,45,45,3,50,45,-,-,-,55,-,-,-,-,-,-,Slot,Extremely Hard,14585
+Muaz Hatim,RP,R,19,73.1,-0.67,0.5 ,1.0 ,1.5 ,N,N,N,Normal,45,40,45,25,2,50,-,45,-,-,-,-,-,-,-,-,-,$190k,Extremely Hard,15724
+Alex Trejo,RP,R,18,75.7,-0.69,0.5 ,1.0 ,2.0 ,N,N,N,Normal,55,45,30,30,2,65,-,-,70,-,-,-,-,-,-,-,-,$190k,Extremely Hard,15706
+Chris Gibson,RP,R,21,73.6,-0.80,1.5 ,2.5 ,2.0 ,N,N,N,Normal,50,45,30,30,2,75,-,-,55,-,-,-,-,-,-,-,-,Slot,Hard,16244
+Jovan Andric,RP,L,18,73.0,-0.86,1.0 ,1.5 ,1.5 ,N,H,N,Normal,45,40,45,35,3,45,45,-,-,-,-,50,-,-,-,-,-,$180k,Extremely Hard,15746
+Hani Nazim,RP,R,21,72.8,-0.86,1.0 ,1.5 ,1.5 ,H,N,N,Normal,55,45,25,30,3,55,40,-,-,-,-,60,-,-,-,-,-,Slot,Hard,13862
+Jerry Harkness,RP,R,22,69.8,-0.90,1.0 ,1.5 ,1.5 ,N,N,N,Normal,45,50,20,25,2,-,50,-,-,-,-,65,-,-,-,-,-,Slot,Extremely Hard,13372
+In Hu,RP,R,21,69.2,-0.93,1.5 ,2.0 ,2.0 ,N,N,L,Normal,60,30,45,25,2,80,-,65,-,-,-,-,-,-,-,-,-,Slot,Hard,13360
+Jonas Feitor,RP,R,22,68.0,-0.94,1.5 ,2.0 ,1.5 ,N,L,L,Normal,35,45,40,30,3,35,-,35,-,-,-,35,-,-,-,-,-,Slot,Very Easy,15585
+Chris Hewett,RP,R,21,69.6,-0.97,1.5 ,2.5 ,1.5 ,N,L,L,Normal,45,45,30,30,2,80,45,-,-,-,-,-,-,-,-,-,-,Slot,Hard,13352
+Hector Orozco,SP,R,17,71.7,-1.03,0.5 ,2.0 ,1.5 ,N,N,N,Normal,50,35,45,35,4,55,-,-,-,35,55,60,-,-,-,-,-,$180k,Extremely Hard,16405
+Ramon Medina,RP,R,22,70.8,-1.05,1.0 ,1.5 ,1.5 ,N,N,N,Normal,60,40,30,30,2,80,65,-,-,-,-,-,-,-,-,-,-,Slot,Easy,13834
+Lyndon Gosden,SP,L,22,69.5,-1.06,1.5 ,3.0 ,1.5 ,N,N,N,Normal,45,40,40,40,4,50,-,-,30,30,-,50,-,-,-,-,-,Slot,Easy,15785
+Tae-shik Ko,RP,R,23,68.7,-1.08,1.5 ,2.0 ,1.5 ,N,H,N,Normal,40,45,35,35,3,40,40,-,-,-,-,-,-,-,-,40,-,Slot,Easy,13247
+Jose Rosiles,RP,R,22,69.3,-1.11,1.5 ,2.5 ,2.0 ,N,N,H,Normal,60,40,25,30,2,-,-,80,-,-,-,80,-,-,-,-,-,Slot,Very Easy,13073
+Henry Fox,SP,R,18,68.2,-1.16,0.5 ,1.5 ,1.5 ,N,N,N,Normal,40,35,50,40,4,40,40,45,-,-,50,-,-,-,-,-,-,$180k,Extremely Hard,15668
+Harry Drost,RP,R,22,66.6,-1.20,1.0 ,1.5 ,1.5 ,N,H,N,Normal,55,45,20,25,2,75,-,65,-,-,-,-,-,-,-,-,-,Slot,Hard,13392
+Nobuya Fujimura,RP,R,18,64.7,-1.24,0.5 ,1.0 ,1.5 ,L,N,N,Normal,40,35,45,30,4,40,35,-,-,35,-,35,-,-,-,-,-,$190k,Extremely Hard,15518
+Aleksandar Mijatovic,SP,R,18,64.3,-1.25,0.5 ,1.0 ,1.5 ,N,N,N,Normal,40,45,25,70,3,45,40,-,-,-,35,-,-,-,-,-,-,$180k,Extremely Hard,15728
+Cody Garver,RP,R,22,62.8,-1.32,1.5 ,2.0 ,1.5 ,N,H,N,Normal,45,35,35,25,2,55,-,55,-,-,-,-,-,-,-,-,-,Slot,Easy,13357
+Simon Matthews,SP,R,20,67.4,-1.45,1.0 ,2.0 ,1.5 ,N,N,N,Normal,45,35,45,35,5,55,40,45,40,-,30,-,-,-,-,-,-,Slot,Normal,13854
+Cody Cyr,RP,R,22,61.3,-1.49,1.5 ,2.0 ,1.5 ,H,N,N,Normal,40,35,40,30,3,40,25,-,-,35,-,-,-,-,-,-,-,Slot,Extremely Hard,13305
+Paulino Pascoal,RP,L,22,62.7,-1.56,1.5 ,2.0 ,1.5 ,N,N,N,Normal,45,45,20,30,2,50,-,50,-,-,-,-,-,-,-,-,-,Slot,Easy,16213
+Juan Rodriguez,SP,R,22,63.7,-1.56,1.5 ,3.0 ,1.5 ,H,N,N,Durable,50,30,40,60,4,75,45,45,-,-,50,-,-,-,-,-,-,Slot,Hard,13304
+Baldassario Magherini,SP,L,22,62.1,-1.56,0.5 ,2.0 ,1.5 ,H,N,N,Durable,40,35,40,50,5,45,35,-,-,40,-,40,40,-,-,-,-,Slot,Easy,13332
+Jesus Torres,SP,R,22,64.2,-1.58,1.0 ,2.5 ,1.5 ,H,H,N,Normal,55,35,30,45,5,80,55,80,-,45,50,-,-,-,-,-,-,Slot,Extremely Hard,13344
+Junjiro Kawano,RP,R,20,56.0,-1.65,1.0 ,1.5 ,1.5 ,L,L,N,Normal,35,40,25,25,4,50,30,35,-,40,-,-,-,-,-,-,-,Slot,Normal,13894
+Yunus Aza,SP,R,21,63.2,-1.78,0.5 ,2.0 ,1.5 ,L,H,N,Normal,50,35,30,45,3,60,50,-,80,-,-,-,-,-,-,-,-,Slot,Normal,13868
+Shaun John,SP,R,21,65.6,-1.79,1.5 ,3.0 ,1.5 ,N,N,L,Normal,55,30,40,35,4,80,45,-,80,-,-,45,-,-,-,-,-,Slot,Normal,13877
+Edwin Deniz,SP,L,21,60.0,-1.86,1.0 ,2.5 ,1.5 ,L,N,N,Normal,35,40,35,60,4,45,30,-,45,40,-,-,-,-,-,-,-,Slot,Normal,13363
+Bob Montiel,SP,R,22,59.9,-1.90,1.0 ,2.5 ,1.5 ,H,N,N,Normal,40,35,35,50,3,45,40,-,-,-,45,-,-,-,-,-,-,Slot,Very Easy,15605
+Travis Howard,SP,L,20,63.2,-1.91,0.5 ,2.0 ,1.5 ,N,H,N,Normal,45,45,20,40,4,55,-,-,45,40,-,45,-,-,-,-,-,Slot,Normal,13887
+Miguel Reyes,SP,R,23,62.6,-1.93,1.5 ,3.5 ,1.5 ,N,N,N,Normal,45,40,25,40,3,45,-,-,-,45,-,45,-,-,-,-,-,Slot,Very Easy,16520
+Etelson Nakamura,RP,L,22,56.2,-1.93,1.5 ,2.0 ,1.5 ,L,N,L,Normal,35,40,25,30,2,35,-,-,40,-,-,-,-,-,-,-,-,Slot,Hard,16398
+Bill Means,SP,L,18,58.2,-2.01,0.5 ,1.5 ,1.5 ,N,L,N,Normal,30,40,40,50,5,30,35,25,35,-,-,-,40,-,-,-,-,$180k,Extremely Hard,15832
+Bill Pearson,RP,L,21,60.3,-2.23,1.5 ,2.0 ,1.5 ,N,N,N,Normal,50,40,20,40,2,65,50,-,-,-,-,-,-,-,-,-,-,Slot,Extremely Hard,16219
+Maimun Ridwan,SP,L,22,60.1,-2.29,1.0 ,2.5 ,1.5 ,N,N,N,Normal,40,35,35,40,4,40,-,45,-,45,-,45,-,-,-,-,-,Slot,Hard,15803
+Vicente Cantu,RP,R,22,53.6,-2.39,1.0 ,1.5 ,1.5 ,H,H,N,Durable,50,25,25,30,4,65,40,50,65,-,-,-,-,-,-,-,-,Slot,Normal,13340
+David Teslo,SP,R,21,59.4,-2.41,0.5 ,1.5 ,1.5 ,N,N,N,Normal,40,25,50,40,4,45,30,-,-,-,40,40,-,-,-,-,-,Slot,Extremely Hard,13956
+Steven Ivanov,SP,R,22,58.3,-2.83,1.0 ,2.0 ,1.5 ,L,N,N,Normal,45,35,25,35,3,75,50,-,45,-,-,-,-,-,-,-,-,Slot,Hard,12889
+Kuranosuke Watanabe,SP,R,21,56.8,-3.09,0.5 ,1.5 ,1.5 ,L,N,N,Normal,50,20,40,35,3,70,45,-,70,-,-,-,-,-,-,-,-,Slot,Hard,13976
+Dae-je Choi,SP,L,22,50.8,-4.02,0.5 ,1.5 ,1.5 ,L,N,N,Normal,40,25,30,35,3,45,35,-,-,40,-,-,-,-,-,-,-,Slot,Easy,13400
+Kasper van de Ven,SP,R,17,48.4,-4.06,0.5 ,0.5 ,1.5 ,L,L,N,Normal,30,30,30,70,4,30,35,35,35,-,-,-,-,-,-,-,-,$190k,Extremely Hard,16525

@@ -1,0 +1,167 @@
+Name,Age,T,OVR,RL,POT,LEA,WE,INT,Prone,PIT,FBP,CHP,CBP,SLP,SIP,SPP,CTP,FOP,CCP,SCP,KCP,KNP,DEM,Sign,ID
+Clive Cunningham,18,R,0.5,1.5,5.0,Low,N,N,Normal,4,55,70,70,-,-,-,-,-,-,60,-,-,"$2,800,000.00",X Hard,12319
+Dave Larocque,18,R,0.5,1.5,4.5,N,N,N,Normal,3,60,-,-,-,70,-,65,-,-,-,-,-,"$2,200,000.00",X Hard,11799
+Isami Endo,18,L,0.5,1.5,4.5,H,N,H,Normal,3,50,65,-,-,75,-,-,-,-,-,-,-,"$3,000,000.00",X Hard,11750
+Ceasario Menocchio,17,R,0.5,1.5,4.0,Low,Low,N,Normal,3,60,70,-,65,-,-,-,-,-,-,-,-,"$380,000.00",X Hard,11770
+Mike Golunski,18,R,0.5,2.0,4.0,N,N,N,Normal,3,75,65,-,-,70,-,-,-,-,-,-,-,"$3,400,000.00",X Hard,11575
+Kedar Fawzi,18,R,0.5,1.5,3.5,N,N,H,Normal,5,45,65,50,55,-,60,-,-,-,-,-,-,"$750,000.00",X Hard,11579
+Kyle Rakes,18,R,0.5,1.5,3.5,N,N,N,Normal,2,80,-,-,75,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11605
+Landon Gunn,18,R,0.5,2.0,3.5,N,H,N,Normal,5,-,60,65,60,-,60,60,-,-,-,-,-,"$550,000.00",X Hard,11754
+Matt Marr,18,L,0.5,1.5,3.5,N,N,N,Normal,5,60,55,-,65,55,-,-,-,-,45,-,-,"$2,600,000.00",Hard,11583
+Mike Aron,17,R,0.5,1.5,3.5,N,H,N,Normal,4,60,65,65,-,45,-,-,-,-,-,-,-,"$700,000.00",Hard,11760
+Ricardo Chavez,18,R,0.5,1.5,3.5,N,N,N,Normal,3,55,60,-,-,55,-,-,-,-,-,-,-,"$440,000.00",Normal,11791
+Edwin Zapata,18,R,0.5,2.0,3.0,N,Low,Low,Normal,4,70,65,-,-,45,50,-,-,-,-,-,-,"$190,000.00",X Hard,11578
+Gareth Stapleton,22,R,1.5,4.0,3.0,N,N,Low,Normal,3,50,60,-,-,-,-,55,-,-,-,-,-,"$230,000.00",Normal,13168
+Jason Knutson,18,R,0.5,2.0,3.0,N,H,H,Normal,2,55,-,-,55,-,-,-,-,-,-,-,-,"$170,000.00",X Hard,12915
+Jim Alcorn,18,R,0.5,2.0,3.0,H,N,N,Normal,2,-,-,-,75,75,-,-,-,-,-,-,-,"$180,000.00",X Hard,11631
+Motochika Ogino,18,R,0.5,1.5,3.0,N,N,N,Normal,3,45,45,-,-,-,50,-,-,-,-,-,-,"$300,000.00",Hard,12359
+Pat Burkhard,17,L,0.5,1.5,3.0,Low,H,N,Normal,5,55,65,-,60,60,-,-,-,-,40,-,-,"$220,000.00",X Hard,11649
+Ron Cunningham,18,R,0.5,1.5,3.0,N,H,N,Durable,2,55,-,60,-,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11786
+Wilton Huntingford,21,R,1.5,4.0,3.0,N,N,N,Normal,5,45,65,70,-,60,-,-,-,-,40,-,-,"$190,000.00",Normal,12300
+Alex Padilla,18,R,0.5,1.5,2.5,N,N,N,Durable,3,55,-,-,-,50,-,-,-,-,-,65,-,"$220,000.00",X Hard,11792
+Angelo Pichardo,21,R,1.5,3.0,2.5,N,N,N,Normal,2,75,-,70,-,-,-,-,-,-,-,-,-,Slot,Normal,12925
+Brad Miron,21,R,1.0,2.5,2.5,N,N,H,Normal,4,-,50,55,55,-,-,50,-,-,-,-,-,Slot,Normal,12347
+Carl Beckett,18,R,0.5,1.5,2.5,N,H,N,Durable,3,50,-,55,-,55,-,-,-,-,-,-,-,"$180,000.00",X Hard,11793
+Colin Suman,18,L,0.5,1.5,2.5,N,N,N,Fragile,4,60,70,75,50,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11758
+Danny Arenas,18,L,0.5,1.5,2.5,N,H,H,Normal,3,55,70,-,45,-,-,-,-,-,-,-,-,"$430,000.00",X Hard,11745
+Dave Tufts,18,R,0.5,1.5,2.5,N,N,N,Normal,4,50,65,-,50,45,-,-,-,-,-,-,-,"$290,000.00",X Hard,12923
+Dushan Racic,18,R,0.5,1.5,2.5,H,H,N,Normal,5,45,50,45,-,35,-,-,-,50,-,-,-,"$190,000.00",X Hard,11600
+Dwayne MacDermid,18,R,0.5,1.5,2.5,Low,N,N,Normal,5,45,45,-,45,45,-,-,-,-,-,45,-,Slot,Hard,11757
+Farid Bruneau,18,L,0.5,1.5,2.5,N,N,N,Normal,4,55,-,-,45,60,-,-,60,-,-,-,-,Slot,Normal,11772
+Imbart van Vliet,21,R,1.0,3.5,2.5,N,N,N,Normal,4,-,65,60,45,-,-,55,-,-,-,-,-,"$180,000.00",Normal,12931
+Ivico Stojadinovic,20,R,0.5,2.0,2.5,N,N,N,Normal,5,50,55,-,-,50,-,55,-,60,-,-,-,Slot,Easy,12305
+Jason Pigeon,18,R,0.5,1.5,2.5,N,H,N,Normal,3,55,60,-,-,-,-,60,-,-,-,-,-,"$220,000.00",X Hard,11746
+Joong-seok Lee,21,R,1.5,3.0,2.5,N,H,N,Normal,2,60,60,-,-,-,-,-,-,-,-,-,-,Slot,Normal,12345
+Julcir Edman,21,R,1.5,3.0,2.5,H,N,N,Normal,2,60,60,-,-,-,-,-,-,-,-,-,-,Slot,Hard,12929
+Koichi Sasaki,18,L,0.5,1.5,2.5,N,N,N,Durable,4,-,45,65,55,-,-,60,-,-,-,-,-,"$180,000.00",X Hard,12921
+Manato Hira,18,R,0.5,1.5,2.5,N,N,N,Normal,3,45,65,-,-,60,-,-,-,-,-,-,-,"$180,000.00",X Hard,11592
+Mike Smith,17,L,0.5,1.5,2.5,N,N,N,Durable,2,65,-,-,60,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11558
+Milo Djorovic,21,R,0.5,2.0,2.5,Low,N,N,Normal,3,55,-,-,-,50,-,60,-,-,-,-,-,"$160,000.00",Hard,12935
+Phillip Bansfield,21,R,0.5,2.5,2.5,N,H,Low,Durable,5,50,55,65,-,55,-,50,-,-,-,-,-,"$100,000.00",Normal,12306
+Radoje Cicic,21,R,1.5,3.5,2.5,N,N,N,Normal,2,65,-,-,60,-,-,-,-,-,-,-,-,Slot,Hard,12327
+Rodolfo Chavira,21,L,1.0,2.5,2.5,N,N,N,Normal,2,50,-,-,55,-,-,-,-,-,-,-,-,Slot,Easy,12329
+Serafino Escorcio,18,R,0.5,1.5,2.5,N,N,N,Normal,4,45,45,45,-,50,-,-,-,-,-,-,-,Slot,Hard,11646
+Sulaiman Abdul-Hasib,20,R,0.5,2.0,2.5,Low,N,N,Normal,3,65,75,-,-,-,45,-,-,-,-,-,-,Slot,Easy,12302
+Willie Barragan,18,R,0.5,1.5,2.5,N,N,N,Durable,3,60,-,-,-,-,75,65,-,-,-,-,-,"$180,000.00",X Hard,11603
+Yasufumi Haraguchi,17,R,1.0,2.0,2.5,N,N,N,Fragile,2,-,-,70,-,-,-,75,-,-,-,-,-,"$180,000.00",X Hard,12299
+Aaron Rankin,18,R,0.5,1.5,2.0,N,H,N,Normal,3,55,-,-,-,60,-,50,-,-,-,-,-,Slot,Hard,11620
+Abu Bakr bin Naji,21,R,0.5,2.0,2.0,N,H,H,Normal,4,70,55,-,65,-,45,-,-,-,-,-,-,Slot,Very Easy,12340
+Alex Araiza,18,R,0.5,1.5,2.0,N,N,N,Normal,5,-,40,40,45,45,-,45,-,-,-,-,-,"$190,000.00",X Hard,11571
+Antonio Rodriquez,17,R,0.5,1.5,2.0,Low,Low,N,Normal,4,50,-,-,-,55,50,55,-,-,-,-,-,"$190,000.00",X Hard,11653
+Bill Blair,18,L,0.5,1.5,2.0,N,H,Low,Normal,4,-,55,60,40,-,-,55,-,-,-,-,-,Slot,Hard,12335
+Bill Maya,18,R,1.5,3.0,2.0,N,H,N,Fragile,4,60,50,-,45,60,-,-,-,-,-,-,-,"$180,000.00",X Hard,11622
+Billy Strickland,21,L,1.5,3.0,2.0,N,H,Low,Normal,3,50,-,-,-,45,-,60,-,-,-,-,-,Slot,Normal,12333
+Bobby Rodriguez,21,R,0.5,1.5,2.0,N,N,Low,Normal,3,50,50,-,-,45,-,-,-,-,-,-,-,Slot,Easy,11546
+Brian Reeves,18,R,0.5,1.5,2.0,Low,N,N,Normal,4,50,55,55,-,45,-,-,-,-,-,-,-,"$190,000.00",X Hard,12342
+Craig Barlow,18,R,0.5,1.5,2.0,N,N,N,Normal,5,45,60,55,50,45,-,-,-,-,-,-,-,"$180,000.00",X Hard,11627
+Danny McIntosh,17,R,1.0,2.5,2.0,Low,N,Low,Normal,3,60,-,80,-,-,-,65,-,-,-,-,-,"$180,000.00",X Hard,11743
+Ed McGreer,18,R,0.5,1.5,2.0,N,N,N,Normal,3,65,60,-,-,-,50,-,-,-,-,-,-,"$190,000.00",X Hard,11787
+Edward McDonnell,18,R,0.5,1.5,2.0,N,N,H,Normal,3,45,50,-,-,-,-,50,-,-,-,-,-,"$180,000.00",X Hard,11560
+Enrique Soria,18,R,1.0,2.5,2.0,N,H,N,Normal,2,-,60,-,-,-,-,60,-,-,-,-,-,Slot,Very Easy,11599
+Eric Kender,17,R,0.5,1.5,2.0,N,H,N,Normal,2,70,55,-,-,-,-,-,-,-,-,-,-,Slot,Hard,11648
+Farraj bin Husayn,21,R,1.5,3.0,2.0,N,N,N,Normal,2,70,-,-,65,-,-,-,-,-,-,-,-,Slot,Easy,12358
+Felipe Marroquin,22,L,1.5,3.0,2.0,Low,Low,N,Normal,4,50,40,40,50,-,-,-,-,-,-,-,-,Slot,Easy,12275
+Finlay Underwood,18,L,0.5,1.5,2.0,N,N,N,Normal,2,50,-,-,-,-,-,-,-,65,-,-,-,"$190,000.00",X Hard,11593
+Francisco Castro,17,R,1.0,2.5,2.0,Low,N,N,Normal,2,65,65,-,-,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11801
+Frank Parkes,21,R,0.5,2.0,2.0,N,N,N,Normal,4,50,55,-,50,50,-,-,-,-,-,-,-,Slot,X Hard,12936
+Hamzah Qasim,18,R,0.5,1.5,2.0,N,N,Low,Normal,3,50,-,-,-,40,-,45,-,-,-,-,-,"$180,000.00",X Hard,11611
+Hanna bin Raghib,18,R,0.5,1.5,2.0,N,N,Low,Normal,4,55,55,-,45,-,60,-,-,-,-,-,-,"$190,000.00",X Hard,11643
+Haruyoshi Naki,18,L,0.5,1.5,2.0,N,N,N,Normal,2,65,-,70,-,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11638
+Hasan Hana,22,L,0.5,1.5,2.0,N,N,N,Normal,3,45,50,-,50,-,-,-,-,-,-,-,-,Slot,Normal,12315
+Ian Levorato,17,R,0.5,1.5,2.0,N,N,N,Normal,3,55,-,-,-,65,-,60,-,-,-,-,-,"$180,000.00",X Hard,11556
+Isaiah Edwards,18,L,0.5,1.5,2.0,N,H,N,Normal,3,55,50,-,60,-,-,-,-,-,-,-,-,Slot,Hard,11617
+Ivan Andric,18,R,0.5,1.5,2.0,N,H,N,Normal,4,65,50,-,60,50,-,-,-,-,-,-,-,"$180,000.00",X Hard,11604
+Ivan Bernal,22,R,1.5,3.5,2.0,N,N,H,Normal,2,60,-,-,65,-,-,-,-,-,-,-,-,Slot,Easy,13162
+Joey Gardner,18,R,0.5,1.5,2.0,Low,N,N,Normal,4,50,55,-,55,-,65,-,-,-,-,-,-,"$190,000.00",X Hard,12326
+John Bedlecom,18,R,0.5,1.5,2.0,N,N,N,Fragile,3,70,65,-,-,50,-,-,-,-,-,-,-,"$170,000.00",X Hard,11798
+John Yoakum,18,L,0.5,1.5,2.0,N,N,N,Durable,2,50,-,-,55,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11607
+Jose Ruiz,18,L,0.5,1.5,2.0,N,N,N,Normal,5,50,-,-,-,55,-,50,65,-,-,45,-,Slot,Hard,11795
+Kamal Abdul-Muhaimin,23,R,1.5,3.5,2.0,Low,N,N,Fragile,2,60,-,60,-,-,-,-,-,-,-,-,-,Slot,Very Easy,13167
+Keehan Griffin,20,R,0.5,2.0,2.0,N,N,N,Normal,3,60,60,-,45,-,-,-,-,-,-,-,-,Slot,Hard,11673
+Kenny Payne,18,R,0.5,1.5,2.0,N,N,N,Durable,5,50,55,55,-,55,70,-,-,-,-,-,-,"$180,000.00",X Hard,11655
+Knud Verbeek,21,R,0.5,1.5,2.0,N,N,N,Normal,3,55,-,-,60,-,-,55,-,-,-,-,-,Slot,Easy,12324
+Logan Kipling,17,L,0.5,1.5,2.0,N,N,N,Normal,2,50,55,-,-,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11789
+Manuel Barrientos,21,L,0.5,2.0,2.0,Low,N,N,Normal,4,-,50,65,-,-,60,50,-,-,-,-,-,Slot,Easy,12339
+Marcel Reale,18,R,0.5,1.5,2.0,H,N,H,Normal,3,50,55,-,-,45,-,-,-,-,-,-,-,"$220,000.00",X Hard,11783
+Matt Portillo,21,R,0.5,2.0,2.0,N,N,N,Fragile,5,45,55,60,45,55,-,-,-,-,-,-,-,Slot,Very Easy,12317
+Naif Na'Il Abdul-Halim,21,R,1.5,3.0,2.0,N,N,Low,Normal,2,55,-,-,60,-,-,-,-,-,-,-,-,Slot,Normal,12349
+Nick McGuigan,18,R,0.5,2.0,2.0,Low,Low,Low,Normal,2,75,-,-,70,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11782
+Otton van der Vlugt,17,L,0.5,1.5,2.0,N,N,H,Durable,3,60,55,-,-,-,65,-,-,-,-,-,-,"$180,000.00",X Hard,11608
+Rien van Beek,22,R,0.5,1.5,2.0,H,N,N,Normal,3,45,-,-,-,40,-,45,-,-,-,-,-,Slot,Very Easy,11492
+Roy Steel,18,R,0.5,1.5,2.0,N,N,N,Normal,3,50,50,-,50,-,-,-,-,-,-,-,-,IMP,IMP,11569
+Rudko Kontic,17,R,1.5,2.5,2.0,N,N,N,Normal,2,70,-,-,65,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11788
+Ryan Domina,21,R,1.5,3.0,2.0,N,Low,Low,Normal,3,50,-,-,45,-,-,55,-,-,-,-,-,Slot,Hard,12346
+Samuel Jenkins,18,R,0.5,1.5,2.0,N,N,N,Normal,4,-,70,40,-,-,70,55,-,-,-,-,-,Slot,Normal,11635
+Shintaro Yamada,18,R,0.5,1.5,2.0,N,N,N,Normal,3,60,50,-,-,-,60,-,-,-,-,-,-,"$190,000.00",X Hard,11747
+Teruo Watanabe,17,R,0.5,2.0,2.0,H,N,Low,Normal,2,70,-,-,-,-,70,-,-,-,-,-,-,"$190,000.00",X Hard,11639
+Tom Lang,17,R,0.5,1.5,2.0,N,N,H,Normal,3,60,70,-,65,-,-,-,-,-,-,-,-,IMP,IMP,12313
+Xavier Fishburn,17,R,0.5,1.5,2.0,N,N,N,Normal,3,40,55,-,-,-,-,-,-,-,-,65,-,Slot,Normal,12354
+Yasumitsu Machida,17,R,0.5,1.5,2.0,Low,H,H,Normal,3,50,60,-,-,-,45,-,-,-,-,-,-,"$180,000.00",X Hard,11645
+Abdul-Nasir Fakhry,18,L,0.5,1.5,1.5,N,N,N,Normal,4,50,55,65,-,-,-,50,-,-,-,-,-,IMP,IMP,11800
+Antony Neal,23,R,1.5,3.0,1.5,N,Low,Low,Normal,4,50,60,-,45,-,-,55,-,-,-,-,-,Slot,Easy,11524
+Brian Lefebvre,22,R,1.5,2.5,1.5,N,Low,N,Normal,3,50,45,-,-,55,-,-,-,-,-,-,-,Slot,Very Easy,10163
+Bruno Roche,18,R,0.5,1.5,1.5,H,N,N,Normal,3,50,-,-,45,50,-,-,-,-,-,-,-,"$180,000.00",X Hard,11595
+Chris Abbott,22,L,0.5,1.5,1.5,Low,Low,N,Durable,3,55,45,-,55,-,-,-,-,-,-,-,-,Slot,Very Easy,10147
+Chris Barwick,17,L,0.5,1.5,1.5,N,N,H,Normal,3,50,-,-,50,50,-,-,-,-,-,-,-,"$190,000.00",X Hard,11566
+Chris Luna,18,R,0.5,1.5,1.5,Low,N,H,Normal,2,50,-,-,-,-,65,-,-,-,-,-,-,"$190,000.00",X Hard,11780
+Daniel Lagendijk,21,L,0.5,1.5,1.5,N,N,N,Durable,3,45,45,-,-,-,50,-,-,-,-,-,-,Slot,Easy,12352
+Dave Flores,18,R,0.5,1.5,1.5,N,N,N,Normal,4,40,45,-,40,-,-,50,-,-,-,-,-,"$190,000.00",X Hard,12911
+Ed Haydon,18,R,0.5,1.5,1.5,N,N,N,Normal,5,55,55,65,50,45,-,-,-,-,-,-,-,"$190,000.00",X Hard,11559
+Emanuel Nijssen,21,R,0.5,2.0,1.5,N,N,N,Normal,5,50,50,45,50,55,-,-,-,-,-,-,-,Slot,Hard,12310
+Fernando Quintana,21,R,1.5,3.0,1.5,N,Low,Low,Normal,2,55,-,-,60,-,-,-,-,-,-,-,-,Slot,Easy,12311
+Firmino Torriti,21,R,0.5,2.0,1.5,H,N,N,Normal,4,45,55,-,-,55,-,-,-,-,55,-,-,Slot,Easy,12913
+Francisco Hernandez,23,R,0.5,2.0,1.5,N,H,N,Normal,5,50,45,50,50,50,-,-,-,-,-,-,-,Slot,Very Easy,13161
+Frank Giron,22,L,0.5,2.0,1.5,N,N,N,Normal,2,45,50,-,-,-,-,-,-,-,-,-,-,Slot,Easy,12348
+Gabriel Horsten,17,R,0.5,1.5,1.5,N,N,Low,Normal,3,50,40,-,45,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11565
+Guillermo Maldonado,18,L,1.0,2.5,1.5,H,N,N,Durable,2,70,-,-,-,-,-,-,-,-,-,80,-,"$190,000.00",X Hard,11779
+Hayden O'Connor,17,R,0.5,1.5,1.5,N,N,N,Normal,2,60,-,65,-,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11580
+Hyun-kyu Sim,18,R,0.5,1.5,1.5,Low,N,N,Durable,3,45,50,-,-,-,50,-,-,-,-,-,-,"$190,000.00",X Hard,11777
+Ilija Grol,21,L,1.5,3.0,1.5,N,N,N,Normal,2,50,-,55,-,-,-,-,-,-,-,-,-,Slot,Hard,12338
+Iqbal bin Rabah,18,R,0.5,1.5,1.5,N,N,N,Normal,4,50,50,55,-,55,-,-,-,-,-,-,-,"$180,000.00",X Hard,11749
+John Fitzsimmons,22,R,0.5,2.0,1.5,N,N,Low,Normal,6,50,55,55,55,45,-,-,55,-,-,-,-,Slot,Easy,12355
+Jon Holloway,23,L,1.5,2.5,1.5,Low,N,H,Fragile,3,55,60,60,-,-,-,-,-,-,-,-,-,Slot,Easy,11512
+Josh Knight,18,R,0.5,2.0,1.5,N,N,H,Normal,5,50,50,-,55,50,50,-,-,-,-,-,-,"$170,000.00",X Hard,11570
+Josh Turley,18,R,0.5,1.5,1.5,N,N,H,Normal,3,45,50,-,-,50,-,-,-,-,-,-,-,"$180,000.00",X Hard,11612
+Kun-woo Kim,21,L,1.5,2.5,1.5,N,Low,N,Durable,4,55,50,-,-,45,-,-,-,-,-,45,-,Slot,Easy,10172
+Lance Scheper,23,R,0.5,2.0,1.5,N,N,Low,Normal,2,60,-,-,60,-,-,-,-,-,-,-,-,Slot,Normal,13159
+Masakatsu Kimura,17,R,0.5,1.5,1.5,N,Low,N,Normal,3,60,50,-,-,-,45,-,-,-,-,-,-,Slot,Hard,11641
+Matt DeMusz,20,R,0.5,1.5,1.5,N,N,N,Durable,4,45,60,-,-,55,-,-,-,-,-,60,-,Slot,Easy,10376
+Miguel Carreon,21,R,1.5,2.5,1.5,H,H,N,Normal,2,55,-,-,55,-,-,-,-,-,-,-,-,Slot,Easy,12303
+Mike Edwards,18,L,0.5,1.5,1.5,N,N,N,Normal,4,45,45,50,40,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,12307
+Morgan Taylor,18,R,0.5,1.5,1.5,Low,N,N,Durable,2,-,-,-,45,-,-,50,-,-,-,-,-,"$370,000.00",X Hard,11574
+Myung-woo Kim,18,R,0.5,1.5,1.5,H,H,N,Normal,2,55,50,-,-,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11609
+Orlando Cabrera,21,R,0.5,1.5,1.5,N,N,H,Durable,4,45,45,-,45,-,-,45,-,-,-,-,-,Slot,Normal,12334
+Oscar Zepeda,22,R,0.5,2.0,1.5,N,N,N,Normal,4,55,50,60,-,-,55,-,-,-,-,-,-,Slot,Normal,12914
+Pablo Castaneda,18,R,0.5,1.5,1.5,N,N,N,Normal,2,45,-,-,50,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11768
+Pedro Flores,18,R,0.5,1.5,1.5,N,Low,Low,Normal,2,50,-,-,50,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11591
+Philippe Lemaire,17,L,0.5,1.5,1.5,N,N,N,Normal,4,45,40,45,-,-,40,-,-,-,-,-,-,"$180,000.00",X Hard,11764
+Quintin Culaham,22,R,0.5,2.0,1.5,N,N,N,Normal,4,60,55,-,55,-,-,60,-,-,-,-,-,Slot,Normal,13169
+Robby Drohan,18,R,0.5,1.5,1.5,N,N,N,Durable,4,40,35,-,-,50,40,-,-,-,-,-,-,"$190,000.00",X Hard,11576
+Roger Ray,18,R,0.5,1.5,1.5,N,N,N,Normal,6,50,55,55,55,55,60,-,-,-,-,-,-,"$190,000.00",X Hard,11567
+Ryan Ferguson,18,L,0.5,1.5,1.5,N,N,Low,Normal,3,50,55,-,-,-,55,-,-,-,-,-,-,"$190,000.00",X Hard,11588
+Sandor Boeren,22,L,0.5,1.5,1.5,N,Low,H,Fragile,2,50,60,-,-,-,-,-,-,-,-,-,-,Slot,Normal,11501
+Sílvio Galeana,18,R,0.5,1.5,1.5,Low,N,N,Normal,4,45,40,45,45,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11628
+Sreten Kukcenjac,18,L,0.5,1.5,1.5,N,N,N,Normal,4,55,55,70,65,-,-,-,-,-,-,-,-,Slot,Hard,11610
+Steve Krum,18,L,0.5,2.0,1.5,N,Low,Low,Normal,3,45,35,-,-,40,-,-,-,-,-,-,-,"$180,000.00",X Hard,11652
+Tadahiko Kuga,21,R,0.5,1.5,1.5,Low,N,N,Normal,3,-,45,-,40,-,-,45,-,-,-,-,-,Slot,Hard,12918
+Tade Spaans,18,R,0.5,1.5,1.5,H,H,N,Normal,3,45,35,-,-,-,50,-,-,-,-,-,-,"$170,000.00",X Hard,11626
+Toshishige Soverosa,18,R,1.0,2.5,1.5,N,H,N,Normal,4,45,35,45,-,-,45,-,-,-,-,-,-,"$190,000.00",X Hard,11601
+Veljko Zupljanin,22,L,0.5,1.5,1.5,Low,N,N,Normal,3,60,-,-,45,-,-,60,-,-,-,-,-,Slot,Easy,11731
+Vince Tseng,22,R,0.5,1.5,1.5,N,N,N,Normal,4,45,45,-,45,45,-,-,-,-,-,-,-,Slot,Easy,11481
+Wen Bi,17,R,0.5,1.5,1.5,N,N,N,Normal,3,50,55,-,-,-,-,55,-,-,-,-,-,"$180,000.00",X Hard,11761
+Zaki bin Butrus,18,R,0.5,1.5,1.5,N,N,N,Normal,4,45,45,-,45,50,-,-,-,-,-,-,-,IMP,IMP,11756
+Zhu Mak,17,R,0.5,1.5,1.5,Low,N,H,Normal,4,50,45,-,-,50,-,50,-,-,-,-,-,"$190,000.00",X Hard,11632
+Ziyad Kutaiba,18,L,0.5,1.5,1.5,N,N,N,Normal,4,55,60,-,-,55,-,55,-,-,-,-,-,Slot,Hard,11597
+Brandon Ronald,18,L,0.5,1.5,1.0,N,N,Low,Durable,2,45,-,-,-,-,-,-,-,40,-,-,-,Slot,Hard,11563
+Mike Rice,21,R,0.5,1.5,1.0,N,N,N,Durable,3,55,-,65,-,-,-,-,-,-,-,60,-,Slot,Normal,10873
+Scott Stewart,21,R,0.5,2.0,1.0,H,N,N,Durable,3,70,45,-,65,-,-,-,-,-,-,-,-,Slot,Normal,10443
+Sebastian Wilkinson,22,L,0.5,1.5,1.0,N,N,Low,Normal,4,45,45,40,-,-,-,45,-,-,-,-,-,Slot,Easy,12298
+Tashiro Ueda,18,R,0.5,1.5,1.0,N,N,N,Normal,3,55,45,-,45,-,-,-,-,-,-,-,-,"$180,000.00",X Hard,11587
+Dae-hee Lee,22,R,0.5,2.0,0.5,N,N,N,Normal,4,60,50,-,-,45,-,55,-,-,-,-,-,Slot,Very Easy,11530
+David Shuler,18,L,0.5,1.5,0.5,N,N,N,Normal,3,45,55,-,50,-,-,-,-,-,-,-,-,"$190,000.00",X Hard,11744
+Elijah Granger,21,L,0.5,1.5,0.5,N,N,N,Durable,6,50,55,50,-,50,50,-,-,-,-,50,-,Slot,Hard,10382
+Fernando Ramirez,20,R,0.5,1.5,0.5,N,N,N,Normal,3,45,-,-,-,40,-,45,-,-,-,-,-,Slot,Normal,12919
+Greg Wills,22,L,0.5,1.5,0.5,N,N,N,Normal,3,50,-,-,50,50,-,-,-,-,-,-,-,Slot,Very Easy,10081
+Jeff Ward,21,R,0.5,1.5,0.5,Low,N,H,Normal,3,50,-,60,-,45,-,-,-,-,-,-,-,Slot,Very Easy,10150
+Mike Young,21,R,0.5,1.5,0.5,H,N,N,Normal,3,55,50,-,-,-,45,-,-,-,-,-,-,Slot,Hard,10852
+Tony Kleppe,22,L,0.5,1.5,0.5,N,Low,H,Normal,6,50,55,45,-,-,55,-,-,-,50,55,-,Slot,Very Easy,10130
