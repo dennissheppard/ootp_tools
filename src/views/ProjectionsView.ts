@@ -205,7 +205,8 @@ export class ProjectionsView {
         const estPower = b.estimatedRatings.power;
         return this.renderFlipCell(hrPct, estPower.toString(), 'Est Power Rating');
       }},
-      { key: 'projHr', label: 'Proj HR', sortKey: 'projectedStats.hr', accessor: b => b.projectedStats.hr.toString() }
+      { key: 'projHr', label: 'Proj HR', sortKey: 'projectedStats.hr', accessor: b => b.projectedStats.hr.toString() },
+      { key: 'projSb', label: 'Proj SB', sortKey: 'projectedStats.sb', accessor: b => b.projectedStats.sb.toString() }
     );
 
     if (this.hasBatterActualStats) {
@@ -2137,6 +2138,7 @@ export class ProjectionsView {
                   projPa: batter.projectedStats.pa,
                   projHr: batter.projectedStats.hr,
                   projRbi: batter.projectedStats.rbi,
+                  projSb: batter.projectedStats.sb,
                   projWar: batter.projectedStats.war,
                   projWrcPlus: batter.projectedStats.wrcPlus,
               };

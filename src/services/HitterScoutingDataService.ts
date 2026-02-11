@@ -3,7 +3,7 @@ import { indexedDBService } from './IndexedDBService';
 import { ScoutingSource } from './ScoutingDataService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 
-type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'contact' | 'gap' | 'speed' | 'injuryProneness' | 'age' | 'ovr' | 'pot';
+type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'contact' | 'gap' | 'speed' | 'stealingAggressiveness' | 'stealingAbility' | 'injuryProneness' | 'age' | 'ovr' | 'pot' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence';
 
 const STORAGE_KEY_PREFIX = 'wbl_hitter_scouting_ratings_';
 const USE_INDEXEDDB = true;
@@ -16,11 +16,19 @@ const HEADER_ALIASES: Record<HitterScoutingHeaderKey, string[]> = {
   avoidK: ['avoidk', 'avoid_k', 'avk', 'avoidks', 'avoidkp', 'avoidsks', 'kav', 'kavoid', 'kp'],
   contact: ['contact', 'con', 'conp', 'cnt', 'contactp'],  // Contact = ~60% HT + ~40% AvK, predicts AVG better than HT alone
   gap: ['gap', 'gapp', 'gappower', 'gaps'],
-  speed: ['speed', 'spd', 'spdp', 'run', 'running', 'steal', 'spe', 'spep'],
+  speed: ['speed', 'spd', 'spdp', 'run', 'running', 'spe', 'spep'],
+  stealingAggressiveness: ['sr', 'stealingaggressiveness', 'stealaggressiveness', 'stealrate', 'stealingrate'],
+  stealingAbility: ['ste', 'stealingability', 'stealability', 'stealing', 'steal'],
   injuryProneness: ['prone', 'injuryproneness', 'injury', 'inj', 'durability'],
   age: ['age'],
   ovr: ['ovr', 'overall', 'cur', 'current'],
-  pot: ['pot', 'potential', 'ceil', 'ceiling']
+  pot: ['pot', 'potential', 'ceil', 'ceiling'],
+  leadership: ['lea', 'leadership'],
+  loyalty: ['loy', 'loyalty'],
+  adaptability: ['ad', 'adaptability'],
+  greed: ['fin', 'greed', 'greedy'],
+  workEthic: ['we', 'workethic'],
+  intelligence: ['int', 'intelligence'],
 };
 // Note: Hit Tool (HT P) is NOT mapped - Contact is used instead for AVG prediction (r=0.97 vs r=0.82)
 
@@ -52,6 +60,8 @@ class HitterScoutingDataService {
         const contact = this.getNumberFromIndex(cells, indexMap.contact);
         const gap = this.getNumberFromIndex(cells, indexMap.gap);
         const speed = this.getNumberFromIndex(cells, indexMap.speed);
+        const stealingAggressiveness = this.getNumberFromIndex(cells, indexMap.stealingAggressiveness);
+        const stealingAbility = this.getNumberFromIndex(cells, indexMap.stealingAbility);
         const injuryProneness = this.getStringFromIndex(cells, indexMap.injuryProneness);
 
         const rawId = this.getNumberFromIndex(cells, indexMap.playerId);
@@ -62,6 +72,14 @@ class HitterScoutingDataService {
         // Parse star ratings (OVR/POT) - required fields
         const ovr = this.parseStarRating(cells, indexMap.ovr);
         const pot = this.parseStarRating(cells, indexMap.pot);
+
+        // Parse personality traits
+        const leadership = this.getPersonalityTrait(cells, indexMap.leadership);
+        const loyalty = this.getPersonalityTrait(cells, indexMap.loyalty);
+        const adaptability = this.getPersonalityTrait(cells, indexMap.adaptability);
+        const greed = this.getPersonalityTrait(cells, indexMap.greed);
+        const workEthic = this.getPersonalityTrait(cells, indexMap.workEthic);
+        const intelligence = this.getPersonalityTrait(cells, indexMap.intelligence);
 
         // Require power, eye, avoidK, ovr, and pot
         if (!this.isNumber(power) || !this.isNumber(eye) || !this.isNumber(avoidK) ||
@@ -78,10 +96,18 @@ class HitterScoutingDataService {
           contact: this.isNumber(contact) ? contact : 50, // Default to 50 if not provided
           gap: this.isNumber(gap) ? gap : 50,
           speed: this.isNumber(speed) ? speed : 50,
+          stealingAggressiveness: this.isNumber(stealingAggressiveness) ? stealingAggressiveness : undefined,
+          stealingAbility: this.isNumber(stealingAbility) ? stealingAbility : undefined,
           injuryProneness: injuryProneness || undefined,
           age: this.isNumber(age) ? Math.round(age) : undefined,
           ovr,
           pot,
+          leadership,
+          loyalty,
+          adaptability,
+          greed,
+          workEthic,
+          intelligence,
           source,
         });
       } else {
@@ -322,6 +348,13 @@ class HitterScoutingDataService {
   private getStringFromIndex(cells: string[], index?: number): string {
     if (typeof index !== 'number') return '';
     return this.cleanCell(cells[index] ?? '');
+  }
+
+  private getPersonalityTrait(cells: string[], index?: number): 'H' | 'N' | 'L' | undefined {
+    if (typeof index !== 'number') return undefined;
+    const raw = this.cleanCell(cells[index] ?? '').toUpperCase();
+    if (raw === 'H' || raw === 'N' || raw === 'L') return raw;
+    return undefined;
   }
 
   private parseStarRating(cells: string[], index?: number): number | null {

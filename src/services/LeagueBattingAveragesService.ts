@@ -195,15 +195,22 @@ class LeagueBattingAveragesService {
   }
 
   /**
-   * Calculate batting WAR from wOBA and PA.
-   * Simplified: WAR = wRAA / runsPerWin
-   * (Excludes positional adjustment and baserunning)
+   * Calculate baserunning runs from stolen bases and caught stealing.
+   * Uses standard linear weights: SB × 0.2 − CS × 0.4
    */
-  calculateBattingWar(woba: number, pa: number, leagueAvg: LeagueBattingAverages): number {
+  calculateBaserunningRuns(sb: number, cs: number): number {
+    return sb * 0.2 - cs * 0.4;
+  }
+
+  /**
+   * Calculate batting WAR from wOBA and PA.
+   * Includes optional baserunning runs (SB/CS value).
+   */
+  calculateBattingWar(woba: number, pa: number, leagueAvg: LeagueBattingAverages, sbRuns: number = 0): number {
     const wRAA = ((woba - leagueAvg.lgWoba) / leagueAvg.wobaScale) * pa;
     // Add replacement level adjustment (~20 runs per 600 PA)
     const replacementRuns = (pa / 600) * 20;
-    const war = (wRAA + replacementRuns) / leagueAvg.runsPerWin;
+    const war = (wRAA + replacementRuns + sbRuns) / leagueAvg.runsPerWin;
     return Math.round(war * 10) / 10;
   }
 

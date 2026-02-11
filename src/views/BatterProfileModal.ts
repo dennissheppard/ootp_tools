@@ -12,8 +12,8 @@ import { dateService } from '../services/DateService';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
 import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
 import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
-import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
 import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
+import { contractService, Contract } from '../services/ContractService';
 
 export interface BatterProfileData {
   playerId: number;
@@ -46,6 +46,8 @@ export interface BatterProfileData {
   scoutSpeed?: number;
   scoutOvr?: number;
   scoutPot?: number;
+  scoutSR?: number;
+  scoutSTE?: number;
   injuryProneness?: string;
 
   // Raw stats (historical)
@@ -73,6 +75,8 @@ export interface BatterProfileData {
   projHrPct?: number;
   projDoublesRate?: number;  // per AB
   projTriplesRate?: number;  // per AB
+  projSb?: number;
+  projCs?: number;
 
   // TFR for prospects
   isProspect?: boolean;
@@ -102,15 +106,15 @@ interface BatterSeasonStats {
   year: number;
   level: string;
   pa: number;
-  ab: number;
   avg: number;
   obp: number;
   slg: number;
   hr: number;
-  d: number;
-  t: number;
+  d?: number;
+  t?: number;
   rbi: number;
   sb: number;
+  cs: number;
   bb: number;
   k: number;
   war?: number;
@@ -135,6 +139,9 @@ export class BatterProfileModal {
   // Development tab state
   private developmentChart: DevelopmentChart | null = null;
   private activeDevMetrics: DevelopmentMetric[] = ['scoutPower', 'scoutEye', 'scoutAvoidK'];
+
+  // Contract data for current player
+  private contract: Contract | null = null;
 
   // Advanced ratings accordion state
   private advancedRatingsExpanded = false;
@@ -274,7 +281,9 @@ export class BatterProfileModal {
       posBadgeSlot.innerHTML = this.renderPositionBadge(data);
     }
     if (ageEl) {
-      ageEl.textContent = data.age ? `Age: ${data.age}` : '';
+      const ageText = data.age ? `Age: ${data.age}` : '';
+      const starsHtml = this.renderOvrPotStars(data);
+      ageEl.innerHTML = starsHtml ? `${ageText} ${starsHtml}` : ageText;
     }
 
     // Show modal with loading state
@@ -294,11 +303,14 @@ export class BatterProfileModal {
 
     // Fetch additional data
     try {
-      // Fetch scouting data - prefer "my" over OSA
-      const [myScoutingAll, osaScoutingAll] = await Promise.all([
+      // Fetch scouting data and contract data
+      const [myScoutingAll, osaScoutingAll, allContracts] = await Promise.all([
         hitterScoutingDataService.getLatestScoutingRatings('my'),
-        hitterScoutingDataService.getLatestScoutingRatings('osa')
+        hitterScoutingDataService.getLatestScoutingRatings('osa'),
+        contractService.getAllContracts()
       ]);
+
+      this.contract = allContracts.get(data.playerId) ?? null;
 
       const myScouting = myScoutingAll.find(s => s.playerId === data.playerId);
       const osaScouting = osaScoutingAll.find(s => s.playerId === data.playerId);
@@ -328,6 +340,12 @@ export class BatterProfileModal {
       if (metadataSlot) {
         metadataSlot.innerHTML = this.renderHeaderMetadata(data);
       }
+      // Re-render age + stars now that scouting data is available
+      if (ageEl) {
+        const ageText = data.age ? `Age: ${data.age}` : '';
+        const starsHtml = this.renderOvrPotStars(data);
+        ageEl.innerHTML = starsHtml ? `${ageText} ${starsHtml}` : ageText;
+      }
 
       // Fetch batting stats history
       const currentYear = await dateService.getCurrentYear();
@@ -344,7 +362,6 @@ export class BatterProfileModal {
           year: s.year,
           level: s.level,
           pa: s.pa,
-          ab: s.ab,
           avg: s.avg,
           obp: s.obp,
           slg: s.slg,
@@ -353,6 +370,7 @@ export class BatterProfileModal {
           t: s.t,
           rbi: 0,
           sb: s.sb,
+          cs: s.cs,
           bb: s.bb,
           k: s.k,
           war: 0
@@ -377,7 +395,6 @@ export class BatterProfileModal {
               year: year,
               level: 'MLB',
               pa: playerStat.pa,
-              ab: playerStat.ab,
               avg: playerStat.avg,
               obp: playerStat.obp,
               slg: Math.round(slg * 1000) / 1000,
@@ -386,6 +403,7 @@ export class BatterProfileModal {
               t: playerStat.t,
               rbi: playerStat.rbi,
               sb: playerStat.sb,
+              cs: playerStat.cs,
               bb: playerStat.bb,
               k: playerStat.k,
               war: playerStat.war
@@ -602,12 +620,9 @@ export class BatterProfileModal {
   private renderHeaderMetadata(data: BatterProfileData): string {
     const s = this.scoutingData;
 
-    // OVR/POT stars
-    const ovr = s?.ovr ?? data.scoutOvr;
-    const pot = s?.pot ?? data.scoutPot;
-    const starsText = typeof ovr === 'number' && typeof pot === 'number'
-      ? `${ovr.toFixed(1)}★ / ${pot.toFixed(1)}★`
-      : '--';
+    // SR and STE stealing ratings (needed for WAR calculation)
+    const sr = s?.stealingAggressiveness ?? data.scoutSR;
+    const ste = s?.stealingAbility ?? data.scoutSTE;
 
     // WAR badge - use projWar if provided, otherwise calculate from blended rates or estimated ratings
     let projWar = data.projWar;
@@ -642,75 +657,118 @@ export class BatterProfileModal {
         const runsPerWin = 10;
         const replacementRuns = (projPa / 600) * 20;
         const runsAboveAvg = ((projOpsPlus - 100) / 10) * (projPa / 600) * 10;
-        projWar = Math.round(((runsAboveAvg + replacementRuns) / runsPerWin) * 10) / 10;
+        // Include baserunning from SR/STE when available
+        let sbRuns = 0;
+        if (sr !== undefined && ste !== undefined) {
+          const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+          sbRuns = sbProj.sb * 0.2 - sbProj.cs * 0.4;
+        }
+        projWar = Math.round(((runsAboveAvg + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
       }
     }
     const warBadgeClass = this.getWarBadgeClass(projWar);
     const warText = typeof projWar === 'number' ? projWar.toFixed(1) : '--';
     const warLabel = data.isProspect ? 'Proj Peak WAR' : 'Proj WAR';
 
-    // Injury donut chart
+    // Injury text badge
     const injury = s?.injuryProneness ?? data.injuryProneness ?? 'Normal';
-    const injuryDonut = this.renderInjuryDonut(injury);
+    const injuryClass = this.getInjuryBadgeClass(injury);
 
-    // Speed donut chart (scout speed - 20-80 scale)
-    const scoutSpeed = s?.speed ?? data.scoutSpeed ?? 50;
-    const speedDonut = this.renderSpeedDonut(scoutSpeed);
+    // Contract info
+    const contractHtml = this.renderContractInfo();
 
     return `
       <div class="header-metadata">
+        <div class="metadata-col metadata-info-col">
+          <div class="metadata-info-row">
+            <span class="info-label">Injury:</span>
+            <span class="injury-badge ${injuryClass}">${injury}</span>
+          </div>
+          <div class="metadata-info-row">
+            <span class="info-label">Contract:</span>
+            <span class="contract-info">${contractHtml}</span>
+          </div>
+        </div>
         <div class="metadata-col metadata-war-col">
           <div class="war-badge ${warBadgeClass}">
             <span class="war-value">${warText}</span>
             <span class="war-label">${warLabel}</span>
           </div>
         </div>
-        <div class="metadata-col metadata-stats-col">
-          <div class="metadata-donuts-row">
-            ${injuryDonut}
-            ${speedDonut}
-          </div>
-          <div class="metadata-stars">${starsText}</div>
-        </div>
       </div>
     `;
   }
 
-  private renderInjuryDonut(injury: string): string {
-    // Map injury proneness to a percentage (Durable/Ironman = high, Fragile/Prone = low)
-    const injuryMap: Record<string, { pct: number; colorClass: string }> = {
-      'Ironman': { pct: 100, colorClass: 'injury-durable' },
-      'Durable': { pct: 85, colorClass: 'injury-durable' },
-      'Normal': { pct: 60, colorClass: 'injury-normal' },
-      'Wary': { pct: 40, colorClass: 'injury-wary' },
-      'Fragile': { pct: 20, colorClass: 'injury-fragile' },
-      'Prone': { pct: 10, colorClass: 'injury-prone' },
-      'Wrecked': { pct: 5, colorClass: 'injury-prone' },
+  private getInjuryBadgeClass(injury: string): string {
+    const classMap: Record<string, string> = {
+      'Ironman': 'injury-durable',
+      'Durable': 'injury-durable',
+      'Normal': 'injury-normal',
+      'Wary': 'injury-wary',
+      'Fragile': 'injury-fragile',
+      'Prone': 'injury-prone',
+      'Wrecked': 'injury-prone',
     };
-    const info = injuryMap[injury] ?? { pct: 60, colorClass: 'injury-normal' };
-
-    // SVG circle parameters
-    const radius = 10;
-    const circumference = 2 * Math.PI * radius;
-    const strokeDashoffset = circumference - (info.pct / 100) * circumference;
-
-    return `
-      <div class="header-donut" title="Injury: ${injury}">
-        <svg class="stat-donut" viewBox="0 0 24 24" width="24" height="24">
-          <circle class="stat-donut-bg" cx="12" cy="12" r="${radius}" />
-          <circle
-            class="stat-donut-fill ${info.colorClass}"
-            cx="12"
-            cy="12"
-            r="${radius}"
-            stroke-dasharray="${circumference}"
-            style="--donut-offset: ${strokeDashoffset}; --donut-circumference: ${circumference};"
-          />
-        </svg>
-        <span class="donut-label">INJ</span>
-      </div>
-    `;
+    return classMap[injury] ?? 'injury-normal';
   }
+
+  private formatSalary(salary: number): string {
+    if (salary >= 1_000_000) {
+      const millions = salary / 1_000_000;
+      return `$${millions % 1 === 0 ? millions.toFixed(0) : millions.toFixed(1)}M`;
+    }
+    if (salary >= 1_000) {
+      return `$${Math.round(salary / 1_000)}K`;
+    }
+    return `$${salary}`;
+  }
+
+  private renderContractInfo(): string {
+    if (!this.contract || this.contract.yearsTotal === 0) return '—';
+    const c = this.contract;
+    const salaryStr = this.formatSalary(c.salary);
+    const yearStr = `Yr ${c.currentYear + 1} of ${c.yearsTotal}`;
+    return `${salaryStr} · ${yearStr}`;
+  }
+
+  private renderOvrPotStars(data: BatterProfileData): string {
+    const s = this.scoutingData;
+    const ovr = s?.ovr ?? data.scoutOvr;
+    const pot = s?.pot ?? data.scoutPot;
+
+    if (typeof ovr !== 'number' || typeof pot !== 'number') return '';
+
+    const totalStars = pot;  // POT determines total number of stars shown
+    const filledStars = ovr; // OVR determines how many are filled
+
+    let html = '<span class="ovr-pot-stars" title="OVR ' + ovr.toFixed(1) + ' / POT ' + pot.toFixed(1) + '">';
+
+    // Render each star position (up to totalStars, in 0.5 increments)
+    const maxWholeStars = Math.ceil(totalStars);
+    for (let i = 1; i <= maxWholeStars; i++) {
+      const remaining = filledStars - (i - 1);
+      const potRemaining = totalStars - (i - 1);
+
+      if (remaining >= 1) {
+        // Fully filled star
+        html += '<svg class="star-icon star-filled" viewBox="0 0 24 24" width="14" height="14"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
+      } else if (remaining >= 0.5) {
+        // Half filled star
+        html += `<svg class="star-icon star-half" viewBox="0 0 24 24" width="14" height="14">
+          <defs><clipPath id="star-half-clip-${i}"><rect x="0" y="0" width="12" height="24"/></clipPath></defs>
+          <path class="star-empty-path" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+          <path class="star-filled-path" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" clip-path="url(#star-half-clip-${i})"/>
+        </svg>`;
+      } else if (potRemaining >= 0.5) {
+        // Empty star (part of POT ceiling)
+        html += '<svg class="star-icon star-empty" viewBox="0 0 24 24" width="14" height="14"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
+      }
+    }
+
+    html += '</span>';
+    return html;
+  }
+
 
   private renderSpeedDonut(speed: number): string {
     // Speed is on 20-80 scale (same as other ratings), map to percentage
@@ -740,7 +798,40 @@ export class BatterProfileModal {
             style="--donut-offset: ${strokeDashoffset}; --donut-circumference: ${circumference};"
           />
         </svg>
-        <span class="donut-label">SPD</span>
+        <span class="donut-label">Speed</span>
+      </div>
+    `;
+  }
+
+  private renderRatingDonut(rating: number, label: string, tooltipName: string): string {
+    // Rating is on 20-80 scale, map to percentage
+    const percentage = Math.max(0, Math.min(100, ((rating - 20) / 60) * 100));
+
+    // Color class based on rating value (20-80 scale)
+    const colorClass = rating >= 70 ? 'rating-elite' :
+                       rating >= 60 ? 'rating-plus' :
+                       rating >= 45 ? 'rating-avg' :
+                       'rating-poor';
+
+    // SVG circle parameters
+    const radius = 10;
+    const circumference = 2 * Math.PI * radius;
+    const strokeDashoffset = circumference - (percentage / 100) * circumference;
+
+    return `
+      <div class="header-donut" title="${tooltipName}: ${rating}">
+        <svg class="stat-donut" viewBox="0 0 24 24" width="24" height="24">
+          <circle class="stat-donut-bg" cx="12" cy="12" r="${radius}" />
+          <circle
+            class="stat-donut-fill ${colorClass}"
+            cx="12"
+            cy="12"
+            r="${radius}"
+            stroke-dasharray="${circumference}"
+            style="--donut-offset: ${strokeDashoffset}; --donut-circumference: ${circumference};"
+          />
+        </svg>
+        <span class="donut-label">${label}</span>
       </div>
     `;
   }
@@ -798,23 +889,13 @@ export class BatterProfileModal {
   }
 
   private renderDevelopmentTab(playerId: number): string {
-    const isProspect = this.currentData?.isProspect === true;
-    const dataMode = isProspect ? 'scout' : 'true';
-
-    // Set default active metrics based on player type
-    if (!isProspect) {
-      this.activeDevMetrics = ['truePower', 'trueEye', 'trueAvoidK', 'trueContact'];
-    } else {
-      this.activeDevMetrics = ['scoutPower', 'scoutEye', 'scoutAvoidK'];
-    }
-
     return `
       <div class="development-section">
         <div class="development-header">
-          <h4>${isProspect ? 'Development History' : 'True Rating History'}</h4>
+          <h4>Development History</h4>
           <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
         </div>
-        ${renderMetricToggles(this.activeDevMetrics, 'hitter', dataMode)}
+        ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
         <div class="development-chart-container" id="development-chart-${playerId}"></div>
       </div>
     `;
@@ -827,31 +908,24 @@ export class BatterProfileModal {
       this.developmentChart = null;
     }
 
-    const isProspect = this.currentData?.isProspect === true;
-    let snapshots: DevelopmentSnapshotRecord[];
+    // Fetch snapshots
+    const snapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
 
-    if (!isProspect) {
-      // MLB player: calculate historical True Ratings from stats
-      snapshots = await trueRatingsService.calculateHistoricalBatterTR(playerId);
-    } else {
-      // Prospect: use scouting snapshots
-      const allSnapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
-      snapshots = allSnapshots.filter(s =>
-        s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
-      );
-    }
+    // Filter to only hitter snapshots (those with hitter-specific fields)
+    const hitterSnapshots = snapshots.filter(s =>
+      s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
+    );
 
     // Update snapshot count
     const countEl = this.overlay?.querySelector('#dev-snapshot-count');
     if (countEl) {
-      const label = isProspect ? 'snapshot' : 'season';
-      countEl.textContent = `${snapshots.length} ${label}${snapshots.length !== 1 ? 's' : ''}`;
+      countEl.textContent = `${hitterSnapshots.length} snapshot${hitterSnapshots.length !== 1 ? 's' : ''}`;
     }
 
     // Create and render chart
     this.developmentChart = new DevelopmentChart({
       containerId: `development-chart-${playerId}`,
-      snapshots,
+      snapshots: hitterSnapshots,
       metrics: this.activeDevMetrics,
       height: 280,
     });
@@ -1008,6 +1082,20 @@ export class BatterProfileModal {
       proj3b = Math.round(projAb * 0.005);
     }
 
+    // Calculate projected SB from SR/STE ratings
+    const sr = this.scoutingData?.stealingAggressiveness ?? data.scoutSR ?? 50;
+    const ste = this.scoutingData?.stealingAbility ?? data.scoutSTE ?? 50;
+    const hasSrSte = (this.scoutingData?.stealingAggressiveness !== undefined) || (data.scoutSR !== undefined);
+    let projSb: number;
+    if (data.projSb !== undefined) {
+      projSb = data.projSb;
+    } else if (hasSrSte) {
+      const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+      projSb = sbProj.sb;
+    } else {
+      projSb = 0;
+    }
+
     // Calculate OPS and OPS+
     const projOps = projObp + projSlg;
     const projOpsPlus = Math.round(100 * ((projObp / lgObp) + (projSlg / lgSlg) - 1));
@@ -1065,10 +1153,11 @@ export class BatterProfileModal {
           <td>${latestStat.hr}</td>
           <td>${latestStat.d ?? '—'}</td>
           <td>${latestStat.t ?? '—'}</td>
+          <td>${latestStat.sb}</td>
           <td>${formatStat(latestStat.slg)}</td>
           <td>${formatStat(actualOps)}</td>
           <td>${actualOpsPlus}</td>
-          <td>${formatStat(actualWar, 1)}</td>
+          <td>${typeof latestStat.war === 'number' ? formatStat(latestStat.war, 1) : formatStat(actualWar, 1)}</td>
         </tr>
       `;
     }
@@ -1114,6 +1203,7 @@ export class BatterProfileModal {
                 <th style="width: 50px;">HR</th>
                 <th style="width: 50px;">2B</th>
                 <th style="width: 50px;">3B</th>
+                <th style="width: 50px;">SB</th>
                 <th style="width: 60px;">SLG</th>
                 <th style="width: 60px;">OPS</th>
                 <th style="width: 50px;">OPS+</th>
@@ -1132,6 +1222,7 @@ export class BatterProfileModal {
                 <td>${projHr}</td>
                 <td>${doublesFlip}</td>
                 <td>${triplesFlip}</td>
+                <td>${hasSrSte ? projSb : '—'}</td>
                 <td>${formatStat(projSlg)}</td>
                 <td>${formatStat(projOps)}</td>
                 <td><strong>${projOpsPlus}</strong></td>
@@ -1368,6 +1459,17 @@ export class BatterProfileModal {
       `;
     }
 
+    // Speed / SB Aggression / SB Ability donuts
+    const scoutSpeed = s?.speed ?? data.scoutSpeed ?? 50;
+    const sr = s?.stealingAggressiveness ?? data.scoutSR;
+    const ste = s?.stealingAbility ?? data.scoutSTE;
+    const speedDonut = this.renderSpeedDonut(scoutSpeed);
+    const srDonut = sr !== undefined ? this.renderRatingDonut(sr, 'SB Aggression', 'Steal Aggressiveness') : '';
+    const steDonut = ste !== undefined ? this.renderRatingDonut(ste, 'SB Ability', 'Steal Ability') : '';
+
+    // Personality traits (only show H or L)
+    const personalityHtml = this.renderPersonalityTraits();
+
     return `
       <div class="advanced-ratings-section ${expandedClass}">
         <button class="advanced-ratings-toggle" aria-expanded="${this.advancedRatingsExpanded}">
@@ -1376,7 +1478,45 @@ export class BatterProfileModal {
         </button>
         <div class="advanced-ratings-content">
           ${ratingsContent}
+          <div class="advanced-ratings-donuts">
+            ${speedDonut}
+            ${srDonut}
+            ${steDonut}
+          </div>
+          ${personalityHtml}
         </div>
+      </div>
+    `;
+  }
+
+  private renderPersonalityTraits(): string {
+    const s = this.scoutingData;
+    if (!s) return '';
+
+    const traits: Array<{ key: string; label: string; value?: 'H' | 'N' | 'L' }> = [
+      { key: 'leadership', label: 'Leadership', value: s.leadership },
+      { key: 'loyalty', label: 'Loyalty', value: s.loyalty },
+      { key: 'adaptability', label: 'Adaptability', value: s.adaptability },
+      { key: 'greed', label: 'Greedy', value: s.greed },
+      { key: 'workEthic', label: 'Work Ethic', value: s.workEthic },
+      { key: 'intelligence', label: 'Intelligence', value: s.intelligence },
+    ];
+
+    // Only show traits that are High or Low
+    const notable = traits.filter(t => t.value === 'H' || t.value === 'L');
+    if (notable.length === 0) return '';
+
+    const badges = notable.map(t => {
+      const levelClass = t.value === 'H' ? 'trait-high' : 'trait-low';
+      const levelLabel = t.value === 'H' ? 'High' : 'Low';
+      const arrow = t.value === 'H' ? '▲' : '▼';
+      return `<span class="personality-trait ${levelClass}" title="${t.label}: ${levelLabel}"><span class="trait-arrow">${arrow}</span>${t.label}</span>`;
+    }).join('');
+
+    return `
+      <div class="personality-section">
+        <span class="personality-label">Personality</span>
+        <div class="personality-traits">${badges}</div>
       </div>
     `;
   }
@@ -1485,19 +1625,14 @@ export class BatterProfileModal {
         ? '<span class="level-badge level-mlb">MLB</span>'
         : `<span class="level-badge level-${s.level.toLowerCase()}">${s.level.toUpperCase()}</span>`;
       const isMinor = s.level !== 'MLB';
+      const warCell = isMinor ? '<td class="stat-na">—</td>' : `<td style="text-align: center;">${(s.war ?? 0).toFixed(1)}</td>`;
+
       // Calculate rate stats
       const bbPct = s.pa > 0 ? (s.bb / s.pa) * 100 : 0;
       const kPct = s.pa > 0 ? (s.k / s.pa) * 100 : 0;
       const hrPct = s.pa > 0 ? (s.hr / s.pa) * 100 : 0;
       const ops = s.obp + s.slg;
       const opsPlus = Math.round(100 * ((s.obp / lgObp) + (s.slg / lgSlg) - 1));
-
-      // Calculate offensive-only WAR (same formula as projections for apples-to-apples comparison)
-      const runsPerWin = 10;
-      const runsAboveAvg = ((opsPlus - 100) / 10) * (s.pa / 600) * 10;
-      const replacementRuns = (s.pa / 600) * 20;
-      const calcWar = Math.round(((runsAboveAvg + replacementRuns) / runsPerWin) * 10) / 10;
-      const warCell = isMinor ? '<td class="stat-na">—</td>' : `<td style="text-align: center;">${calcWar.toFixed(1)}</td>`;
 
       // Estimate ratings
       const estContact = HitterRatingEstimatorService.estimateContact(s.avg, s.pa).rating;
@@ -1521,6 +1656,8 @@ export class BatterProfileModal {
           <td style="text-align: center;">${kPctDisplay}</td>
           <td style="text-align: center;">${hrPctFlip}</td>
           <td style="text-align: center;">${s.hr}</td>
+          <td style="text-align: center;">${s.sb}</td>
+          <td style="text-align: center;">${s.cs}</td>
           <td style="text-align: center;">${s.slg.toFixed(3)}</td>
           <td style="text-align: center;">${ops.toFixed(3)}</td>
           <td style="text-align: center;">${opsPlus}</td>
@@ -1545,6 +1682,8 @@ export class BatterProfileModal {
                 <th style="width: 60px; text-align: center;">K%</th>
                 <th style="width: 60px; text-align: center;">HR%</th>
                 <th style="width: 50px; text-align: center;">HR</th>
+                <th style="width: 40px; text-align: center;">SB</th>
+                <th style="width: 40px; text-align: center;">CS</th>
                 <th style="width: 60px; text-align: center;">SLG</th>
                 <th style="width: 60px; text-align: center;">OPS</th>
                 <th style="width: 50px; text-align: center;">OPS+</th>

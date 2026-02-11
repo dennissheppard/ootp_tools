@@ -1,6 +1,8 @@
 import { apiFetch } from './ApiClient';
 
 const API_BASE = '/api';
+const CACHE_KEY = 'wbl_contracts_cache';
+const CACHE_DURATION_MS = 72 * 60 * 60 * 1000; // 72 hours
 
 export interface Contract {
   playerId: number;
@@ -17,6 +19,11 @@ export interface Contract {
   lastYearVestingOption: boolean;
 }
 
+interface CacheEnvelope {
+  data: Array<[number, Contract]>;
+  fetchedAt: number;
+}
+
 export class ContractService {
   private contracts: Map<number, Contract> = new Map();
   private loading: Promise<Map<number, Contract>> | null = null;
@@ -24,6 +31,15 @@ export class ContractService {
   async getAllContracts(forceRefresh = false): Promise<Map<number, Contract>> {
     if (this.contracts.size > 0 && !forceRefresh) {
       return this.contracts;
+    }
+
+    // Try localStorage cache first
+    if (!forceRefresh) {
+      const cached = this.loadFromCache();
+      if (cached) {
+        this.contracts = cached;
+        return this.contracts;
+      }
     }
 
     // Deduplicate concurrent requests
@@ -34,6 +50,7 @@ export class ContractService {
     this.loading = this.fetchContracts();
     try {
       this.contracts = await this.loading;
+      this.saveToCache(this.contracts);
       return this.contracts;
     } finally {
       this.loading = null;
@@ -68,6 +85,37 @@ export class ContractService {
       }
     }
     return result;
+  }
+
+  private loadFromCache(): Map<number, Contract> | null {
+    try {
+      const raw = localStorage.getItem(CACHE_KEY);
+      if (!raw) return null;
+
+      const envelope: CacheEnvelope = JSON.parse(raw);
+      if (Date.now() - envelope.fetchedAt > CACHE_DURATION_MS) {
+        localStorage.removeItem(CACHE_KEY);
+        return null;
+      }
+
+      console.log('Loaded contracts from localStorage cache');
+      return new Map(envelope.data);
+    } catch {
+      localStorage.removeItem(CACHE_KEY);
+      return null;
+    }
+  }
+
+  private saveToCache(contracts: Map<number, Contract>): void {
+    try {
+      const envelope: CacheEnvelope = {
+        data: Array.from(contracts.entries()),
+        fetchedAt: Date.now(),
+      };
+      localStorage.setItem(CACHE_KEY, JSON.stringify(envelope));
+    } catch {
+      // localStorage full or unavailable — ignore
+    }
   }
 
   private async fetchContracts(): Promise<Map<number, Contract>> {

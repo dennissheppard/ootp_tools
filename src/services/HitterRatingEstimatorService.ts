@@ -141,6 +141,44 @@ const REGRESSION_COEFFICIENTS = {
   // 50 (20-80) → 110 (20-200): -0.001657 + 0.000083 * 110 = 0.0075 (4.5 triples per 600 AB)
   // 80 (20-80) → 200 (20-200): -0.001657 + 0.000083 * 200 = 0.0149 (8.9 triples per 600 AB)
   speed: { intercept: -0.001657, slope: 0.000083 },
+
+  // SR (Stealing Aggressiveness, 20-80) → Steal attempts per 600 PA
+  // PIECEWISE LINEAR (3 segments): Different slopes for low, mid, and elite SR
+  // Calibrated from WBL scouting + batting data (n=654, 2018-2020)
+  // using tools/calibrate_sb_coefficients.ts grid search
+  //
+  // The relationship is non-linear: low-SR players barely attempt steals,
+  // while high-SR players attempt far more aggressively.
+  //
+  // The elite segment (SR > 70) deliberately projects ABOVE the calibration data.
+  // Rationale: actual SB data is suppressed by team strategy — an elite stealer on
+  // a conservative team may only get 25-30 attempts, but given freedom would attempt
+  // 50-80+. We project capability, not strategy-constrained outcomes.
+  //
+  // Segment 1 (SR <= 55): attempts = -2.300 + 0.155 * SR
+  //   At 20: 0.8 attempts (barely tries)
+  //   At 55: 6.2 attempts
+  //
+  // Segment 2 (55 < SR <= 70): attempts = -62.525 + 1.250 * SR
+  //   At 55: 6.2 attempts (continuous)
+  //   At 70: 25.0 attempts
+  //
+  // Segment 3 (SR > 70): attempts = -360.0 + 5.5 * SR
+  //   At 70: 25.0 attempts (continuous)
+  //   At 75: 52.5 attempts
+  //   At 80: 80.0 attempts
+  stealAttempts: {
+    low: { intercept: -2.300, slope: 0.155 },      // SR 20-55
+    mid: { intercept: -62.525, slope: 1.250 },      // SR 55-70
+    elite: { intercept: -360.0, slope: 5.5 },       // SR 70-80
+  },
+
+  // STE (Stealing Ability, 20-80) → Steal success rate (decimal 0-1)
+  // Calibrated from WBL scouting + batting data (n=654, 2018-2020)
+  //   At 20: 35.2% (poor)
+  //   At 50: 64.0% (average)
+  //   At 80: 92.8% (elite)
+  stealSuccess: { intercept: 0.160, slope: 0.0096 },
 };
 
 class HitterRatingEstimatorService {
@@ -466,6 +504,65 @@ class HitterRatingEstimatorService {
     const speed200 = this.convertSpeed2080To20200(speed);
     const coef = REGRESSION_COEFFICIENTS.speed;
     return Math.max(0, coef.intercept + coef.slope * speed200);
+  }
+
+  /**
+   * Calculate expected steal attempts per 600 PA from SR (Stealing Aggressiveness) rating.
+   * Uses 3-segment piecewise linear function:
+   * - Low (SR ≤ 55): barely attempts
+   * - Mid (55 < SR ≤ 70): moderate aggression
+   * - Elite (SR > 70): uncapped — projects true capability, not strategy-constrained outcomes
+   *
+   * @param sr Stealing Aggressiveness rating on 20-80 scale
+   * @returns Steal attempts per 600 PA (minimum 0)
+   */
+  static expectedStealAttempts(sr: number): number {
+    const coef = REGRESSION_COEFFICIENTS.stealAttempts;
+    let attempts: number;
+
+    if (sr <= 55) {
+      attempts = coef.low.intercept + coef.low.slope * sr;
+    } else if (sr <= 70) {
+      attempts = coef.mid.intercept + coef.mid.slope * sr;
+    } else {
+      attempts = coef.elite.intercept + coef.elite.slope * sr;
+    }
+
+    return Math.max(0, attempts);
+  }
+
+  /**
+   * Calculate expected steal success rate from STE (Stealing Ability) rating.
+   * @param ste Stealing Ability rating on 20-80 scale
+   * @returns Success rate as decimal (clamped 0.30 to 0.98)
+   */
+  static expectedStealSuccessRate(ste: number): number {
+    const coef = REGRESSION_COEFFICIENTS.stealSuccess;
+    const rate = coef.intercept + coef.slope * ste;
+    return Math.max(0.30, Math.min(0.98, rate));
+  }
+
+  /**
+   * Project stolen bases (SB) and caught stealing (CS) from SR/STE ratings and PA.
+   *
+   * Model: SR drives steal attempt volume, STE drives success rate.
+   *   attempts = attemptRate(SR) × (PA / 600)
+   *   successRate = successPct(STE)
+   *   projSB = attempts × successRate
+   *   projCS = attempts × (1 - successRate)
+   *
+   * @param sr Stealing Aggressiveness rating (20-80)
+   * @param ste Stealing Ability rating (20-80)
+   * @param pa Projected plate appearances
+   * @returns { sb: number, cs: number } rounded to integers
+   */
+  static projectStolenBases(sr: number, ste: number, pa: number): { sb: number; cs: number } {
+    const attemptsPerSeason = this.expectedStealAttempts(sr);
+    const successRate = this.expectedStealSuccessRate(ste);
+    const attempts = attemptsPerSeason * (pa / 600);
+    const sb = Math.round(attempts * successRate);
+    const cs = Math.round(attempts * (1 - successRate));
+    return { sb, cs };
   }
 
   /**

@@ -14,6 +14,7 @@ import { HitterScoutingRatings } from '../models/ScoutingData';
 import { MinorLeagueBattingStatsWithLevel, MinorLeagueLevel } from '../models/Stats';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { trueRatingsService } from './TrueRatingsService';
+import { LeagueBattingAverages } from './LeagueBattingAveragesService';
 
 // ============================================================================
 // Interfaces
@@ -71,6 +72,8 @@ export interface HitterTrueFutureRatingResult {
   projIso: number;
   /** Projected peak wOBA */
   projWoba: number;
+  /** Projected WAR per 600 PA (used for ranking) */
+  projWar: number;
   /** Percentile rank among all prospects */
   percentile: number;
   /** True Future Rating (0.5-5.0 scale) */
@@ -972,7 +975,8 @@ class HitterTrueFutureRatingService {
    * 8. Rank by wOBA among prospects for final TFR star rating
    */
   async calculateTrueFutureRatings(
-    inputs: HitterTrueFutureRatingInput[]
+    inputs: HitterTrueFutureRatingInput[],
+    leagueBattingAverages?: LeagueBattingAverages
   ): Promise<HitterTrueFutureRatingResult[]> {
     if (inputs.length === 0) {
       return [];
@@ -1025,6 +1029,22 @@ class HitterTrueFutureRatingService {
       // Calculate peak wOBA from blended rates
       const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg, gap, speed);
 
+      // Calculate WAR per 600 PA for ranking (includes baserunning from SR/STE)
+      const lgWoba = leagueBattingAverages?.lgWoba ?? 0.315;
+      const wobaScale = leagueBattingAverages?.wobaScale ?? 1.15;
+      const runsPerWin = leagueBattingAverages?.runsPerWin ?? 10;
+
+      const sr = input?.scouting.stealingAggressiveness;
+      const ste = input?.scouting.stealingAbility;
+      let sbRuns = 0;
+      if (sr !== undefined && ste !== undefined) {
+        const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, 600);
+        sbRuns = sbProj.sb * 0.2 - sbProj.cs * 0.4;
+      }
+      const wRAA = ((projWoba - lgWoba) / wobaScale) * 600;
+      const replacementRuns = 20;
+      const projWar = Math.round(((wRAA + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
+
       return {
         ...result,
         eyePercentile: Math.round(eyePercentile * 10) / 10,
@@ -1039,15 +1059,16 @@ class HitterTrueFutureRatingService {
         projAvg: Math.round(projAvg * 1000) / 1000,
         projIso: Math.round(this.calculateIsoFromRates(projBbPct, projHrPct, projAvg, gap, speed) * 1000) / 1000,
         projWoba: Math.round(projWoba * 1000) / 1000,
+        projWar,
       };
     });
 
-    // Step 5: Rank by wOBA among prospects to get final percentile and TFR rating
-    const sortedByWoba = [...resultsWithWoba].sort((a, b) => b.projWoba - a.projWoba);
-    const n = sortedByWoba.length;
+    // Step 5: Rank by WAR among prospects to get final percentile and TFR rating
+    const sortedByWar = [...resultsWithWoba].sort((a, b) => b.projWar - a.projWar);
+    const n = sortedByWar.length;
 
-    return sortedByWoba.map((result, index) => {
-      // Calculate percentile rank (higher wOBA = better = higher percentile)
+    return sortedByWar.map((result, index) => {
+      // Calculate percentile rank (higher WAR = better = higher percentile)
       const percentile = n > 1 ? ((n - index - 1) / (n - 1)) * 100 : 50;
       const trueFutureRating = this.percentileToRating(percentile);
 
@@ -1091,6 +1112,7 @@ class HitterTrueFutureRatingService {
         projAvg: result.projAvg,
         projIso: result.projIso,
         projWoba: result.projWoba,
+        projWar: result.projWar,
         percentile: Math.round(percentile * 10) / 10,
         trueFutureRating,
         trueRating: result.trueRating,

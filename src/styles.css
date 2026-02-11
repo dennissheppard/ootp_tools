@@ -6039,9 +6039,6 @@ th .stat-tooltip {
 .batter-profile-modal .metadata-header-slot {
   flex: 0 0 auto;
   margin-top: 0;
-  margin-left: auto;
-  padding-left: 1.5rem;
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .batter-profile-modal .title-row {
@@ -6077,6 +6074,43 @@ th .stat-tooltip {
 .batter-profile-modal .player-age-info {
   font-size: 0.85rem;
   color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.batter-profile-modal .ovr-pot-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.batter-profile-modal .star-icon {
+  vertical-align: middle;
+}
+
+.batter-profile-modal .star-filled path {
+  fill: #f5c518;
+  stroke: #c9a000;
+  stroke-width: 1;
+}
+
+.batter-profile-modal .star-empty path {
+  fill: transparent;
+  stroke: #666;
+  stroke-width: 1.5;
+}
+
+.batter-profile-modal .star-half .star-empty-path {
+  fill: transparent;
+  stroke: #666;
+  stroke-width: 1.5;
+}
+
+.batter-profile-modal .star-half .star-filled-path {
+  fill: #f5c518;
+  stroke: #c9a000;
+  stroke-width: 1;
 }
 
 .batter-profile-modal .position-badge {
@@ -6108,12 +6142,33 @@ th .stat-tooltip {
 }
 
 .batter-profile-modal .metadata-war-col {
-  /* WAR badge column - positioned first/left in the metadata section */
+  padding-left: 1.5rem;
+  border-left: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.batter-profile-modal .metadata-stats-col {
-  /* Donuts and stars column */
+.batter-profile-modal .metadata-info-col {
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+
+.batter-profile-modal .metadata-info-row {
+  display: flex;
   align-items: center;
+  gap: 0.4rem;
+}
+
+.batter-profile-modal .info-label {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.batter-profile-modal .contract-info {
+  font-size: 0.75rem;
+  color: var(--color-text);
+  font-weight: 500;
 }
 
 .batter-profile-modal .metadata-row {
@@ -6211,7 +6266,7 @@ th .stat-tooltip {
 /* Header donut charts (injury, speed) */
 .batter-profile-modal .metadata-donuts-row {
   display: flex;
-  gap: 0.6rem;
+  gap: 1.2rem;
   justify-content: flex-start;
 }
 
@@ -6284,6 +6339,9 @@ th .stat-tooltip {
   text-transform: uppercase;
   color: var(--color-text-muted);
   letter-spacing: 0.02em;
+  text-align: center;
+  max-width: 3.5rem;
+  line-height: 1.2;
 }
 
 /* Profile Body */
@@ -6809,7 +6867,7 @@ th .stat-tooltip {
 }
 
 .batter-profile-modal .advanced-ratings-section.expanded .advanced-ratings-content {
-  max-height: 350px;
+  max-height: 550px;
   padding: 0.75rem;
 }
 
@@ -7289,4 +7347,61 @@ th .stat-tooltip {
   .planning-summary-section {
     grid-template-columns: 1fr;
   }
+}
+
+/* Advanced ratings donut row (Speed, SB Aggression, SB Ability) */
+.batter-profile-modal .advanced-ratings-donuts {
+  display: flex;
+  gap: 1.2rem;
+  justify-content: flex-start;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+/* Personality traits section */
+.batter-profile-modal .personality-section {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.batter-profile-modal .personality-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+}
+
+.batter-profile-modal .personality-traits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.batter-profile-modal .personality-trait {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}
+
+.batter-profile-modal .personality-trait.trait-high {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.batter-profile-modal .personality-trait.trait-low {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.batter-profile-modal .trait-arrow {
+  font-size: 0.55rem;
+  margin-right: 0.2rem;
 }

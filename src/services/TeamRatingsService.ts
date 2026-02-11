@@ -13,6 +13,7 @@ import { trueFutureRatingService } from './TrueFutureRatingService';
 import { hitterTrueFutureRatingService, HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
 import { hitterScoutingDataService } from './HitterScoutingDataService';
 import { hitterTrueRatingsCalculationService, HitterTrueRatingInput } from './HitterTrueRatingsCalculationService';
+import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { batterProjectionService } from './BatterProjectionService';
 import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
@@ -313,11 +314,12 @@ class TeamRatingsService {
       trueRatingsService.getLeagueAverages(year)
     ]);
 
-    // Fetch batting stats and scouting
-    const [battingStats, myScoutingRatings, osaScoutingRatings] = await Promise.all([
+    // Fetch batting stats, scouting, and league batting averages
+    const [battingStats, myScoutingRatings, osaScoutingRatings, leagueBattingAvg] = await Promise.all([
       trueRatingsService.getTrueBattingStats(year),
       hitterScoutingDataService.getLatestScoutingRatings('my'),
-      hitterScoutingDataService.getLatestScoutingRatings('osa')
+      hitterScoutingDataService.getLatestScoutingRatings('osa'),
+      leagueBattingAveragesService.getLeagueAverages(year)
     ]);
 
     // 2. Get multi-year stats for True Ratings
@@ -363,7 +365,7 @@ class TeamRatingsService {
         });
       }
     });
-    const batterTrResults = hitterTrueRatingsCalculationService.calculateTrueRatings(batterTrInputs);
+    const batterTrResults = hitterTrueRatingsCalculationService.calculateTrueRatings(batterTrInputs, undefined, undefined, leagueBattingAvg ?? undefined);
     const batterTrMap = new Map(batterTrResults.map((tr: any) => [tr.playerId, tr]));
 
     // 5. Build team rosters from stats data (not from player service)
@@ -1010,8 +1012,8 @@ class TeamRatingsService {
           prospectPlayerMap.set(playerId, { player, scouting, careerAb });
       });
 
-      // Calculate True Future Ratings
-      const tfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
+      // Calculate True Future Ratings (pass league averages for WAR-based ranking)
+      const tfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs, leagueAvg ?? undefined);
 
       // Build empirical PA distributions from MLB peak-age data by injury category
       const empiricalPaByInjury = await hitterTrueFutureRatingService.buildMLBPaByInjury(scoutingMap);
@@ -1040,21 +1042,27 @@ class TeamRatingsService {
               ?? empiricalPaByInjury.get('Normal')
               ?? leagueBattingAveragesService.getProjectedPa(scouting.injuryProneness);
 
-          // Calculate wRC+ and WAR using league averages
+          // Calculate wRC+ and WAR using league averages (include baserunning from SR/STE)
           let wrcPlus = 100; // Default to league average
           let projWar = 0;
+          const sr = scouting.stealingAggressiveness;
+          const ste = scouting.stealingAbility;
+          let sbRuns = 0;
+          if (sr !== undefined && ste !== undefined) {
+              const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+              sbRuns = leagueBattingAveragesService.calculateBaserunningRuns(sbProj.sb, sbProj.cs);
+          }
           if (leagueAvg) {
               wrcPlus = leagueBattingAveragesService.calculateWrcPlus(tfr.projWoba, leagueAvg);
-              projWar = leagueBattingAveragesService.calculateBattingWar(tfr.projWoba, projPa, leagueAvg);
+              projWar = leagueBattingAveragesService.calculateBattingWar(tfr.projWoba, projPa, leagueAvg, sbRuns);
           } else {
               // Fallback calculation when league averages not available
-              // Use typical league values: lgWoba=0.315, wobaScale=1.15, runsPerWin=10
               const lgWoba = 0.315;
               const wobaScale = 1.15;
               const runsPerWin = 10;
               const wRAA = ((tfr.projWoba - lgWoba) / wobaScale) * projPa;
               const replacementRuns = (projPa / 600) * 20;
-              projWar = Math.round(((wRAA + replacementRuns) / runsPerWin) * 10) / 10;
+              projWar = Math.round(((wRAA + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
           }
 
           // Determine level label - use contract to detect IC players

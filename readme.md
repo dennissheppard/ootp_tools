@@ -45,6 +45,7 @@ finalRating = (trueRating × confidence) + (scoutingProjection × (1 - confidenc
 - Component-specific stabilization constants (BB%: 120 PA, K%: 60 PA, HR%: 160 PA, AVG: 300 PA)
 - **Percentile-based component ratings** - Contact, Power, Eye, and AvK ratings are calculated by ranking players within each season (not absolute thresholds). This ensures league leaders always receive elite ratings regardless of year-to-year offensive environment changes.
 - **HR%-based power estimation** (not ISO-based) to correctly distinguish gap hitters from power hitters
+- **WAR-based ranking** - Final TR percentiles are determined by WAR per 600 PA (not wOBA), which incorporates baserunning value from SB/CS alongside hitting. Using standardized 600 PA keeps TR as a rate-based "how good" measure rather than penalizing injured players for fewer PA.
 
 ### True Future Rating (TFR)
 
@@ -115,12 +116,6 @@ Projects peak wOBA for hitter prospects using a 4-component model. Like pitcher 
 | Gap | Gap (20-80) | 2B rate | 0.01 + 0.0008 × (gap - 20) |
 | Speed | Speed (20-80) | 3B rate | Converted to 20-200 internally, then applied |
 
-**Peak Performance by Contact Rating:**
-- 80 contact → .345 AVG peak (elite top 2-4)
-- 75 contact → .326 AVG peak (excellent)
-- 70 contact → .307 AVG peak (good)
-- 57 contact → .256 AVG peak (league average)
-
 **Critical Design Decision: Contact vs Hit Tool**
 
 The system uses **Contact rating** instead of Hit Tool for AVG projection:
@@ -163,7 +158,14 @@ Different components have different predictive validity from MiLB stats:
    - Triples rate calculated from Speed rating (higher Speed → more triples)
    - Singles = remaining hits after subtracting 2B, 3B, HR
 
-6. **Rank by wOBA** for final TFR rating (0.5-5.0 scale)
+6. **Compute WAR per 600 PA** (standardized for ranking, not volume-dependent):
+   ```
+   sbRuns = projectStolenBases(SR, STE, 600).sb × 0.2 − .cs × 0.4
+   wRAA = ((projWoba − lgWoba) / wobaScale) × 600
+   projWar = (wRAA + 20 + sbRuns) / runsPerWin
+   ```
+
+7. **Rank by WAR** for final TFR rating (0.5-5.0 scale)
 
 **TFR Rating Scale:**
 
@@ -398,7 +400,7 @@ Three-model ensemble for future performance:
 
 | Service | Purpose |
 |---------|---------|
-| `HitterTrueRatingsCalculationService` | Batter True Rating calculation with HR%-based power estimation |
+| `HitterTrueRatingsCalculationService` | Batter True Rating calculation |
 | `HitterTrueFutureRatingService` | Batter prospect TFR (wOBA-based peak projections) |
 | `HitterRatingEstimatorService` | Rating↔stat conversion coefficients (calibrated) |
 | `HitterScoutingDataService` | Batter scouting CSV parsing (maps CON P, not HT P) |
@@ -423,6 +425,8 @@ Automated calibration scripts optimize coefficients to minimize projection bias:
 | Tool | Purpose | Usage |
 |------|---------|-------|
 | `tools/calibrate_batter_coefficients.ts` | Optimize rating→stat intercepts | `npx tsx tools/calibrate_batter_coefficients.ts` |
+| `tools/calibrate_sb_coefficients.ts` | Grid-search SR/STE coefficient space | `npx tsx tools/calibrate_sb_coefficients.ts` |
+| `tools/validate_sb_projections.ts` | Validate SB projections against actuals | `npx tsx tools/validate_sb_projections.ts` |
 | `tools/calibrate_level_adjustments.ts` | Analyze MiLB→MLB predictive validity | For tuning scouting weights |
 | `tools/test_hitter_tfr.ts` | Validation test against historical outcomes | Validate TFR accuracy |
 | `tools/analyze_hitter_data.ts` | Analyze OOTP engine test data | For coefficient research |
@@ -452,9 +456,17 @@ Automated calibration scripts optimize coefficients to minimize projection bias:
 FIP = ((13 × HR/9) + (3 × BB/9) - (2 × K/9)) / 9 + 3.47
 ```
 
-**WAR:**
+**Pitcher WAR:**
 ```
 WAR = ((5.00 - FIP) / 9) × IP / 50
+```
+
+**Batter WAR:**
+```
+sbRuns = SB × 0.2 − CS × 0.4
+wRAA = ((wOBA − lgWoba) / wobaScale) × PA
+replacementRuns = (PA / 600) × 20
+WAR = (wRAA + replacementRuns + sbRuns) / runsPerWin
 ```
 
 **wOBA (Weighted On-Base Average):**
@@ -466,6 +478,14 @@ wOBA = 0.69×BB_rate + 0.89×1B_rate + 1.27×2B_rate + 1.62×3B_rate + 2.10×HR_
 ```
 doublesRate = 0.01 + (gap - 20) × 0.0008       // per AB
 triplesRate = expectedTriplesRate(speed)  // speed on 20-80 scale, converted internally
+```
+
+**Stolen Base Projection (from SR/STE):**
+```
+attempts = attemptRate(SR) × (PA / 600)   // 3-segment piecewise
+successRate = 0.160 + 0.0096 × STE        // clamped 0.30-0.98
+projSB = attempts × successRate
+projCS = attempts × (1 - successRate)
 ```
 
 **Level-Weighted IP/PA (for TFR scouting weight):**
@@ -504,6 +524,8 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 | `CON P` | contact | **Use this, NOT HT P** |
 | `GAP P` | gap | Gap power (used for doubles projection) |
 | `SPE` | speed | Speed rating (used for triples projection) |
+| `SR` | stealingAggressiveness | Steal aggressiveness (drives attempt volume) |
+| `STE` | stealingAbility | Steal ability (drives success rate) |
 | `HT P` | — | **Not mapped** - Contact is better for AVG |
 
 ## Configuration
@@ -559,6 +581,13 @@ contact: { intercept: 0.035156, slope: 0.003873 }    // AVG
 gap:     { intercept: 0.01,    slope: 0.0008 }       // 2B rate per AB
 speed:   { intercept: -0.001657, slope: 0.000083 }   // 3B rate per AB (speed converted from 20-80 to 20-200 internally)
 
+// Stolen base projection (SR/STE → SB/CS)
+stealAttempts (3-segment piecewise, per 600 PA):
+  SR ≤ 55:  attempts = -2.300 + 0.155 × SR
+  55 < SR ≤ 70: attempts = -62.525 + 1.250 × SR
+  SR > 70:  attempts = -360.0 + 5.5 × SR     // elite segment: projects capability, not strategy-constrained outcomes
+stealSuccess: rate = 0.160 + 0.0096 × STE     // success rate (clamped 0.30-0.98)
+
 Note: True Ratings now use percentile-based component ratings instead of these formulas.
 These coefficients are still used for TFR (prospect projections) and scouting conversions.
 ```
@@ -589,6 +618,8 @@ These coefficients are still used for TFR (prospect projections) and scouting co
 - Component-specific scouting weights based on MiLB→MLB correlations
 - Tier-aware regression prevents over-regressing elite talent
 - **TFR/TR unification** — TFR shown alongside TR when TFR > TR; hidden when fully realized (see below)
+- **Elite stealer uncapping** — SB projections for SR > 70 deliberately overshoot calibration data to project capability rather than strategy-constrained outcomes
+- **WAR-based TR/TFR ranking** — Ranking uses WAR per 600 PA (not wOBA) to incorporate baserunning and future-proof for fielding; standardized PA keeps it rate-based
 
 ### TFR/TR Unified Display
 

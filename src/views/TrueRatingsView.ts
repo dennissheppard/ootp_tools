@@ -1499,9 +1499,9 @@ export class TrueRatingsView {
       battersWithStats.push(batter);
     });
 
-    // Calculate True Ratings
+    // Calculate True Ratings (pass league batting averages for WAR-based ranking)
     const leagueAverages = hitterTrueRatingsCalculationService.getDefaultLeagueAverages();
-    const results = hitterTrueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages, yearWeights);
+    const results = hitterTrueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages, yearWeights, this.cachedLeagueBattingAverages ?? undefined);
     const resultMap = new Map(results.map(result => [result.playerId, result]));
 
     // Enrich batter rows with True Rating data
@@ -2657,7 +2657,8 @@ export class TrueRatingsView {
     const runsPerWin = 10;
     const runsAboveAvg = ((opsPlus - 100) / 10) * (row.pa / 600) * 10;
     const replacementRuns = (row.pa / 600) * 20;
-    return (runsAboveAvg + replacementRuns) / runsPerWin;
+    const sbRuns = (row.sb ?? 0) * 0.2 - (row.cs ?? 0) * 0.4;
+    return (runsAboveAvg + replacementRuns + sbRuns) / runsPerWin;
   }
 
   private sortStats(): void {

@@ -30,6 +30,10 @@ export interface HitterScoutingRatings {
   gap: number;
   /** Speed rating (20-80): correlates with triples, SB */
   speed: number;
+  /** Stealing aggressiveness (20-80): how often the player attempts steals */
+  stealingAggressiveness?: number;
+  /** Stealing ability (20-80): steal success rate */
+  stealingAbility?: number;
   /** Injury proneness: Durable, Wary, Normal, Fragile, Prone */
   injuryProneness?: string;
   age?: number;
@@ -37,5 +41,12 @@ export interface HitterScoutingRatings {
   ovr: number;
   /** Potential star rating (0.5-5.0 scale) */
   pot: number;
+  /** Personality traits (H = high, N = neutral, L = low) */
+  leadership?: 'H' | 'N' | 'L';
+  loyalty?: 'H' | 'N' | 'L';
+  adaptability?: 'H' | 'N' | 'L';
+  greed?: 'H' | 'N' | 'L';
+  workEthic?: 'H' | 'N' | 'L';
+  intelligence?: 'H' | 'N' | 'L';
   source?: 'my' | 'osa';
 }

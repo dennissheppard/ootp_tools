@@ -223,17 +223,29 @@ class BatterProjectionService {
         scouting?.injuryProneness
       );
 
-      if (leagueAvg) {
-        wrcPlus = leagueBattingAveragesService.calculateWrcPlus(projWoba, leagueAvg);
-        projWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, leagueAvg);
-      }
-
       // Estimate counting stats from rate stats using proper HR% coefficient
-      // const abPerPa = 0.88;
-      // const projAb = Math.round(projPa * abPerPa);
       const projHr = Math.round(projPa * (projHrPct / 100)); // Use proper HR% from power rating
       const projRbi = Math.round(projHr * 3.5 + projPa * 0.08); // Rough RBI estimate
-      const projSb = Math.round(projPa * 0.02); // Conservative SB estimate
+      // Use SR/STE scouting ratings for SB/CS projection when available
+      const sr = scouting?.stealingAggressiveness;
+      const ste = scouting?.stealingAbility;
+      let projSb: number;
+      let projCs: number;
+      if (sr !== undefined && ste !== undefined) {
+        const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+        projSb = sbProj.sb;
+        projCs = sbProj.cs;
+      } else {
+        projSb = Math.round(projPa * 0.02);
+        projCs = Math.round(projPa * 0.005);
+      }
+
+      // Include baserunning runs in WAR calculation
+      const sbRuns = leagueBattingAveragesService.calculateBaserunningRuns(projSb, projCs);
+      if (leagueAvg) {
+        wrcPlus = leagueBattingAveragesService.calculateWrcPlus(projWoba, leagueAvg);
+        projWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, leagueAvg, sbRuns);
+      }
 
       projections.push({
         playerId: trResult.playerId,

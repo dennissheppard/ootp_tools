@@ -2431,6 +2431,8 @@ export class FarmRankingsView {
           scoutContact: myScouting?.contact,
           scoutGap: myScouting?.gap,
           scoutSpeed: myScouting?.speed,
+          scoutSR: myScouting?.stealingAggressiveness,
+          scoutSTE: myScouting?.stealingAbility,
           scoutOvr: myScouting?.ovr,
           scoutPot: myScouting?.pot,
           injuryProneness: myScouting?.injuryProneness ?? hitterProspect?.injuryProneness,

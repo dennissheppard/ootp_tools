@@ -23,6 +23,7 @@
 import { HitterScoutingRatings } from '../models/ScoutingData';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { SeasonStage } from './DateService';
+import { LeagueBattingAverages } from './LeagueBattingAveragesService';
 
 // ============================================================================
 // Interfaces
@@ -79,6 +80,8 @@ export interface HitterTrueRatingResult {
   estimatedSpeed: number;
   /** wOBA (weighted On-Base Average) - lower is worse */
   woba: number;
+  /** WAR per 600 PA (used for ranking) */
+  war: number;
   /** Percentile rank (0-100, higher is better) */
   percentile: number;
   /** Final True Rating (0.5-5.0 scale) */
@@ -108,6 +111,8 @@ interface WeightedRates {
   avg: number;
   doublesRate: number;
   triplesRate: number;
+  sbPerPa: number;
+  csPerPa: number;
   totalPa: number;
 }
 
@@ -253,9 +258,17 @@ class HitterTrueRatingsCalculationService {
   calculateTrueRatings(
     inputs: HitterTrueRatingInput[],
     leagueAverages: HitterLeagueAverages = DEFAULT_LEAGUE_AVERAGES,
-    yearWeights?: number[]
+    yearWeights?: number[],
+    leagueBattingAverages?: LeagueBattingAverages
   ): HitterTrueRatingResult[] {
-    // Step 1-4: Calculate blended rates for each hitter
+    // Step 1: Compute weighted rates for each player (needed for SB/CS rates)
+    const weightedRatesMap = new Map<number, WeightedRates>();
+    for (const input of inputs) {
+      const weighted = this.calculateWeightedRates(input.yearlyStats, yearWeights);
+      weightedRatesMap.set(input.playerId, weighted);
+    }
+
+    // Step 2-4: Calculate blended rates and wOBA for each hitter
     const results: HitterTrueRatingResult[] = inputs.map(input =>
       this.calculateSingleHitter(input, leagueAverages, yearWeights)
     );
@@ -263,7 +276,26 @@ class HitterTrueRatingsCalculationService {
     // Step 4.5: Calculate percentile-based component ratings
     this.calculateComponentRatingsFromPercentiles(results);
 
-    // Step 5: Calculate percentiles across all hitters (for wOBA-based True Rating)
+    // Step 4.6: Compute WAR per 600 PA for ranking
+    const lgWoba = leagueBattingAverages?.lgWoba ?? 0.315;
+    const wobaScale = leagueBattingAverages?.wobaScale ?? 1.15;
+    const runsPerWin = leagueBattingAverages?.runsPerWin ?? 10;
+
+    results.forEach(result => {
+      const weighted = weightedRatesMap.get(result.playerId);
+      const sbPerPa = weighted?.sbPerPa ?? 0;
+      const csPerPa = weighted?.csPerPa ?? 0;
+
+      // Standardized 600 PA for ranking (rate-stat based, not volume)
+      const sb600 = sbPerPa * 600;
+      const cs600 = csPerPa * 600;
+      const sbRuns = sb600 * 0.2 - cs600 * 0.4;
+      const wRAA = ((result.woba - lgWoba) / wobaScale) * 600;
+      const replacementRuns = 20; // 20 runs per 600 PA
+      result.war = Math.round(((wRAA + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
+    });
+
+    // Step 5: Calculate percentiles across all hitters (now by WAR instead of wOBA)
     this.calculatePercentiles(results);
 
     // Step 6: Convert percentiles to ratings
@@ -350,6 +382,7 @@ class HitterTrueRatingsCalculationService {
       estimatedGap: 0,    // Calculated via percentile in next step
       estimatedSpeed: 0,  // Calculated via percentile in next step
       woba: Math.round(woba * 1000) / 1000,
+      war: 0, // Computed in calculateTrueRatings after all players processed
       percentile: 0,
       trueRating: 0,
       totalPa: Math.round(weighted.totalPa),
@@ -364,7 +397,7 @@ class HitterTrueRatingsCalculationService {
     yearWeights: number[] = YEAR_WEIGHTS
   ): WeightedRates {
     if (yearlyStats.length === 0) {
-      return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
+      return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, sbPerPa: 0, csPerPa: 0, totalPa: 0 };
     }
 
     let weightedBbPctSum = 0;
@@ -374,6 +407,8 @@ class HitterTrueRatingsCalculationService {
     let weightedAvgSum = 0;
     let weightedDoublesSum = 0;
     let weightedTriplesSum = 0;
+    let weightedSbPerPaSum = 0;
+    let weightedCsPerPaSum = 0;
     let totalWeight = 0;
     let totalPa = 0;
 
@@ -395,6 +430,8 @@ class HitterTrueRatingsCalculationService {
       const avg = stats.ab > 0 ? stats.h / stats.ab : 0;
       const doublesRate = stats.ab > 0 ? stats.d / stats.ab : 0;
       const triplesRate = stats.ab > 0 ? stats.t / stats.ab : 0;
+      const sbPerPa = (stats.sb ?? 0) / stats.pa;
+      const csPerPa = (stats.cs ?? 0) / stats.pa;
 
       const weight = yearWeight * stats.pa;
 
@@ -405,13 +442,15 @@ class HitterTrueRatingsCalculationService {
       weightedAvgSum += avg * weight;
       weightedDoublesSum += doublesRate * weight;
       weightedTriplesSum += triplesRate * weight;
+      weightedSbPerPaSum += sbPerPa * weight;
+      weightedCsPerPaSum += csPerPa * weight;
 
       totalWeight += weight;
       totalPa += stats.pa;
     }
 
     if (totalWeight === 0) {
-      return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, totalPa: 0 };
+      return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, sbPerPa: 0, csPerPa: 0, totalPa: 0 };
     }
 
     return {
@@ -422,6 +461,8 @@ class HitterTrueRatingsCalculationService {
       avg: weightedAvgSum / totalWeight,
       doublesRate: weightedDoublesSum / totalWeight,
       triplesRate: weightedTriplesSum / totalWeight,
+      sbPerPa: weightedSbPerPaSum / totalWeight,
+      csPerPa: weightedCsPerPaSum / totalWeight,
       totalPa,
     };
   }
@@ -694,26 +735,26 @@ class HitterTrueRatingsCalculationService {
   }
 
   /**
-   * Calculate percentile rankings for all hitters
+   * Calculate percentile rankings for all hitters (ranked by WAR per 600 PA)
    */
   calculatePercentiles(results: HitterTrueRatingResult[]): void {
     if (results.length === 0) return;
 
-    // Sort by wOBA descending (higher is better)
+    // Sort by WAR descending (higher is better)
     // Handle NaN values to prevent infinite sort loop
     const sorted = [...results].sort((a, b) => {
-      const aWoba = Number.isNaN(a.woba) ? 0 : a.woba;
-      const bWoba = Number.isNaN(b.woba) ? 0 : b.woba;
-      return bWoba - aWoba;
+      const aWar = Number.isNaN(a.war) ? -999 : a.war;
+      const bWar = Number.isNaN(b.war) ? -999 : b.war;
+      return bWar - aWar;
     });
 
     // Assign ranks (handle ties with average rank)
     const ranks = new Map<number, number>();
     let i = 0;
     while (i < sorted.length) {
-      const currentWoba = sorted[i].woba;
+      const currentWar = sorted[i].war;
       let j = i;
-      while (j < sorted.length && sorted[j].woba === currentWoba) {
+      while (j < sorted.length && sorted[j].war === currentWar) {
         j++;
       }
       const avgRank = (i + 1 + j) / 2;
@@ -723,7 +764,7 @@ class HitterTrueRatingsCalculationService {
       i = j;
     }
 
-    // Convert rank to percentile (higher woba = higher percentile)
+    // Convert rank to percentile (higher WAR = higher percentile)
     const n = results.length;
     results.forEach(result => {
       const rank = ranks.get(result.playerId) || n;

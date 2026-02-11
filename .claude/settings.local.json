@@ -40,7 +40,12 @@
       "Bash(npx vite:*)",
       "Bash(cd:*)",
       "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" -Recurse -Filter \"*contract*\" -ErrorAction SilentlyContinue)",
-      "Bash(Select-Object -ExpandProperty FullName)"
+      "Bash(Select-Object -ExpandProperty FullName)",
+      "Bash(xargs:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
+      "Bash(git stash:*)",
+      "Bash(git add:*)"
     ]
   }
 }
