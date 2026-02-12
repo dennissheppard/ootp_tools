@@ -58,6 +58,7 @@ export interface MlbPlayerPitchingStatsRecord {
   year?: number; // Optional: if present, this is year-specific data
   data: any[]; // Array of PitchingStats
   fetchedAt: number; // timestamp for cache invalidation
+  gameDate?: string; // game date when data was cached
 }
 
 export interface MlbLeagueStatsRecord {
@@ -66,12 +67,14 @@ export interface MlbLeagueStatsRecord {
   year: number;
   data: any[]; // Full league array of TruePlayerStats
   fetchedAt: number; // timestamp (0 = permanent cache for historical years)
+  gameDate?: string; // game date when data was cached
 }
 
 export interface PlayersRecord {
   key: string; // Always "current" (single record)
   data: any[]; // Array of Player objects
   fetchedAt: number; // timestamp for cache invalidation
+  gameDate?: string; // game date when data was cached
 }
 
 export interface TeamsRecord {
@@ -142,6 +145,7 @@ export interface MlbPlayerBattingStatsRecord {
   year?: number;
   data: any[]; // Array of BattingStats
   fetchedAt: number;
+  gameDate?: string; // game date when data was cached
 }
 
 class IndexedDBService {
@@ -752,7 +756,7 @@ class IndexedDBService {
   }
 
   // MLB Player Pitching Stats methods
-  async saveMlbPlayerPitchingStats(playerId: number, data: any[], year?: number): Promise<void> {
+  async saveMlbPlayerPitchingStats(playerId: number, data: any[], year?: number, gameDate?: string): Promise<void> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -762,7 +766,8 @@ class IndexedDBService {
       playerId,
       year,
       data,
-      fetchedAt: Date.now()
+      fetchedAt: Date.now(),
+      gameDate
     };
 
     return new Promise((resolve, reject) => {
@@ -775,7 +780,7 @@ class IndexedDBService {
     });
   }
 
-  async getMlbPlayerPitchingStats(playerId: number, year?: number): Promise<{ data: any[]; fetchedAt: number } | null> {
+  async getMlbPlayerPitchingStats(playerId: number, year?: number): Promise<{ data: any[]; fetchedAt: number; gameDate?: string } | null> {
     await this.init();
     if (!this.db) return null;
 
@@ -789,7 +794,7 @@ class IndexedDBService {
       request.onsuccess = () => {
         const record = request.result as MlbPlayerPitchingStatsRecord | undefined;
         if (record) {
-          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+          resolve({ data: record.data, fetchedAt: record.fetchedAt, gameDate: record.gameDate });
         } else {
           resolve(null);
         }
@@ -815,7 +820,7 @@ class IndexedDBService {
   }
 
   // MLB League Stats methods (replaces localStorage for TrueRatingsService)
-  async saveMlbLeagueStats(year: number, type: 'pitching' | 'batting', data: any[], isPermanent: boolean = false): Promise<void> {
+  async saveMlbLeagueStats(year: number, type: 'pitching' | 'batting', data: any[], isPermanent: boolean = false, gameDate?: string): Promise<void> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -825,7 +830,8 @@ class IndexedDBService {
       type,
       year,
       data,
-      fetchedAt: isPermanent ? 0 : Date.now()
+      fetchedAt: isPermanent ? 0 : Date.now(),
+      gameDate
     };
 
     return new Promise((resolve, reject) => {
@@ -838,7 +844,7 @@ class IndexedDBService {
     });
   }
 
-  async getMlbLeagueStats(year: number, type: 'pitching' | 'batting'): Promise<{ data: any[]; fetchedAt: number } | null> {
+  async getMlbLeagueStats(year: number, type: 'pitching' | 'batting'): Promise<{ data: any[]; fetchedAt: number; gameDate?: string } | null> {
     await this.init();
     if (!this.db) return null;
 
@@ -852,7 +858,7 @@ class IndexedDBService {
       request.onsuccess = () => {
         const record = request.result as MlbLeagueStatsRecord | undefined;
         if (record) {
-          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+          resolve({ data: record.data, fetchedAt: record.fetchedAt, gameDate: record.gameDate });
         } else {
           resolve(null);
         }
@@ -878,14 +884,15 @@ class IndexedDBService {
   }
 
   // Players cache methods (replaces localStorage for PlayerService)
-  async savePlayers(data: any[]): Promise<void> {
+  async savePlayers(data: any[], gameDate?: string): Promise<void> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
     const record: PlayersRecord = {
       key: 'current',
       data,
-      fetchedAt: Date.now()
+      fetchedAt: Date.now(),
+      gameDate
     };
 
     return new Promise((resolve, reject) => {
@@ -898,7 +905,7 @@ class IndexedDBService {
     });
   }
 
-  async getPlayers(): Promise<{ data: any[]; fetchedAt: number } | null> {
+  async getPlayers(): Promise<{ data: any[]; fetchedAt: number; gameDate?: string } | null> {
     await this.init();
     if (!this.db) return null;
 
@@ -910,7 +917,7 @@ class IndexedDBService {
       request.onsuccess = () => {
         const record = request.result as PlayersRecord | undefined;
         if (record) {
-          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+          resolve({ data: record.data, fetchedAt: record.fetchedAt, gameDate: record.gameDate });
         } else {
           resolve(null);
         }
@@ -1231,7 +1238,7 @@ class IndexedDBService {
   }
 
   // MLB Player Batting Stats methods (v8)
-  async saveMlbPlayerBattingStats(playerId: number, data: any[], year?: number): Promise<void> {
+  async saveMlbPlayerBattingStats(playerId: number, data: any[], year?: number, gameDate?: string): Promise<void> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -1246,7 +1253,8 @@ class IndexedDBService {
       playerId,
       year,
       data,
-      fetchedAt: Date.now()
+      fetchedAt: Date.now(),
+      gameDate
     };
 
     return new Promise((resolve, reject) => {
@@ -1259,7 +1267,7 @@ class IndexedDBService {
     });
   }
 
-  async getMlbPlayerBattingStats(playerId: number, year?: number): Promise<{ data: any[]; fetchedAt: number } | null> {
+  async getMlbPlayerBattingStats(playerId: number, year?: number): Promise<{ data: any[]; fetchedAt: number; gameDate?: string } | null> {
     await this.init();
     if (!this.db) return null;
 
@@ -1277,7 +1285,7 @@ class IndexedDBService {
       request.onsuccess = () => {
         const record = request.result as MlbPlayerBattingStatsRecord | undefined;
         if (record) {
-          resolve({ data: record.data, fetchedAt: record.fetchedAt });
+          resolve({ data: record.data, fetchedAt: record.fetchedAt, gameDate: record.gameDate });
         } else {
           resolve(null);
         }
