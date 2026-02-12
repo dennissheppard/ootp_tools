@@ -2907,9 +2907,9 @@ th .stat-tooltip {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
-  padding: 0.6rem 0.75rem 0.5rem;
-  border-radius: 14px;
+  gap: 0.25rem;
+  padding: 0.5rem 0.6rem 0.4rem;
+  border-radius: 12px;
   background:
     linear-gradient(
       90deg,
@@ -2923,7 +2923,7 @@ th .stat-tooltip {
   background-position: -100% center;
   border: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 10px 18px rgba(0, 0, 0, 0.28);
-  min-width: 170px;
+  min-width: 140px;
 }
 
 .rating-emblem.shimmer-once {
@@ -2955,6 +2955,7 @@ th .stat-tooltip {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  text-align: center;
 }
 
 .rating-emblem-upside {
@@ -3031,6 +3032,38 @@ th .stat-tooltip {
   font-weight: 700;
   color: var(--color-text);
   letter-spacing: 0.02em;
+}
+
+/* Emblem Half-Donut Gauge */
+.emblem-gauge-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin: -0.15rem 0 -0.25rem;
+}
+
+.emblem-gauge-score {
+  position: absolute;
+  top: 26px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--color-text);
+  letter-spacing: -0.02em;
+  text-shadow: 0 1px 4px rgba(0,0,0,0.4);
+}
+
+.emblem-gauge-upside {
+  font-size: 0.55rem;
+  font-weight: 700;
+  color: var(--color-success);
+  background: rgba(0,0,0,0.35);
+  border: 1px solid var(--color-success);
+  border-radius: 6px;
+  padding: 1px 5px;
+  letter-spacing: 0.03em;
 }
 
 
@@ -6012,15 +6045,31 @@ th .stat-tooltip {
    ============================================================================= */
 
 .batter-profile-modal .modal-lg {
-  width: min(920px, 95vw);
-  max-width: 920px;
+  width: min(960px, 95vw);
+  max-width: 960px;
+  position: relative;
+  overflow: hidden;
+}
+
+.batter-profile-modal .modal-logo-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: 720px;
+  width: auto;
+  opacity: 0.009;  
+  pointer-events: none;
+  object-fit: contain;
+  filter: blur(2px);
+  z-index: 0;
 }
 
 .batter-profile-modal .profile-header {
   display: flex;
   align-items: center;
-  gap: 2rem;
-  flex-wrap: wrap;
+  gap: 1rem;
+  flex-wrap: nowrap;
   justify-content: flex-start;
   padding-right: 1.5rem;
 }
@@ -6035,9 +6084,39 @@ th .stat-tooltip {
   margin-top: 0;
 }
 
-.batter-profile-modal .metadata-header-slot {
+.batter-profile-modal .war-header-slot {
   flex: 0 0 auto;
-  margin-top: 0;
+  margin-left: auto;
+}
+
+.batter-profile-modal .header-vitals {
+  display: flex;
+  gap: 1.5rem;
+  flex: 1 1 auto;
+  align-items: center;
+}
+
+.batter-profile-modal .vitals-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.batter-profile-modal .vitals-personality {
+  gap: 0.4rem;
+}
+
+.batter-profile-modal .personality-traits-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.batter-profile-modal .header-divider {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
 }
 
 .batter-profile-modal .title-row {
@@ -6125,29 +6204,22 @@ th .stat-tooltip {
   color: var(--color-text-muted);
 }
 
-/* Header metadata (WAR + donuts/stars in two columns) */
-.batter-profile-modal .header-metadata {
+/* Sub-header bar (OVR/POT, Contract, Injury, Personality) */
+.batter-profile-modal .profile-subheader {
   display: flex;
-  flex-direction: row;
-  gap: 1.5rem;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 0.4rem 0.6rem;
+  padding-top: 0.5rem;
+  margin-top: 0.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.batter-profile-modal .metadata-col {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.batter-profile-modal .metadata-war-col {
-  padding-left: 1.5rem;
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.batter-profile-modal .metadata-info-col {
-  align-items: flex-start;
-  gap: 0.3rem;
+.batter-profile-modal .metadata-divider {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.12);
+  flex-shrink: 0;
 }
 
 .batter-profile-modal .metadata-info-row {
@@ -6168,6 +6240,79 @@ th .stat-tooltip {
   font-size: 0.75rem;
   color: var(--color-text);
   font-weight: 500;
+}
+
+.batter-profile-modal .contract-mlc {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
+  letter-spacing: 0.03em;
+  cursor: default;
+}
+
+.batter-profile-modal .contract-info-hover {
+  position: relative;
+  cursor: default;
+}
+
+.batter-profile-modal .contract-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background-color: rgba(15, 20, 25, 0.95);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+}
+
+.batter-profile-modal .contract-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-left: -4px;
+  border-width: 4px;
+  border-style: solid;
+  border-color: transparent transparent rgba(15, 20, 25, 0.95) transparent;
+}
+
+.batter-profile-modal .contract-info-hover:hover .contract-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.batter-profile-modal .contract-tooltip-row {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  padding: 1px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.batter-profile-modal .contract-tooltip-row.current {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.batter-profile-modal .contract-tooltip-clauses {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 .batter-profile-modal .metadata-row {
@@ -6205,62 +6350,55 @@ th .stat-tooltip {
   margin-top: 0.25rem;
 }
 
-/* WAR Badge */
+/* WAR Emblem (half-donut arc, mirrors rating-emblem) */
 
-.batter-profile-modal .war-badge {
+.batter-profile-modal .war-emblem {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  padding: 0.5rem 1rem;
-  border-radius: 8px;
-  min-width: 70px;
+  gap: 0.25rem;
+  padding: 0.5rem 0.6rem 0.4rem;
+  border-radius: 12px;
+  background:
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.08)
+    );
+  background-size: 200% 100%;
+  background-position: -100% center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 10px 18px rgba(0, 0, 0, 0.28);
+  min-width: 140px;
 }
 
-.batter-profile-modal .war-badge .war-value {
-  font-size: 1.5rem;
-  font-weight: 700;
-  line-height: 1;
+.batter-profile-modal .war-emblem:hover {
+  animation: shimmer 2s ease-in-out forwards;
 }
 
-.batter-profile-modal .war-badge .war-label {
+.batter-profile-modal .war-emblem-header {
+  display: flex;
+  justify-content: center;
+  align-items: baseline;
+}
+
+.batter-profile-modal .war-emblem-label {
   font-size: 0.6rem;
-  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  opacity: 0.8;
-  margin-top: 0.15rem;
-  white-space: nowrap;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--war-color);
 }
 
-.batter-profile-modal .war-badge.war-elite {
-  background: rgba(29, 155, 240, 0.2);
-  color: #1d9bf0;
-}
-
-.batter-profile-modal .war-badge.war-allstar {
-  background: rgba(0, 186, 124, 0.2);
-  color: #00ba7c;
-}
-
-.batter-profile-modal .war-badge.war-starter {
-  background: rgba(255, 193, 7, 0.2);
-  color: #ffc107;
-}
-
-.batter-profile-modal .war-badge.war-bench {
-  background: rgba(244, 162, 97, 0.2);
-  color: #f4a261;
-}
-
-.batter-profile-modal .war-badge.war-replacement {
-  background: rgba(128, 128, 128, 0.15);
-  color: #888;
-}
-
-.batter-profile-modal .war-badge.war-none {
-  background: rgba(128, 128, 128, 0.1);
-  color: #666;
-}
+.batter-profile-modal .war-emblem.war-elite { --war-color: #1d9bf0; }
+.batter-profile-modal .war-emblem.war-allstar { --war-color: #00ba7c; }
+.batter-profile-modal .war-emblem.war-starter { --war-color: #ffc107; }
+.batter-profile-modal .war-emblem.war-bench { --war-color: #f4a261; }
+.batter-profile-modal .war-emblem.war-replacement { --war-color: #888; }
+.batter-profile-modal .war-emblem.war-none { --war-color: #666; }
 
 /* Header donut charts (injury, speed) */
 .batter-profile-modal .metadata-donuts-row {
@@ -6350,122 +6488,342 @@ th .stat-tooltip {
   gap: 0.75rem;
 }
 
-/* Ratings Comparison Section - matches pitcher modal */
-.batter-profile-modal .ratings-comparison {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.batter-profile-modal .rating-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.batter-profile-modal .rating-row-header {
+/* ─── Ratings Section: Radar + Physicals two-column layout ─── */
+.batter-profile-modal .ratings-section {
   margin-bottom: 0.25rem;
 }
 
-.batter-profile-modal .rating-label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  width: 70px;
-  color: var(--color-text);
-}
-
-.batter-profile-modal .rating-bars {
+/* Chart Section Header: label + optional toggle inline */
+.batter-profile-modal .chart-section-header {
   display: flex;
   align-items: center;
-  flex: 1;
-}
-
-.batter-profile-modal .rating-bars-left {
-  width: 40%;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  justify-content: flex-end;
-}
-
-.batter-profile-modal .rating-bars-left .bar-container {
-  flex: 1;
-}
-
-.batter-profile-modal .rating-bars-center {
-  width: 20%;
-  display: flex;
   justify-content: center;
-  align-items: center;
-  gap: 0.5rem;
+  gap: 0.75rem;
+  margin: -18px 0 60px;
+  padding: 0;
+  position: relative;
 }
 
-.batter-profile-modal .rating-bars-right {
-  width: 40%;
+.batter-profile-modal .chart-section-header .chart-section-label {
+  margin: 0;
+}
+
+.batter-profile-modal .chart-section-header .scout-source-toggle {
+  position: absolute;
+  left: 0;
+}
+
+.batter-profile-modal .ratings-layout {
   display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.batter-profile-modal .ratings-radar-col {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* Radar Chart Wrapper with positioned axis labels */
+.batter-profile-modal .radar-chart-wrapper {
+  position: relative;
+}
+
+/* Shift hitting radar chart left to center under "Hitting Ratings" heading */
+.batter-profile-modal .ratings-radar-col > .radar-chart-wrapper {
+  transform: translateX(-40px);
+}
+
+/* Keep legend in place despite the wrapper shift, nudge up to center on polygon */
+.batter-profile-modal .ratings-radar-col .apexcharts-legend {
+  transform: translateX(40px) translateY(-15px);
+}
+
+/* Custom "Stat Projections" legend item */
+.batter-profile-modal .custom-legend-proj {
+  margin: 4px 4px;
+  user-select: none;
+}
+
+.batter-profile-modal .custom-legend-proj:hover {
+  opacity: 0.8;
+}
+
+.batter-profile-modal .custom-legend-proj.apexcharts-inactive-legend .apexcharts-legend-marker,
+.batter-profile-modal .custom-legend-proj.apexcharts-inactive-legend .apexcharts-legend-text {
+  opacity: 0.35;
+}
+
+
+.batter-profile-modal .radar-axis-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
-  justify-content: flex-start;
+  gap: 2px;
+  pointer-events: none;
+  z-index: 2;
 }
 
-.batter-profile-modal .rating-bars-right .bar-container {
-  flex: 1;
-}
-
-.batter-profile-modal .bar-container-rtl {
-  direction: rtl;
-}
-
-.batter-profile-modal .bar-container-rtl .bar {
-  direction: ltr;
-}
-
-.batter-profile-modal .bar-header {
-  flex: 1;
+.batter-profile-modal .radar-axis-name {
   font-size: 0.7rem;
-  text-transform: uppercase;
   font-weight: 600;
-  color: var(--color-text-muted);
-  letter-spacing: 0.03em;
-  text-align: center;
+  color: #e7e9ea;
+  letter-spacing: 0.02em;
 }
 
-.batter-profile-modal .rating-row-header .rating-diff {
-  visibility: hidden;
+.batter-profile-modal .radar-axis-badges {
+  display: flex;
+  gap: 3px;
+  align-items: center;
 }
 
-.batter-profile-modal .rating-value {
-  font-size: 0.85rem;
+.batter-profile-modal .radar-axis-badge {
+  font-size: 0.6rem;
   font-weight: 700;
-  width: 28px;
-  text-align: right;
-  color: var(--color-text);
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
-.batter-profile-modal .bar-vs {
-  font-size: 0.7rem;
+.batter-profile-modal .radar-badge-true {
+  background: rgba(59, 130, 246, 0.25);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.batter-profile-modal .radar-badge-tfr {
+  background: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+
+.batter-profile-modal .radar-badge-scout {
+  background: rgba(139, 148, 158, 0.2);
+  color: #8b949e;
+  border: 1px solid rgba(139, 148, 158, 0.3);
+}
+
+/* 5-axis positions: Contact(top), Power(upper-right), Eye(lower-right), AvoidK(lower-left), Gap(upper-left)
+   Legend on left — polygon center shifted rightward to ~58% */
+.batter-profile-modal .radar-axis-top {
+  top: -16%;
+  left: 54%;
+  transform: translateX(-50%);
+}
+
+.batter-profile-modal .radar-axis-upper-right {
+  top: 24%;
+  right: 19%;
+  align-items: center;
+}
+
+.batter-profile-modal .radar-axis-lower-right {
+  bottom: 0%;
+  right: 26%;
+  align-items: center;
+}
+
+.batter-profile-modal .radar-axis-lower-left {
+  bottom: 0%;
+  left: 34%;
+  align-items: center;
+}
+
+.batter-profile-modal .radar-axis-upper-left {
+  top: 24%;
+  left: 25%;
+  align-items: center;
+}
+
+/* Running Radar Column */
+.batter-profile-modal .running-radar-col {
+  flex: 0 0 280px;
+  min-width: 0;
+  margin-left: -120px;
+}
+
+/* Vertically align running chart center with hitting chart center */
+.batter-profile-modal .running-radar-wrapper {
+  margin-top: 44px;
+}
+
+/* Chart Section Labels */
+.batter-profile-modal .chart-section-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
   color: var(--color-text-muted);
-  width: 20px;
+  letter-spacing: 0.05em;
+  margin: -18px 0 60px;
+  padding: 0;
   text-align: center;
+  font-weight: 600;
 }
 
-.batter-profile-modal .rating-diff {
+/* Scout Source Toggle — uses toggle-group base, sized for chart header */
+.batter-profile-modal .scout-source-toggle {
+  padding: 0;
+  background: transparent;
+  font-size: inherit;
+}
+
+.batter-profile-modal .scout-source-toggle:hover {
+  background: transparent;
+}
+
+.batter-profile-modal .scout-source-toggle .toggle-btn {
+  padding: 0.15rem 0.6rem;
+  font-size: 0.7rem;
+}
+
+/* Running chart 3-axis positions (triangle) */
+.batter-profile-modal .running-axis-top {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  z-index: 2;
+  top: -11%;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.batter-profile-modal .running-axis-lower-right {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  z-index: 2;
+  bottom: 8%;
+  right: 1%;
+}
+
+.batter-profile-modal .running-axis-lower-left {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  z-index: 2;
+  bottom: 8%;
+  left: 1%;
+}
+
+/* Projected Stat Badges (stacked: value on top, label below) */
+.batter-profile-modal .radar-proj-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: center;
+  padding: 3px 7px;
+  border-radius: 3px;
+  background: rgba(212, 165, 116, 0.10);
+  border: 1px solid rgba(212, 165, 116, 0.18);
+  white-space: nowrap;
+  margin-top: 2px;
+  line-height: 1.1;
+}
+
+.batter-profile-modal .radar-proj-badge .proj-value {
   font-size: 0.8rem;
   font-weight: 700;
-  width: 35px;
-  text-align: center;
+  color: rgba(212, 165, 116, 0.85);
 }
 
-.batter-profile-modal .rating-diff.diff-positive {
-  color: #22c55e;
+.batter-profile-modal .radar-proj-badge .proj-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: rgba(212, 165, 116, 0.50);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 
-.batter-profile-modal .rating-diff.diff-negative {
-  color: #ef4444;
+/* ─── Stats Section: Tabbed Projected + Career ─── */
+.batter-profile-modal .stats-section {
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.5rem;
 }
 
-.batter-profile-modal .rating-diff.diff-neutral {
+.batter-profile-modal .stats-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 0.5rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.batter-profile-modal .stats-tab {
+  padding: 0.4rem 1rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  border: none;
+  background: transparent;
   color: var(--color-text-muted);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.15s;
+}
+
+.batter-profile-modal .stats-tab.active {
+  color: var(--color-text);
+}
+
+.batter-profile-modal .stats-tab.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--color-primary);
+  border-radius: 1px 1px 0 0;
+}
+
+.batter-profile-modal .stats-tab:hover:not(.active) {
+  color: var(--color-text);
+}
+
+.batter-profile-modal .stats-pane {
+  display: none;
+}
+
+.batter-profile-modal .stats-pane.active {
+  display: block;
+}
+
+/* Skeleton loading placeholders for new layout */
+.batter-profile-modal .skeleton-radar-placeholder {
+  width: 100%;
+  height: 260px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+.batter-profile-modal .skeleton-gauge {
+  width: 65px;
+  height: 40px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 40px 40px 0 0;
+}
+
+/* Responsive: stack columns at narrow widths */
+@media (max-width: 700px) {
+  .batter-profile-modal .ratings-layout {
+    flex-direction: column;
+  }
+  .batter-profile-modal .running-radar-col {
+    flex: 1 1 auto;
+    width: 100%;
+  }
 }
 
 .batter-profile-modal .source-badge {
@@ -6483,9 +6841,27 @@ th .stat-tooltip {
 
 /* Projection Section */
 .batter-profile-modal .projection-section {
-  margin-bottom: 0.75rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--color-border);
+  margin-top: 1.25rem;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.batter-profile-modal .projection-header-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.batter-profile-modal .projection-header-row .section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.batter-profile-modal .projection-header-row .projection-toggle {
+  margin-bottom: 0;
 }
 
 .batter-profile-modal .projection-section .section-label {
@@ -6593,144 +6969,7 @@ th .stat-tooltip {
   padding: 0.5rem;
 }
 
-.batter-profile-modal .bar-container {
-  flex: 1;
-  height: 20px;
-  background: rgba(255, 255, 255, 0.08);
-  border-radius: 4px;
-  overflow: hidden;
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.batter-profile-modal .bar-value-inner {
-  position: absolute;
-  right: 4px;
-  top: 50%;
-  transform: translateY(-50%);
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: white;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-  white-space: nowrap;
-  z-index: 2;
-}
-
-.batter-profile-modal .bar {
-  height: 100%;
-  border-radius: 4px;
-  transition: width 0.5s ease-out;
-}
-
-.batter-profile-modal .bar-value {
-  position: absolute;
-  right: 8px;
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: white;
-  text-shadow: 0 1px 2px rgba(0,0,0,0.5);
-}
-
-/* Bar value positioned on left for RTL scout bars */
-.batter-profile-modal .bar-container-rtl .bar-value {
-  right: auto;
-  left: 8px;
-}
-
-/* True Rating bars - bright with shimmer animation */
-.batter-profile-modal .bar-estimated {
-  position: relative;
-  background: linear-gradient(90deg, rgba(255,255,255,0.35), rgba(255,255,255,0));
-}
-
-.batter-profile-modal .bar-estimated.rating-elite {
-  background: linear-gradient(90deg, #1d9bf0 0%, #1d9bf0 70%, rgba(29, 155, 240, 0.4) 100%);
-}
-
-.batter-profile-modal .bar-estimated.rating-plus {
-  background: linear-gradient(90deg, #00ba7c 0%, #00ba7c 70%, rgba(0, 186, 124, 0.4) 100%);
-}
-
-.batter-profile-modal .bar-estimated.rating-avg {
-  background: linear-gradient(90deg, #ffc107 0%, #ffc107 70%, rgba(255, 193, 7, 0.4) 100%);
-}
-
-.batter-profile-modal .bar-estimated.rating-fringe {
-  background: linear-gradient(90deg, #f4a261 0%, #f4a261 70%, rgba(244, 162, 97, 0.4) 100%);
-}
-
-.batter-profile-modal .bar-estimated.rating-poor {
-  background: linear-gradient(90deg, #f4212e 0%, #f4212e 70%, rgba(244, 33, 46, 0.4) 100%);
-}
-
-/* Ceiling bars (TFR upside) — inherits base .bar-ceiling styles, scoped overrides for modal */
-.batter-profile-modal .bar-ceiling {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  border-radius: 0 4px 4px 0;
-  opacity: 0.35;
-  pointer-events: none;
-  transition: width 0.3s ease, left 0.3s ease;
-  border-left: 1px dashed rgba(255, 255, 255, 0.4);
-}
-
-.batter-profile-modal .bar-ceiling.rating-elite {
-  background: rgba(29, 155, 240, 0.8);
-}
-
-.batter-profile-modal .bar-ceiling.rating-plus {
-  background: rgba(0, 186, 124, 0.75);
-}
-
-.batter-profile-modal .bar-ceiling.rating-avg {
-  background: rgba(255, 193, 7, 0.7);
-}
-
-.batter-profile-modal .bar-ceiling.rating-fringe {
-  background: rgba(244, 162, 97, 0.7);
-}
-
-.batter-profile-modal .bar-ceiling.rating-poor {
-  background: rgba(244, 33, 46, 0.75);
-}
-
-/* Scout/OSA bars - muted colors */
-.batter-profile-modal .bar-scout.rating-elite {
-  background-image: linear-gradient(90deg, rgba(0,0,0,0.18), rgba(0,0,0,0)),
-    linear-gradient(90deg, rgba(29, 155, 240, 0.45), rgba(29, 155, 240, 0.18));
-}
-
-.batter-profile-modal .bar-scout.rating-plus {
-  background-image: linear-gradient(90deg, rgba(0,0,0,0.18), rgba(0,0,0,0)),
-    linear-gradient(90deg, rgba(0, 186, 124, 0.42), rgba(0, 186, 124, 0.18));
-}
-
-.batter-profile-modal .bar-scout.rating-avg {
-  background-image: linear-gradient(90deg, rgba(0,0,0,0.18), rgba(0,0,0,0)),
-    linear-gradient(90deg, rgba(255, 193, 7, 0.4), rgba(255, 193, 7, 0.18));
-}
-
-.batter-profile-modal .bar-scout.rating-fringe {
-  background-image: linear-gradient(90deg, rgba(0,0,0,0.18), rgba(0,0,0,0)),
-    linear-gradient(90deg, rgba(244, 162, 97, 0.4), rgba(244, 162, 97, 0.18));
-}
-
-.batter-profile-modal .bar-scout.rating-poor {
-  background-image: linear-gradient(90deg, rgba(0,0,0,0.18), rgba(0,0,0,0)),
-    linear-gradient(90deg, rgba(244, 33, 46, 0.42), rgba(244, 33, 46, 0.18));
-}
-
-/* Shimmer animation for True Ratings bars */
-.batter-profile-modal .bar-estimated.shimmer-once {
-  animation: shimmer 2s ease-in-out forwards;
-}
-
-/* Shimmer animation for Scout Opinion bars */
-.batter-profile-modal .bar-scout.shimmer-once {
-  animation: shimmer 2s ease-in-out forwards;
-}
+/* (Bar styles removed — replaced by RadarChart) */
 
 .batter-profile-modal .source-badge.osa {
   background: rgba(139, 92, 246, 0.2);
@@ -6747,11 +6986,6 @@ th .stat-tooltip {
 @keyframes skeleton-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
-}
-
-/* Stats History Section */
-.batter-profile-modal .stats-history {
-  margin-top: 0.5rem;
 }
 
 .batter-profile-modal .section-label {
@@ -6826,92 +7060,7 @@ th .stat-tooltip {
   color: var(--color-text-muted);
 }
 
-/* Advanced Ratings Accordion */
-.batter-profile-modal .advanced-ratings-section {
-  margin: 0.75rem 0;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.batter-profile-modal .advanced-ratings-toggle {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background: rgba(255, 255, 255, 0.03);
-  border: none;
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  cursor: pointer;
-  transition: background 0.2s, color 0.2s;
-}
-
-.batter-profile-modal .advanced-ratings-toggle:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: var(--color-text);
-}
-
-.batter-profile-modal .toggle-icon {
-  font-size: 0.75rem;
-  transition: transform 0.2s;
-}
-
-.batter-profile-modal .advanced-ratings-content {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease-out, padding 0.3s ease-out;
-  padding: 0 0.75rem;
-}
-
-.batter-profile-modal .advanced-ratings-section.expanded .advanced-ratings-content {
-  max-height: 550px;
-  padding: 0.75rem;
-}
-
-.batter-profile-modal .advanced-ratings-comparison {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-
-.batter-profile-modal .advanced-ratings-comparison .rating-row-header {
-  margin-bottom: 0.25rem;
-}
-
-.batter-profile-modal .advanced-ratings-comparison .bar-header {
-  font-size: 0.65rem;
-}
-
-.batter-profile-modal .rating-row-advanced {
-  padding: 0.25rem 0;
-}
-
-.batter-profile-modal .rating-row-advanced .rating-label {
-  width: 55px;
-}
-
-.batter-profile-modal .advanced-ratings-meta {
-  display: flex;
-  gap: 1rem;
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.batter-profile-modal .rating-stars-compact {
-  font-size: 0.85rem;
-  color: #fbbf24;
-}
-
-.batter-profile-modal .rating-stars-compact .stars-label {
-  font-weight: 500;
-  margin-right: 0.25rem;
-  color: var(--color-text-muted);
-}
+/* (Advanced ratings accordion removed — replaced by RadarChart) */
 
 .batter-profile-modal .injury-badge {
   font-size: 0.75rem;
@@ -7348,15 +7497,7 @@ th .stat-tooltip {
   }
 }
 
-/* Advanced ratings donut row (Speed, SB Aggression, SB Ability) */
-.batter-profile-modal .advanced-ratings-donuts {
-  display: flex;
-  gap: 1.2rem;
-  justify-content: flex-start;
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--color-border);
-}
+/* (Advanced ratings donuts removed — replaced by HalfDonutGauge in physicals box) */
 
 /* Personality traits section */
 .batter-profile-modal .personality-section {
@@ -7366,6 +7507,14 @@ th .stat-tooltip {
   margin-top: 0.75rem;
   padding-top: 0.75rem;
   border-top: 1px solid var(--color-border);
+}
+
+/* Personality badges when inline in header metadata */
+.batter-profile-modal .metadata-items .personality-trait {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
 }
 
 .batter-profile-modal .personality-label {
