@@ -1,8 +1,8 @@
 import { apiFetch } from './ApiClient';
+import { dateService } from './DateService';
 
 const API_BASE = '/api';
 const CACHE_KEY = 'wbl_contracts_cache';
-const CACHE_DURATION_MS = 72 * 60 * 60 * 1000; // 72 hours
 
 export interface Contract {
   playerId: number;
@@ -22,6 +22,7 @@ export interface Contract {
 interface CacheEnvelope {
   data: Array<[number, Contract]>;
   fetchedAt: number;
+  gameDate?: string;
 }
 
 export class ContractService {
@@ -35,7 +36,7 @@ export class ContractService {
 
     // Try localStorage cache first
     if (!forceRefresh) {
-      const cached = this.loadFromCache();
+      const cached = await this.loadFromCache();
       if (cached) {
         this.contracts = cached;
         return this.contracts;
@@ -50,7 +51,7 @@ export class ContractService {
     this.loading = this.fetchContracts();
     try {
       this.contracts = await this.loading;
-      this.saveToCache(this.contracts);
+      await this.saveToCache(this.contracts);
       return this.contracts;
     } finally {
       this.loading = null;
@@ -87,13 +88,14 @@ export class ContractService {
     return result;
   }
 
-  private loadFromCache(): Map<number, Contract> | null {
+  private async loadFromCache(): Promise<Map<number, Contract> | null> {
     try {
       const raw = localStorage.getItem(CACHE_KEY);
       if (!raw) return null;
 
       const envelope: CacheEnvelope = JSON.parse(raw);
-      if (Date.now() - envelope.fetchedAt > CACHE_DURATION_MS) {
+      const currentGameDate = await dateService.getCurrentDate();
+      if (envelope.gameDate !== currentGameDate) {
         localStorage.removeItem(CACHE_KEY);
         return null;
       }
@@ -106,11 +108,13 @@ export class ContractService {
     }
   }
 
-  private saveToCache(contracts: Map<number, Contract>): void {
+  private async saveToCache(contracts: Map<number, Contract>): Promise<void> {
     try {
+      const gameDate = await dateService.getCurrentDate();
       const envelope: CacheEnvelope = {
         data: Array.from(contracts.entries()),
         fetchedAt: Date.now(),
+        gameDate,
       };
       localStorage.setItem(CACHE_KEY, JSON.stringify(envelope));
     } catch {

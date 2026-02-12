@@ -4,7 +4,6 @@ import { indexedDBService } from './IndexedDBService';
 import { dateService } from './DateService';
 
 const API_BASE = '/api';
-const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours for current year data
 
 export class StatsService {
   async getPitchingStats(playerId: number, year?: number): Promise<PitchingStats[]> {
@@ -14,16 +13,16 @@ export class StatsService {
       if (cached) {
         const currentYear = await dateService.getCurrentYear();
         const isCurrentYear = year === currentYear || (!year && cached.data.some((s: PitchingStats) => s.year === currentYear));
-        const cacheAge = Date.now() - cached.fetchedAt;
+        const currentGameDate = await dateService.getCurrentDate();
 
         // Use cache if:
         // - It's historical data (not current year), OR
-        // - It's current year data and not stale (< 24 hours)
-        if (!isCurrentYear || cacheAge < CACHE_TTL_MS) {
+        // - It's current year data and game date matches (game hasn't advanced)
+        if (!isCurrentYear || cached.gameDate === currentGameDate) {
           console.log(`💾 Loaded player ${playerId}${year ? ` (${year})` : ''} pitching stats from cache`);
           return cached.data as PitchingStats[];
         } else {
-          console.log(`⏰ Cache stale for player ${playerId}, re-fetching...`);
+          console.log(`⏰ Cache stale for player ${playerId} (game date changed), re-fetching...`);
         }
       }
     } catch (err) {
@@ -54,7 +53,8 @@ export class StatsService {
     // Save to cache (only if non-empty to avoid caching errors)
     if (stats.length > 0) {
       try {
-        await indexedDBService.saveMlbPlayerPitchingStats(playerId, stats, year);
+        const gameDate = await dateService.getCurrentDate();
+        await indexedDBService.saveMlbPlayerPitchingStats(playerId, stats, year, gameDate);
         console.log(`💾 Cached player ${playerId}${year ? ` (${year})` : ''} pitching stats (${stats.length} records)`);
       } catch (err) {
         console.error('Failed to cache player pitching stats:', err);
@@ -65,6 +65,25 @@ export class StatsService {
   }
 
   async getBattingStats(playerId: number, year?: number): Promise<BattingStats[]> {
+    // Check cache first
+    try {
+      const cached = await indexedDBService.getMlbPlayerBattingStats(playerId, year);
+      if (cached) {
+        const currentYear = await dateService.getCurrentYear();
+        const isCurrentYear = year === currentYear || (!year && cached.data.some((s: BattingStats) => s.year === currentYear));
+        const currentGameDate = await dateService.getCurrentDate();
+
+        if (!isCurrentYear || cached.gameDate === currentGameDate) {
+          console.log(`💾 Loaded player ${playerId}${year ? ` (${year})` : ''} batting stats from cache`);
+          return cached.data as BattingStats[];
+        } else {
+          console.log(`⏰ Cache stale for player ${playerId} batting stats (game date changed), re-fetching...`);
+        }
+      }
+    } catch (err) {
+      console.warn('Error checking cache for player batting stats:', err);
+    }
+
     let url = `${API_BASE}/playerbatstatsv2/?pid=${playerId}`;
     if (year) {
       url += `&year=${year}`;
@@ -83,7 +102,20 @@ export class StatsService {
       return [];
     }
 
-    return this.parseBattingStatsCsv(csvText);
+    const stats = this.parseBattingStatsCsv(csvText);
+
+    // Save to cache
+    if (stats.length > 0) {
+      try {
+        const gameDate = await dateService.getCurrentDate();
+        await indexedDBService.saveMlbPlayerBattingStats(playerId, stats, year, gameDate);
+        console.log(`💾 Cached player ${playerId}${year ? ` (${year})` : ''} batting stats (${stats.length} records)`);
+      } catch (err) {
+        console.error('Failed to cache player batting stats:', err);
+      }
+    }
+
+    return stats;
   }
 
   private parsePitchingStatsCsv(csv: string): PitchingStats[] {

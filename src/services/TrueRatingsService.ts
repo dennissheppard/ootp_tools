@@ -137,7 +137,6 @@ type StatsType = 'pitching' | 'batting';
 
 // True Ratings endpoints live under the "world" league slug.
 const API_BASE = '/api';
-const CACHE_DURATION_MS = 24 * 60 * 60 * 1000; // 24 hours
 export const LEAGUE_START_YEAR = 2000;
 
 class TrueRatingsService {
@@ -264,7 +263,7 @@ class TrueRatingsService {
   async loadDefaultMlbData(): Promise<{ loaded: number; errors: string[] }> {
     const startYear = LEAGUE_START_YEAR;
     const currentYear = await dateService.getCurrentYear();
-    const endYear = currentYear; // Only load up to current year
+    const endYear = currentYear - 1; // Only load historical years; current year comes from API
 
     let loaded = 0;
     const errors: string[] = [];
@@ -585,17 +584,17 @@ class TrueRatingsService {
       const cached = await indexedDBService.getMlbLeagueStats(year, type);
       if (!cached) return null;
 
-      const { data, fetchedAt } = cached;
+      const { data, fetchedAt, gameDate } = cached;
 
-      // If timestamp is 0, it's a permanent cache, so skip age check
+      // If timestamp is 0, it's a permanent cache (historical), so skip staleness check
       if (fetchedAt === 0) {
         return data as T;
       }
 
-      // Check if cache is stale
-      const cacheAge = Date.now() - fetchedAt;
-      if (cacheAge > CACHE_DURATION_MS) {
-        await this.clearCache(year, type); // Clear expired cache
+      // Check if cache is stale (game date changed or missing)
+      const currentGameDate = await dateService.getCurrentDate();
+      if (gameDate !== currentGameDate) {
+        await this.clearCache(year, type);
         return null;
       }
 
@@ -609,7 +608,8 @@ class TrueRatingsService {
 
   private async saveToCache(year: number, stats: any[], type: StatsType, isPermanent: boolean = false): Promise<void> {
     try {
-      await indexedDBService.saveMlbLeagueStats(year, type, stats, isPermanent);
+      const gameDate = await dateService.getCurrentDate();
+      await indexedDBService.saveMlbLeagueStats(year, type, stats, isPermanent, gameDate);
     } catch (error) {
       // Cache write failed
       console.error(`❌ Failed to save ${type} data for ${year} to IndexedDB:`, error);

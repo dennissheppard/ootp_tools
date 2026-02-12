@@ -1,9 +1,9 @@
 import { Player, Position } from '../models/Player';
 import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
+import { dateService } from './DateService';
 
 const API_BASE = '/api';
-const CACHE_DURATION_MS = 72 * 60 * 60 * 1000; // 72 hours
 
 export class PlayerService {
   private players: Player[] = [];
@@ -139,16 +139,13 @@ export class PlayerService {
         return null;
       }
 
-      const cacheAge = Date.now() - cached.fetchedAt;
-      const cacheAgeHours = Math.round(cacheAge / 1000 / 60 / 60);
-      const maxAgeHours = Math.round(CACHE_DURATION_MS / 1000 / 60 / 60);
-
-      if (cacheAge > CACHE_DURATION_MS) {
-        console.log(`⏰ Players cache stale (${cacheAgeHours}h old, max ${maxAgeHours}h), re-fetching...`);
+      const currentGameDate = await dateService.getCurrentDate();
+      if (cached.gameDate !== currentGameDate) {
+        console.log(`⏰ Players cache stale (game date changed), re-fetching...`);
         return null;
       }
 
-      console.log(`✅ Using cached players (${cacheAgeHours}h old, ${cached.data.length} players)`);
+      console.log(`✅ Using cached players (${cached.data.length} players)`);
       return cached.data as Player[];
     } catch (error) {
       console.error('❌ Error loading players from cache:', error);
@@ -158,8 +155,9 @@ export class PlayerService {
 
   private async saveToCache(players: Player[]): Promise<void> {
     try {
+      const gameDate = await dateService.getCurrentDate();
       console.log(`💾 Saving ${players.length} players to IndexedDB cache...`);
-      await indexedDBService.savePlayers(players);
+      await indexedDBService.savePlayers(players, gameDate);
       console.log('✅ Players cached successfully');
     } catch (error) {
       console.error('❌ Failed to cache players:', error);

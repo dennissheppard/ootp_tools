@@ -2034,8 +2034,7 @@ td.player-cell.player-name {
     max-width: 180px;
 }
 
-.true-ratings-table .flip-cell-front,
-.true-ratings-table .flip-cell-back {
+.true-ratings-table .flip-cell-front {
     justify-content: flex-start !important;
 }
 
