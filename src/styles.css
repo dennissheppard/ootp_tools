@@ -7554,3 +7554,664 @@ th .stat-tooltip {
   font-size: 0.55rem;
   margin-right: 0.2rem;
 }
+
+/* ========================================
+   PITCHER PROFILE MODAL STYLES
+   Mirrors batter-profile-modal layout
+   ======================================== */
+
+.pitcher-profile-modal .modal-lg {
+  width: min(960px, 95vw);
+  max-width: 960px;
+  position: relative;
+  overflow: hidden;
+}
+
+.pitcher-profile-modal .modal-logo-watermark {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: 720px;
+  width: auto;
+  opacity: 0.009;
+  pointer-events: none;
+  object-fit: contain;
+  filter: blur(2px);
+  z-index: 0;
+}
+
+.pitcher-profile-modal .profile-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  padding-right: 1.5rem;
+}
+
+.pitcher-profile-modal .profile-title-group {
+  flex: 0 0 auto;
+  min-width: 180px;
+}
+
+.pitcher-profile-modal .ratings-header-slot {
+  flex: 0 0 auto;
+  margin-top: 0;
+}
+
+.pitcher-profile-modal .war-header-slot {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.pitcher-profile-modal .header-vitals {
+  display: flex;
+  gap: 1.5rem;
+  flex: 1 1 auto;
+  align-items: center;
+}
+
+.pitcher-profile-modal .vitals-col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.pitcher-profile-modal .header-divider {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(255, 255, 255, 0.1);
+  flex-shrink: 0;
+}
+
+.pitcher-profile-modal .title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.25rem;
+}
+
+.pitcher-profile-modal .team-position-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.15rem;
+}
+
+.pitcher-profile-modal .modal-title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 700;
+}
+
+.pitcher-profile-modal .player-team-info {
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.15rem;
+}
+
+.pitcher-profile-modal .player-team-info .parent-team {
+  opacity: 0.7;
+}
+
+.pitcher-profile-modal .player-age-info {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.pitcher-profile-modal .ovr-pot-stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+}
+
+.pitcher-profile-modal .star-icon { vertical-align: middle; }
+.pitcher-profile-modal .star-filled path { fill: #f5c518; stroke: #c9a000; stroke-width: 1; }
+.pitcher-profile-modal .star-empty path { fill: transparent; stroke: #666; stroke-width: 1.5; }
+.pitcher-profile-modal .star-half .star-empty-path { fill: transparent; stroke: #666; stroke-width: 1.5; }
+.pitcher-profile-modal .star-half .star-filled-path { fill: #f5c518; stroke: #c9a000; stroke-width: 1; }
+
+.pitcher-profile-modal .position-badge {
+  display: inline-block;
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.pitcher-profile-modal .pos-pitcher {
+  background: rgba(29, 155, 240, 0.15);
+  color: #1d9bf0;
+  border: 1px solid rgba(29, 155, 240, 0.3);
+}
+
+.pitcher-profile-modal .metadata-info-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pitcher-profile-modal .info-label {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.pitcher-profile-modal .contract-info {
+  font-size: 0.75rem;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.pitcher-profile-modal .contract-mlc {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 0.1rem 0.35rem;
+  letter-spacing: 0.03em;
+}
+
+.pitcher-profile-modal .contract-info-hover {
+  position: relative;
+  cursor: default;
+}
+
+.pitcher-profile-modal .contract-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background-color: rgba(15, 20, 25, 0.95);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+}
+
+.pitcher-profile-modal .contract-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-left: -4px;
+  border-width: 4px;
+  border-style: solid;
+  border-color: transparent transparent rgba(15, 20, 25, 0.95) transparent;
+}
+
+.pitcher-profile-modal .contract-info-hover:hover .contract-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.pitcher-profile-modal .contract-tooltip-row {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  padding: 1px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.pitcher-profile-modal .contract-tooltip-row.current {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.pitcher-profile-modal .contract-tooltip-clauses {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+/* Personality traits */
+.pitcher-profile-modal .vitals-personality {
+  gap: 0.4rem;
+}
+
+.pitcher-profile-modal .personality-traits-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.pitcher-profile-modal .personality-trait {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+}
+
+.pitcher-profile-modal .personality-trait.trait-high {
+  background: rgba(34, 197, 94, 0.15);
+  color: #4ade80;
+}
+
+.pitcher-profile-modal .personality-trait.trait-low {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+.pitcher-profile-modal .trait-arrow {
+  font-size: 0.55rem;
+  margin-right: 0.2rem;
+}
+
+/* WAR Emblem */
+.pitcher-profile-modal .war-emblem {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.5rem 0.6rem 0.4rem;
+  border-radius: 12px;
+  background:
+    linear-gradient(90deg,
+      rgba(255, 255, 255, 0.08),
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.18),
+      rgba(255, 255, 255, 0.02),
+      rgba(255, 255, 255, 0.08));
+  background-size: 200% 100%;
+  background-position: -100% center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 10px 18px rgba(0, 0, 0, 0.28);
+  min-width: 140px;
+}
+
+.pitcher-profile-modal .war-emblem:hover { animation: shimmer 2s ease-in-out forwards; }
+.pitcher-profile-modal .war-emblem-header { display: flex; justify-content: center; align-items: baseline; }
+.pitcher-profile-modal .war-emblem-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--war-color);
+}
+
+.pitcher-profile-modal .war-emblem.war-elite { --war-color: #1d9bf0; }
+.pitcher-profile-modal .war-emblem.war-allstar { --war-color: #00ba7c; }
+.pitcher-profile-modal .war-emblem.war-starter { --war-color: #ffc107; }
+.pitcher-profile-modal .war-emblem.war-bench { --war-color: #f4a261; }
+.pitcher-profile-modal .war-emblem.war-replacement { --war-color: #888; }
+.pitcher-profile-modal .war-emblem.war-none { --war-color: #666; }
+
+/* ─── Ratings Section: Pitching Radar + Arsenal/Stamina two-column ─── */
+.pitcher-profile-modal .ratings-section {
+  margin-bottom: 0.25rem;
+}
+
+.pitcher-profile-modal .chart-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  margin: -18px 0 60px;
+  padding: 0;
+  position: relative;
+}
+
+.pitcher-profile-modal .chart-section-header .chart-section-label { margin: 0; }
+.pitcher-profile-modal .chart-section-header .scout-source-toggle { position: absolute; left: 0; }
+
+.pitcher-profile-modal .ratings-layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.pitcher-profile-modal .ratings-radar-col {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.pitcher-profile-modal .radar-chart-wrapper {
+  position: relative;
+}
+
+/* Shift pitching radar chart left to center under heading */
+.pitcher-profile-modal .ratings-radar-col > .radar-chart-wrapper {
+  transform: translateX(-40px);
+}
+
+.pitcher-profile-modal .ratings-radar-col .apexcharts-legend {
+  transform: translateX(40px) translateY(-15px);
+}
+
+/* Custom "Stat Projections" legend item */
+.pitcher-profile-modal .custom-legend-proj { margin: 4px 4px; user-select: none; }
+.pitcher-profile-modal .custom-legend-proj:hover { opacity: 0.8; }
+.pitcher-profile-modal .custom-legend-proj.apexcharts-inactive-legend .apexcharts-legend-marker,
+.pitcher-profile-modal .custom-legend-proj.apexcharts-inactive-legend .apexcharts-legend-text { opacity: 0.35; }
+
+/* Radar axis labels */
+.pitcher-profile-modal .radar-axis-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.pitcher-profile-modal .radar-axis-name {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #e7e9ea;
+  letter-spacing: 0.02em;
+}
+
+.pitcher-profile-modal .radar-axis-badges {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+}
+
+.pitcher-profile-modal .radar-axis-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 3px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+
+.pitcher-profile-modal .radar-badge-true {
+  background: rgba(59, 130, 246, 0.25);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.pitcher-profile-modal .radar-badge-tfr {
+  background: rgba(52, 211, 153, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+
+.pitcher-profile-modal .radar-badge-scout {
+  background: rgba(139, 148, 158, 0.2);
+  color: #8b949e;
+  border: 1px solid rgba(139, 148, 158, 0.3);
+}
+
+/* 3-axis triangle positions for pitching chart (Stuff top, Control lower-right, HRA lower-left) */
+.pitcher-profile-modal .pitching-axis-top {
+  top: -11%;
+  left: 54%;
+  transform: translateX(-50%);
+}
+
+.pitcher-profile-modal .pitching-axis-lower-right {
+  bottom: 6%;
+  right: 20%;
+  align-items: center;
+}
+
+.pitcher-profile-modal .pitching-axis-lower-left {
+  bottom: 6%;
+  left: 30%;
+  align-items: center;
+}
+
+/* Projected stat badges */
+.pitcher-profile-modal .radar-proj-badge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: center;
+  padding: 3px 7px;
+  border-radius: 3px;
+  background: rgba(212, 165, 116, 0.10);
+  border: 1px solid rgba(212, 165, 116, 0.18);
+  white-space: nowrap;
+  margin-top: 2px;
+  line-height: 1.1;
+}
+
+.pitcher-profile-modal .radar-proj-badge .proj-value {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgba(212, 165, 116, 0.85);
+}
+
+.pitcher-profile-modal .radar-proj-badge .proj-label {
+  font-size: 0.6rem;
+  font-weight: 600;
+  color: rgba(212, 165, 116, 0.50);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+/* Arsenal + Stamina Column */
+.pitcher-profile-modal .arsenal-col {
+  flex: 0 0 280px;
+  min-width: 0;
+  margin-left: -80px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.pitcher-profile-modal .arsenal-section {
+  margin-top: 0;
+}
+
+.pitcher-profile-modal .arsenal-radar-wrapper {
+  margin-top: 0;
+}
+
+.pitcher-profile-modal .pitch-count-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  background: rgba(29, 155, 240, 0.2);
+  color: #1d9bf0;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+
+.pitcher-profile-modal .stamina-section {
+  padding: 0 1rem;
+  margin-top: 0.5rem;
+}
+
+.pitcher-profile-modal .stamina-section .chart-section-label {
+  margin: 0 0 0.5rem;
+}
+
+.pitcher-profile-modal .stamina-gauge-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  justify-content: center;
+}
+
+.pitcher-profile-modal .stamina-ip-badge {
+  margin-top: 0;
+}
+
+/* Chart section labels */
+.pitcher-profile-modal .chart-section-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.05em;
+  margin: -18px 0 60px;
+  padding: 0;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* Scout source toggle */
+.pitcher-profile-modal .scout-source-toggle { padding: 0; background: transparent; font-size: inherit; }
+.pitcher-profile-modal .scout-source-toggle:hover { background: transparent; }
+.pitcher-profile-modal .scout-source-toggle .toggle-btn { padding: 0.15rem 0.6rem; font-size: 0.7rem; }
+
+/* ─── Projection Section ─── */
+.pitcher-profile-modal .projection-section {
+  margin-top: 1.25rem;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.pitcher-profile-modal .projection-header-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.pitcher-profile-modal .projection-header-row .section-label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.pitcher-profile-modal .projection-header-row .projection-toggle { margin-bottom: 0; }
+
+.pitcher-profile-modal .projection-age { font-weight: 400; opacity: 0.7; }
+
+.pitcher-profile-modal .projection-table { margin-bottom: 0.5rem; }
+.pitcher-profile-modal .projection-row td { background: rgba(59, 130, 246, 0.05); }
+.pitcher-profile-modal .actual-row td { color: var(--color-text-muted); font-size: 0.75rem; }
+
+.pitcher-profile-modal .projection-note {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: 0.5rem 0 0 0;
+}
+
+/* ─── Section Label ─── */
+.pitcher-profile-modal .section-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin: 0 0 0.75rem 0;
+}
+
+/* ─── Stats Table ─── */
+.pitcher-profile-modal .stats-table-scroll {
+  overflow-x: auto;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.pitcher-profile-modal .profile-stats-table {
+  width: 100%;
+  font-size: 0.8rem;
+  border-collapse: collapse;
+}
+
+.pitcher-profile-modal .profile-stats-table th {
+  font-size: 0.7rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  padding: 0.5rem 0.75rem;
+  text-align: center;
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  background: var(--color-bg);
+}
+
+.pitcher-profile-modal .profile-stats-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.pitcher-profile-modal .profile-stats-table tbody tr:hover {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.pitcher-profile-modal .profile-stats-table .level-badge {
+  font-size: 0.6rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.pitcher-profile-modal .stat-na { color: var(--color-text-muted); }
+
+.pitcher-profile-modal .no-stats {
+  color: var(--color-text-muted);
+  font-style: italic;
+  font-size: 0.85rem;
+  padding: 1rem 0;
+}
+
+.pitcher-profile-modal .error {
+  color: var(--color-error);
+  text-align: center;
+  padding: 2rem;
+}
+
+/* Injury badge */
+.pitcher-profile-modal .injury-badge {
+  font-size: 0.75rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 3px;
+  font-weight: 500;
+}
+
+.pitcher-profile-modal .injury-durable { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+.pitcher-profile-modal .injury-normal { background: rgba(128, 128, 128, 0.15); color: #888; }
+.pitcher-profile-modal .injury-wary { background: rgba(251, 191, 36, 0.15); color: #fbbf24; }
+.pitcher-profile-modal .injury-fragile { background: rgba(251, 146, 60, 0.15); color: #fb923c; }
+.pitcher-profile-modal .injury-prone { background: rgba(248, 113, 113, 0.15); color: #f87171; }
+
+/* Skeleton loading */
+.pitcher-profile-modal .loading-skeleton { opacity: 0.6; }
+
+.pitcher-profile-modal .skeleton-line {
+  display: inline-block;
+  background: linear-gradient(90deg, rgba(255,255,255,0.06) 25%, rgba(255,255,255,0.12) 50%, rgba(255,255,255,0.06) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 4px;
+}
+
+.pitcher-profile-modal .skeleton-line.xs { width: 30px; height: 12px; }
+
+.pitcher-profile-modal .skeleton-radar-placeholder {
+  width: 100%;
+  height: 260px;
+  background: linear-gradient(90deg, rgba(255,255,255,0.04) 25%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.04) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s infinite;
+  border-radius: 8px;
+}
+
+/* Responsive: stack columns at narrow widths */
+@media (max-width: 700px) {
+  .pitcher-profile-modal .ratings-layout {
+    flex-direction: column;
+  }
+  .pitcher-profile-modal .arsenal-col {
+    flex: 1 1 auto;
+    width: 100%;
+    margin-left: 0;
+  }
+}

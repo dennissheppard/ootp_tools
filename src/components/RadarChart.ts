@@ -25,6 +25,7 @@ interface RadarChartConfig {
   max?: number;
   legendPosition?: 'left' | 'top';
   showLegend?: boolean;
+  showXaxisLabels?: boolean;
   offsetX?: number;
   offsetY?: number;
   onLegendClick?: (seriesName: string, seriesIndex: number) => void;
@@ -41,6 +42,7 @@ export class RadarChart {
   private max: number;
   private legendPosition: 'left' | 'top';
   private showLegend: boolean;
+  private showXaxisLabels: boolean;
   private offsetX: number;
   private offsetY: number;
   private onLegendClick?: (seriesName: string, seriesIndex: number) => void;
@@ -55,6 +57,7 @@ export class RadarChart {
     this.max = config.max ?? 80;
     this.legendPosition = config.legendPosition ?? 'left';
     this.showLegend = config.showLegend ?? true;
+    this.showXaxisLabels = config.showXaxisLabels ?? false;
     this.offsetX = config.offsetX ?? 0;
     this.offsetY = config.offsetY ?? -10;
     this.onLegendClick = config.onLegendClick;
@@ -129,7 +132,11 @@ export class RadarChart {
       xaxis: {
         categories: this.categories,
         labels: {
-          show: false,
+          show: this.showXaxisLabels,
+          style: {
+            colors: Array(this.categories.length).fill('#8b949e'),
+            fontSize: '10px',
+          },
         },
       },
       yaxis: {

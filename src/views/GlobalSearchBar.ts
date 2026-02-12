@@ -1,5 +1,6 @@
 import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Player';
-import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
+import { pitcherProfileModal } from './PitcherProfileModal';
+import type { PlayerProfileData } from './PlayerProfileModal';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { OnboardingView } from './OnboardingView';
 import { playerService } from '../services/PlayerService';
@@ -30,7 +31,6 @@ export class GlobalSearchBar {
   private isOpen = false;
   private selectedIndex = -1;
   private debounceTimer?: number;
-  private playerProfileModal: PlayerProfileModal;
   private batterProfileModal: BatterProfileModal;
   private onboardingView: OnboardingView;
 
@@ -38,7 +38,6 @@ export class GlobalSearchBar {
     this.container = container;
     this.onSearch = options.onSearch;
     this.onLoading = options.onLoading;
-    this.playerProfileModal = new PlayerProfileModal();
     this.batterProfileModal = new BatterProfileModal();
     this.onboardingView = new OnboardingView();
     this.render();
@@ -240,7 +239,7 @@ export class GlobalSearchBar {
       if (isPitcher(player)) {
         const ratingsData = await this.fetchPlayerRatingsData(player.id, currentYear);
         if (ratingsData) {
-          await this.playerProfileModal.show(ratingsData, currentYear);
+          await pitcherProfileModal.show(ratingsData as any, currentYear);
         } else {
           console.error('Failed to build ratings data for player', player.id);
           alert(`Unable to load profile for ${player.firstName} ${player.lastName}. Please try again.`);
@@ -373,11 +372,13 @@ export class GlobalSearchBar {
             isProspect = true;
             tfrData = tfrResult;
 
-            // Use True Ratings from TFR (normalized from percentiles, 20-80 scale)
+            // Use development-curve-based TR if available (from farm data), fallback to TFR
+            const pitcherFarmData = await teamRatingsService.getFarmData(year);
+            const farmProspect = pitcherFarmData.prospects.find(p => p.playerId === playerId);
             playerResult = {
-              estimatedStuff: tfrResult.trueStuff,
-              estimatedControl: tfrResult.trueControl,
-              estimatedHra: tfrResult.trueHra,
+              estimatedStuff: farmProspect?.developmentTR?.stuff ?? tfrResult.trueStuff,
+              estimatedControl: farmProspect?.developmentTR?.control ?? tfrResult.trueControl,
+              estimatedHra: farmProspect?.developmentTR?.hra ?? tfrResult.trueHra,
             };
 
             // Build projectionOverride to match FarmRankingsView
@@ -700,12 +701,12 @@ export class GlobalSearchBar {
             projBbPct = tfrEntry.projBbPct;
             projKPct = tfrEntry.projKPct;
             projHrPct = tfrEntry.projHrPct;
-            estimatedPower = tfrEntry.trueRatings.power;
-            estimatedEye = tfrEntry.trueRatings.eye;
-            estimatedAvoidK = tfrEntry.trueRatings.avoidK;
-            estimatedContact = tfrEntry.trueRatings.contact;
-            estimatedGap = tfrEntry.trueRatings.gap;
-            estimatedSpeed = tfrEntry.trueRatings.speed;
+            estimatedPower = tfrEntry.developmentTR?.power ?? tfrEntry.trueRatings.power;
+            estimatedEye = tfrEntry.developmentTR?.eye ?? tfrEntry.trueRatings.eye;
+            estimatedAvoidK = tfrEntry.developmentTR?.avoidK ?? tfrEntry.trueRatings.avoidK;
+            estimatedContact = tfrEntry.developmentTR?.contact ?? tfrEntry.trueRatings.contact;
+            estimatedGap = tfrEntry.developmentTR?.gap ?? tfrEntry.trueRatings.gap;
+            estimatedSpeed = tfrEntry.developmentTR?.speed ?? tfrEntry.trueRatings.speed;
             hasTfrUpside = true;
           } else {
             // MLB player: check if TFR > TR

@@ -4,7 +4,8 @@ import { dateService } from '../services/DateService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
-import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
+import { pitcherProfileModal } from './PitcherProfileModal';
+import type { PlayerProfileData } from './PlayerProfileModal';
 import { trueRatingsService } from '../services/TrueRatingsService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
@@ -80,7 +81,6 @@ export class ProjectionsView {
   private isDraggingColumn = false;
   private prefKey = 'wbl-projections-prefs';
   private batterPrefKey = 'wbl-batter-projections-prefs';
-  private playerProfileModal: PlayerProfileModal;
   private playerRowLookup: Map<number, ProjectedPlayerWithActuals> = new Map();
   private hasActualStats = false;
   private teamLookup: Map<number, any> = new Map();
@@ -105,7 +105,6 @@ export class ProjectionsView {
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.playerProfileModal = new PlayerProfileModal();
     this.initColumns();
     this.renderLayout();
     this.initializeFromGameDate();
@@ -2190,7 +2189,7 @@ export class ProjectionsView {
   }
 
   private renderBatterName(b: ProjectedBatter): string {
-      return `<button class="btn-link player-name-link" data-player-id="${b.playerId}" title="Player ID: ${b.playerId}">${b.name}</button>`;
+      return `<button class="btn-link player-name-link" data-player-id="${b.playerId}" title="ID: ${b.playerId}">${b.name}</button>`;
   }
 
   private renderBatterRatingBadge(rating: number): string {
@@ -2384,7 +2383,7 @@ export class ProjectionsView {
 
   private renderPlayerName(player: ProjectedPlayer, year?: number): string {
     const yearAttr = year ? ` data-year="${year}"` : '';
-    return `<button class="btn-link player-name-link" data-player-id="${player.playerId}"${yearAttr}>${player.name}</button>`;
+    return `<button class="btn-link player-name-link" data-player-id="${player.playerId}"${yearAttr} title="ID: ${player.playerId}">${player.name}</button>`;
   }
 
   private renderRatingBadge(player: ProjectedPlayer): string {
@@ -2779,23 +2778,7 @@ export class ProjectionsView {
       }
     };
 
-    // Collect FIP-like distribution for percentile recalcs in modal
-    // IMPORTANT: Only use MLB pitchers (non-prospects) for the distribution
-    // Prospects have TFR-based fipLike (future projection) which shouldn't mix with TR-based (current performance)
-    const leagueFipLikes = this.allStats
-      .filter(p => p.playerId !== row.playerId)
-      .filter(p => !p.isProspect) // Exclude prospects with TFR
-      .map(p => p.fipLike)
-      .filter((f): f is number => typeof f === 'number');
-
-    // For projections, use default league averages for TR recalculation
-    // (Projections are forward-looking, so current year league averages don't apply)
-    const defaultLeagueAverages = { avgK9: 7.5, avgBb9: 3.0, avgHr9: 0.85 };
-
-    await this.playerProfileModal.show(profileData, projectionYear, {
-      leagueFipLikes,
-      leagueAverages: defaultLeagueAverages
-    });
+    await pitcherProfileModal.show(profileData as any, projectionYear);
   }
 
   private updatePagination(total: number): void {

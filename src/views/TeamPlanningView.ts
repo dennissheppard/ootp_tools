@@ -4,7 +4,7 @@ import { playerService } from '../services/PlayerService';
 import { contractService, Contract } from '../services/ContractService';
 import { teamRatingsService, TeamPowerRanking, RatedPitcher, RatedHitterProspect, RatedProspect } from '../services/TeamRatingsService';
 import { draftValueService, RosterGap, DraftRecommendation } from '../services/DraftValueService';
-import { PlayerProfileModal } from './PlayerProfileModal';
+import { pitcherProfileModal } from './PitcherProfileModal';
 import { BatterProfileModal } from './BatterProfileModal';
 import { Team } from '../models/Team';
 import { Player } from '../models/Player';
@@ -66,7 +66,6 @@ const PROSPECT_SALARY = 300_000; // league minimum for financial calcs
 
 export class TeamPlanningView {
   private container: HTMLElement;
-  private playerProfileModal: PlayerProfileModal;
   private batterProfileModal: BatterProfileModal;
   private hasLoadedData = false;
 
@@ -80,7 +79,6 @@ export class TeamPlanningView {
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.playerProfileModal = new PlayerProfileModal();
     this.batterProfileModal = new BatterProfileModal();
     this.renderLayout();
     this.setupLazyLoading();
@@ -1084,7 +1082,7 @@ export class TeamPlanningView {
         percentile: 0,
         isProspect,
       };
-      await this.playerProfileModal.show(profileData as any, this.gameYear);
+      await pitcherProfileModal.show(profileData as any, this.gameYear);
     } else {
       const profileData = {
         playerId: player.id,

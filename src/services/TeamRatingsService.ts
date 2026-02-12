@@ -18,6 +18,7 @@ import { batterProjectionService } from './BatterProjectionService';
 import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { contractService } from './ContractService';
+import { prospectDevelopmentCurveService } from './ProspectDevelopmentCurveService';
 
 export interface RatedPlayer {
   playerId: number;
@@ -83,6 +84,20 @@ export interface RatedProspect {
         bb9: number;
         hr9: number;
     };
+    /** Raw (unadjusted) MiLB stats — for development curve TR */
+    rawStats?: {
+        k9: number;
+        bb9: number;
+        hr9: number;
+    };
+    /** Development-curve-based True Rating (current ability estimate) */
+    developmentTR?: {
+        stuff: number;
+        control: number;
+        hra: number;
+    };
+    /** Total minor league IP */
+    totalMinorIp?: number;
 }
 
 export interface FarmSystemRankings {
@@ -171,6 +186,29 @@ export interface RatedHitterProspect {
         power: number;
         eye: number;
         avoidK: number;
+        contact: number;
+        gap: number;
+        speed: number;
+    };
+    /** Level-adjusted minor league stats (before scouting blend) for current ability estimation */
+    adjustedStats?: {
+        bbPct: number;
+        kPct: number;
+        hrPct: number;
+        avg: number;
+    };
+    /** Raw (unadjusted) MiLB stats — for development curve TR */
+    rawStats?: {
+        bbPct: number;
+        kPct: number;
+        hrPct: number;
+        avg: number;
+    };
+    /** Development-curve-based True Rating (current ability estimate) */
+    developmentTR?: {
+        eye: number;
+        avoidK: number;
+        power: number;
         contact: number;
         gap: number;
         speed: number;
@@ -813,8 +851,13 @@ class TeamRatingsService {
                   k9: tfr.adjustedK9,
                   bb9: tfr.adjustedBb9,
                   hr9: tfr.adjustedHr9
-              }
+              },
+              rawStats: tfr.rawK9 !== undefined ? { k9: tfr.rawK9, bb9: tfr.rawBb9!, hr9: tfr.rawHr9! } : undefined,
+              totalMinorIp: tfr.totalMinorIp,
           };
+
+          // Calculate development-curve-based TR for pitcher prospects
+          prospect.developmentTR = prospectDevelopmentCurveService.calculatePitcherProspectTR(prospect);
 
           allProspects.push(prospect);
 
@@ -1113,9 +1156,24 @@ class TeamRatingsService {
                   gap: tfr.trueGap,
                   speed: tfr.trueSpeed,
               },
+              adjustedStats: {
+                  bbPct: tfr.adjustedBbPct,
+                  kPct: tfr.adjustedKPct,
+                  hrPct: tfr.adjustedHrPct,
+                  avg: tfr.adjustedAvg,
+              },
+              rawStats: tfr.rawBbPct !== undefined ? {
+                  bbPct: tfr.rawBbPct,
+                  kPct: tfr.rawKPct!,
+                  hrPct: tfr.rawHrPct!,
+                  avg: tfr.rawAvg!,
+              } : undefined,
               position: player.position,
               isFarmEligible: careerAb <= 130,
           };
+
+          // Compute development-curve-based TR
+          prospect.developmentTR = prospectDevelopmentCurveService.calculateProspectTR(prospect);
 
           allProspects.push(prospect);
 

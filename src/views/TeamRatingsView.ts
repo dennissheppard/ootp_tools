@@ -1,7 +1,8 @@
 import { teamRatingsService, TeamRatingResult, RatedPlayer, TeamPowerRanking } from '../services/TeamRatingsService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { dateService } from '../services/DateService';
-import { PlayerProfileModal, PlayerProfileData } from './PlayerProfileModal';
+import { pitcherProfileModal } from './PitcherProfileModal';
+import type { PlayerProfileData } from './PlayerProfileModal';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
@@ -29,7 +30,6 @@ export class TeamRatingsView {
   private powerRankings: TeamPowerRanking[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private currentGameYear: number | null = null;
-  private playerProfileModal: PlayerProfileModal;
   private batterProfileModal: BatterProfileModal;
   private playerRowLookup: Map<string, PlayerRowContext> = new Map();
   private teamResultLookup: Map<string, TeamRatingResult> = new Map();
@@ -61,7 +61,6 @@ export class TeamRatingsView {
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.playerProfileModal = new PlayerProfileModal();
     this.batterProfileModal = new BatterProfileModal();
     this.init();
   }
@@ -517,7 +516,7 @@ export class TeamRatingsView {
           return `
             <tr>
                 <td style="color: var(--color-text-muted); width: 30px;">${idx + 1}</td>
-                <td><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type, player.playerId)}" data-player-id="${player.playerId}">${player.name}</button></td>
+                <td><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type, player.playerId)}" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
                 <td style="text-align: center;"><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(1)}</span></td>
                 <td style="text-align: center;">${player.stats.ip.toFixed(1)}</td>
                 <td style="text-align: center;">${(player.stats.war ?? 0).toFixed(1)}</td>
@@ -554,7 +553,7 @@ export class TeamRatingsView {
           return `
             <tr>
                 <td style="color: var(--color-text-muted); width: 30px;">${idx + 1}</td>
-                <td><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type as any, batter.playerId)}" data-player-id="${batter.playerId}">${batter.name}</button></td>
+                <td><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type as any, batter.playerId)}" data-player-id="${batter.playerId}" title="ID: ${batter.playerId}">${batter.name}</button></td>
                 <td style="text-align: center;">${batter.positionLabel || '-'}</td>
                 <td style="text-align: center;"><span class="badge ${this.getRatingClass(batter.trueRating)}">${batter.trueRating.toFixed(1)}</span></td>
                 <td style="text-align: center;">${batter.stats?.pa ?? '-'}</td>
@@ -1025,7 +1024,7 @@ export class TeamRatingsView {
           return `
             <tr>
               <td>${idx + 1}</td>
-              <td><button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}</button></td>
+              <td><button class="btn-link player-name-link" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
               <td>${player.role}</td>
               <td><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(2)}</span></td>
               <td>${player.trueStuff}</td>
@@ -1039,7 +1038,7 @@ export class TeamRatingsView {
           return `
             <tr>
               <td>${idx + 1}</td>
-              <td><button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}</button></td>
+              <td><button class="btn-link player-name-link" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
               <td>${player.positionLabel}</td>
               <td><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(2)}</span></td>
               <td>${player.estimatedPower}</td>
@@ -1181,7 +1180,7 @@ export class TeamRatingsView {
   ): string {
     switch (column.key) {
       case 'name':
-        return `<button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(context.teamKey, context.type, player.playerId)}" data-player-id="${player.playerId}">${player.name}</button>`;
+        return `<button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(context.teamKey, context.type, player.playerId)}" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button>`;
       case 'trueRating':
         return this.renderRatingBadge(player);
       case 'ip':
@@ -1651,7 +1650,7 @@ export class TeamRatingsView {
         showYearLabel: false
       };
 
-      await this.playerProfileModal.show(profileData, this.selectedYear);
+      await pitcherProfileModal.show(profileData as any, this.selectedYear);
     } else {
       // Batter
       const [myScoutingRatings, osaScoutingRatings] = await Promise.all([
@@ -1868,7 +1867,7 @@ export class TeamRatingsView {
         : undefined
     };
 
-    await this.playerProfileModal.show(profileData, seasonYear);
+    await pitcherProfileModal.show(profileData as any, seasonYear);
   }
 
   private async loadCurrentGameYear(): Promise<void> {

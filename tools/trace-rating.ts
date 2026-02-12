@@ -1253,6 +1253,67 @@ function tracePitcherTFR(
   console.log(`      = ${((replacementFip - projFip) / runsPerWin).toFixed(3)} × ${(projectedIp / 9).toFixed(1)}`);
   console.log(`      = ${peakWar.toFixed(1)} WAR`);
 
+  // --- STEP 9: Current True Rating Derivation (Development Curves) ---
+  console.log('\n--- STEP 9: Current True Rating (TR) via Development Curves ---\n');
+  console.log('  TR represents current ability on the radar chart (blue solid line).');
+  console.log('  TFR represents peak potential (green dashed line).');
+  console.log('  TR is derived from data-driven development curves (135 MLB pitchers, 2012+ debuts).');
+  console.log('  For each component: cohort selection -> expected MiLB stat at age -> dev fraction -> baseline TR.');
+  console.log('  Individual adjustment: (actual raw - expected) / expected x shrinkage x sensitivity.\n');
+
+  const pitcherDobMap = loadDOBMap();
+  const trAge = calculateAge(pitcherDobMap.get(playerId), baseYear) ?? 22;
+  console.log(`  Age: ${trAge}`);
+  console.log(`  Total MiLB IP: ${totalRawIp.toFixed(1)}\n`);
+
+  // Calculate raw (unadjusted) IP-weighted stats
+  let rawK9 = 0, rawBb9 = 0, rawHr9 = 0;
+  if (totalRawIp > 0) {
+    let k9IpSum = 0, bb9IpSum = 0, hr9IpSum = 0;
+    for (const s of allMinorStats) {
+      const sk9 = (s.k / s.ip) * 9;
+      const sbb9 = (s.bb / s.ip) * 9;
+      const shr9 = (s.hra / s.ip) * 9;
+      k9IpSum += sk9 * s.ip;
+      bb9IpSum += sbb9 * s.ip;
+      hr9IpSum += shr9 * s.ip;
+    }
+    rawK9 = k9IpSum / totalRawIp;
+    rawBb9 = bb9IpSum / totalRawIp;
+    rawHr9 = hr9IpSum / totalRawIp;
+    console.log(`  Raw IP-weighted stats: K/9=${rawK9.toFixed(2)}, BB/9=${rawBb9.toFixed(2)}, HR/9=${rawHr9.toFixed(2)}`);
+  }
+
+  // Derive TFR ratings from blended rates (same formula as TrueRatingsView fallback)
+  const tfrStuff = Math.round(20 + ((Math.max(3.0, Math.min(11.0, blendedK9)) - 3.0) / 8.0) * 60);
+  const tfrControl = Math.round(20 + ((7.0 - Math.max(0.85, Math.min(7.0, blendedBb9))) / 6.15) * 60);
+  const tfrHra = Math.round(20 + ((2.5 - Math.max(0.20, Math.min(2.5, blendedHr9))) / 2.30) * 60);
+
+  console.log(`\n  TFR Ratings (derived from blended rates): Stuff=${tfrStuff}, Control=${tfrControl}, HRA=${tfrHra}\n`);
+
+  const pitcherComponents = [
+    { name: 'Stuff',   key: 'stuff',   tfrVal: tfrStuff,   peakStat: blendedK9,  rawStat: totalRawIp > 0 ? rawK9 : undefined,  lower: false },
+    { name: 'Control', key: 'control', tfrVal: tfrControl, peakStat: blendedBb9, rawStat: totalRawIp > 0 ? rawBb9 : undefined, lower: true },
+    { name: 'HRA',     key: 'hra',     tfrVal: tfrHra,     peakStat: blendedHr9, rawStat: totalRawIp > 0 ? rawHr9 : undefined, lower: true },
+  ];
+
+  console.log(`  ${'Component'.padEnd(10)} ${'Cohort'.padEnd(12)} ${'Expected'.padEnd(10)} ${'Actual Raw'.padEnd(12)} ${'DevFrac'.padEnd(8)} ${'Base'.padEnd(6)} ${'Adj'.padEnd(8)} ${'TFR'.padEnd(6)} Final TR  Gap`);
+  console.log(`  ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(10)} ${'─'.repeat(5)}`);
+
+  const pitcherDevCurveDiag = getPitcherDevelopmentCurveDiagnosticsLocal(trAge, totalRawIp);
+
+  for (const c of pitcherComponents) {
+    const diag = pitcherDevCurveDiag(c.key, c.tfrVal, c.peakStat, c.rawStat, c.lower);
+    const gap = c.tfrVal - diag.finalTR;
+    const expectedStr = diag.expectedRaw !== undefined ? diag.expectedRaw.toFixed(2) : '—';
+    const actualStr = c.rawStat !== undefined ? c.rawStat.toFixed(2) : '—';
+    const adjStr = diag.ratingAdjust !== 0 ? (diag.ratingAdjust > 0 ? '+' : '') + diag.ratingAdjust.toFixed(1) : '0';
+    console.log(`  ${c.name.padEnd(10)} ${diag.cohortLabel.padEnd(12)} ${expectedStr.padEnd(10)} ${actualStr.padEnd(12)} ${diag.devFraction.toFixed(2).padEnd(8)} ${String(diag.baseline).padEnd(6)} ${adjStr.padEnd(8)} ${String(c.tfrVal).padEnd(6)} ${String(diag.finalTR).padEnd(10)} +${gap}`);
+  }
+
+  console.log(`\n  Stabilization IP: Stuff=100, Control=150, HRA=200`);
+  console.log(`  Sensitivity: ${TRACE_SENSITIVITY_POINTS} rating points per 100% deviation from expected curve value.`);
+
   console.log('\n--- SUMMARY ---\n');
   console.log(`  Player ID: ${playerId}`);
   console.log(`\n  Scouting Ratings:`);
@@ -1263,10 +1324,15 @@ function tracePitcherTFR(
   }
   console.log(`\n  Minor League Stats: ${totalRawIp.toFixed(1)} IP (${totalWeightedIp.toFixed(1)} weighted)`);
   console.log(`  Scouting Weight: ${(scoutingWeight * 100).toFixed(0)}%`);
-  console.log(`\n  Projected Peak Rates:`);
-  console.log(`    K/9: ${blendedK9.toFixed(2)}`);
-  console.log(`    BB/9: ${blendedBb9.toFixed(2)}`);
-  console.log(`    HR/9: ${blendedHr9.toFixed(2)}`);
+  console.log(`\n  Projected Peak Rates (TFR):`);
+  console.log(`    K/9: ${blendedK9.toFixed(2)} (TFR Stuff: ${tfrStuff})`);
+  console.log(`    BB/9: ${blendedBb9.toFixed(2)} (TFR Control: ${tfrControl})`);
+  console.log(`    HR/9: ${blendedHr9.toFixed(2)} (TFR HRA: ${tfrHra})`);
+  console.log(`\n  Current TR (Development Curves):`);
+  for (const c of pitcherComponents) {
+    const diag = pitcherDevCurveDiag(c.key, c.tfrVal, c.peakStat, c.rawStat, c.lower);
+    console.log(`    ${c.name}: ${diag.finalTR} (TFR: ${c.tfrVal}, gap: +${c.tfrVal - diag.finalTR})`);
+  }
   console.log(`\n  Projected Peak FIP: ${projFip.toFixed(2)}`);
   console.log(`  Role: ${isSp ? 'SP' : 'RP'}`);
   console.log(`  Projected Peak IP: ${projectedIp}`);
@@ -1423,6 +1489,29 @@ function traceBatterTFR(
   console.log(`    3B/AB: ${scoutTriplesRate.toFixed(4)} (${(scoutTriplesRate * 600).toFixed(1)} per 600 AB)`);
   console.log(`\n  Projected Peak wOBA: ${projWoba.toFixed(3)}`);
 
+  // --- Stats-Based Current TR (simplified) ---
+  console.log('\n--- STEP 8: Current True Rating (TR) — Stats-Based Estimate ---\n');
+  console.log('  TR (radar chart blue line) derived from adjusted MiLB stats → 20-80 scale.');
+  console.log('  Capped by age-based development factor to ensure TR ≤ TFR.\n');
+
+  const trAge = 22; // fallback — full mode uses actual age from player DB
+  // In simple mode we don't have TFR true ratings, so show stats conversion only
+  const statsEye = Math.round(20 + ((Math.max(3, Math.min(16, blendedBbPct)) - 3) / 13) * 60);
+  const statsAvoidK = Math.round(20 + ((35 - Math.max(8, Math.min(35, adjustedKPct))) / 27) * 60);
+  const statsPower = Math.round(20 + ((Math.max(0.5, Math.min(6, adjustedHrPct)) - 0.5) / 5.5) * 60);
+  const statsContact = Math.round(20 + ((Math.max(0.200, Math.min(0.340, blendedAvg)) - 0.200) / 0.140) * 60);
+
+  console.log(`  Stats → TR conversion (linear interpolation within MLB ranges):`);
+  console.log(`    Eye:     BB% ${blendedBbPct.toFixed(2)}%  (range 3-16%)    → ${statsEye}`);
+  console.log(`    AvoidK:  K%  ${adjustedKPct.toFixed(2)}%  (range 35-8% inv) → ${statsAvoidK}`);
+  console.log(`    Power:   HR% ${adjustedHrPct.toFixed(3)}%  (range 0.5-6%)   → ${statsPower}`);
+  console.log(`    Contact: AVG ${blendedAvg.toFixed(3)}   (range .200-.340)  → ${statsContact}`);
+  console.log(`    Gap:     (no stats) → uses development-discounted TFR`);
+  console.log(`    Speed:   (no stats) → uses development-discounted TFR`);
+  console.log(`\n  Note: These are UNCAPPED stats-based values. The modal applies a`);
+  console.log(`  development cap: min(statsTR, 50 + (TFR - 50) × devFactor).`);
+  console.log(`  Run with --full to see the complete TR vs TFR comparison table.`);
+
   console.log('\n--- NOTE: Modal vs Tool Difference ---\n');
   console.log(`  This tool shows SCOUTING-BASED rates (from coefficient formulas).`);
   console.log(`  The modal shows PERCENTILE-MAPPED rates which are different:`);
@@ -1430,7 +1519,7 @@ function traceBatterTFR(
   console.log(`    2. Converts rank to percentile (e.g., 85th percentile for Eye)`);
   console.log(`    3. Maps percentile to MLB peak-age distribution (2015-2020, ages 25-29)`);
   console.log(`    4. True Ratings = 20 + (percentile × 0.6) on 20-80 scale`);
-  console.log(`  To see modal-equivalent values, run the full app which ranks all prospects.`);
+  console.log(`  Run with --full to see modal-equivalent values and TR derivation table.`);
 }
 
 // ============================================================================
@@ -1904,6 +1993,11 @@ interface ComponentBlendResult {
   adjustedKPct: number;
   adjustedHrPct: number;
   adjustedAvg: number;
+  rawBbPct?: number;
+  rawKPct?: number;
+  rawHrPct?: number;
+  rawAvg?: number;
+  age?: number;
 }
 
 /**
@@ -1912,10 +2006,11 @@ interface ComponentBlendResult {
 function calculateWeightedMinorStats(
   stats: MinorLeagueBattingStats[],
   currentYear: number
-): { bbPct: number; kPct: number; hrPct: number; avg: number; totalPa: number; weightedPa: number } | null {
+): { bbPct: number; kPct: number; hrPct: number; avg: number; rawBbPct: number; rawKPct: number; rawHrPct: number; rawAvg: number; totalPa: number; weightedPa: number } | null {
   if (stats.length === 0) return null;
 
   let weightedBbPctSum = 0, weightedKPctSum = 0, weightedHrPctSum = 0, weightedAvgSum = 0;
+  let rawBbPctSum = 0, rawKPctSum = 0, rawHrPctSum = 0, rawAvgSum = 0;
   let totalWeight = 0, totalPa = 0, weightedPa = 0;
 
   for (const stat of stats) {
@@ -1945,6 +2040,10 @@ function calculateWeightedMinorStats(
     weightedKPctSum += adjKPct * weight;
     weightedHrPctSum += adjHrPct * weight;
     weightedAvgSum += adjAvg * weight;
+    rawBbPctSum += bbPct * weight;
+    rawKPctSum += kPct * weight;
+    rawHrPctSum += hrPct * weight;
+    rawAvgSum += avg * weight;
     totalWeight += weight;
     totalPa += stat.pa;
 
@@ -1959,6 +2058,10 @@ function calculateWeightedMinorStats(
     kPct: weightedKPctSum / totalWeight,
     hrPct: weightedHrPctSum / totalWeight,
     avg: weightedAvgSum / totalWeight,
+    rawBbPct: rawBbPctSum / totalWeight,
+    rawKPct: rawKPctSum / totalWeight,
+    rawHrPct: rawHrPctSum / totalWeight,
+    rawAvg: rawAvgSum / totalWeight,
     totalPa,
     weightedPa,
   };
@@ -2027,6 +2130,10 @@ function calculateComponentBlendLocal(
     adjustedKPct,
     adjustedHrPct,
     adjustedAvg,
+    rawBbPct: weightedStats ? Math.round(weightedStats.rawBbPct * 10) / 10 : undefined,
+    rawKPct: weightedStats ? Math.round(weightedStats.rawKPct * 10) / 10 : undefined,
+    rawHrPct: weightedStats ? Math.round(weightedStats.rawHrPct * 100) / 100 : undefined,
+    rawAvg: weightedStats ? Math.round(weightedStats.rawAvg * 1000) / 1000 : undefined,
   };
 }
 
@@ -2268,6 +2375,192 @@ function buildEmpiricalPaDistribution(
   }
 
   return { tiers, totalSeasons: allPa.length };
+}
+
+// ============================================================================
+// Development Curve Constants (mirrored from ProspectDevelopmentCurveService)
+// ============================================================================
+
+interface TraceCohortCurve {
+  label: string;
+  cohortMin: number;
+  cohortMax: number;
+  points: Record<number, number>;
+}
+
+const TRACE_DEV_CURVES: Record<string, TraceCohortCurve[]> = {
+  eye: [
+    { label: '3-5%', cohortMin: 3, cohortMax: 5, points: { 18: 6.7, 19: 7.3, 20: 7.5, 21: 7.6, 22: 7.0, 23: 7.2, 24: 7.5, 25: 6.2, 26: 6.4 } },
+    { label: '5-7%', cohortMin: 5, cohortMax: 7, points: { 18: 7.6, 19: 7.9, 20: 8.4, 21: 8.9, 22: 8.9, 23: 9.3, 24: 9.1, 25: 9.6, 26: 8.1 } },
+    { label: '7-9%', cohortMin: 7, cohortMax: 9, points: { 18: 7.3, 19: 8.0, 20: 8.7, 21: 9.8, 22: 10.1, 23: 10.9, 24: 11.9, 25: 10.5, 26: 11.4 } },
+    { label: '9-11%', cohortMin: 9, cohortMax: 11, points: { 19: 9.0, 20: 11.7, 21: 12.6, 22: 13.1, 23: 14.3, 24: 13.1, 25: 13.5, 26: 14.2 } },
+    { label: '11%+', cohortMin: 11, cohortMax: 25, points: { 18: 9.4, 19: 10.1, 20: 10.4, 21: 14.1, 22: 11.5, 23: 14.3, 24: 12.5 } },
+  ],
+  avoidK: [
+    { label: '8-12%', cohortMin: 8, cohortMax: 12, points: { 18: 13.6, 19: 14.5, 20: 14.0, 21: 11.8, 22: 11.8, 23: 10.0, 24: 9.1, 25: 7.1, 26: 8.9 } },
+    { label: '12-16%', cohortMin: 12, cohortMax: 16, points: { 18: 14.3, 19: 14.0, 20: 13.9, 21: 13.1, 22: 12.6, 23: 12.1, 24: 11.6, 25: 12.3, 26: 12.9 } },
+    { label: '16-20%', cohortMin: 16, cohortMax: 20, points: { 18: 15.4, 19: 14.9, 20: 14.6, 21: 14.7, 22: 15.2, 23: 15.6, 24: 14.2, 25: 14.3, 26: 13.1 } },
+    { label: '20-25%', cohortMin: 20, cohortMax: 25, points: { 18: 19.6, 19: 18.1, 20: 17.0, 21: 16.9, 22: 17.7, 23: 18.6, 24: 17.8, 25: 18.1, 26: 19.0 } },
+  ],
+  power: [
+    { label: '0-1.5%', cohortMin: 0, cohortMax: 1.5, points: { 18: 1.77, 19: 1.75, 20: 1.85, 21: 1.73, 22: 1.74, 23: 1.65, 24: 1.64, 25: 1.81, 26: 1.68 } },
+    { label: '1.5-3%', cohortMin: 1.5, cohortMax: 3, points: { 18: 1.95, 19: 2.21, 20: 2.41, 21: 2.51, 22: 2.46, 23: 2.68, 24: 2.84, 25: 2.51, 26: 2.88 } },
+    { label: '3-4.5%', cohortMin: 3, cohortMax: 4.5, points: { 18: 2.72, 19: 2.67, 20: 3.18, 21: 3.73, 22: 3.73, 23: 3.76, 24: 3.65, 25: 3.87, 26: 5.80 } },
+  ],
+  contact: [
+    { label: '.200-.240', cohortMin: 0.200, cohortMax: 0.240, points: { 18: 0.250, 19: 0.246, 20: 0.264, 21: 0.265, 22: 0.260, 23: 0.254, 24: 0.257, 25: 0.242, 26: 0.247 } },
+    { label: '.240-.270', cohortMin: 0.240, cohortMax: 0.270, points: { 18: 0.257, 19: 0.260, 20: 0.271, 21: 0.280, 22: 0.277, 23: 0.275, 24: 0.274, 25: 0.261, 26: 0.252 } },
+    { label: '.270-.300', cohortMin: 0.270, cohortMax: 0.300, points: { 18: 0.243, 19: 0.266, 20: 0.277, 21: 0.280, 22: 0.282, 23: 0.286, 24: 0.296, 25: 0.275, 26: 0.283 } },
+    { label: '.300-.330', cohortMin: 0.300, cohortMax: 0.330, points: { 18: 0.271, 19: 0.269, 20: 0.285, 21: 0.293, 22: 0.290, 23: 0.302, 24: 0.293, 25: 0.297 } },
+  ],
+};
+
+const TRACE_STABILIZATION_PA: Record<string, number> = { eye: 600, avoidK: 200, power: 400, contact: 400 };
+const TRACE_SENSITIVITY_POINTS = 8;
+
+// Pitcher development curves (from tools/research/explore_pitcher_development.ts)
+const TRACE_PITCHER_DEV_CURVES: Record<string, TraceCohortCurve[]> = {
+  stuff: [
+    { label: '4-6', cohortMin: 4, cohortMax: 6, points: { 18: 5.09, 19: 5.33, 20: 5.47, 21: 5.54, 22: 5.24, 23: 5.32, 24: 5.11, 25: 5.21, 26: 5.45 } },
+    { label: '6-8', cohortMin: 6, cohortMax: 8, points: { 18: 5.64, 19: 5.45, 20: 5.76, 21: 5.90, 22: 6.03, 23: 6.35, 24: 6.37, 25: 6.65, 26: 6.68 } },
+    { label: '8-10', cohortMin: 8, cohortMax: 10, points: { 18: 6.50, 19: 6.80, 20: 7.20, 21: 7.60, 22: 7.90, 23: 8.20, 24: 8.50, 25: 8.80, 26: 9.00 } },
+  ],
+  control: [
+    { label: '1.5-2.5', cohortMin: 1.5, cohortMax: 2.5, points: { 18: 3.23, 19: 3.12, 20: 2.71, 21: 2.42, 22: 2.26, 23: 1.99, 24: 1.77, 25: 1.77 } },
+    { label: '2.5-3.5', cohortMin: 2.5, cohortMax: 3.5, points: { 18: 3.41, 19: 3.26, 20: 3.03, 21: 2.70, 22: 2.95, 23: 2.90, 24: 3.34, 25: 3.49, 26: 3.79 } },
+    { label: '3.5-4.5', cohortMin: 3.5, cohortMax: 4.5, points: { 19: 3.63, 20: 3.93, 21: 2.76, 22: 2.99, 23: 3.12, 24: 3.51, 25: 2.44, 26: 4.26 } },
+  ],
+  hra: [
+    { label: '0.5-0.8', cohortMin: 0.5, cohortMax: 0.8, points: { 18: 0.67, 19: 0.67, 20: 0.67, 21: 0.52, 22: 0.58, 23: 0.54, 24: 0.42, 25: 0.36 } },
+    { label: '0.8-1.1', cohortMin: 0.8, cohortMax: 1.1, points: { 18: 0.85, 19: 0.75, 20: 0.66, 21: 0.61, 22: 0.61, 23: 0.57, 24: 0.62, 25: 0.60, 26: 0.67 } },
+    { label: '1.1-1.5', cohortMin: 1.1, cohortMax: 1.5, points: { 18: 0.55, 19: 0.71, 20: 0.79, 21: 0.53, 22: 0.69, 23: 0.53, 24: 0.61, 25: 0.65 } },
+  ],
+};
+
+const TRACE_PITCHER_STABILIZATION_IP: Record<string, number> = { stuff: 100, control: 150, hra: 200 };
+
+function getPitcherDevelopmentCurveDiagnosticsLocal(age: number, totalIp: number) {
+  return (component: string, tfrRating: number, peakStat: number, rawStat: number | undefined, lowerIsBetter: boolean) => {
+    const curves = TRACE_PITCHER_DEV_CURVES[component];
+    if (!curves) return { cohortLabel: 'N/A', expectedRaw: undefined, devFraction: 0.5, baseline: tfrRating, ratingAdjust: 0, finalTR: tfrRating };
+
+    // Select cohort
+    let cohort = curves[curves.length - 1];
+    for (const c of curves) {
+      if (peakStat >= c.cohortMin && peakStat < c.cohortMax) { cohort = c; break; }
+    }
+    if (peakStat < curves[0].cohortMin) cohort = curves[0];
+
+    // Interpolate expected value at age
+    const ages = Object.keys(cohort.points).map(Number).sort((a, b) => a - b);
+    let expectedRaw: number | undefined;
+    if (ages.length > 0) {
+      if (age <= ages[0]) expectedRaw = cohort.points[ages[0]];
+      else if (age >= ages[ages.length - 1]) expectedRaw = cohort.points[ages[ages.length - 1]];
+      else {
+        for (let i = 0; i < ages.length - 1; i++) {
+          if (age >= ages[i] && age <= ages[i + 1]) {
+            const t = (age - ages[i]) / (ages[i + 1] - ages[i]);
+            expectedRaw = cohort.points[ages[i]] + t * (cohort.points[ages[i + 1]] - cohort.points[ages[i]]);
+            break;
+          }
+        }
+      }
+    }
+
+    // Dev fraction
+    let devFraction: number;
+    if (lowerIsBetter) {
+      const minAge = ages[0], maxAge = ages[ages.length - 1];
+      devFraction = maxAge > minAge ? Math.max(0, Math.min(1, (age - minAge) / (maxAge - minAge))) : 0.5;
+    } else {
+      const valAtMin = cohort.points[ages[0]];
+      const valAtMax = cohort.points[ages[ages.length - 1]];
+      if (Math.abs(valAtMax - valAtMin) < 0.001 || expectedRaw === undefined) {
+        devFraction = 0.5;
+      } else {
+        devFraction = Math.max(0, Math.min(1, (expectedRaw - valAtMin) / (valAtMax - valAtMin)));
+      }
+    }
+
+    const baseline = Math.round(20 + (tfrRating - 20) * devFraction);
+
+    // Individual adjustment
+    let ratingAdjust = 0;
+    if (rawStat !== undefined && totalIp > 0 && expectedRaw !== undefined && expectedRaw > 0) {
+      let deviation = (rawStat - expectedRaw) / expectedRaw;
+      if (lowerIsBetter) deviation = -deviation;
+      const stabilization = TRACE_PITCHER_STABILIZATION_IP[component] ?? 200;
+      const shrinkage = totalIp / (totalIp + stabilization);
+      ratingAdjust = deviation * shrinkage * TRACE_SENSITIVITY_POINTS;
+    }
+
+    const finalTR = Math.round(Math.max(20, Math.min(tfrRating, baseline + ratingAdjust)));
+
+    return { cohortLabel: cohort.label, expectedRaw, devFraction, baseline, ratingAdjust: Math.round(ratingAdjust * 10) / 10, finalTR };
+  };
+}
+
+function getDevelopmentCurveDiagnosticsLocal(age: number, totalPa: number) {
+  return (component: string, tfrRating: number, peakStat: number, rawStat: number | undefined, lowerIsBetter: boolean) => {
+    const curves = TRACE_DEV_CURVES[component];
+    if (!curves) return { cohortLabel: 'N/A', expectedRaw: undefined, devFraction: 0.5, baseline: tfrRating, ratingAdjust: 0, finalTR: tfrRating };
+
+    // Select cohort
+    let cohort = curves[curves.length - 1];
+    for (const c of curves) {
+      if (peakStat >= c.cohortMin && peakStat < c.cohortMax) { cohort = c; break; }
+    }
+    if (peakStat < curves[0].cohortMin) cohort = curves[0];
+
+    // Interpolate expected value at age
+    const ages = Object.keys(cohort.points).map(Number).sort((a, b) => a - b);
+    let expectedRaw: number | undefined;
+    if (ages.length > 0) {
+      if (age <= ages[0]) expectedRaw = cohort.points[ages[0]];
+      else if (age >= ages[ages.length - 1]) expectedRaw = cohort.points[ages[ages.length - 1]];
+      else {
+        for (let i = 0; i < ages.length - 1; i++) {
+          if (age >= ages[i] && age <= ages[i + 1]) {
+            const t = (age - ages[i]) / (ages[i + 1] - ages[i]);
+            expectedRaw = cohort.points[ages[i]] + t * (cohort.points[ages[i + 1]] - cohort.points[ages[i]]);
+            break;
+          }
+        }
+      }
+    }
+
+    // Dev fraction
+    let devFraction: number;
+    if (lowerIsBetter) {
+      const minAge = ages[0], maxAge = ages[ages.length - 1];
+      devFraction = maxAge > minAge ? Math.max(0, Math.min(1, (age - minAge) / (maxAge - minAge))) : 0.5;
+    } else {
+      const valAtMin = cohort.points[ages[0]];
+      const valAtMax = cohort.points[ages[ages.length - 1]];
+      if (Math.abs(valAtMax - valAtMin) < 0.001 || expectedRaw === undefined) {
+        devFraction = 0.5;
+      } else {
+        devFraction = Math.max(0, Math.min(1, (expectedRaw - valAtMin) / (valAtMax - valAtMin)));
+      }
+    }
+
+    const baseline = Math.round(20 + (tfrRating - 20) * devFraction);
+
+    // Individual adjustment
+    let ratingAdjust = 0;
+    if (rawStat !== undefined && totalPa > 0 && expectedRaw !== undefined && expectedRaw > 0) {
+      let deviation = (rawStat - expectedRaw) / expectedRaw;
+      if (lowerIsBetter) deviation = -deviation;
+      const stabilization = TRACE_STABILIZATION_PA[component] ?? 400;
+      const shrinkage = totalPa / (totalPa + stabilization);
+      ratingAdjust = deviation * shrinkage * TRACE_SENSITIVITY_POINTS;
+    }
+
+    const finalTR = Math.round(Math.max(20, Math.min(tfrRating, baseline + ratingAdjust)));
+
+    return { cohortLabel: cohort.label, expectedRaw, devFraction, baseline, ratingAdjust: Math.round(ratingAdjust * 10) / 10, finalTR };
+  };
 }
 
 // ============================================================================
@@ -2544,6 +2837,60 @@ function traceBatterTFRFull(
     if (targetRank >= 10) {
       console.log(`    ...`);
       console.log(`    ${(targetRank + 1).toString().padStart(3)}. ${(targetInList?.name || `Player ${playerId}`).padEnd(25)} wOBA=${wobaFromBlended.toFixed(3)} <-- TARGET`);
+    }
+
+    // --- STEP 11: Current True Rating Derivation (Development Curves) ---
+    console.log('\n--- STEP 11: Current True Rating (TR) via Development Curves ---\n');
+    console.log('  TR represents current ability on the radar chart (blue solid line).');
+    console.log('  TFR represents peak potential (green dashed line).');
+    console.log('  TR is derived from data-driven development curves (245 MLB players, 2012+ debuts).');
+    console.log('  For each component: cohort selection → expected MiLB stat at age → dev fraction → baseline TR.');
+    console.log('  Individual adjustment: (actual raw - expected) / expected × shrinkage × sensitivity.\n');
+
+    const trAge = calculateAge(dobMap.get(playerId), baseYear) ?? 22;
+    console.log(`  Age: ${trAge}`);
+    console.log(`  Total MiLB PA: ${targetBlend?.totalPa ?? 0}\n`);
+
+    if (targetBlend) {
+      const projBbPct = targetBlend.eyeValue;
+      const projKPct = targetBlend.avoidKValue;
+      const projHrPct = targetBlend.powerValue;
+      const projAvg = targetBlend.contactValue;
+
+      const components = [
+        { name: 'Eye',     key: 'eye',     tfrVal: trueEye,     peakStat: projBbPct, rawStat: targetBlend.rawBbPct, lower: false, unit: '%' },
+        { name: 'AvoidK',  key: 'avoidK',  tfrVal: trueAvoidK,  peakStat: projKPct,  rawStat: targetBlend.rawKPct,  lower: true,  unit: '%' },
+        { name: 'Power',   key: 'power',   tfrVal: truePower,   peakStat: projHrPct, rawStat: targetBlend.rawHrPct, lower: false, unit: '%' },
+        { name: 'Contact', key: 'contact', tfrVal: trueContact, peakStat: projAvg,   rawStat: targetBlend.rawAvg,   lower: false, unit: '' },
+      ];
+
+      console.log(`  ${'Component'.padEnd(10)} ${'Cohort'.padEnd(12)} ${'Expected'.padEnd(10)} ${'Actual Raw'.padEnd(12)} ${'DevFrac'.padEnd(8)} ${'Base'.padEnd(6)} ${'Adj'.padEnd(8)} ${'TFR'.padEnd(6)} Final TR  Gap`);
+      console.log(`  ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(10)} ${'─'.repeat(5)}`);
+
+      const devCurveDiag = getDevelopmentCurveDiagnosticsLocal(trAge, targetBlend.totalPa);
+
+      for (const c of components) {
+        const diag = devCurveDiag(c.key, c.tfrVal, c.peakStat, c.rawStat, c.lower);
+        const gap = c.tfrVal - diag.finalTR;
+        const expectedStr = diag.expectedRaw !== undefined ? (c.unit === '%' ? diag.expectedRaw.toFixed(1) + '%' : diag.expectedRaw.toFixed(3)) : '—';
+        const actualStr = c.rawStat !== undefined ? (c.unit === '%' ? c.rawStat.toFixed(1) + '%' : c.rawStat.toFixed(3)) : '—';
+        const adjStr = diag.ratingAdjust !== 0 ? (diag.ratingAdjust > 0 ? '+' : '') + diag.ratingAdjust.toFixed(1) : '0';
+        console.log(`  ${c.name.padEnd(10)} ${diag.cohortLabel.padEnd(12)} ${expectedStr.padEnd(10)} ${actualStr.padEnd(12)} ${diag.devFraction.toFixed(2).padEnd(8)} ${String(diag.baseline).padEnd(6)} ${adjStr.padEnd(8)} ${String(c.tfrVal).padEnd(6)} ${String(diag.finalTR).padEnd(10)} +${gap}`);
+      }
+
+      // Gap/Speed use average devFraction
+      const avgDevFrac = components.reduce((sum, c) => {
+        const diag = devCurveDiag(c.key, c.tfrVal, c.peakStat, c.rawStat, c.lower);
+        return sum + diag.devFraction;
+      }, 0) / components.length;
+
+      const gapTR = Math.round(Math.max(20, Math.min(trueGap, 20 + (trueGap - 20) * avgDevFrac)));
+      const speedTR = Math.round(Math.max(20, Math.min(trueSpeed, 20 + (trueSpeed - 20) * avgDevFrac)));
+      console.log(`  ${'Gap'.padEnd(10)} ${'(avg frac)'.padEnd(12)} ${'—'.padEnd(10)} ${'—'.padEnd(12)} ${avgDevFrac.toFixed(2).padEnd(8)} ${String(gapTR).padEnd(6)} ${'—'.padEnd(8)} ${String(trueGap).padEnd(6)} ${String(gapTR).padEnd(10)} +${trueGap - gapTR}`);
+      console.log(`  ${'Speed'.padEnd(10)} ${'(avg frac)'.padEnd(12)} ${'—'.padEnd(10)} ${'—'.padEnd(12)} ${avgDevFrac.toFixed(2).padEnd(8)} ${String(speedTR).padEnd(6)} ${'—'.padEnd(8)} ${String(trueSpeed).padEnd(6)} ${String(speedTR).padEnd(10)} +${trueSpeed - speedTR}`);
+
+      console.log(`\n  Stabilization PA: Eye=600, AvoidK=200, Power=400, Contact=400`);
+      console.log(`  Sensitivity: ${TRACE_SENSITIVITY_POINTS} rating points per 100% deviation from expected curve value.`);
     }
   }
 }

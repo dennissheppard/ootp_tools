@@ -49,6 +49,10 @@ export interface ComponentBlendedResult {
   adjustedK9: number;
   adjustedBb9: number;
   adjustedHr9: number;
+  /** Raw (unadjusted) minor league rates — for development curve TR */
+  rawK9?: number;
+  rawBb9?: number;
+  rawHr9?: number;
   /** Blended component values (weighted scout + stats) */
   stuffValue: number;   // Blended K9
   controlValue: number; // Blended BB9
@@ -95,6 +99,10 @@ export interface TrueFutureRatingResult {
   trueRating?: number;
   /** Total minor league IP */
   totalMinorIp: number;
+  /** Raw (unadjusted) minor league rates — for development curve TR */
+  rawK9?: number;
+  rawBb9?: number;
+  rawHr9?: number;
 }
 
 // ============================================================================
@@ -457,7 +465,7 @@ class TrueFutureRatingService {
   calculateWeightedMinorStats(
     stats: MinorLeagueStatsWithLevel[],
     currentYear: number
-  ): { k9: number; bb9: number; hr9: number; totalIp: number; weightedIp: number } | null {
+  ): { k9: number; bb9: number; hr9: number; totalIp: number; weightedIp: number; rawK9: number; rawBb9: number; rawHr9: number } | null {
     if (stats.length === 0) {
       return null;
     }
@@ -468,6 +476,11 @@ class TrueFutureRatingService {
     let totalWeight = 0;
     let totalIp = 0;
     let weightedIp = 0;
+
+    // Raw (unadjusted) stats — IP-weighted for development curve TR
+    let rawK9Sum = 0;
+    let rawBb9Sum = 0;
+    let rawHr9Sum = 0;
 
     for (const stat of stats) {
       // Calculate year weight (current year = 5, previous = 3, older = 2)
@@ -485,6 +498,11 @@ class TrueFutureRatingService {
       weightedK9Sum += adjusted.k9 * weight;
       weightedBb9Sum += adjusted.bb9 * weight;
       weightedHr9Sum += adjusted.hr9 * weight;
+
+      // Accumulate raw (unadjusted) stats — IP-weighted only (no year weight)
+      rawK9Sum += stat.k9 * stat.ip;
+      rawBb9Sum += stat.bb9 * stat.ip;
+      rawHr9Sum += stat.hr9 * stat.ip;
 
       totalWeight += weight;
       totalIp += stat.ip;
@@ -505,6 +523,9 @@ class TrueFutureRatingService {
       hr9: weightedHr9Sum / totalWeight,
       totalIp,
       weightedIp, // "AAA-equivalent IP" for scouting weight determination
+      rawK9: totalIp > 0 ? rawK9Sum / totalIp : 0,
+      rawBb9: totalIp > 0 ? rawBb9Sum / totalIp : 0,
+      rawHr9: totalIp > 0 ? rawHr9Sum / totalIp : 0,
     };
   }
 
@@ -621,6 +642,9 @@ class TrueFutureRatingService {
       adjustedK9: Math.round(adjustedK9 * 100) / 100,
       adjustedBb9: Math.round(adjustedBb9 * 100) / 100,
       adjustedHr9: Math.round(adjustedHr9 * 100) / 100,
+      rawK9: weightedStats ? Math.round(weightedStats.rawK9 * 100) / 100 : undefined,
+      rawBb9: weightedStats ? Math.round(weightedStats.rawBb9 * 100) / 100 : undefined,
+      rawHr9: weightedStats ? Math.round(weightedStats.rawHr9 * 100) / 100 : undefined,
       stuffValue: Math.round(stuffValue * 100) / 100,
       controlValue: Math.round(controlValue * 100) / 100,
       hraValue: Math.round(hraValue * 100) / 100,

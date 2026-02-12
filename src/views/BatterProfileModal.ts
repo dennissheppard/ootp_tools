@@ -287,7 +287,10 @@ export class BatterProfileModal {
     const warSlot = this.overlay.querySelector<HTMLElement>('.war-header-slot');
     const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
 
-    if (titleEl) titleEl.textContent = data.playerName;
+    if (titleEl) {
+      titleEl.textContent = data.playerName;
+      titleEl.title = `ID: ${data.playerId}`;
+    }
     if (teamEl) {
       const teamInfo = this.formatTeamInfo(data.team, data.parentTeam);
       teamEl.innerHTML = teamInfo;
@@ -674,8 +677,10 @@ export class BatterProfileModal {
         const projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
         const projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
         const hrPerAb = (HitterRatingEstimatorService.expectedHrPct(data.estimatedPower) / 100) / 0.88;
-        const doublesPerAb = data.estimatedGap !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(data.estimatedGap) : 0.04;
-        const triplesPerAb = data.estimatedSpeed !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(data.estimatedSpeed) : 0.005;
+        const gapForBadge = data.tfrGap ?? data.estimatedGap;
+        const speedForBadge = data.tfrSpeed ?? data.estimatedSpeed;
+        const doublesPerAb = gapForBadge !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(gapForBadge) : 0.04;
+        const triplesPerAb = speedForBadge !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(speedForBadge) : 0.005;
         const iso = doublesPerAb + 2 * triplesPerAb + 3 * hrPerAb;
         badgeObp = Math.min(0.450, projAvg + (projBbPct / 100));
         badgeSlg = projAvg + iso;
@@ -1087,15 +1092,22 @@ export class BatterProfileModal {
 
     if (data.projDoublesRate !== undefined) {
       proj2b = Math.round(projAb * data.projDoublesRate);
-    } else if (data.estimatedGap !== undefined) {
-      proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(data.estimatedGap));
+    } else {
+      // For prospects: use TFR gap (peak potential) for peak projection, not current TR gap
+      const gapForProj = data.tfrGap ?? data.estimatedGap;
+      if (gapForProj !== undefined) {
+        proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(gapForProj));
+      }
     }
 
     // Projected 3B from speed rating
     if (data.projTriplesRate !== undefined) {
       proj3b = Math.round(projAb * data.projTriplesRate);
-    } else if (data.estimatedSpeed !== undefined) {
-      proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(data.estimatedSpeed));
+    } else {
+      const speedForProj = data.tfrSpeed ?? data.estimatedSpeed;
+      if (speedForProj !== undefined) {
+        proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(speedForProj));
+      }
     }
 
     // Running stats from SR/STE
@@ -1288,12 +1300,14 @@ export class BatterProfileModal {
     const isPeakMode = this.projectionMode === 'peak' && showToggle;
 
     // Select ratings source based on mode
-    const usePower = isPeakMode ? (data.tfrPower ?? data.estimatedPower) : data.estimatedPower;
-    const useEye = isPeakMode ? (data.tfrEye ?? data.estimatedEye) : data.estimatedEye;
-    const useAvoidK = isPeakMode ? (data.tfrAvoidK ?? data.estimatedAvoidK) : data.estimatedAvoidK;
-    const useContact = isPeakMode ? (data.tfrContact ?? data.estimatedContact) : data.estimatedContact;
-    const useGap = isPeakMode ? (data.tfrGap ?? data.estimatedGap) : data.estimatedGap;
-    const useSpeed = isPeakMode ? (data.tfrSpeed ?? data.estimatedSpeed) : data.estimatedSpeed;
+    // Pure prospects (no MLB TR) always show peak projection — use TFR ratings
+    const isProspectPeak = data.trueRating === undefined && data.trueFutureRating !== undefined;
+    const usePower = (isPeakMode || isProspectPeak) ? (data.tfrPower ?? data.estimatedPower) : data.estimatedPower;
+    const useEye = (isPeakMode || isProspectPeak) ? (data.tfrEye ?? data.estimatedEye) : data.estimatedEye;
+    const useAvoidK = (isPeakMode || isProspectPeak) ? (data.tfrAvoidK ?? data.estimatedAvoidK) : data.estimatedAvoidK;
+    const useContact = (isPeakMode || isProspectPeak) ? (data.tfrContact ?? data.estimatedContact) : data.estimatedContact;
+    const useGap = (isPeakMode || isProspectPeak) ? (data.tfrGap ?? data.estimatedGap) : data.estimatedGap;
+    const useSpeed = (isPeakMode || isProspectPeak) ? (data.tfrSpeed ?? data.estimatedSpeed) : data.estimatedSpeed;
 
     // Get most recent year stats for comparison (only in current mode)
     const latestStat = isPeakMode ? undefined : stats.find(s => s.level === 'MLB');

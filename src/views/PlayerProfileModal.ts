@@ -183,7 +183,10 @@ export class PlayerProfileModal {
     const metadataSlot = this.overlay.querySelector<HTMLElement>('.metadata-header-slot');
     const pitchesSlot = this.overlay.querySelector<HTMLElement>('.pitches-header-slot');
 
-    if (titleEl) titleEl.textContent = data.playerName;
+    if (titleEl) {
+      titleEl.textContent = data.playerName;
+      titleEl.title = `ID: ${data.playerId}`;
+    }
     if (teamEl) {
       const teamInfo = PlayerRatingsCard.formatTeamInfo(data.team, data.parentTeam);
       teamEl.innerHTML = teamInfo;

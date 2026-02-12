@@ -12,6 +12,13 @@ export interface PitcherScoutingRatings {
   /** Potential star rating (0.5-5.0 scale) */
   pot?: number;
   pitches?: Record<string, number>;
+  /** Personality traits (H = high, N = neutral, L = low) */
+  leadership?: 'H' | 'N' | 'L';
+  loyalty?: 'H' | 'N' | 'L';
+  adaptability?: 'H' | 'N' | 'L';
+  greed?: 'H' | 'N' | 'L';
+  workEthic?: 'H' | 'N' | 'L';
+  intelligence?: 'H' | 'N' | 'L';
   source?: 'my' | 'osa';
 }
 

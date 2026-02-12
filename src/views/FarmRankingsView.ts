@@ -9,14 +9,12 @@ import {
   HitterFarmSystemRankings,
   RatedHitterProspect
 } from '../services/TeamRatingsService';
-import { PlayerProfileModal } from './PlayerProfileModal';
+import { pitcherProfileModal } from './PitcherProfileModal';
 import { batterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
-import { trueRatingsService } from '../services/TrueRatingsService';
-import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
 import { getPositionLabel, getFullName, isPitcher } from '../models/Player';
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 
@@ -35,7 +33,6 @@ export class FarmRankingsView {
   private showHitters: boolean = true;
   private data: FarmData | null = null;
   private hitterData: HitterFarmData | null = null;
-  private playerProfileModal: PlayerProfileModal;
   private yearOptions = Array.from({ length: 6 }, (_, i) => 2021 - i); // 2021 down to 2016
   private top100Prospects: RatedProspect[] = [];
   private top100HitterProspects: RatedHitterProspect[] = [];
@@ -99,7 +96,6 @@ export class FarmRankingsView {
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.playerProfileModal = new PlayerProfileModal();
     this.renderLayout();
 
     // Defer data loading until tab is activated (lazy loading)
@@ -945,7 +941,7 @@ export class FarmRankingsView {
 
       const rows = all.map(p => `
           <tr>
-              <td style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>
+              <td style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}" title="ID: ${p.playerId}">${p.name}</button></td>
               <td style="text-align: center;">${p.displayPos}</td>
               <td style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>
               <td style="text-align: center;"><span class="level-badge level-${p.level.toLowerCase()}">${p.level}</span></td>
@@ -1100,7 +1096,7 @@ export class FarmRankingsView {
                           : `${idx + 1} <span style="font-weight: normal; font-size: 0.85em; opacity: 0.7;">(#${p.originalRank})</span>`;
                       return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${rankText}</td>`;
                   case 'name':
-                      return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>`;
+                      return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}" title="ID: ${p.playerId}">${p.name}</button></td>`;
                   case 'team':
                       return `<td data-col-key="team" style="text-align: left;">${p.team}</td>`;
                   case 'trueFutureRating':
@@ -1509,7 +1505,7 @@ export class FarmRankingsView {
                 case 'position':
                     return `<td data-col-key="position" style="text-align: center;">${this.renderPositionBadge(null, true)}</td>`;
                 case 'name':
-                    return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>`;
+                    return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}" title="ID: ${p.playerId}">${p.name}</button></td>`;
                 case 'team':
                     return `<td data-col-key="team" style="text-align: left;">${this.getTeamName(p.orgId)}</td>`;
                 case 'trueFutureRating':
@@ -1600,7 +1596,7 @@ export class FarmRankingsView {
                         return `<td data-col-key="rank" style="font-weight: bold; color: var(--color-text-muted);">${currentRank} <span style="font-weight: normal; font-size: 0.85em; opacity: 0.7;">(#${percentileRank})</span></td>`;
                     }
                 case 'name':
-                    return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>`;
+                    return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}" title="ID: ${p.playerId}">${p.name}</button></td>`;
                 case 'position':
                     return `<td data-col-key="position" style="text-align: center;">${this.renderPositionBadge(p.position)}</td>`;
                 case 'team':
@@ -1870,7 +1866,7 @@ export class FarmRankingsView {
       case 'position':
         return String(player.position || 'DH');
       case 'name':
-        return `<button class="btn-link player-name-link" data-player-id="${player.playerId}" data-player-type="hitter">${player.name}</button>`;
+        return `<button class="btn-link player-name-link" data-player-id="${player.playerId}" data-player-type="hitter" title="ID: ${player.playerId}">${player.name}</button>`;
       case 'trueFutureRating':
         return this.renderRatingBadge(player.trueFutureRating);
       case 'level':
@@ -1920,7 +1916,7 @@ export class FarmRankingsView {
       const rows = top5.map((p, idx) => `
         <tr>
           <td style="width: 30px; text-align: center; color: var(--color-text-muted);">${idx + 1}</td>
-          <td><button class="btn-link player-name-link" data-player-id="${p.playerId}" data-player-type="hitter">${p.name}</button></td>
+          <td><button class="btn-link player-name-link" data-player-id="${p.playerId}" data-player-type="hitter" title="ID: ${p.playerId}">${p.name}</button></td>
           <td>${p.team || 'FA'}</td>
           <td>${this.renderRatingBadge(p.trueFutureRating)}</td>
           <td>${p.projWoba.toFixed(3)}</td>
@@ -2086,7 +2082,7 @@ export class FarmRankingsView {
   private renderCell(player: RatedProspect, column: FarmColumn): string {
     switch (column.key) {
       case 'name':
-        return `<button class="btn-link player-name-link" data-player-id="${player.playerId}">${player.name}</button>`;
+        return `<button class="btn-link player-name-link" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button>`;
       case 'trueFutureRating':
         return this.renderRatingBadge(player.trueFutureRating);
       case 'level':
@@ -2259,60 +2255,14 @@ export class FarmRankingsView {
       const myScouting = this.resolveScouting(playerId, getFullName(player), myScoutingLookup);
       const osaScouting = this.resolveScouting(playerId, getFullName(player), osaScoutingLookup);
 
-      // 3. Fetch MLB Context & Stats
-      // Use cached/service data if possible to avoid heavy re-calc
-      // For now, we'll fetch what's needed for the modal to function correctly
-      const [leagueAverages, multiYearStats] = await Promise.all([
-          trueRatingsService.getLeagueAverages(this.selectedYear),
-          trueRatingsService.getMultiYearPitchingStats(this.selectedYear)
-      ]);
-
-      // Calculate MLB FIP-likes for percentile context
-      // We need to fetch MLB stats first
-      let leagueFipLikes: number[] = [];
-      try {
-          const mlbStats = await trueRatingsService.getTruePitchingStats(this.selectedYear);
-          const mlbInputs = mlbStats.map(s => ({
-              playerId: s.player_id,
-              playerName: s.playerName,
-              yearlyStats: multiYearStats.get(s.player_id) ?? []
-          }));
-          const mlbTrueRatings = trueRatingsCalculationService.calculateTrueRatings(mlbInputs, leagueAverages);
-          leagueFipLikes = mlbTrueRatings.map(tr => tr.fipLike);
-      } catch (e) {
-          console.warn('Could not load MLB context for percentiles', e);
-      }
-
-      const playerMlbStats = multiYearStats.get(playerId) ?? [];
-
-      // 4. Get TFR Data from our View Model
+      // Get TFR Data from our View Model
       // Use the `prospect` object from `this.data` for TFR specific values
       let prospect = this.data?.prospects.find(p => p.playerId === playerId);
 
       // If looking at a non-prospect (e.g. from expanded list but maybe they graduated?), fallback
       // But Farm Rankings only shows prospects.
 
-      // Pass TFR peak projections to modal (so they match the table)
-      let projectionOverride = undefined;
-      if (prospect) {
-          projectionOverride = {
-              projectedStats: {
-                  k9: prospect.potentialRatings.stuff,
-                  bb9: prospect.potentialRatings.control,
-                  hr9: prospect.potentialRatings.hra,
-                  fip: prospect.peakFip,
-                  war: prospect.peakWar,
-                  ip: prospect.peakIp ?? 0 // Now uses realistic IP based on stamina/injury
-              },
-              projectedRatings: {
-                  stuff: prospect.trueRatings?.stuff ?? prospect.scoutingRatings.stuff,
-                  control: prospect.trueRatings?.control ?? prospect.scoutingRatings.control,
-                  hra: prospect.trueRatings?.hra ?? prospect.scoutingRatings.hra
-              }
-          };
-      }
-
-      this.playerProfileModal.show({
+      pitcherProfileModal.show({
           playerId: player.id,
           playerName: getFullName(player),
           team: teamLabel,
@@ -2323,46 +2273,25 @@ export class FarmRankingsView {
           // True Ratings (Current) - prospects usually don't have valid ones, handled by modal
           trueRating: undefined,
 
-          // Use True Ratings - these are normalized from percentile rankings across all prospects
-          // They answer: "Where does this prospect rank among all prospects?" (20-80 scale)
-          // Scout might say 60 Stuff, but if that's only 35th percentile among prospects, True Stuff = 41
-          estimatedStuff: prospect?.trueRatings?.stuff,
-          estimatedControl: prospect?.trueRatings?.control,
-          estimatedHra: prospect?.trueRatings?.hra,
+          // TR = current ability from development curves (precomputed on RatedProspect)
+          estimatedStuff: prospect?.developmentTR?.stuff ?? prospect?.trueRatings?.stuff,
+          estimatedControl: prospect?.developmentTR?.control ?? prospect?.trueRatings?.control,
+          estimatedHra: prospect?.developmentTR?.hra ?? prospect?.trueRatings?.hra,
 
-          // Pass TFR peak projection to modal (prevents recalculation)
-          projectionOverride: projectionOverride,
-          
-          // My Scout
+          // Scout data (modal fetches its own, these are fallbacks)
           scoutStuff: myScouting?.stuff,
           scoutControl: myScouting?.control,
           scoutHra: myScouting?.hra,
           scoutStamina: myScouting?.stamina,
-          scoutInjuryProneness: myScouting?.injuryProneness,
+          injuryProneness: myScouting?.injuryProneness ?? osaScouting?.injuryProneness,
           scoutOvr: (myScouting as any)?.ovr,
           scoutPot: (myScouting as any)?.pot,
 
-          // OSA Scout
-          osaStuff: osaScouting?.stuff,
-          osaControl: osaScouting?.control,
-          osaHra: osaScouting?.hra,
-          osaStamina: osaScouting?.stamina,
-          osaInjuryProneness: osaScouting?.injuryProneness,
-          osaOvr: (osaScouting as any)?.ovr,
-          osaPot: (osaScouting as any)?.pot,
-
-          // Toggle state
-          activeScoutSource: myScouting ? 'my' : 'osa',
-          hasMyScout: !!myScouting,
-          hasOsaScout: !!osaScouting,
-
-          // My Scout pitch data
-          myPitches: myScouting?.pitches ? Object.keys(myScouting.pitches) : undefined,
-          myPitchRatings: myScouting?.pitches,
-
-          // OSA pitch data
-          osaPitches: osaScouting?.pitches ? Object.keys(osaScouting.pitches) : undefined,
-          osaPitchRatings: osaScouting?.pitches,
+          // Peak projection data (precomputed from TFR pipeline)
+          projK9: prospect?.projK9,
+          projBb9: prospect?.projBb9,
+          projHr9: prospect?.projHr9,
+          projIp: prospect?.peakIp,
 
           // TFR
           isProspect: true,
@@ -2372,15 +2301,7 @@ export class FarmRankingsView {
           tfrStuff: prospect?.trueRatings?.stuff,
           tfrControl: prospect?.trueRatings?.control,
           tfrHra: prospect?.trueRatings?.hra,
-
-          year: this.selectedYear,
-          showYearLabel: true,
-          forceProjection: true,
-      }, this.selectedYear, {
-          leagueFipLikes,
-          leagueAverages,
-          mlbStats: playerMlbStats
-      });
+      }, this.selectedYear);
   }
 
   private async openHitterProfile(playerId: number, player: any, teamLabel: string, parentLabel: string): Promise<void> {
@@ -2391,15 +2312,15 @@ export class FarmRankingsView {
       // Find hitter prospect data from our loaded data
       const hitterProspect = this.hitterData?.prospects.find(p => p.playerId === playerId);
 
-      // Use True Ratings - these are normalized from percentile rankings across all prospects
-      // They answer: "Where does this prospect rank among all prospects?" (20-80 scale)
-      // Scout might say 60 Power, but if that's only 35th percentile among prospects, True Power = 41
-      const estimatedPower = hitterProspect?.trueRatings.power;
-      const estimatedEye = hitterProspect?.trueRatings.eye;
-      const estimatedAvoidK = hitterProspect?.trueRatings.avoidK;
-      const estimatedContact = hitterProspect?.trueRatings.contact;
-      const estimatedGap = hitterProspect?.trueRatings.gap;
-      const estimatedSpeed = hitterProspect?.trueRatings.speed;
+      // TR = current ability from development-curve-based estimation (precomputed)
+      const devTR = hitterProspect?.developmentTR;
+      const tfrR = hitterProspect?.trueRatings;
+      const estimatedEye = devTR?.eye ?? tfrR?.eye;
+      const estimatedAvoidK = devTR?.avoidK ?? tfrR?.avoidK;
+      const estimatedPower = devTR?.power ?? tfrR?.power;
+      const estimatedContact = devTR?.contact ?? tfrR?.contact;
+      const estimatedGap = devTR?.gap ?? tfrR?.gap ?? hitterProspect?.scoutingRatings.gap;
+      const estimatedSpeed = devTR?.speed ?? tfrR?.speed ?? hitterProspect?.scoutingRatings.speed;
 
       // Build batter profile data
       // Farm prospects: trueRating is undefined (no MLB stats), trueFutureRating carries TFR

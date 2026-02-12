@@ -82,6 +82,11 @@ export interface HitterTrueFutureRatingResult {
   trueRating?: number;
   /** Total minor league PA */
   totalMinorPa: number;
+  /** Raw (unadjusted) minor league stats — for development curve TR */
+  rawBbPct?: number;
+  rawKPct?: number;
+  rawHrPct?: number;
+  rawAvg?: number;
 }
 
 /**
@@ -112,6 +117,11 @@ export interface HitterComponentBlendedResult {
   totalMinorPa: number;
   /** Total weighted PA for reliability */
   totalWeightedPa: number;
+  /** Raw (unadjusted) minor league stats */
+  rawBbPct?: number;
+  rawKPct?: number;
+  rawHrPct?: number;
+  rawAvg?: number;
   /** True Rating if available (for comparison) */
   trueRating?: number;
 }
@@ -339,6 +349,10 @@ class HitterTrueFutureRatingService {
     kPct: number;
     hrPct: number;
     avg: number;
+    rawBbPct: number;
+    rawKPct: number;
+    rawHrPct: number;
+    rawAvg: number;
     totalPa: number;
     weightedPa: number;
   } | null {
@@ -350,6 +364,10 @@ class HitterTrueFutureRatingService {
     let weightedKPctSum = 0;
     let weightedHrPctSum = 0;
     let weightedAvgSum = 0;
+    let rawBbPctSum = 0;
+    let rawKPctSum = 0;
+    let rawHrPctSum = 0;
+    let rawAvgSum = 0;
     let totalWeight = 0;
     let totalPa = 0;
     let weightedPa = 0;
@@ -380,6 +398,12 @@ class HitterTrueFutureRatingService {
       weightedHrPctSum += adjusted.hrPct * weight;
       weightedAvgSum += adjusted.avg * weight;
 
+      // Raw (unadjusted) accumulators
+      rawBbPctSum += bbPct * weight;
+      rawKPctSum += kPct * weight;
+      rawHrPctSum += hrPct * weight;
+      rawAvgSum += avgVal * weight;
+
       totalWeight += weight;
       totalPa += stat.pa;
 
@@ -397,6 +421,10 @@ class HitterTrueFutureRatingService {
       kPct: weightedKPctSum / totalWeight,
       hrPct: weightedHrPctSum / totalWeight,
       avg: weightedAvgSum / totalWeight,
+      rawBbPct: rawBbPctSum / totalWeight,
+      rawKPct: rawKPctSum / totalWeight,
+      rawHrPct: rawHrPctSum / totalWeight,
+      rawAvg: rawAvgSum / totalWeight,
       totalPa,
       weightedPa,
     };
@@ -956,6 +984,10 @@ class HitterTrueFutureRatingService {
       speedValue,
       totalMinorPa,
       totalWeightedPa: weightedPa,
+      rawBbPct: weightedStats ? Math.round(weightedStats.rawBbPct * 10) / 10 : undefined,
+      rawKPct: weightedStats ? Math.round(weightedStats.rawKPct * 10) / 10 : undefined,
+      rawHrPct: weightedStats ? Math.round(weightedStats.rawHrPct * 100) / 100 : undefined,
+      rawAvg: weightedStats ? Math.round(weightedStats.rawAvg * 1000) / 1000 : undefined,
       trueRating: input.trueRating,
     };
   }
@@ -1117,6 +1149,10 @@ class HitterTrueFutureRatingService {
         trueFutureRating,
         trueRating: result.trueRating,
         totalMinorPa: result.totalMinorPa,
+        rawBbPct: result.rawBbPct,
+        rawKPct: result.rawKPct,
+        rawHrPct: result.rawHrPct,
+        rawAvg: result.rawAvg,
       };
     });
   }

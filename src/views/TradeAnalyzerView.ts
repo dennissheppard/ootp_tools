@@ -10,7 +10,7 @@ import { trueFutureRatingService } from '../services/TrueFutureRatingService';
 import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
 import { MinorLeagueStatsWithLevel } from '../models/Stats';
 import { fipWarService } from '../services/FipWarService';
-import { PlayerProfileModal } from './PlayerProfileModal';
+import { pitcherProfileModal } from './PitcherProfileModal';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { batterProjectionService, ProjectedBatter } from '../services/BatterProjectionService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
@@ -54,7 +54,6 @@ export class TradeAnalyzerView {
   private allHitterScoutingRatings: Map<number, HitterScoutingRatings> = new Map();
   private minorLeagueStats: Map<number, MinorLeagueStatsWithLevel[]> = new Map();
   private currentYear: number = 2022;
-  private playerProfileModal: PlayerProfileModal;
   private batterProfileModal: BatterProfileModal;
 
   private team1State: TradeTeamState = {
@@ -80,7 +79,6 @@ export class TradeAnalyzerView {
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.playerProfileModal = new PlayerProfileModal();
     this.batterProfileModal = new BatterProfileModal();
     this.initialize();
   }
@@ -131,7 +129,7 @@ export class TradeAnalyzerView {
         scoutPot: scouting?.pot,
       };
 
-      await this.playerProfileModal.show(profileData, this.currentYear);
+      await pitcherProfileModal.show(profileData as any, this.currentYear);
     } else {
       // Handle batter profile
       const batterProjection = this.allBatterProjections.get(playerId);
@@ -174,12 +172,12 @@ export class TradeAnalyzerView {
             projHrPct = prospectData.projHrPct;
             trueFutureRating = prospectData.trueFutureRating;
             tfrPercentile = prospectData.percentile;
-            estimatedPower = prospectData.trueRatings.power;
-            estimatedEye = prospectData.trueRatings.eye;
-            estimatedAvoidK = prospectData.trueRatings.avoidK;
-            estimatedContact = prospectData.trueRatings.contact;
-            estimatedGap = prospectData.trueRatings.gap;
-            estimatedSpeed = prospectData.trueRatings.speed;
+            estimatedPower = prospectData.developmentTR?.power ?? prospectData.trueRatings.power;
+            estimatedEye = prospectData.developmentTR?.eye ?? prospectData.trueRatings.eye;
+            estimatedAvoidK = prospectData.developmentTR?.avoidK ?? prospectData.trueRatings.avoidK;
+            estimatedContact = prospectData.developmentTR?.contact ?? prospectData.trueRatings.contact;
+            estimatedGap = prospectData.developmentTR?.gap ?? prospectData.trueRatings.gap;
+            estimatedSpeed = prospectData.developmentTR?.speed ?? prospectData.trueRatings.speed;
           }
         } catch (e) {
           console.warn('Could not load hitter farm data for prospect lookup:', e);

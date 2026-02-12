@@ -2,7 +2,7 @@ import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService } from './IndexedDBService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 
-type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness';
+type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence';
 
 const STORAGE_KEY_PREFIX = 'wbl_scouting_ratings_';
 const USE_INDEXEDDB = true; // Feature flag to switch between localStorage and IndexedDB
@@ -17,7 +17,13 @@ const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   ovr: ['ovr', 'overall', 'cur', 'current'],
   pot: ['pot', 'potential', 'ceil', 'ceiling'],
   stamina: ['stm', 'stamina', 'stam', 'staminarating', 'pitchingstamina', 'endurance'],
-  injuryProneness: ['prone', 'injury', 'injuryproneness', 'inj']
+  injuryProneness: ['prone', 'injury', 'injuryproneness', 'inj'],
+  leadership: ['lea', 'leadership'],
+  loyalty: ['loy', 'loyalty'],
+  adaptability: ['ad', 'adaptability'],
+  greed: ['fin', 'greed', 'greedy'],
+  workEthic: ['we', 'workethic'],
+  intelligence: ['int', 'intelligence'],
 };
 
 /** Known pitch type column headers (normalized to lowercase alphanumeric) */
@@ -85,6 +91,14 @@ class ScoutingDataService {
             }
         }
 
+        // Parse personality traits
+        const leadership = this.getPersonalityTrait(cells, indexMap.leadership);
+        const loyalty = this.getPersonalityTrait(cells, indexMap.loyalty);
+        const adaptability = this.getPersonalityTrait(cells, indexMap.adaptability);
+        const greed = this.getPersonalityTrait(cells, indexMap.greed);
+        const workEthic = this.getPersonalityTrait(cells, indexMap.workEthic);
+        const intelligence = this.getPersonalityTrait(cells, indexMap.intelligence);
+
         results.push({
           playerId,
           playerName: playerName || undefined,
@@ -97,6 +111,12 @@ class ScoutingDataService {
           ovr: this.isNumber(ovr) ? ovr : undefined,
           pot: this.isNumber(pot) ? pot : undefined,
           pitches: Object.keys(pitches).length > 0 ? pitches : undefined,
+          leadership,
+          loyalty,
+          adaptability,
+          greed,
+          workEthic,
+          intelligence,
           source,
         });
       } else {
@@ -370,6 +390,13 @@ class ScoutingDataService {
   private getStringFromIndex(cells: string[], index?: number): string {
     if (typeof index !== 'number') return '';
     return this.cleanCell(cells[index] ?? '');
+  }
+
+  private getPersonalityTrait(cells: string[], index?: number): 'H' | 'N' | 'L' | undefined {
+    if (typeof index !== 'number') return undefined;
+    const raw = this.cleanCell(cells[index] ?? '').toUpperCase();
+    if (raw === 'H' || raw === 'N' || raw === 'L') return raw;
+    return undefined;
   }
 
   /**

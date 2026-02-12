@@ -1,7 +1,7 @@
 import { devTrackerService, OrgDevRanking, OrgPlayerDevelopment, TradeEvent } from '../services/DevTrackerService';
 import { playerService } from '../services/PlayerService';
 import { isPitcher } from '../models/Player';
-import { PlayerProfileModal } from './PlayerProfileModal';
+import { pitcherProfileModal } from './PitcherProfileModal';
 import { BatterProfileModal } from './BatterProfileModal';
 
 type SortKey = 'devScore' | 'developmentScore' | 'peakScore' | 'agingScore' | 'tradeImpactScore' | 'playerCount';
@@ -13,12 +13,10 @@ export class DevTrackerView {
   private sortKey: SortKey = 'devScore';
   private sortDir: SortDir = 'desc';
   private hasLoadedData = false;
-  private playerProfileModal: PlayerProfileModal;
   private batterProfileModal: BatterProfileModal;
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.playerProfileModal = new PlayerProfileModal();
     this.batterProfileModal = new BatterProfileModal();
     this.renderLoading();
     this.setupLazyLoading();
@@ -374,7 +372,7 @@ export class DevTrackerView {
           year: 2021,
           showYearLabel: false,
         };
-        await this.playerProfileModal.show(profileData as any, 2021);
+        await pitcherProfileModal.show(profileData as any, 2021);
       } else {
         const profileData = {
           playerId: player.id,

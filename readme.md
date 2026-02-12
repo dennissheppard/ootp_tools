@@ -182,6 +182,49 @@ Different components have different predictive validity from MiLB stats:
 | 1.0 | 5-10% | Replacement |
 | 0.5 | 0-5% | Organizational |
 
+### Prospect True Rating (Development Curves)
+
+For prospects (no MLB stats), TR represents **estimated current ability** — where on the development path from raw talent to peak potential the player currently sits. This is the blue solid line on the radar chart; TFR (green dashed) shows the ceiling.
+
+**Previous approach (devCap):** `TR = 50 + (TFR - 50) × (age - 16) / 11` — a deterministic function of TFR + age that added no independent signal.
+
+**Current approach:** Data-driven development curves derived from historical cohort analysis (245 MLB players, 2012+ debuts, 600+ PA with MiLB history).
+
+**Algorithm:**
+
+1. **Cohort selection** — The prospect's projected peak stat (from TFR pipeline) selects a cohort of historical players with similar peak MLB performance:
+   - Eye: 3-5%, 5-7%, 7-9%, 9-11%, 11%+ peak BB%
+   - AvoidK: 8-12%, 12-16%, 16-20%, 20-25% peak K%
+   - Power: 0-1.5%, 1.5-3%, 3-4.5% peak HR%
+   - Contact: .200-.240, .240-.270, .270-.300, .300-.330 peak AVG
+
+2. **Expected curve value** — Within the cohort, the PA-weighted mean MiLB stat at each age (18-26) defines the development curve. Interpolate to get the expected stat at the prospect's current age.
+
+3. **Development fraction** — How far along the curve the prospect's age is: `devFraction = (curveVal[age] - curveVal[minAge]) / (curveVal[maxAge] - curveVal[minAge])`. For AvoidK (lower-is-better), uses age-based fraction directly.
+
+4. **Baseline TR** — `baseline = 20 + (TFR - 20) × devFraction`
+
+5. **Individual adjustment** (if raw MiLB stats available):
+   - `deviation = (actualRaw - expectedRaw) / expectedRaw`
+   - For AvoidK: sign inverted (lower K% than expected = positive)
+   - `shrinkage = totalMinorPa / (totalMinorPa + stabilizationPa)`
+   - `ratingAdjust = deviation × shrinkage × 8` (sensitivity: 8 rating pts per 100% deviation)
+
+6. **Final TR** — `clamp(baseline + ratingAdjust, 20, TFR)`
+
+**Stabilization PA** (controls how quickly individual stats override the curve baseline):
+
+| Component | Stabilization PA | Rationale |
+|-----------|-----------------|-----------|
+| Eye (BB%) | 600 | MiLB BB% weakly predictive — high PA needed |
+| AvoidK (K%) | 200 | MiLB K% strongly predictive (r=0.68) — trusts stats quickly |
+| Power (HR%) | 400 | MiLB HR% moderately predictive (r=0.44) |
+| Contact (AVG) | 400 | MiLB AVG weakly predictive — moderate PA threshold |
+
+**Gap/Speed:** No MiLB stat equivalent — use the average development fraction from the four stats-based components.
+
+**Implementation:** `ProspectDevelopmentCurveService.calculateProspectTR()` is called once per data load. Results are stored on `RatedHitterProspect.developmentTR` and read by all views.
+
 ### Recent Projection System Improvements
 
 #### 1. HR%-Based Power Estimation (Fixed Gap Hitter Inflation)
@@ -301,6 +344,18 @@ K%      1.724  2.214   -0.400
 HR%     0.648  0.849   -0.069
 ```
 
+#### 9. Development-Curve-Based Prospect TR (Feb 2026)
+
+**Problem:** Prospect TR used a deterministic "devCap" formula: `TR = 50 + (TFR - 50) × (age - 16) / 11`. This was purely a function of TFR + age — it added no independent signal and couldn't differentiate between a 22-year-old who was outperforming expectations vs. one who was underperforming.
+
+**Solution:** Replaced devCap with **data-driven development curves** from historical cohort analysis (245 MLB players, 2012+ debuts, 600+ PA with MiLB history). For each component, historical players are grouped by peak MLB stat into cohorts. The average MiLB stat at each age within each cohort defines an expected development curve. A prospect's TR is derived from where they fall on this curve, with individual adjustment via Bayesian shrinkage weighted by PA.
+
+**Impact:**
+- TR now varies based on the prospect's actual MiLB performance, not just age
+- Different development trajectories for different player types (e.g., power developers vs. contact-first)
+- Consistent TR derivation across all views (FarmRankings, TrueRatings, TradeAnalyzer, GlobalSearch)
+- Removed ~25 lines of duplicated devCap/rateToRating code from each view
+
 ### Team Planning
 
 A year-by-year roster planning grid that shows contract obligations, projected gaps, and where farm system prospects slot in. Select a team and see 6 years of roster planning across lineup, rotation, and bullpen.
@@ -402,6 +457,7 @@ Three-model ensemble for future performance:
 |---------|---------|
 | `HitterTrueRatingsCalculationService` | Batter True Rating calculation |
 | `HitterTrueFutureRatingService` | Batter prospect TFR (wOBA-based peak projections) |
+| `ProspectDevelopmentCurveService` | Prospect TR via historical development curves (cohort-based) |
 | `HitterRatingEstimatorService` | Rating↔stat conversion coefficients (calibrated) |
 | `HitterScoutingDataService` | Batter scouting CSV parsing (maps CON P, not HT P) |
 | `BatterProjectionService` | Batter projections integration |
@@ -430,6 +486,7 @@ Automated calibration scripts optimize coefficients to minimize projection bias:
 | `tools/calibrate_level_adjustments.ts` | Analyze MiLB→MLB predictive validity | For tuning scouting weights |
 | `tools/test_hitter_tfr.ts` | Validation test against historical outcomes | Validate TFR accuracy |
 | `tools/analyze_hitter_data.ts` | Analyze OOTP engine test data | For coefficient research |
+| `tools/research/explore_development_all_components.ts` | Analyze MiLB development curves by peak cohort | Generates curve constants for `ProspectDevelopmentCurveService` |
 
 **Calibration Process:**
 1. Simulates full projection pipeline (historical stats → ratings → projections)
@@ -532,7 +589,7 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 
 **General:**
 - League start year: 2000
-- Peak age: 27
+- Peak age: 27 (pitcher prospect TR only; batter prospect TR uses development curves)
 - Replacement FIP: 5.00
 
 **True Ratings:**
@@ -620,6 +677,7 @@ These coefficients are still used for TFR (prospect projections) and scouting co
 - **TFR/TR unification** — TFR shown alongside TR when TFR > TR; hidden when fully realized (see below)
 - **Elite stealer uncapping** — SB projections for SR > 70 deliberately overshoot calibration data to project capability rather than strategy-constrained outcomes
 - **WAR-based TR/TFR ranking** — Ranking uses WAR per 600 PA (not wOBA) to incorporate baserunning and future-proof for fielding; standardized PA keeps it rate-based
+- **Development-curve-based prospect TR** — Batter prospect current ability derived from historical cohort development curves (245 MLB careers), not a deterministic age formula. Individual stats adjust the baseline via Bayesian shrinkage.
 
 ### TFR/TR Unified Display
 
@@ -629,7 +687,7 @@ TFR and TR are unified across all views. Instead of proxy thresholds (`isProspec
   - Rating bars show TR value inside the colored bar, TFR value at the bar's end
   - Diff column compares TFR vs Scout (both are peak projections), not current TR vs Scout
 - **TFR <= TR** → TFR disappears entirely, player is "fully realized"
-- **No TR** (pure prospect) → Show TFR only with peak projection
+- **No TR** (pure prospect) → Show development-curve TR as current ability + TFR as ceiling (see *Prospect True Rating* section)
 
 **Gate check** (skip TFR calculation entirely if): age >= 26 AND star gap < 0.5
 
