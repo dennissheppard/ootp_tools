@@ -14,6 +14,15 @@ import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesS
 import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
 import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
 import { contractService, Contract } from '../services/ContractService';
+import { RadarChart, RadarChartSeries } from '../components/RadarChart';
+
+// Eagerly resolve all team logo URLs via Vite glob
+const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
+const teamLogoMap: Record<string, string> = {};
+for (const [path, url] of Object.entries(_logoModules)) {
+  const filename = path.split('/').pop()?.replace('.png', '')?.toLowerCase() ?? '';
+  teamLogoMap[filename] = url;
+}
 
 export interface BatterProfileData {
   playerId: number;
@@ -129,8 +138,6 @@ export class BatterProfileModal {
 
   private scoutingData: HitterScoutingRatings | null = null;
   private scoutingIsOsa = false;
-  private hasMyScout = false;
-  private hasOsaScout = false;
   private myScoutingData: HitterScoutingRatings | null = null;
   private osaScoutingData: HitterScoutingRatings | null = null;
   private projectionYear: number = new Date().getFullYear();
@@ -140,18 +147,24 @@ export class BatterProfileModal {
   private developmentChart: DevelopmentChart | null = null;
   private activeDevMetrics: DevelopmentMetric[] = ['scoutPower', 'scoutEye', 'scoutAvoidK'];
 
+  // Radar chart instances
+  private radarChart: RadarChart | null = null;
+  private runningRadarChart: RadarChart | null = null;
+
   // Contract data for current player
   private contract: Contract | null = null;
 
-  // Advanced ratings accordion state
-  private advancedRatingsExpanded = false;
+  // League WAR ceiling for arc scaling
+  private leagueWarMax: number = 8;
 
   // Projection toggle state (Current vs Peak)
   private projectionMode: 'current' | 'peak' = 'current';
   private currentStats: BatterSeasonStats[] = [];
 
+  // Track which radar series are hidden via legend toggle
+  private hiddenSeries = new Set<string>();
+
   constructor() {
-    this.advancedRatingsExpanded = localStorage.getItem('wbl_expanded_ratings_expanded') === 'true';
     this.ensureOverlayExists();
   }
 
@@ -163,6 +176,7 @@ export class BatterProfileModal {
     this.overlay.setAttribute('aria-hidden', 'true');
     this.overlay.innerHTML = `
       <div class="modal modal-lg modal-draggable">
+        <img class="modal-logo-watermark" aria-hidden="true" />
         <div class="modal-header">
           <div class="profile-header">
             <div class="profile-title-group">
@@ -176,7 +190,8 @@ export class BatterProfileModal {
               <div class="player-age-info"></div>
             </div>
             <div class="ratings-header-slot"></div>
-            <div class="metadata-header-slot"></div>
+            <div class="header-vitals"></div>
+            <div class="war-header-slot"></div>
           </div>
           <button class="modal-close" aria-label="Close">&times;</button>
         </div>
@@ -269,7 +284,8 @@ export class BatterProfileModal {
     const ageEl = this.overlay.querySelector<HTMLElement>('.player-age-info');
     const posBadgeSlot = this.overlay.querySelector<HTMLElement>('.position-badge-slot');
     const ratingsSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
-    const metadataSlot = this.overlay.querySelector<HTMLElement>('.metadata-header-slot');
+    const warSlot = this.overlay.querySelector<HTMLElement>('.war-header-slot');
+    const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
 
     if (titleEl) titleEl.textContent = data.playerName;
     if (teamEl) {
@@ -281,9 +297,19 @@ export class BatterProfileModal {
       posBadgeSlot.innerHTML = this.renderPositionBadge(data);
     }
     if (ageEl) {
-      const ageText = data.age ? `Age: ${data.age}` : '';
-      const starsHtml = this.renderOvrPotStars(data);
-      ageEl.innerHTML = starsHtml ? `${ageText} ${starsHtml}` : ageText;
+      ageEl.textContent = data.age ? `Age: ${data.age}` : '';
+    }
+
+    // Set header logo watermark
+    const watermark = this.overlay.querySelector<HTMLImageElement>('.modal-logo-watermark');
+    if (watermark) {
+      const logoUrl = this.getTeamLogoUrl(data.team);
+      if (logoUrl) {
+        watermark.src = logoUrl;
+        watermark.style.display = '';
+      } else {
+        watermark.style.display = 'none';
+      }
     }
 
     // Show modal with loading state
@@ -303,14 +329,21 @@ export class BatterProfileModal {
 
     // Fetch additional data
     try {
-      // Fetch scouting data and contract data
-      const [myScoutingAll, osaScoutingAll, allContracts] = await Promise.all([
+      // Fetch scouting data, contract data, and league WAR ceiling
+      const [myScoutingAll, osaScoutingAll, allContracts, lastYearBatting] = await Promise.all([
         hitterScoutingDataService.getLatestScoutingRatings('my'),
         hitterScoutingDataService.getLatestScoutingRatings('osa'),
-        contractService.getAllContracts()
+        contractService.getAllContracts(),
+        trueRatingsService.getTrueBattingStats(currentYear - 1).catch(() => [])
       ]);
 
       this.contract = allContracts.get(data.playerId) ?? null;
+
+      // Compute league WAR ceiling from last year's leader
+      if (lastYearBatting.length > 0) {
+        const maxWar = lastYearBatting.reduce((max, p) => Math.max(max, p.war ?? 0), 0);
+        this.leagueWarMax = Math.max(6, maxWar);
+      }
 
       const myScouting = myScoutingAll.find(s => s.playerId === data.playerId);
       const osaScouting = osaScoutingAll.find(s => s.playerId === data.playerId);
@@ -318,9 +351,6 @@ export class BatterProfileModal {
       // Store both for dropdown toggle
       this.myScoutingData = myScouting ?? null;
       this.osaScoutingData = osaScouting ?? null;
-      this.hasMyScout = !!myScouting;
-      this.hasOsaScout = !!osaScouting;
-
       // Default to 'my' if available, otherwise OSA
       if (myScouting) {
         this.scoutingData = myScouting;
@@ -337,26 +367,26 @@ export class BatterProfileModal {
       if (ratingsSlot) {
         ratingsSlot.innerHTML = this.renderRatingEmblem(data);
       }
-      if (metadataSlot) {
-        metadataSlot.innerHTML = this.renderHeaderMetadata(data);
+      if (warSlot) {
+        warSlot.innerHTML = this.renderWarEmblem(data);
       }
-      // Re-render age + stars now that scouting data is available
+      if (vitalsSlot) {
+        vitalsSlot.innerHTML = this.renderHeaderVitals(data);
+      }
       if (ageEl) {
-        const ageText = data.age ? `Age: ${data.age}` : '';
-        const starsHtml = this.renderOvrPotStars(data);
-        ageEl.innerHTML = starsHtml ? `${ageText} ${starsHtml}` : ageText;
+        ageEl.textContent = data.age ? `Age: ${data.age}` : '';
       }
 
       // Fetch batting stats history
-      const currentYear = await dateService.getCurrentYear();
+      const currentYear2 = await dateService.getCurrentYear();
 
       // Fetch minor league batting stats
       let minorStats: BatterSeasonStats[] = [];
       try {
         const minorBattingStats = await minorLeagueBattingStatsService.getPlayerStats(
           data.playerId,
-          currentYear - 5,
-          currentYear
+          currentYear2 - 5,
+          currentYear2
         );
         minorStats = minorBattingStats.map(s => ({
           year: s.year,
@@ -382,7 +412,7 @@ export class BatterProfileModal {
       // Fetch MLB batting stats
       let mlbStats: BatterSeasonStats[] = [];
       try {
-        for (let year = currentYear; year >= currentYear - 4; year--) {
+        for (let year = currentYear2; year >= currentYear2 - 4; year--) {
           const yearStats = await trueRatingsService.getTrueBattingStats(year);
           const playerStat = yearStats.find(s => s.player_id === data.playerId);
           if (playerStat) {
@@ -429,14 +459,8 @@ export class BatterProfileModal {
         bodyEl.innerHTML = this.renderBody(data, allStats);
         this.bindBodyEvents();
 
-        // Trigger shimmer animation on rating bars
+        // Trigger shimmer on emblem
         requestAnimationFrame(() => {
-          const estimatedBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated');
-          estimatedBars.forEach(bar => bar.classList.add('shimmer-once'));
-
-          const scoutBars = bodyEl.querySelectorAll<HTMLElement>('.bar-scout');
-          scoutBars.forEach(bar => bar.classList.add('shimmer-once'));
-
           const emblem = this.overlay?.querySelector('.rating-emblem');
           if (emblem) emblem.classList.add('shimmer-once');
         });
@@ -466,6 +490,16 @@ export class BatterProfileModal {
       this.modal.style.top = '';
     }
 
+    // Clean up radar charts
+    if (this.radarChart) {
+      this.radarChart.destroy();
+      this.radarChart = null;
+    }
+    if (this.runningRadarChart) {
+      this.runningRadarChart.destroy();
+      this.runningRadarChart = null;
+    }
+
     // Clean up development chart
     if (this.developmentChart) {
       this.developmentChart.destroy();
@@ -481,6 +515,19 @@ export class BatterProfileModal {
     return `<span class="team-name">${team}</span>`;
   }
 
+  /** Resolve a team name to its logo URL, trying full name then nickname match */
+  private getTeamLogoUrl(teamName?: string): string | null {
+    if (!teamName) return null;
+    const normalized = teamName.replace(/\s+/g, '_').toLowerCase();
+    // Exact match: "Toronto Huskies" → "toronto_huskies"
+    if (teamLogoMap[normalized]) return teamLogoMap[normalized];
+    // Nickname match: "Huskies" → find file ending with "_huskies"
+    for (const [filename, url] of Object.entries(teamLogoMap)) {
+      if (filename.endsWith('_' + normalized)) return url;
+    }
+    return null;
+  }
+
   private renderPositionBadge(data: BatterProfileData): string {
     const posLabel = data.positionLabel || (data.position ? getPositionLabel(data.position) : 'Unknown');
     const posClass = this.getPositionClass(data.position);
@@ -490,31 +537,27 @@ export class BatterProfileModal {
   private renderLoadingContent(): string {
     return `
       <div class="player-modal-loading">
-        <div class="ratings-comparison loading-skeleton">
-          <div class="rating-row rating-row-header">
-            <span class="rating-label"></span>
-            <div class="rating-bars">
-              <span class="bar-header skeleton-line sm"></span>
-              <span class="bar-vs"></span>
-              <span class="bar-header skeleton-line sm"></span>
-              <span class="rating-diff"></span>
-            </div>
+        <div class="ratings-layout loading-skeleton">
+          <div class="ratings-radar-col">
+            <div class="skeleton-radar-placeholder"></div>
           </div>
-          ${Array.from({ length: 4 }, () => `
-            <div class="rating-row">
-              <span class="rating-label"><span class="skeleton-line xs"></span></span>
-              <div class="rating-bars">
-                <div class="bar-container skeleton-bar"></div>
-                <span class="rating-diff"><span class="skeleton-line xs"></span></span>
-                <span class="bar-vs">vs</span>
-                <div class="bar-container skeleton-bar"></div>
+          <div class="ratings-physicals-col">
+            <div class="physicals-box">
+              <div class="skeleton-line sm" style="margin-bottom: 0.5rem;"></div>
+              <div class="physicals-gauges">
+                <div class="skeleton-gauge"></div>
+                <div class="skeleton-gauge"></div>
+                <div class="skeleton-gauge"></div>
               </div>
             </div>
-          `).join('')}
+          </div>
         </div>
-        <div class="projection-section loading-skeleton">
-          <h4 class="skeleton-line md"></h4>
-          <div class="stats-table-container">
+        <div class="stats-section loading-skeleton" style="margin-top: 1rem;">
+          <div class="stats-tabs">
+            <div class="skeleton-line sm"></div>
+            <div class="skeleton-line sm"></div>
+          </div>
+          <div class="stats-table-scroll">
             <table class="stats-table skeleton-table">
               <thead>
                 <tr>
@@ -522,26 +565,9 @@ export class BatterProfileModal {
                 </tr>
               </thead>
               <tbody>
-                <tr>
-                  ${Array.from({ length: 8 }, () => '<td><span class="skeleton-line xs"></span></td>').join('')}
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </div>
-        <div class="stats-history loading-skeleton">
-          <h4 class="section-label skeleton-line sm"></h4>
-          <div class="table-wrapper">
-            <table class="stats-table skeleton-table">
-              <thead>
-                <tr>
-                  ${Array.from({ length: 10 }, () => '<th><span class="skeleton-line xs"></span></th>').join('')}
-                </tr>
-              </thead>
-              <tbody>
-                ${Array.from({ length: 5 }, () => `
+                ${Array.from({ length: 3 }, () => `
                   <tr>
-                    ${Array.from({ length: 10 }, () => '<td><span class="skeleton-line xs"></span></td>').join('')}
+                    ${Array.from({ length: 8 }, () => '<td><span class="skeleton-line xs"></span></td>').join('')}
                   </tr>
                 `).join('')}
               </tbody>
@@ -578,31 +604,41 @@ export class BatterProfileModal {
     const badgeClass = this.getTrueRatingClass(ratingValue);
     const percentile = useTfr ? data.tfrPercentile : data.percentile;
     const percentileText = typeof percentile === 'number' ? `${this.formatPercentile(percentile)} Percentile` : '';
-    const barWidth = Math.max(10, Math.min(100, (ratingValue / 5) * 100));
     const label = useTfr ? 'True Future Rating' : 'True Rating';
 
-    // Show "Peak" indicator when player has TFR upside (TFR > TR by ≥ 0.25 stars)
+    // Half-donut arc for the TR emblem (0-5 scale)
+    const emblemSize = 100;
+    const cx = emblemSize / 2;
+    const cy = emblemSize / 2 + 2;
+    const radius = (emblemSize / 2) - 8;
+    const sw = 8;
+    const fraction = Math.max(0, Math.min(1, ratingValue / 5));
+    const arcPath = `M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`;
+    const halfCirc = Math.PI * radius;
+    const dashOff = halfCirc * (1 - fraction);
+
+    // Show "Peak" indicator when player has TFR upside (TFR > TR by >= 0.25 stars)
     let upsideHtml = '';
     if (data.hasTfrUpside && hasTr && hasTfr && (data.trueFutureRating! - data.trueRating! >= 0.25)) {
-        upsideHtml = `<div class="rating-emblem-upside" title="True Future Rating: ${data.trueFutureRating!.toFixed(1)}">
-            <span class="upside-label">↗ Peak</span>
-            <span class="upside-value">${data.trueFutureRating!.toFixed(1)}</span>
-        </div>`;
+        upsideHtml = `<span class="emblem-gauge-upside" title="True Future Rating: ${data.trueFutureRating!.toFixed(1)}">↗ ${data.trueFutureRating!.toFixed(1)}</span>`;
     }
 
     return `
       <div class="rating-emblem ${badgeClass}">
         <div class="rating-emblem-header">
           <span class="rating-emblem-label">${label}</span>
+          ${upsideHtml}
         </div>
-        <div class="rating-emblem-body">
-          <div class="rating-emblem-bar">
-            <div class="rating-emblem-bar-fill" style="width: ${barWidth}%"></div>
-          </div>
-          <div class="rating-emblem-score">${ratingValue.toFixed(1)}</div>
+        <div class="emblem-gauge-wrap">
+          <svg class="emblem-gauge-svg" width="${emblemSize}" height="${emblemSize / 2 + 8}" viewBox="0 0 ${emblemSize} ${emblemSize / 2 + 8}">
+            <path d="${arcPath}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="${sw}" stroke-linecap="round" />
+            <path d="${arcPath}" fill="none" stroke="var(--rating-color)" stroke-width="${sw}" stroke-linecap="round"
+              stroke-dasharray="${halfCirc}" stroke-dashoffset="${dashOff}"
+              style="transition: stroke-dashoffset 0.6s ease-out;" />
+          </svg>
+          <div class="emblem-gauge-score">${ratingValue.toFixed(1)}</div>
         </div>
         ${percentileText ? `<div class="rating-emblem-meta">${percentileText}</div>` : ''}
-        ${upsideHtml}
       </div>
     `;
   }
@@ -617,14 +653,11 @@ export class BatterProfileModal {
     return `${rounded}${suffix}`;
   }
 
-  private renderHeaderMetadata(data: BatterProfileData): string {
+  private calculateProjWar(data: BatterProfileData): number | undefined {
     const s = this.scoutingData;
-
-    // SR and STE stealing ratings (needed for WAR calculation)
     const sr = s?.stealingAggressiveness ?? data.scoutSR;
     const ste = s?.stealingAbility ?? data.scoutSTE;
 
-    // WAR badge - use projWar if provided, otherwise calculate from blended rates or estimated ratings
     let projWar = data.projWar;
     if (projWar === undefined) {
       const age = data.age ?? 27;
@@ -633,7 +666,6 @@ export class BatterProfileModal {
       let badgeObp: number | undefined;
       let badgeSlg: number | undefined;
 
-      // Prefer blended rates (passed for MLB players) over re-deriving from True Ratings
       if (data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
         badgeObp = data.projObp;
         badgeSlg = data.projSlg;
@@ -641,7 +673,6 @@ export class BatterProfileModal {
                  data.estimatedContact !== undefined) {
         const projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
         const projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
-        // Compute ISO from all XBH components when Gap/Speed available
         const hrPerAb = (HitterRatingEstimatorService.expectedHrPct(data.estimatedPower) / 100) / 0.88;
         const doublesPerAb = data.estimatedGap !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(data.estimatedGap) : 0.04;
         const triplesPerAb = data.estimatedSpeed !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(data.estimatedSpeed) : 0.005;
@@ -657,7 +688,6 @@ export class BatterProfileModal {
         const runsPerWin = 10;
         const replacementRuns = (projPa / 600) * 20;
         const runsAboveAvg = ((projOpsPlus - 100) / 10) * (projPa / 600) * 10;
-        // Include baserunning from SR/STE when available
         let sbRuns = 0;
         if (sr !== undefined && ste !== undefined) {
           const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
@@ -666,35 +696,109 @@ export class BatterProfileModal {
         projWar = Math.round(((runsAboveAvg + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
       }
     }
-    const warBadgeClass = this.getWarBadgeClass(projWar);
+    return projWar;
+  }
+
+  private renderWarEmblem(data: BatterProfileData): string {
+    const projWar = this.calculateProjWar(data);
     const warText = typeof projWar === 'number' ? projWar.toFixed(1) : '--';
     const warLabel = data.isProspect ? 'Proj Peak WAR' : 'Proj WAR';
+    const badgeClass = this.getWarBadgeClass(projWar);
 
-    // Injury text badge
-    const injury = s?.injuryProneness ?? data.injuryProneness ?? 'Normal';
-    const injuryClass = this.getInjuryBadgeClass(injury);
+    if (typeof projWar !== 'number') {
+      return `<div class="war-emblem war-none"><div class="war-emblem-header"><span class="war-emblem-label">${warLabel}</span></div><div class="emblem-gauge-score">--</div></div>`;
+    }
 
-    // Contract info
-    const contractHtml = this.renderContractInfo();
+    // Half-donut arc scaled to league leader WAR
+    const emblemSize = 100;
+    const cx = emblemSize / 2;
+    const cy = emblemSize / 2 + 2;
+    const radius = (emblemSize / 2) - 8;
+    const sw = 8;
+    const fraction = Math.max(0, Math.min(1, projWar / this.leagueWarMax));
+    const arcPath = `M ${cx - radius} ${cy} A ${radius} ${radius} 0 0 1 ${cx + radius} ${cy}`;
+    const halfCirc = Math.PI * radius;
+    const dashOff = halfCirc * (1 - fraction);
 
     return `
-      <div class="header-metadata">
-        <div class="metadata-col metadata-info-col">
-          <div class="metadata-info-row">
-            <span class="info-label">Injury:</span>
-            <span class="injury-badge ${injuryClass}">${injury}</span>
-          </div>
-          <div class="metadata-info-row">
-            <span class="info-label">Contract:</span>
-            <span class="contract-info">${contractHtml}</span>
-          </div>
+      <div class="war-emblem ${badgeClass}">
+        <div class="war-emblem-header">
+          <span class="war-emblem-label">${warLabel}</span>
         </div>
-        <div class="metadata-col metadata-war-col">
-          <div class="war-badge ${warBadgeClass}">
-            <span class="war-value">${warText}</span>
-            <span class="war-label">${warLabel}</span>
-          </div>
+        <div class="emblem-gauge-wrap">
+          <svg class="emblem-gauge-svg" width="${emblemSize}" height="${emblemSize / 2 + 8}" viewBox="0 0 ${emblemSize} ${emblemSize / 2 + 8}">
+            <path d="${arcPath}" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="${sw}" stroke-linecap="round" />
+            <path d="${arcPath}" fill="none" stroke="var(--war-color)" stroke-width="${sw}" stroke-linecap="round"
+              stroke-dasharray="${halfCirc}" stroke-dashoffset="${dashOff}"
+              style="transition: stroke-dashoffset 0.6s ease-out;" />
+          </svg>
+          <div class="emblem-gauge-score">${warText}</div>
         </div>
+      </div>
+    `;
+  }
+
+  private renderHeaderVitals(data: BatterProfileData): string {
+    const s = this.scoutingData;
+    const starsHtml = this.renderOvrPotStars(data);
+    const contractHtml = this.renderContractInfo();
+
+    const injury = s?.injuryProneness ?? data.injuryProneness ?? 'Normal';
+    const injuryClass = this.getInjuryBadgeClass(injury);
+    const personalityHtml = this.renderPersonalityVitalsColumn();
+
+    return `
+      <span class="header-divider" style="visibility:hidden;"></span>
+      <div class="vitals-col">
+        ${starsHtml ? `<div class="metadata-info-row">
+          <span class="info-label">OVR/POT:</span>
+          ${starsHtml}
+        </div>` : ''}
+        <div class="metadata-info-row">
+          <span class="info-label">$:</span>
+          <span class="contract-info">${contractHtml}</span>
+        </div>
+        <div class="metadata-info-row">
+          <span class="info-label">Injury:</span>
+          <span class="injury-badge ${injuryClass}">${injury}</span>
+        </div>
+      </div>
+      ${personalityHtml ? `<span class="header-divider"></span>${personalityHtml}<span class="header-divider" style="visibility:hidden;"></span>` : '<span class="header-divider" style="visibility:hidden;"></span>'}
+    `;
+  }
+
+  /** Renders personality traits as a vertical column, positive on top, negative below */
+  private renderPersonalityVitalsColumn(): string {
+    const s = this.scoutingData;
+    if (!s) return '';
+
+    const traits: Array<{ key: string; label: string; value?: 'H' | 'N' | 'L' }> = [
+      { key: 'leadership', label: 'Leadership', value: s.leadership },
+      { key: 'loyalty', label: 'Loyalty', value: s.loyalty },
+      { key: 'adaptability', label: 'Adaptability', value: s.adaptability },
+      { key: 'greed', label: 'Greedy', value: s.greed },
+      { key: 'workEthic', label: 'Work Ethic', value: s.workEthic },
+      { key: 'intelligence', label: 'Intelligence', value: s.intelligence },
+    ];
+
+    const positive = traits.filter(t => t.value === 'H');
+    const negative = traits.filter(t => t.value === 'L');
+    if (positive.length === 0 && negative.length === 0) return '';
+
+    const renderTrait = (t: typeof traits[0]) => {
+      const levelClass = t.value === 'H' ? 'trait-high' : 'trait-low';
+      const arrow = t.value === 'H' ? '▲' : '▼';
+      return `<span class="personality-trait ${levelClass}"><span class="trait-arrow">${arrow}</span>${t.label}</span>`;
+    };
+
+    const positiveHtml = positive.map(renderTrait).join('');
+    const negativeHtml = negative.map(renderTrait).join('');
+
+    return `
+      <div class="vitals-col vitals-personality">
+        <span class="info-label">Personality:</span>
+        ${positiveHtml ? `<div class="personality-traits-group">${positiveHtml}</div>` : ''}
+        ${negativeHtml ? `<div class="personality-traits-group">${negativeHtml}</div>` : ''}
       </div>
     `;
   }
@@ -724,11 +828,36 @@ export class BatterProfileModal {
   }
 
   private renderContractInfo(): string {
-    if (!this.contract || this.contract.yearsTotal === 0) return '—';
+    if (!this.contract || this.contract.years === 0) return '—';
     const c = this.contract;
-    const salaryStr = this.formatSalary(c.salary);
-    const yearStr = `Yr ${c.currentYear + 1} of ${c.yearsTotal}`;
-    return `${salaryStr} · ${yearStr}`;
+    const salaries = c.salaries ?? [];
+    const currentSalary = salaries[c.currentYear] ?? salaries[0] ?? 0;
+
+    // Build tooltip content
+    const tooltipLines: string[] = [];
+    for (let i = 0; i < c.years; i++) {
+      const sal = salaries[i] ?? 0;
+      const marker = i === c.currentYear ? '→ ' : '  ';
+      tooltipLines.push(`<div class="contract-tooltip-row${i === c.currentYear ? ' current' : ''}">${marker}Yr ${i + 1}: ${this.formatSalary(sal)}</div>`);
+    }
+
+    const clauses: string[] = [];
+    if (c.noTrade) clauses.push('No Trade');
+    if (c.lastYearTeamOption) clauses.push('Team Option (final yr)');
+    if (c.lastYearPlayerOption) clauses.push('Player Option (final yr)');
+    if (c.lastYearVestingOption) clauses.push('Vesting Option (final yr)');
+    if (clauses.length) {
+      tooltipLines.push(`<div class="contract-tooltip-clauses">${clauses.join(' · ')}</div>`);
+    }
+
+    const tooltipHtml = `<div class="contract-tooltip">${tooltipLines.join('')}</div>`;
+
+    if (currentSalary === 0) {
+      return `<span class="contract-info-hover"><span class="contract-mlc">MLC</span>${tooltipHtml}</span>`;
+    }
+    const salaryStr = this.formatSalary(currentSalary);
+    const yearStr = `Yr ${c.currentYear + 1} of ${c.years}`;
+    return `<span class="contract-info-hover">${salaryStr} · ${yearStr}${tooltipHtml}</span>`;
   }
 
   private renderOvrPotStars(data: BatterProfileData): string {
@@ -750,90 +879,20 @@ export class BatterProfileModal {
       const potRemaining = totalStars - (i - 1);
 
       if (remaining >= 1) {
-        // Fully filled star
         html += '<svg class="star-icon star-filled" viewBox="0 0 24 24" width="14" height="14"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
       } else if (remaining >= 0.5) {
-        // Half filled star
         html += `<svg class="star-icon star-half" viewBox="0 0 24 24" width="14" height="14">
           <defs><clipPath id="star-half-clip-${i}"><rect x="0" y="0" width="12" height="24"/></clipPath></defs>
           <path class="star-empty-path" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
           <path class="star-filled-path" d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" clip-path="url(#star-half-clip-${i})"/>
         </svg>`;
       } else if (potRemaining >= 0.5) {
-        // Empty star (part of POT ceiling)
         html += '<svg class="star-icon star-empty" viewBox="0 0 24 24" width="14" height="14"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>';
       }
     }
 
     html += '</span>';
     return html;
-  }
-
-
-  private renderSpeedDonut(speed: number): string {
-    // Speed is on 20-80 scale (same as other ratings), map to percentage
-    const percentage = Math.max(0, Math.min(100, ((speed - 20) / 60) * 100));
-
-    // Color class based on speed value (20-80 scale)
-    const colorClass = speed >= 70 ? 'rating-elite' :
-                       speed >= 60 ? 'rating-plus' :
-                       speed >= 45 ? 'rating-avg' :
-                       'rating-poor';
-
-    // SVG circle parameters
-    const radius = 10;
-    const circumference = 2 * Math.PI * radius;
-    const strokeDashoffset = circumference - (percentage / 100) * circumference;
-
-    return `
-      <div class="header-donut" title="Speed: ${speed}">
-        <svg class="stat-donut" viewBox="0 0 24 24" width="24" height="24">
-          <circle class="stat-donut-bg" cx="12" cy="12" r="${radius}" />
-          <circle
-            class="stat-donut-fill ${colorClass}"
-            cx="12"
-            cy="12"
-            r="${radius}"
-            stroke-dasharray="${circumference}"
-            style="--donut-offset: ${strokeDashoffset}; --donut-circumference: ${circumference};"
-          />
-        </svg>
-        <span class="donut-label">Speed</span>
-      </div>
-    `;
-  }
-
-  private renderRatingDonut(rating: number, label: string, tooltipName: string): string {
-    // Rating is on 20-80 scale, map to percentage
-    const percentage = Math.max(0, Math.min(100, ((rating - 20) / 60) * 100));
-
-    // Color class based on rating value (20-80 scale)
-    const colorClass = rating >= 70 ? 'rating-elite' :
-                       rating >= 60 ? 'rating-plus' :
-                       rating >= 45 ? 'rating-avg' :
-                       'rating-poor';
-
-    // SVG circle parameters
-    const radius = 10;
-    const circumference = 2 * Math.PI * radius;
-    const strokeDashoffset = circumference - (percentage / 100) * circumference;
-
-    return `
-      <div class="header-donut" title="${tooltipName}: ${rating}">
-        <svg class="stat-donut" viewBox="0 0 24 24" width="24" height="24">
-          <circle class="stat-donut-bg" cx="12" cy="12" r="${radius}" />
-          <circle
-            class="stat-donut-fill ${colorClass}"
-            cx="12"
-            cy="12"
-            r="${radius}"
-            stroke-dasharray="${circumference}"
-            style="--donut-offset: ${strokeDashoffset}; --donut-circumference: ${circumference};"
-          />
-        </svg>
-        <span class="donut-label">${label}</span>
-      </div>
-    `;
   }
 
   private getWarBadgeClass(war?: number): string {
@@ -853,33 +912,26 @@ export class BatterProfileModal {
     return 'rating-poor';
   }
 
-  private getRatingBarClass(value: number): string {
-    if (value >= 70) return 'rating-elite';
-    if (value >= 60) return 'rating-plus';
-    if (value >= 50) return 'rating-avg';
-    if (value >= 40) return 'rating-fringe';
-    return 'rating-poor';
-  }
+  // ─── Body Rendering ───────────────────────────────────────────────────
 
   private renderBody(data: BatterProfileData, stats: BatterSeasonStats[]): string {
-    const ratingsComparison = this.renderRatingsComparison(data);
-    const advancedRatings = this.renderAdvancedRatings(data);
-    const projectionSection = this.renderProjection(data, stats);
-    const statsSection = this.renderStatsTable(stats);
+    const ratingsSection = this.renderRatingsSection(data);
+    const projectionContent = this.renderProjectionContent(data, stats);
+    const careerContent = this.renderCareerStatsContent(stats);
 
     return `
       <div class="profile-tabs">
         <button class="profile-tab active" data-tab="ratings">Ratings</button>
+        <button class="profile-tab" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
       </div>
       <div class="profile-tab-content">
         <div class="tab-pane active" data-pane="ratings">
-          <div class="profile-body">
-            ${ratingsComparison}
-            ${advancedRatings}
-            ${projectionSection}
-            ${statsSection}
-          </div>
+          ${ratingsSection}
+          ${projectionContent}
+        </div>
+        <div class="tab-pane" data-pane="career">
+          ${careerContent}
         </div>
         <div class="tab-pane" data-pane="development">
           ${this.renderDevelopmentTab(data.playerId)}
@@ -888,92 +940,347 @@ export class BatterProfileModal {
     `;
   }
 
-  private renderDevelopmentTab(playerId: number): string {
+  // ─── Ratings Section: Radar + Physicals ───────────────────────────────
+
+  private renderRatingsSection(data: BatterProfileData): string {
+    // Build axis badge data for hitting chart
+    const s = this.scoutingData;
+    const hasEstimated = data.estimatedContact !== undefined ||
+                         data.estimatedPower !== undefined ||
+                         data.estimatedEye !== undefined ||
+                         data.estimatedAvoidK !== undefined ||
+                         data.estimatedGap !== undefined;
+    const hasTfrCeiling = data.hasTfrUpside && data.tfrContact !== undefined;
+
+    // Compute projected stats for badges
+    const projStats = this.computeProjectedStats(data);
+
+    const hittingAxes = [
+      { label: 'Contact', pos: 'top', est: data.estimatedContact, scout: s?.contact, tfr: data.tfrContact, projLabel: 'AVG', projValue: projStats.projAvg?.toFixed(3) },
+      { label: 'Eye', pos: 'upper-right', est: data.estimatedEye, scout: s?.eye, tfr: data.tfrEye, projLabel: 'BB%', projValue: projStats.projBbPct !== undefined ? projStats.projBbPct.toFixed(1) + '%' : undefined },
+      { label: 'Power', pos: 'lower-right', est: data.estimatedPower, scout: s?.power, tfr: data.tfrPower, projLabel: 'HR%', projValue: projStats.projHrPct !== undefined ? projStats.projHrPct.toFixed(1) + '%' : undefined },
+      { label: 'Gap', pos: 'lower-left', est: data.estimatedGap, scout: s?.gap, tfr: data.tfrGap, projLabel: '2B', projValue: projStats.proj2b?.toString() },
+      { label: 'AvoidK', pos: 'upper-left', est: data.estimatedAvoidK, scout: s?.avoidK, tfr: data.tfrAvoidK, projLabel: 'K%', projValue: projStats.projKPct !== undefined ? projStats.projKPct.toFixed(1) + '%' : undefined },
+    ];
+
+    const hittingAxisLabelsHtml = hittingAxes.map(a => {
+      let badges = '';
+      const hasTr = hasEstimated && a.est !== undefined;
+      const hasTfr = hasTfrCeiling && a.tfr !== undefined;
+      const hasScout = s && a.scout !== undefined;
+      if (hasTr) badges += `<span class="radar-axis-badge radar-badge-true">${Math.round(a.est!)}</span>`;
+      if (hasTfr) badges += `<span class="radar-axis-badge radar-badge-tfr">${Math.round(a.tfr!)}</span>`;
+      if (hasScout) badges += `<span class="radar-axis-badge radar-badge-scout">${Math.round(a.scout!)}</span>`;
+      const projBadge = a.projValue !== undefined ? `<span class="radar-proj-badge radar-proj-${a.pos}"><span class="proj-value">${a.projValue}</span><span class="proj-label">${a.projLabel}</span></span>` : '';
+      return `<div class="radar-axis-label radar-axis-${a.pos}">
+        <span class="radar-axis-name">${a.label}</span>
+        <div class="radar-axis-badges">${badges}</div>
+        ${projBadge}
+      </div>`;
+    }).join('');
+
+    // Build axis badge data for running chart
+    const sr = s?.stealingAggressiveness ?? data.scoutSR;
+    const ste = s?.stealingAbility ?? data.scoutSTE;
+    const scoutSpeed = s?.speed ?? data.scoutSpeed;
+
+    const runningAxes = [
+      { label: 'SB Ability', pos: 'top', value: ste, projLabel: 'SB%', projValue: projStats.projSbPct !== undefined ? Math.round(projStats.projSbPct) + '%' : undefined },
+      { label: 'SB Freq', pos: 'lower-right', value: sr, projLabel: 'SBA', projValue: projStats.projSba?.toString() },
+      { label: 'Speed', pos: 'lower-left', value: scoutSpeed, projLabel: '3B', projValue: projStats.proj3b?.toString() },
+    ];
+
+    const runningAxisLabelsHtml = runningAxes.map(a => {
+      let badges = '';
+      if (a.value !== undefined) badges += `<span class="radar-axis-badge radar-badge-true">${Math.round(a.value)}</span>`;
+      const projBadge = a.projValue !== undefined ? `<span class="radar-proj-badge radar-proj-${a.pos}"><span class="proj-value">${a.projValue}</span><span class="proj-label">${a.projLabel}</span></span>` : '';
+      return `<div class="radar-axis-label running-axis-${a.pos}">
+        <span class="radar-axis-name">${a.label}</span>
+        <div class="radar-axis-badges">${badges}</div>
+        ${projBadge}
+      </div>`;
+    }).join('');
+
+    // Scout source toggle (only if both sources exist)
+    const showScoutToggle = this.myScoutingData !== null && this.osaScoutingData !== null;
+    const scoutToggleHtml = showScoutToggle ? `
+      <div class="toggle-group scout-source-toggle">
+        <button class="toggle-btn scout-toggle-btn ${!this.scoutingIsOsa ? 'active' : ''}" data-value="my">My Scout</button>
+        <button class="toggle-btn scout-toggle-btn ${this.scoutingIsOsa ? 'active' : ''}" data-value="osa">OSA</button>
+      </div>
+    ` : '';
+
     return `
-      <div class="development-section">
-        <div class="development-header">
-          <h4>Development History</h4>
-          <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
+      <div class="ratings-section">
+        <div class="ratings-layout">
+          <div class="ratings-radar-col">
+            <div class="chart-section-header">
+              <h4 class="chart-section-label">Hitting Ratings</h4>
+              ${scoutToggleHtml}
+            </div>
+            <div class="radar-chart-wrapper">
+              <div id="batter-radar-chart"></div>
+              ${hittingAxisLabelsHtml}
+            </div>
+          </div>
+          <div class="running-radar-col">
+            <h4 class="chart-section-label">Running Ratings</h4>
+            <div class="radar-chart-wrapper running-radar-wrapper">
+              <div id="batter-running-radar-chart"></div>
+              ${runningAxisLabelsHtml}
+            </div>
+          </div>
         </div>
-        ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
-        <div class="development-chart-container" id="development-chart-${playerId}"></div>
       </div>
     `;
   }
 
-  private async initDevelopmentChart(playerId: number): Promise<void> {
-    // Clean up existing chart
-    if (this.developmentChart) {
-      this.developmentChart.destroy();
-      this.developmentChart = null;
+  private computeProjectedStats(data: BatterProfileData): {
+    projAvg?: number; projHrPct?: number; projBbPct?: number;
+    projKPct?: number; proj2b?: number; projSba?: number;
+    projSbPct?: number; proj3b?: number;
+  } {
+    const s = this.scoutingData;
+    const sr = s?.stealingAggressiveness ?? data.scoutSR ?? 50;
+    const ste = s?.stealingAbility ?? data.scoutSTE ?? 50;
+    const hasSrSte = (s?.stealingAggressiveness !== undefined) || (data.scoutSR !== undefined);
+
+    let projAvg: number | undefined;
+    let projHrPct: number | undefined;
+    let projBbPct: number | undefined;
+    let projKPct: number | undefined;
+    let proj2b: number | undefined;
+    let proj3b: number | undefined;
+    let projSba: number | undefined;
+    let projSbPct: number | undefined;
+
+    // Use pre-computed projections or derive from ratings
+    if (data.projAvg !== undefined) {
+      projAvg = data.projAvg;
+    } else if (data.estimatedContact !== undefined) {
+      projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
     }
 
-    // Fetch snapshots
-    const snapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
-
-    // Filter to only hitter snapshots (those with hitter-specific fields)
-    const hitterSnapshots = snapshots.filter(s =>
-      s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
-    );
-
-    // Update snapshot count
-    const countEl = this.overlay?.querySelector('#dev-snapshot-count');
-    if (countEl) {
-      countEl.textContent = `${hitterSnapshots.length} snapshot${hitterSnapshots.length !== 1 ? 's' : ''}`;
+    if (data.projHrPct !== undefined) {
+      projHrPct = data.projHrPct;
+    } else if (data.estimatedPower !== undefined) {
+      projHrPct = HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
     }
 
-    // Create and render chart
-    this.developmentChart = new DevelopmentChart({
-      containerId: `development-chart-${playerId}`,
-      snapshots: hitterSnapshots,
-      metrics: this.activeDevMetrics,
-      height: 280,
-    });
-    this.developmentChart.render();
+    if (data.projBbPct !== undefined) {
+      projBbPct = data.projBbPct;
+    } else if (data.estimatedEye !== undefined) {
+      projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
+    }
 
-    // Bind metric toggle handlers
-    const container = this.overlay?.querySelector('.development-section');
-    if (container) {
-      bindMetricToggleHandlers(container as HTMLElement, (metric, enabled) => {
-        if (enabled && !this.activeDevMetrics.includes(metric)) {
-          this.activeDevMetrics.push(metric);
-        } else if (!enabled) {
-          this.activeDevMetrics = this.activeDevMetrics.filter(m => m !== metric);
+    if (data.projKPct !== undefined) {
+      projKPct = data.projKPct;
+    } else if (data.estimatedAvoidK !== undefined) {
+      projKPct = HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
+    }
+
+    // Projected 2B from gap rating
+    const injuryProneness = s?.injuryProneness ?? data.injuryProneness;
+    const age = data.age ?? 27;
+    const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+    const projAb = Math.round(projPa * 0.88);
+
+    if (data.projDoublesRate !== undefined) {
+      proj2b = Math.round(projAb * data.projDoublesRate);
+    } else if (data.estimatedGap !== undefined) {
+      proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(data.estimatedGap));
+    }
+
+    // Projected 3B from speed rating
+    if (data.projTriplesRate !== undefined) {
+      proj3b = Math.round(projAb * data.projTriplesRate);
+    } else if (data.estimatedSpeed !== undefined) {
+      proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(data.estimatedSpeed));
+    }
+
+    // Running stats from SR/STE
+    if (hasSrSte) {
+      const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+      const totalSba = (data.projSb ?? sbProj.sb) + (data.projCs ?? sbProj.cs);
+      projSba = totalSba;
+      projSbPct = totalSba > 0 ? ((data.projSb ?? sbProj.sb) / totalSba) * 100 : undefined;
+    }
+
+    return { projAvg, projHrPct, projBbPct, projKPct, proj2b, projSba, projSbPct, proj3b };
+  }
+
+  private initRadarChart(data: BatterProfileData): void {
+    // Destroy existing
+    if (this.radarChart) {
+      this.radarChart.destroy();
+      this.radarChart = null;
+    }
+
+    // Reset hidden series when chart rebuilds
+    this.hiddenSeries.clear();
+
+    const s = this.scoutingData;
+    const categories = ['Contact', 'Eye', 'Power', 'Gap', 'AvoidK'];
+    const series: RadarChartSeries[] = [];
+
+    // Check if we have estimated (True) ratings
+    const hasEstimated = data.estimatedContact !== undefined ||
+                         data.estimatedPower !== undefined ||
+                         data.estimatedEye !== undefined ||
+                         data.estimatedAvoidK !== undefined ||
+                         data.estimatedGap !== undefined;
+
+    // True Ratings series (blue) — first
+    if (hasEstimated) {
+      series.push({
+        name: 'True Rating',
+        data: [
+          data.estimatedContact ?? 50,
+          data.estimatedEye ?? 50,
+          data.estimatedPower ?? 50,
+          data.estimatedGap ?? 50,
+          data.estimatedAvoidK ?? 50,
+        ],
+        color: '#3b82f6',
+      });
+    }
+
+    // True Future Rating series (pink, dashed) — second
+    if (data.hasTfrUpside && data.tfrContact !== undefined) {
+      series.push({
+        name: 'True Future Rating',
+        data: [
+          data.tfrContact ?? 50,
+          data.tfrEye ?? 50,
+          data.tfrPower ?? 50,
+          data.tfrGap ?? 50,
+          data.tfrAvoidK ?? 50,
+        ],
+        color: '#34d399',
+        dashStyle: 'dashed',
+        fillOpacity: 0.05,
+      });
+    }
+
+    // Scout series (amber) — third
+    if (s) {
+      series.push({
+        name: this.scoutingIsOsa ? 'OSA Scout' : 'My Scout',
+        data: [
+          s.contact ?? 50,
+          s.eye ?? 50,
+          s.power ?? 50,
+          s.gap ?? 50,
+          s.avoidK ?? 50,
+        ],
+        color: '#8b949e',
+      });
+    }
+
+    // If no series at all, don't render
+    if (series.length === 0) return;
+
+    this.radarChart = new RadarChart({
+      containerId: 'batter-radar-chart',
+      categories,
+      series,
+      height: 300,
+      radarSize: 130,
+      min: 20,
+      max: 85,
+      legendPosition: 'left',
+      offsetX: -40,
+      onLegendClick: (seriesName) => {
+        if (this.hiddenSeries.has(seriesName)) {
+          this.hiddenSeries.delete(seriesName);
+        } else {
+          this.hiddenSeries.add(seriesName);
         }
-        this.developmentChart?.updateMetrics(this.activeDevMetrics);
-      });
-    }
-  }
-
-  private bindTabSwitching(): void {
-    const tabs = this.overlay?.querySelectorAll<HTMLButtonElement>('.profile-tab');
-    tabs?.forEach(tab => {
-      tab.addEventListener('click', () => {
-        const targetTab = tab.dataset.tab;
-        if (!targetTab) return;
-
-        // Update tab buttons
-        tabs.forEach(t => t.classList.remove('active'));
-        tab.classList.add('active');
-
-        // Update tab panes
-        const panes = this.overlay?.querySelectorAll<HTMLElement>('.tab-pane');
-        panes?.forEach(pane => {
-          if (pane.dataset.pane === targetTab) {
-            pane.classList.add('active');
-            // Initialize development chart when switching to that tab
-            if (targetTab === 'development' && this.currentData) {
-              this.initDevelopmentChart(this.currentData.playerId);
-            }
-          } else {
-            pane.classList.remove('active');
-          }
-        });
-      });
+        this.updateAxisBadgeVisibility();
+        // ApexCharts re-renders legend DOM on toggle, so re-inject custom item
+        requestAnimationFrame(() => this.addProjectionLegendItem());
+      },
     });
+    this.radarChart.render();
+    this.addProjectionLegendItem();
   }
 
-  private renderProjection(data: BatterProfileData, stats: BatterSeasonStats[]): string {
+  /** Inject a custom "Stat Projections" toggle into the hitting chart legend */
+  private addProjectionLegendItem(): void {
+    const legendContainer = this.overlay?.querySelector<HTMLElement>('.ratings-radar-col .apexcharts-legend');
+    if (!legendContainer) return;
+
+    // Remove existing custom item if present (re-injection after ApexCharts re-render)
+    legendContainer.querySelector('.custom-legend-proj')?.remove();
+
+    const isHidden = this.hiddenSeries.has('Stat Projections');
+
+    const item = document.createElement('div');
+    item.className = 'apexcharts-legend-series custom-legend-proj';
+    if (isHidden) item.classList.add('apexcharts-inactive-legend');
+    item.setAttribute('rel', 'custom-proj');
+    item.style.display = 'flex';
+    item.style.alignItems = 'center';
+    item.style.cursor = 'pointer';
+
+    item.innerHTML = `
+      <span class="apexcharts-legend-marker" style="background: #d4a574; height: 16px; width: 16px; border-radius: 50%; display: inline-block; margin-right: 4px;"></span>
+      <span class="apexcharts-legend-text" style="color: #e7e9ea; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">Stat Projections</span>
+    `;
+
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (this.hiddenSeries.has('Stat Projections')) {
+        this.hiddenSeries.delete('Stat Projections');
+        item.classList.remove('apexcharts-inactive-legend');
+      } else {
+        this.hiddenSeries.add('Stat Projections');
+        item.classList.add('apexcharts-inactive-legend');
+      }
+      this.updateAxisBadgeVisibility();
+    });
+
+    legendContainer.appendChild(item);
+  }
+
+  private initRunningRadarChart(data: BatterProfileData): void {
+    // Destroy existing
+    if (this.runningRadarChart) {
+      this.runningRadarChart.destroy();
+      this.runningRadarChart = null;
+    }
+
+    const s = this.scoutingData;
+    const sr = s?.stealingAggressiveness ?? data.scoutSR;
+    const ste = s?.stealingAbility ?? data.scoutSTE;
+    const speed = s?.speed ?? data.scoutSpeed;
+
+    // Need at least one value
+    if (sr === undefined && ste === undefined && speed === undefined) return;
+
+    const categories = ['SB Abil', 'SB Aggr', 'Speed'];
+    const series: RadarChartSeries[] = [{
+      name: 'True Rating',
+      data: [ste ?? 50, sr ?? 50, speed ?? 50],
+      color: '#1d9bf0',
+    }];
+
+    this.runningRadarChart = new RadarChart({
+      containerId: 'batter-running-radar-chart',
+      categories,
+      series,
+      height: 240,
+      radarSize: 104,
+      min: 20,
+      max: 85,
+      legendPosition: 'top',
+      showLegend: false,
+      offsetY: 20,
+    });
+    this.runningRadarChart.render();
+  }
+
+  private renderProjectionContent(data: BatterProfileData, stats: BatterSeasonStats[]): string {
     // Determine if toggle should be shown: MLB player with TFR upside
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
 
@@ -1003,7 +1310,7 @@ export class BatterProfileModal {
     let projBbPct: number;
     let projKPct: number;
 
-    // Peak mode: use TFR blended rates directly (avoids lossy rating→rate round-trip)
+    // Peak mode: use TFR blended rates directly
     if (isPeakMode && data.tfrAvg !== undefined && data.tfrObp !== undefined && data.tfrSlg !== undefined) {
       projAvg = data.tfrAvg;
       projObp = data.tfrObp;
@@ -1026,7 +1333,6 @@ export class BatterProfileModal {
       projKPct = data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK);
       projAvg = HitterRatingEstimatorService.expectedAvg(useContact);
       projObp = Math.min(0.450, projAvg + (projBbPct / 100));
-      // Compute ISO from all XBH components (HR + 2B + 3B) — not the deprecated expectedIso which ignores Gap/Speed
       const hrPerAb = (HitterRatingEstimatorService.expectedHrPct(usePower) / 100) / 0.88;
       const doublesPerAb = useGap !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(useGap) : 0.04;
       const triplesPerAb = useSpeed !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(useSpeed) : 0.005;
@@ -1113,7 +1419,7 @@ export class BatterProfileModal {
     // Calculate derived HR% for display
     const projHrPct = projPa > 0 ? (projHr / projPa) * 100 : 0;
 
-    // Prepare Flip Cards — in peak mode show TFR ratings, in current mode show estimated ratings
+    // Prepare Flip Cards
     const contactRating = this.clampRatingForDisplay(useContact ?? 50);
     const eyeRating = this.clampRatingForDisplay(useEye ?? 50);
     const powerRating = this.clampRatingForDisplay(usePower ?? 50);
@@ -1173,7 +1479,7 @@ export class BatterProfileModal {
       projectionLabel = `${this.projectionYear} Projection <span class="projection-age">(${age}yo)</span>`;
     }
 
-    // Toggle HTML
+    // Toggle HTML (Current/Peak inside Projected pane)
     const toggleHtml = showToggle ? `
       <div class="projection-toggle">
         <button class="projection-toggle-btn ${this.projectionMode === 'current' ? 'active' : ''}" data-mode="current">Current</button>
@@ -1187,8 +1493,10 @@ export class BatterProfileModal {
 
     return `
       <div class="projection-section">
-        ${toggleHtml}
-        <h4 class="section-label">${projectionLabel}</h4>
+        <div class="projection-header-row">
+          <h4 class="section-label">${projectionLabel}</h4>
+          ${toggleHtml}
+        </div>
         <div class="stats-table-scroll">
           <table class="profile-stats-table projection-table" style="table-layout: fixed;">
             <thead>
@@ -1237,387 +1545,13 @@ export class BatterProfileModal {
     `;
   }
 
-  private renderRatingsComparison(data: BatterProfileData): string {
-    const s = this.scoutingData;
-    const hasScout = s !== null;
-    const hasAlternative = this.hasMyScout && this.hasOsaScout;
-
-    // Check if we have any estimated ratings (performance-derived)
-    const hasEstimatedRatings = data.estimatedContact !== undefined ||
-                                 data.estimatedPower !== undefined ||
-                                 data.estimatedEye !== undefined ||
-                                 data.estimatedAvoidK !== undefined;
-
-    // For prospects without estimated ratings, just show scout opinions
-    if (hasScout && !hasEstimatedRatings) {
-      let headerLabel = '';
-      if (hasAlternative) {
-        const activeSource = this.scoutingIsOsa ? 'osa' : 'my';
-        headerLabel = `
-          <div class="scout-header-toggle custom-dropdown">
-            <span class="dropdown-trigger" data-player-id="${data.playerId}">${activeSource === 'my' ? 'My' : 'OSA'}</span>
-            <div class="dropdown-menu">
-              <div class="dropdown-item ${activeSource === 'my' ? 'active' : ''}" data-value="my">My</div>
-              <div class="dropdown-item ${activeSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
-            </div>
-          </div>
-          Scout Ratings`;
-      } else {
-        const sourceLabel = this.scoutingIsOsa ? 'OSA' : 'My Scout';
-        const sourceBadgeClass = this.scoutingIsOsa ? 'osa' : 'my';
-        headerLabel = `<span class="source-badge ${sourceBadgeClass}">${sourceLabel}</span> Scout Ratings`;
-      }
-
-      return `
-        <div class="ratings-comparison">
-          <div class="rating-row rating-row-header">
-            <span class="rating-label"></span>
-            <div class="rating-bars">
-              <span class="bar-header">${headerLabel}</span>
-            </div>
-          </div>
-          ${this.renderRatingBar('Contact', s.contact ?? 50)}
-          ${this.renderRatingBar('Power', s.power)}
-          ${this.renderRatingBar('Eye', s.eye)}
-        </div>
-      `;
-    }
-
-    if (!hasScout) {
-      return `
-        <div class="ratings-comparison">
-          <div class="rating-row rating-row-header">
-            <span class="rating-label"></span>
-            <div class="rating-bars">
-              <span class="bar-header" title="Derived from performance data and advanced metrics" style="cursor: help;">True Ratings</span>
-            </div>
-          </div>
-          ${this.renderRatingBar('Contact', data.estimatedContact)}
-          ${this.renderRatingBar('Power', data.estimatedPower)}
-          ${this.renderRatingBar('Eye', data.estimatedEye)}
-        </div>
-      `;
-    }
-
-    // Build header with toggle (if both sources exist) or badge (if only one)
-    let headerLabel = '';
-    if (hasAlternative) {
-      const activeSource = this.scoutingIsOsa ? 'osa' : 'my';
-      headerLabel = `
-        <div class="scout-header-toggle custom-dropdown">
-          <span class="dropdown-trigger" data-player-id="${data.playerId}">${activeSource === 'my' ? 'My' : 'OSA'}</span>
-          <div class="dropdown-menu">
-            <div class="dropdown-item ${activeSource === 'my' ? 'active' : ''}" data-value="my">My</div>
-            <div class="dropdown-item ${activeSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
-          </div>
-        </div>
-        Scout Opinions`;
-    } else {
-      const sourceLabel = this.scoutingIsOsa ? 'OSA' : 'My Scout';
-      const sourceBadgeClass = this.scoutingIsOsa ? 'osa' : 'my';
-      headerLabel = `<span class="source-badge ${sourceBadgeClass}">${sourceLabel}</span> Scout Opinions`;
-    }
-
-    return `
-      <div class="ratings-comparison">
-        <div class="rating-row rating-row-header">
-          <span class="rating-label"></span>
-          <div class="rating-bars">
-            <div class="rating-bars-left">
-              <span class="bar-header" title="Normalized ratings based on percentile rank among all prospects/players" style="cursor: help;">True Ratings</span>
-            </div>
-            <div class="rating-bars-center">
-              <span class="bar-vs"></span>
-            </div>
-            <div class="rating-bars-right">
-              <span class="bar-header">${headerLabel}</span>
-            </div>
-          </div>
-        </div>
-        ${this.renderRatingBarComparison('Contact', data.estimatedContact, s.contact ?? 50, data.tfrContact)}
-        ${this.renderRatingBarComparison('Power', data.estimatedPower, s.power, data.tfrPower)}
-        ${this.renderRatingBarComparison('Eye', data.estimatedEye, s.eye, data.tfrEye)}
-      </div>
-    `;
-  }
-
-  private renderRatingBar(label: string, value?: number): string {
-    const val = value ?? 50;
-    const percentage = Math.max(0, Math.min(100, ((val - 20) / 60) * 100));
-    const barClass = this.getRatingBarClass(val);
-    const displayValue = Math.round(Math.max(20, Math.min(80, val)));
-
-    return `
-      <div class="rating-row">
-        <span class="rating-label">${label}</span>
-        <div class="rating-bars">
-          <div class="bar-container">
-            <div class="bar bar-estimated ${barClass}" style="width: ${percentage}%"></div>
-            <span class="bar-value">${displayValue}</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  private renderRatingBarComparison(label: string, trueValue?: number, scoutValue?: number, ceiling?: number): string {
-    const tv = trueValue ?? 50;
-    const sv = scoutValue ?? 50;
-    const truePercent = Math.max(0, Math.min(100, ((tv - 20) / 60) * 100));
-    const scoutPercent = Math.max(0, Math.min(100, ((sv - 20) / 60) * 100));
-    const trueBarClass = this.getRatingBarClass(tv);
-    const scoutBarClass = this.getRatingBarClass(sv);
-    const trueDisplay = Math.round(Math.max(20, Math.min(80, tv)));
-    const scoutDisplay = Math.round(Math.max(20, Math.min(80, sv)));
-    // Diff uses TFR (peak) vs scout (also peak) when ceiling available, otherwise TR vs scout
-    const ceilingForDiff = (ceiling !== undefined && !isNaN(ceiling)) ? Math.round(Math.max(20, Math.min(80, ceiling))) : undefined;
-    const diffValue = (ceilingForDiff !== undefined && ceilingForDiff > trueDisplay) ? ceilingForDiff : trueDisplay;
-    const diff = diffValue - scoutDisplay;
-    const diffText = diff > 0 ? `+${diff}` : diff === 0 ? '—' : `${diff}`;
-    const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
-
-    // Ceiling bar (TFR component extension) — only show when ceiling > true value
-    let ceilingHtml = '';
-    let barInnerHtml = '';
-    let barValueHtml = `<span class="bar-value">${trueDisplay}</span>`;
-    if (ceiling !== undefined && !isNaN(ceiling)) {
-      const ceilingClamped = Math.round(Math.max(20, Math.min(80, ceiling)));
-      if (ceilingClamped > trueDisplay) {
-        const ceilingClass = this.getRatingBarClass(ceilingClamped);
-        const ceilingPercent = Math.max(0, Math.min(100, ((ceilingClamped - 20) / 60) * 100));
-        const extensionPercent = ceilingPercent - truePercent;
-        ceilingHtml = `<div class="bar bar-ceiling ${ceilingClass}" style="left: ${truePercent}%; width: ${extensionPercent}%" title="TFR Ceiling: ${ceilingClamped}"></div>`;
-        barInnerHtml = `<span class="bar-value-inner">${trueDisplay}</span>`;
-        barValueHtml = `<span class="bar-value">${ceilingClamped}</span>`;
-      }
-    }
-
-    return `
-      <div class="rating-row">
-        <span class="rating-label">${label}</span>
-        <div class="rating-bars">
-          <div class="rating-bars-left">
-            <div class="bar-container">
-              <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%">${barInnerHtml}</div>
-              ${ceilingHtml}
-              ${barValueHtml}
-            </div>
-          </div>
-          <div class="rating-bars-center">
-            <span class="rating-diff ${diffClass}">${diffText}</span>
-            <span class="bar-vs">vs</span>
-          </div>
-          <div class="rating-bars-right">
-            <div class="bar-container bar-container-rtl">
-              <div class="bar bar-scout ${scoutBarClass}" style="width: ${scoutPercent}%"></div>
-              <span class="bar-value">${scoutDisplay}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  private renderAdvancedRatings(data: BatterProfileData): string {
-    const s = this.scoutingData;
-
-    // Scout values with fallbacks
-    const scoutGap = s?.gap ?? data.scoutGap ?? 50;
-    const scoutAvoidK = s?.avoidK ?? data.scoutAvoidK ?? 50;
-
-    // True (estimated) values - may be undefined for prospects without stats
-    const trueGap = data.estimatedGap;
-    const trueAvoidK = data.estimatedAvoidK;
-
-    // Check if we have any true ratings to show comparisons
-    const hasTrue = trueGap !== undefined || trueAvoidK !== undefined;
-
-    const expandedClass = this.advancedRatingsExpanded ? 'expanded' : '';
-    const toggleIcon = this.advancedRatingsExpanded ? '▾' : '▸';
-
-    // Decide rendering mode: comparison or scout-only
-    let ratingsContent: string;
-    if (hasTrue) {
-      ratingsContent = `
-        <div class="advanced-ratings-comparison">
-          <div class="rating-row rating-row-header">
-            <span class="rating-label"></span>
-            <div class="rating-bars">
-              <span class="bar-header">True</span>
-              <span class="bar-vs"></span>
-              <span class="bar-header">Scout</span>
-            </div>
-          </div>
-          ${this.renderAdvancedRatingComparison('Gap', trueGap, scoutGap, 20, 80, this.currentData?.tfrGap)}
-          ${this.renderAdvancedRatingComparison('AvoidK', trueAvoidK, scoutAvoidK, 20, 80, this.currentData?.tfrAvoidK)}
-        </div>
-      `;
-    } else {
-      ratingsContent = `
-        ${this.renderAdvancedRatingBar('Gap', scoutGap, 20, 80)}
-        ${this.renderAdvancedRatingBar('AvoidK', scoutAvoidK, 20, 80)}
-      `;
-    }
-
-    // Speed / SB Aggression / SB Ability donuts
-    const scoutSpeed = s?.speed ?? data.scoutSpeed ?? 50;
-    const sr = s?.stealingAggressiveness ?? data.scoutSR;
-    const ste = s?.stealingAbility ?? data.scoutSTE;
-    const speedDonut = this.renderSpeedDonut(scoutSpeed);
-    const srDonut = sr !== undefined ? this.renderRatingDonut(sr, 'SB Aggression', 'Steal Aggressiveness') : '';
-    const steDonut = ste !== undefined ? this.renderRatingDonut(ste, 'SB Ability', 'Steal Ability') : '';
-
-    // Personality traits (only show H or L)
-    const personalityHtml = this.renderPersonalityTraits();
-
-    return `
-      <div class="advanced-ratings-section ${expandedClass}">
-        <button class="advanced-ratings-toggle" aria-expanded="${this.advancedRatingsExpanded}">
-          <span class="toggle-icon">${toggleIcon}</span>
-          Expanded Ratings
-        </button>
-        <div class="advanced-ratings-content">
-          ${ratingsContent}
-          <div class="advanced-ratings-donuts">
-            ${speedDonut}
-            ${srDonut}
-            ${steDonut}
-          </div>
-          ${personalityHtml}
-        </div>
-      </div>
-    `;
-  }
-
-  private renderPersonalityTraits(): string {
-    const s = this.scoutingData;
-    if (!s) return '';
-
-    const traits: Array<{ key: string; label: string; value?: 'H' | 'N' | 'L' }> = [
-      { key: 'leadership', label: 'Leadership', value: s.leadership },
-      { key: 'loyalty', label: 'Loyalty', value: s.loyalty },
-      { key: 'adaptability', label: 'Adaptability', value: s.adaptability },
-      { key: 'greed', label: 'Greedy', value: s.greed },
-      { key: 'workEthic', label: 'Work Ethic', value: s.workEthic },
-      { key: 'intelligence', label: 'Intelligence', value: s.intelligence },
-    ];
-
-    // Only show traits that are High or Low
-    const notable = traits.filter(t => t.value === 'H' || t.value === 'L');
-    if (notable.length === 0) return '';
-
-    const badges = notable.map(t => {
-      const levelClass = t.value === 'H' ? 'trait-high' : 'trait-low';
-      const levelLabel = t.value === 'H' ? 'High' : 'Low';
-      const arrow = t.value === 'H' ? '▲' : '▼';
-      return `<span class="personality-trait ${levelClass}" title="${t.label}: ${levelLabel}"><span class="trait-arrow">${arrow}</span>${t.label}</span>`;
-    }).join('');
-
-    return `
-      <div class="personality-section">
-        <span class="personality-label">Personality</span>
-        <div class="personality-traits">${badges}</div>
-      </div>
-    `;
-  }
-
-  private renderAdvancedRatingComparison(label: string, trueValue: number | undefined, scoutValue: number, min: number, max: number, ceiling?: number): string {
-    const isSpeed = label === 'Speed';
-    const tv = trueValue ?? scoutValue; // fallback to scout if no true value
-    const sv = scoutValue;
-    const truePercent = Math.max(0, Math.min(100, ((tv - min) / (max - min)) * 100));
-    const scoutPercent = Math.max(0, Math.min(100, ((sv - min) / (max - min)) * 100));
-    const trueBarClass = isSpeed ? this.getSpeedBarClass(tv) : this.getRatingBarClass(tv);
-    const scoutBarClass = isSpeed ? this.getSpeedBarClass(sv) : this.getRatingBarClass(sv);
-    const trueDisplay = Math.round(tv);
-    const scoutDisplay = Math.round(sv);
-    // Diff uses TFR (peak) vs scout (also peak) when ceiling available, otherwise TR vs scout
-    const ceilingForDiff = (ceiling !== undefined && !isNaN(ceiling)) ? Math.round(Math.max(min, Math.min(max, ceiling))) : undefined;
-    const diffValue = (ceilingForDiff !== undefined && ceilingForDiff > trueDisplay) ? ceilingForDiff : trueDisplay;
-    const diff = diffValue - scoutDisplay;
-    const diffText = diff > 0 ? `+${diff}` : diff === 0 ? '—' : `${diff}`;
-    const diffClass = diff > 0 ? 'diff-positive' : diff < 0 ? 'diff-negative' : 'diff-neutral';
-
-    // Ceiling bar for advanced ratings
-    let ceilingHtml = '';
-    let barInnerHtml = '';
-    let barValueHtml = `<span class="bar-value">${trueDisplay}</span>`;
-    if (ceiling !== undefined && !isNaN(ceiling)) {
-      const ceilingClamped = Math.round(Math.max(min, Math.min(max, ceiling)));
-      if (ceilingClamped > trueDisplay) {
-        const ceilingClass = isSpeed ? this.getSpeedBarClass(ceilingClamped) : this.getRatingBarClass(ceilingClamped);
-        const ceilingPercent = Math.max(0, Math.min(100, ((ceilingClamped - min) / (max - min)) * 100));
-        const extensionPercent = ceilingPercent - truePercent;
-        ceilingHtml = `<div class="bar bar-ceiling ${ceilingClass}" style="left: ${truePercent}%; width: ${extensionPercent}%" title="TFR Ceiling: ${ceilingClamped}"></div>`;
-        barInnerHtml = `<span class="bar-value-inner">${trueDisplay}</span>`;
-        barValueHtml = `<span class="bar-value">${ceilingClamped}</span>`;
-      }
-    }
-
-    return `
-      <div class="rating-row rating-row-advanced">
-        <span class="rating-label">${label}</span>
-        <div class="rating-bars">
-          <div class="rating-bars-left">
-            <div class="bar-container">
-              <div class="bar bar-estimated ${trueBarClass}" style="width: ${truePercent}%">${barInnerHtml}</div>
-              ${ceilingHtml}
-              ${barValueHtml}
-            </div>
-          </div>
-          <div class="rating-bars-center">
-            <span class="rating-diff ${diffClass}">${diffText}</span>
-            <span class="bar-vs">vs</span>
-          </div>
-          <div class="rating-bars-right">
-            <div class="bar-container bar-container-rtl">
-              <div class="bar bar-scout ${scoutBarClass}" style="width: ${scoutPercent}%"></div>
-              <span class="bar-value">${scoutDisplay}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  private renderAdvancedRatingBar(label: string, value: number, min: number, max: number): string {
-    const percentage = Math.max(0, Math.min(100, ((value - min) / (max - min)) * 100));
-    const barClass = label === 'Speed' ? this.getSpeedBarClass(value) : this.getRatingBarClass(value);
-    const displayValue = Math.round(value);
-
-    return `
-      <div class="rating-row rating-row-advanced">
-        <span class="rating-label">${label}</span>
-        <div class="rating-bars">
-          <div class="bar-container">
-            <div class="bar bar-scout ${barClass}" style="width: ${percentage}%"></div>
-            <span class="bar-value">${displayValue}</span>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-
-  private getSpeedBarClass(speed: number): string {
-    if (speed >= 160) return 'rating-elite';
-    if (speed >= 120) return 'rating-plus';
-    if (speed >= 80) return 'rating-avg';
-    if (speed >= 50) return 'rating-fringe';
-    return 'rating-poor';
-  }
-
-  private renderStatsTable(stats: BatterSeasonStats[]): string {
+  private renderCareerStatsContent(stats: BatterSeasonStats[]): string {
     // League averages for OPS+ calculation
     const lgObp = 0.320;
     const lgSlg = 0.400;
 
     if (stats.length === 0) {
-      return `
-        <div class="stats-history">
-          <h4 class="section-label">Career Stats</h4>
-          <p class="no-stats">No batting stats found for this player.</p>
-        </div>
-      `;
+      return `<p class="no-stats">No batting stats found for this player.</p>`;
     }
 
     const rows = stats.slice(0, 10).map(s => {
@@ -1667,37 +1601,95 @@ export class BatterProfileModal {
     }).join('');
 
     return `
-      <div class="stats-history">
-        <h4 class="section-label">Career Stats</h4>
-        <div class="stats-table-scroll">
-          <table class="profile-stats-table" style="table-layout: fixed;">
-            <thead>
-              <tr>
-                <th style="width: 45px; text-align: center;">Year</th>
-                <th style="width: 45px; text-align: center;">Level</th>
-                <th style="width: 50px; text-align: center;">PA</th>
-                <th style="width: 60px; text-align: center;">AVG</th>
-                <th style="width: 60px; text-align: center;">OBP</th>
-                <th style="width: 60px; text-align: center;">BB%</th>
-                <th style="width: 60px; text-align: center;">K%</th>
-                <th style="width: 60px; text-align: center;">HR%</th>
-                <th style="width: 50px; text-align: center;">HR</th>
-                <th style="width: 40px; text-align: center;">SB</th>
-                <th style="width: 40px; text-align: center;">CS</th>
-                <th style="width: 60px; text-align: center;">SLG</th>
-                <th style="width: 60px; text-align: center;">OPS</th>
-                <th style="width: 50px; text-align: center;">OPS+</th>
-                <th style="width: 50px; text-align: center;">WAR</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rows}
-            </tbody>
-          </table>
-        </div>
+      <div class="stats-table-scroll">
+        <table class="profile-stats-table" style="table-layout: fixed;">
+          <thead>
+            <tr>
+              <th style="width: 45px; text-align: center;">Year</th>
+              <th style="width: 45px; text-align: center;">Level</th>
+              <th style="width: 50px; text-align: center;">PA</th>
+              <th style="width: 60px; text-align: center;">AVG</th>
+              <th style="width: 60px; text-align: center;">OBP</th>
+              <th style="width: 60px; text-align: center;">BB%</th>
+              <th style="width: 60px; text-align: center;">K%</th>
+              <th style="width: 60px; text-align: center;">HR%</th>
+              <th style="width: 50px; text-align: center;">HR</th>
+              <th style="width: 40px; text-align: center;">SB</th>
+              <th style="width: 40px; text-align: center;">CS</th>
+              <th style="width: 60px; text-align: center;">SLG</th>
+              <th style="width: 60px; text-align: center;">OPS</th>
+              <th style="width: 50px; text-align: center;">OPS+</th>
+              <th style="width: 50px; text-align: center;">WAR</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
       </div>
     `;
   }
+
+  // ─── Development Tab ──────────────────────────────────────────────────
+
+  private renderDevelopmentTab(playerId: number): string {
+    return `
+      <div class="development-section">
+        <div class="development-header">
+          <h4>Development History</h4>
+          <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
+        </div>
+        ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
+        <div class="development-chart-container" id="development-chart-${playerId}"></div>
+      </div>
+    `;
+  }
+
+  private async initDevelopmentChart(playerId: number): Promise<void> {
+    // Clean up existing chart
+    if (this.developmentChart) {
+      this.developmentChart.destroy();
+      this.developmentChart = null;
+    }
+
+    // Fetch snapshots
+    const snapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+
+    // Filter to only hitter snapshots (those with hitter-specific fields)
+    const hitterSnapshots = snapshots.filter(s =>
+      s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
+    );
+
+    // Update snapshot count
+    const countEl = this.overlay?.querySelector('#dev-snapshot-count');
+    if (countEl) {
+      countEl.textContent = `${hitterSnapshots.length} snapshot${hitterSnapshots.length !== 1 ? 's' : ''}`;
+    }
+
+    // Create and render chart
+    this.developmentChart = new DevelopmentChart({
+      containerId: `development-chart-${playerId}`,
+      snapshots: hitterSnapshots,
+      metrics: this.activeDevMetrics,
+      height: 280,
+    });
+    this.developmentChart.render();
+
+    // Bind metric toggle handlers
+    const container = this.overlay?.querySelector('.development-section');
+    if (container) {
+      bindMetricToggleHandlers(container as HTMLElement, (metric, enabled) => {
+        if (enabled && !this.activeDevMetrics.includes(metric)) {
+          this.activeDevMetrics.push(metric);
+        } else if (!enabled) {
+          this.activeDevMetrics = this.activeDevMetrics.filter(m => m !== metric);
+        }
+        this.developmentChart?.updateMetrics(this.activeDevMetrics);
+      });
+    }
+  }
+
+  // ─── Shared Utilities ─────────────────────────────────────────────────
 
   private renderFlipCell(front: string, back: string, title: string): string {
     return `
@@ -1717,11 +1709,106 @@ export class BatterProfileModal {
     return Math.max(20, Math.min(80, Math.round(rating)));
   }
 
+  /** Toggle visibility of rating number badges based on which legend series are hidden */
+  private updateAxisBadgeVisibility(): void {
+    if (!this.overlay) return;
+
+    const badgeMap: Record<string, string> = {
+      'True Rating': 'radar-badge-true',
+      'True Future Rating': 'radar-badge-tfr',
+    };
+    // Add only the active scout series name — both map to the same badge class,
+    // so including both causes the non-hidden entry to overwrite the hidden one
+    const scoutSeriesName = this.scoutingIsOsa ? 'OSA Scout' : 'My Scout';
+    badgeMap[scoutSeriesName] = 'radar-badge-scout';
+
+    for (const [seriesName, badgeClass] of Object.entries(badgeMap)) {
+      const isHidden = this.hiddenSeries.has(seriesName);
+      const badges = this.overlay.querySelectorAll<HTMLElement>(`.ratings-radar-col .${badgeClass}`);
+      badges.forEach(badge => {
+        badge.style.display = isHidden ? 'none' : '';
+      });
+    }
+
+    // Projection badges (both hitting and running charts)
+    const projHidden = this.hiddenSeries.has('Stat Projections');
+    const projBadges = this.overlay.querySelectorAll<HTMLElement>('.radar-proj-badge');
+    projBadges.forEach(badge => {
+      badge.style.display = projHidden ? 'none' : '';
+    });
+  }
+
+  // ─── Event Binding ────────────────────────────────────────────────────
+
   private bindBodyEvents(): void {
     this.bindScoutSourceToggle();
     this.bindTabSwitching();
-    this.bindAdvancedRatingsToggle();
     this.bindProjectionToggle();
+    this.initRadarChart(this.currentData!);
+    this.initRunningRadarChart(this.currentData!);
+    this.lockTabContentHeight();
+  }
+
+  /** Measure all tab panes and set min-height to the tallest, preventing layout shift on tab switch */
+  private lockTabContentHeight(): void {
+    const container = this.overlay?.querySelector<HTMLElement>('.profile-tab-content');
+    const panes = this.overlay?.querySelectorAll<HTMLElement>('.tab-pane');
+    if (!container || !panes || panes.length === 0) return;
+
+    // Temporarily show all panes to measure them
+    const originalDisplay: string[] = [];
+    panes.forEach((pane, i) => {
+      originalDisplay[i] = pane.style.display;
+      pane.style.display = 'block';
+      pane.style.visibility = 'hidden';
+      pane.style.position = 'absolute';
+      pane.style.width = '100%';
+    });
+
+    let maxHeight = 0;
+    panes.forEach(pane => {
+      maxHeight = Math.max(maxHeight, pane.scrollHeight);
+    });
+
+    // Restore original state
+    panes.forEach((pane, i) => {
+      pane.style.display = originalDisplay[i];
+      pane.style.visibility = '';
+      pane.style.position = '';
+      pane.style.width = '';
+    });
+
+    if (maxHeight > 0) {
+      container.style.minHeight = `${maxHeight}px`;
+    }
+  }
+
+  private bindTabSwitching(): void {
+    const tabs = this.overlay?.querySelectorAll<HTMLButtonElement>('.profile-tab');
+    tabs?.forEach(tab => {
+      tab.addEventListener('click', () => {
+        const targetTab = tab.dataset.tab;
+        if (!targetTab) return;
+
+        // Update tab buttons
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+
+        // Update tab panes
+        const panes = this.overlay?.querySelectorAll<HTMLElement>('.tab-pane');
+        panes?.forEach(pane => {
+          if (pane.dataset.pane === targetTab) {
+            pane.classList.add('active');
+            // Initialize development chart when switching to that tab
+            if (targetTab === 'development' && this.currentData) {
+              this.initDevelopmentChart(this.currentData.playerId);
+            }
+          } else {
+            pane.classList.remove('active');
+          }
+        });
+      });
+    });
   }
 
   private bindProjectionToggle(): void {
@@ -1739,7 +1826,7 @@ export class BatterProfileModal {
         // Re-render just the projection section
         const projSection = this.overlay?.querySelector('.projection-section');
         if (projSection && this.currentData) {
-          const newHtml = this.renderProjection(this.currentData, this.currentStats);
+          const newHtml = this.renderProjectionContent(this.currentData, this.currentStats);
           projSection.outerHTML = newHtml;
           // Re-bind toggle and flip card events on the new section
           this.bindProjectionToggle();
@@ -1756,39 +1843,18 @@ export class BatterProfileModal {
     });
   }
 
-  private bindAdvancedRatingsToggle(): void {
-    const advancedToggle = this.overlay?.querySelector('.advanced-ratings-toggle');
-    advancedToggle?.addEventListener('click', () => {
-      this.advancedRatingsExpanded = !this.advancedRatingsExpanded;
-      localStorage.setItem('wbl_expanded_ratings_expanded', String(this.advancedRatingsExpanded));
-
-      const section = this.overlay?.querySelector('.advanced-ratings-section');
-      const toggleIcon = this.overlay?.querySelector('.toggle-icon');
-
-      if (section) {
-        section.classList.toggle('expanded', this.advancedRatingsExpanded);
-      }
-      if (toggleIcon) {
-        toggleIcon.textContent = this.advancedRatingsExpanded ? '▾' : '▸';
-      }
-      advancedToggle.setAttribute('aria-expanded', String(this.advancedRatingsExpanded));
-    });
-  }
-
   private bindScoutSourceToggle(): void {
     if (!this.overlay) return;
-    const toggleContainer = this.overlay.querySelector<HTMLElement>('.scout-header-toggle.custom-dropdown');
-    if (!toggleContainer) return;
+    const buttons = this.overlay.querySelectorAll<HTMLButtonElement>('.scout-source-toggle .scout-toggle-btn');
+    if (buttons.length === 0) return;
 
-    const items = toggleContainer.querySelectorAll<HTMLElement>('.dropdown-item');
-    items.forEach(item => {
-      item.addEventListener('click', (e) => {
-        const newSource = (e.target as HTMLElement).dataset.value as 'my' | 'osa';
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const newSource = btn.dataset.value as 'my' | 'osa';
         if (!newSource) return;
 
-        const isCurrentlyOsa = this.scoutingIsOsa;
         const wantsOsa = newSource === 'osa';
-        if (isCurrentlyOsa === wantsOsa) return; // No change
+        if (this.scoutingIsOsa === wantsOsa) return;
 
         // Switch scouting data source
         if (newSource === 'my' && this.myScoutingData) {
@@ -1799,11 +1865,22 @@ export class BatterProfileModal {
           this.scoutingIsOsa = true;
         }
 
-        // Re-render the ratings comparison section
-        const ratingsSection = this.overlay?.querySelector('.ratings-comparison');
-        if (ratingsSection && this.currentData) {
-          ratingsSection.outerHTML = this.renderRatingsComparison(this.currentData);
+        if (!this.currentData) return;
+
+        // Re-render the ratings section (radar + running chart)
+        const ratingsSection = this.overlay?.querySelector('.ratings-section');
+        if (ratingsSection) {
+          ratingsSection.outerHTML = this.renderRatingsSection(this.currentData);
           this.bindScoutSourceToggle(); // Re-bind after re-render
+          this.initRadarChart(this.currentData); // Re-init radar with new scout data
+          this.initRunningRadarChart(this.currentData); // Re-init running radar
+        }
+
+        // Re-render the projection section below
+        const projSection = this.overlay?.querySelector('.projection-section');
+        if (projSection && this.currentData) {
+          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
+          this.bindProjectionToggle();
         }
       });
     });
