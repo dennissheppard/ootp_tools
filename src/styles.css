@@ -6255,6 +6255,12 @@ th .stat-tooltip {
   cursor: default;
 }
 
+.batter-profile-modal .contract-arb {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: rgba(139, 92, 246, 0.9);
+}
+
 .batter-profile-modal .contract-info-hover {
   position: relative;
   cursor: default;
@@ -7896,6 +7902,12 @@ th .stat-tooltip {
   border-radius: 3px;
   padding: 0.1rem 0.35rem;
   letter-spacing: 0.03em;
+}
+
+.pitcher-profile-modal .contract-arb {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: rgba(139, 92, 246, 0.9);
 }
 
 .pitcher-profile-modal .contract-info-hover {

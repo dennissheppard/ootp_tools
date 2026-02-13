@@ -872,7 +872,20 @@ export class BatterProfileModal {
     if (currentSalary === 0) {
       return `<span class="contract-info-hover"><span class="contract-mlc">MLC</span>${tooltipHtml}</span>`;
     }
+
+    // League minimum: exactly $228K
+    if (currentSalary === 228_000) {
+      return `<span class="contract-info-hover"><span class="contract-mlc">League Min</span>${tooltipHtml}</span>`;
+    }
+
     const salaryStr = this.formatSalary(currentSalary);
+
+    // Arbitration: 1-year contract above league minimum
+    if (c.years === 1) {
+      return `<span class="contract-info-hover">${salaryStr} <span class="contract-arb">(Arb)</span>${tooltipHtml}</span>`;
+    }
+
+    // Real contract: multi-year deal
     const yearStr = `Yr ${c.currentYear + 1} of ${c.years}`;
     return `<span class="contract-info-hover">${salaryStr} · ${yearStr}${tooltipHtml}</span>`;
   }
@@ -2003,9 +2016,21 @@ export class BatterProfileModal {
     if (c.lastYearTeamOption) clauses.push('Team Option (final year)');
     if (c.lastYearPlayerOption) clauses.push('Player Option (final year)');
     if (c.lastYearVestingOption) clauses.push('Vesting Option (final year)');
+    let contractSalary: string;
+    let contractYears: string;
+    if (currentSalary === 0 || currentSalary === 228_000) {
+      contractSalary = 'League Minimum';
+      contractYears = 'Pre-arbitration';
+    } else if (c.years === 1) {
+      contractSalary = this.formatSalary(currentSalary);
+      contractYears = 'Arbitration';
+    } else {
+      contractSalary = this.formatSalary(currentSalary);
+      contractYears = `Year ${c.currentYear + 1} of ${c.years}`;
+    }
     return {
-      contractSalary: currentSalary === 0 ? 'Minimum League Contract' : this.formatSalary(currentSalary),
-      contractYears: `Year ${c.currentYear + 1} of ${c.years}`,
+      contractSalary,
+      contractYears,
       contractClauses: clauses.length > 0 ? clauses.join(', ') : undefined,
     };
   }
