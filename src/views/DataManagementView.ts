@@ -735,60 +735,39 @@ export class DataManagementView {
       const startYear = LEAGUE_START_YEAR;
       const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
 
-      const yearCount = currentYear - startYear + 1;
-
-      console.log(`📊 Loading ${yearCount} years from bundles (${startYear}-${currentYear})`);
-
-      // Helper to add delay between API calls
-      const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-      // Load bundled MLB data (fast - no API calls)
-      console.log('📦 Loading bundled MLB data...');
-      const mlbBundleResult = await trueRatingsService.loadDefaultMlbData();
-      console.log(`✅ Loaded ${mlbBundleResult.loaded} bundled MLB datasets`);
-      if (mlbBundleResult.errors.length > 0) {
-        console.warn(`⚠️ ${mlbBundleResult.errors.length} MLB files failed to load:`, mlbBundleResult.errors);
+      // Fire current-year API calls first — they're slow (network latency)
+      // and can run in parallel with the fast local CSV loading
+      console.log(`📥 Fetching current year (${currentYear}) from API...`);
+      const apiPromises: Promise<any>[] = [
+        trueRatingsService.getTruePitchingStats(currentYear)
+          .then(() => console.log(`✅ API: MLB pitching ${currentYear}`))
+          .catch(err => console.warn(`⚠️ API: MLB pitching ${currentYear} failed:`, err)),
+      ];
+      for (const level of levels) {
+        apiPromises.push(
+          minorLeagueStatsService.getStats(currentYear, level)
+            .then(() => console.log(`✅ API: MiLB pitching ${currentYear} ${level}`))
+            .catch(err => console.warn(`⚠️ API: MiLB pitching ${currentYear} ${level} failed:`, err))
+        );
+        apiPromises.push(
+          minorLeagueBattingStatsService.getStats(currentYear, level)
+            .then(() => console.log(`✅ API: MiLB batting ${currentYear} ${level}`))
+            .catch(err => console.warn(`⚠️ API: MiLB batting ${currentYear} ${level} failed:`, err))
+        );
       }
 
-      // Fetch current year from API if not in bundle (2022+)
-      if (currentYear > 2021) {
-        console.log(`📥 Fetching current MLB year (${currentYear}) from API...`);
-        await trueRatingsService.getTruePitchingStats(currentYear);
-      }
-
-      // Load bundled minor league pitching stats (fast - no API calls)
-      console.log('📦 Loading bundled minor league pitching data...');
-      const bundleResult = await minorLeagueStatsService.loadDefaultMinorLeagueData();
-      console.log(`✅ Loaded ${bundleResult.loaded} bundled pitching datasets`);
-      if (bundleResult.errors.length > 0) {
-        console.warn(`⚠️ ${bundleResult.errors.length} pitching files failed to load:`, bundleResult.errors);
-      }
-
-      // Load bundled minor league batting stats (fast - no API calls)
-      console.log('📦 Loading bundled minor league batting data...');
-      const battingBundleResult = await minorLeagueBattingStatsService.loadDefaultMinorLeagueBattingData();
-      console.log(`✅ Loaded ${battingBundleResult.loaded} bundled batting datasets`);
-      if (battingBundleResult.errors.length > 0) {
-        console.warn(`⚠️ ${battingBundleResult.errors.length} batting files failed to load:`, battingBundleResult.errors);
-      }
-
-      // Fetch current year from API if not in bundle (2025+)
-      if (currentYear > 2024) {
-        console.log(`📥 Fetching current year (${currentYear}) pitching from API...`);
-        for (const level of levels) {
-          await minorLeagueStatsService.getStats(currentYear, level);
-          await delay(250);
-        }
-        console.log(`📥 Fetching current year (${currentYear}) batting from API...`);
-        for (const level of levels) {
-          await minorLeagueBattingStatsService.getStats(currentYear, level);
-          await delay(250);
-        }
-      }
+      // While API calls are in flight, load bundled CSV data (fast, local files)
+      console.log(`📦 Loading bundled historical data (${startYear}-${currentYear - 1})...`);
+      const [mlbBundleResult, bundleResult, battingBundleResult, gameDate] = await Promise.all([
+        trueRatingsService.loadDefaultMlbData(),
+        minorLeagueStatsService.loadDefaultMinorLeagueData(),
+        minorLeagueBattingStatsService.loadDefaultMinorLeagueBattingData(),
+        dateService.getCurrentDate(),
+      ]);
+      console.log(`✅ Loaded ${mlbBundleResult.loaded} MLB + ${bundleResult.loaded} pitching + ${battingBundleResult.loaded} batting bundled datasets`);
 
       // Load default OSA scouting data (pitchers and hitters)
       console.log('📋 Loading default OSA scouting data...');
-      const gameDate = await dateService.getCurrentDate();
       const [pitcherOsaCount, hitterOsaCount] = await Promise.all([
         scoutingDataService.loadDefaultOsaData(gameDate),
         hitterScoutingDataService.loadDefaultHitterOsaData(gameDate)
@@ -797,6 +776,10 @@ export class DataManagementView {
       if (totalOsaCount > 0) {
         console.log(`✅ Loaded ${pitcherOsaCount} pitcher + ${hitterOsaCount} hitter OSA scouting ratings`);
       }
+
+      // Wait for all current-year API calls to finish
+      await Promise.all(apiPromises);
+      console.log(`✅ Current year API data loaded`);
 
       // All done - show onboarding explanation
       this.showOnboardingComplete(totalOsaCount, mlbBundleResult.loaded + bundleResult.loaded + battingBundleResult.loaded);

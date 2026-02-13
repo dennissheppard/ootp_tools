@@ -24,7 +24,7 @@ class ScoutingDataFallbackService {
    * Get scouting ratings with My Scout > OSA fallback
    * Returns per-player best available source
    */
-  async getScoutingRatingsWithFallback(year?: number): Promise<ScoutingFallbackResult> {
+  async getScoutingRatingsWithFallback(year?: number, scoutPriority: 'my' | 'osa' = 'my'): Promise<ScoutingFallbackResult> {
     // 1. Load both sources in parallel
     const [myRatings, osaRatings] = await Promise.all([
       year ? scoutingDataService.getScoutingRatings(year, 'my')
@@ -33,63 +33,53 @@ class ScoutingDataFallbackService {
            : scoutingDataService.getLatestScoutingRatings('osa')
     ]);
 
-    // 2. Build lookup maps
-    const myMap = new Map<number, PitcherScoutingRatings>();
-    const myNameMap = new Map<string, PitcherScoutingRatings[]>();
+    // 2. Determine priority/secondary based on scoutPriority param
+    const primaryRatings = scoutPriority === 'my' ? myRatings : osaRatings;
+    const secondaryRatings = scoutPriority === 'my' ? osaRatings : myRatings;
+    const primarySource = scoutPriority;
+    const secondarySource = scoutPriority === 'my' ? 'osa' : 'my';
 
-    myRatings.forEach(r => {
-      if (r.playerId > 0) myMap.set(r.playerId, r);
+    // 3. Build name lookup for primary source (for dedup)
+    const primaryNameMap = new Map<string, PitcherScoutingRatings[]>();
+    primaryRatings.forEach(r => {
       if (r.playerName) {
         const norm = this.normalizeName(r.playerName);
-        const list = myNameMap.get(norm) ?? [];
+        const list = primaryNameMap.get(norm) ?? [];
         list.push(r);
-        myNameMap.set(norm, list);
+        primaryNameMap.set(norm, list);
       }
     });
 
-    const osaMap = new Map<number, PitcherScoutingRatings>();
-    const osaNameMap = new Map<string, PitcherScoutingRatings[]>();
-
-    osaRatings.forEach(r => {
-      if (r.playerId > 0) osaMap.set(r.playerId, r);
-      if (r.playerName) {
-        const norm = this.normalizeName(r.playerName);
-        const list = osaNameMap.get(norm) ?? [];
-        list.push(r);
-        osaNameMap.set(norm, list);
-      }
-    });
-
-    // 3. Merge with priority: My Scout > OSA
+    // 4. Merge with priority
     const merged: PitcherScoutingRatings[] = [];
     const processedIds = new Set<number>();
     let fromMyScout = 0;
     let fromOSA = 0;
 
-    // Add all 'my' scout data first
-    myRatings.forEach(r => {
-      merged.push({ ...r, source: 'my' });
+    // Add all primary source data first
+    primaryRatings.forEach(r => {
+      merged.push({ ...r, source: primarySource });
       if (r.playerId > 0) processedIds.add(r.playerId);
-      fromMyScout++;
+      if (primarySource === 'my') fromMyScout++; else fromOSA++;
     });
 
-    // Add OSA data only if not in 'my'
-    osaRatings.forEach(r => {
+    // Add secondary data only if not in primary
+    secondaryRatings.forEach(r => {
       if (r.playerId > 0 && processedIds.has(r.playerId)) {
-        return; // Skip: already have 'my' data for this player
+        return; // Skip: already have primary data for this player
       }
 
-      // Check name-based duplicate (if 'my' has this name, skip OSA)
+      // Check name-based duplicate
       if (r.playerName) {
         const norm = this.normalizeName(r.playerName);
-        const myMatches = myNameMap.get(norm);
-        if (myMatches && myMatches.length > 0) {
-          return; // Skip: 'my' has this player by name
+        const primaryMatches = primaryNameMap.get(norm);
+        if (primaryMatches && primaryMatches.length > 0) {
+          return; // Skip: primary has this player by name
         }
       }
 
-      merged.push({ ...r, source: 'osa' });
-      fromOSA++;
+      merged.push({ ...r, source: secondarySource });
+      if (secondarySource === 'my') fromMyScout++; else fromOSA++;
     });
 
     return {

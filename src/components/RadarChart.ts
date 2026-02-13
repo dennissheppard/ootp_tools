@@ -91,6 +91,12 @@ export class RadarChart {
     }
   }
 
+  toggleSeries(seriesName: string): void {
+    if (this.chart) {
+      this.chart.toggleSeries(seriesName);
+    }
+  }
+
   destroy(): void {
     if (this.chart) {
       this.chart.destroy();

@@ -2772,6 +2772,15 @@ export class ProjectionsView {
       projectionYear: projectionYear,
       projectionBaseYear: projectionBaseYear,
       showYearLabel: isHistorical || projectionYear !== this.selectedYear,
+
+      // Pass projection data directly so the modal doesn't recalculate
+      projIp: row.projectedStats.ip,
+      projWar: row.projectedStats.war,
+      projK9: row.projectedStats.k9,
+      projBb9: row.projectedStats.bb9,
+      projHr9: row.projectedStats.hr9,
+      projFip: row.projectedStats.fip,
+
       projectionOverride: {
         projectedStats: row.projectedStats,
         projectedRatings: row.projectedRatings

@@ -2,7 +2,7 @@ import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService } from './IndexedDBService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 
-type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence';
+type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence' | 'pitcherType' | 'babip';
 
 const STORAGE_KEY_PREFIX = 'wbl_scouting_ratings_';
 const USE_INDEXEDDB = true; // Feature flag to switch between localStorage and IndexedDB
@@ -20,10 +20,12 @@ const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   injuryProneness: ['prone', 'injury', 'injuryproneness', 'inj'],
   leadership: ['lea', 'leadership'],
   loyalty: ['loy', 'loyalty'],
-  adaptability: ['ad', 'adaptability'],
-  greed: ['fin', 'greed', 'greedy'],
+  adaptability: ['ad', 'ada', 'adapt', 'adaptability'],
+  greed: ['fin', 'gre', 'greed', 'greedy'],
   workEthic: ['we', 'workethic'],
   intelligence: ['int', 'intelligence'],
+  pitcherType: ['gf', 'gb', 'groundball', 'pitchertype'],
+  babip: ['pbabipp', 'pbabip', 'babip'],
 };
 
 /** Known pitch type column headers (normalized to lowercase alphanumeric) */
@@ -99,6 +101,10 @@ class ScoutingDataService {
         const workEthic = this.getPersonalityTrait(cells, indexMap.workEthic);
         const intelligence = this.getPersonalityTrait(cells, indexMap.intelligence);
 
+        // Parse optional pitcher type and BABIP
+        const pitcherType = this.getStringFromIndex(cells, indexMap.pitcherType);
+        const babip = this.getStringFromIndex(cells, indexMap.babip);
+
         results.push({
           playerId,
           playerName: playerName || undefined,
@@ -117,6 +123,8 @@ class ScoutingDataService {
           greed,
           workEthic,
           intelligence,
+          pitcherType: pitcherType || undefined,
+          babip: babip || undefined,
           source,
         });
       } else {

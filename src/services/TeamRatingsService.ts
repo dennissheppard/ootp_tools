@@ -41,6 +41,18 @@ export interface RatedPlayer {
   };
 }
 
+export interface PitcherTfrSourceData {
+    trueFutureRating: number;
+    tfrPercentile: number;
+    stuff: number;
+    control: number;
+    hra: number;
+    projK9: number;
+    projBb9: number;
+    projHr9: number;
+    projFip: number;
+}
+
 export interface RatedProspect {
     playerId: number;
     name: string;
@@ -98,6 +110,8 @@ export interface RatedProspect {
     };
     /** Total minor league IP */
     totalMinorIp?: number;
+    /** TFR computed with each scout source as priority (for modal toggle) */
+    tfrBySource?: { my?: PitcherTfrSourceData; osa?: PitcherTfrSourceData };
 }
 
 export interface FarmSystemRankings {
@@ -134,6 +148,24 @@ export interface FarmData {
 // ============================================================================
 // Hitter Prospect Interfaces
 // ============================================================================
+
+export interface BatterTfrSourceData {
+    trueFutureRating: number;
+    tfrPercentile: number;
+    power: number;
+    eye: number;
+    avoidK: number;
+    contact: number;
+    gap: number;
+    speed: number;
+    projBbPct: number;
+    projKPct: number;
+    projHrPct: number;
+    projAvg: number;
+    projObp: number;
+    projSlg: number;
+    projWoba: number;
+}
 
 export interface RatedHitterProspect {
     playerId: number;
@@ -217,6 +249,8 @@ export interface RatedHitterProspect {
     position: number;
     /** Whether this player qualifies for Farm Rankings (career AB <= 130) */
     isFarmEligible?: boolean;
+    /** TFR computed with each scout source as priority (for modal toggle) */
+    tfrBySource?: { my?: BatterTfrSourceData; osa?: BatterTfrSourceData };
 }
 
 export interface HitterFarmSystemRankings {
@@ -720,13 +754,18 @@ class TeamRatingsService {
           scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
       }
 
-      const [allPlayers, tfrResults, teams, leagueStats, contracts] = await Promise.all([
+      const [allPlayers, tfrResults, tfrResultsOsa, teams, leagueStats, contracts] = await Promise.all([
           playerService.getAllPlayers(),
           trueFutureRatingService.getProspectTrueFutureRatings(year),
+          trueFutureRatingService.getProspectTrueFutureRatings(year, 'osa'),
           teamService.getAllTeams(),
           leagueStatsService.getLeagueStats(year),
           contractService.getAllContracts()
       ]);
+
+      // Build secondary TFR map (OSA priority) for tfrBySource
+      const tfrMyMap = new Map(tfrResults.map(t => [t.playerId, t]));
+      const tfrOsaMap = new Map(tfrResultsOsa.map(t => [t.playerId, t]));
 
       const playerMap = new Map(allPlayers.map(p => [p.id, p]));
       const teamMap = new Map(teams.map(t => [t.id, t]));
@@ -855,6 +894,26 @@ class TeamRatingsService {
               rawStats: tfr.rawK9 !== undefined ? { k9: tfr.rawK9, bb9: tfr.rawBb9!, hr9: tfr.rawHr9! } : undefined,
               totalMinorIp: tfr.totalMinorIp,
           };
+
+          // Build tfrBySource from both TFR runs
+          const buildPitcherTfrSource = (t: typeof tfr): PitcherTfrSourceData => ({
+              trueFutureRating: t.trueFutureRating,
+              tfrPercentile: t.percentile,
+              stuff: t.trueStuff,
+              control: t.trueControl,
+              hra: t.trueHra,
+              projK9: t.projK9,
+              projBb9: t.projBb9,
+              projHr9: t.projHr9,
+              projFip: t.projFip,
+          });
+          const myTfr = tfrMyMap.get(tfr.playerId);
+          const osaTfr = tfrOsaMap.get(tfr.playerId);
+          if (myTfr || osaTfr) {
+              prospect.tfrBySource = {};
+              if (myTfr) prospect.tfrBySource.my = buildPitcherTfrSource(myTfr);
+              if (osaTfr) prospect.tfrBySource.osa = buildPitcherTfrSource(osaTfr);
+          }
 
           // Calculate development-curve-based TR for pitcher prospects
           prospect.developmentTR = prospectDevelopmentCurveService.calculatePitcherProspectTR(prospect);
@@ -991,6 +1050,15 @@ class TeamRatingsService {
           if (rating.playerId > 0) scoutingMap.set(rating.playerId, rating);
       }
 
+      // Also build OSA-priority map for secondary TFR run
+      const scoutingMapOsa = new Map<number, HitterScoutingRatings>();
+      for (const rating of myScoutingRatings) {
+          if (rating.playerId > 0) scoutingMapOsa.set(rating.playerId, rating);
+      }
+      for (const rating of osaScoutingRatings) {
+          if (rating.playerId > 0) scoutingMapOsa.set(rating.playerId, rating);
+      }
+
       if (scoutingMap.size === 0) {
           console.warn(`[UnifiedHitterTfr] No hitter scouting data found.`);
           return { reports: [], systems: [], prospects: [] };
@@ -1055,8 +1123,21 @@ class TeamRatingsService {
           prospectPlayerMap.set(playerId, { player, scouting, careerAb });
       });
 
-      // Calculate True Future Ratings (pass league averages for WAR-based ranking)
-      const tfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs, leagueAvg ?? undefined);
+      // Build secondary (OSA-priority) TFR inputs for tfrBySource
+      const tfrInputsOsa: HitterTrueFutureRatingInput[] = tfrInputs.map(input => {
+          const osaScouting = scoutingMapOsa.get(input.playerId);
+          return osaScouting ? { ...input, scouting: osaScouting } : input;
+      });
+
+      // Calculate True Future Ratings for both scout priorities
+      const [tfrResults, tfrResultsOsa] = await Promise.all([
+          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs, leagueAvg ?? undefined),
+          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputsOsa, leagueAvg ?? undefined),
+      ]);
+
+      // Build maps for both TFR runs
+      const tfrMyResultMap = new Map(tfrResults.map(t => [t.playerId, t]));
+      const tfrOsaResultMap = new Map(tfrResultsOsa.map(t => [t.playerId, t]));
 
       // Build empirical PA distributions from MLB peak-age data by injury category
       const empiricalPaByInjury = await hitterTrueFutureRatingService.buildMLBPaByInjury(scoutingMap);
@@ -1171,6 +1252,36 @@ class TeamRatingsService {
               position: player.position,
               isFarmEligible: careerAb <= 130,
           };
+
+          // Build tfrBySource from both TFR runs
+          const buildBatterTfrSource = (t: typeof tfr): BatterTfrSourceData => {
+              const pSlg = t.projAvg + t.projIso;
+              const pObp = t.projAvg + (t.projBbPct / 100);
+              return {
+                  trueFutureRating: t.trueFutureRating,
+                  tfrPercentile: t.percentile,
+                  power: t.truePower,
+                  eye: t.trueEye,
+                  avoidK: t.trueAvoidK,
+                  contact: t.trueContact,
+                  gap: t.trueGap,
+                  speed: t.trueSpeed,
+                  projBbPct: t.projBbPct,
+                  projKPct: t.projKPct,
+                  projHrPct: t.projHrPct,
+                  projAvg: t.projAvg,
+                  projObp: Math.round(pObp * 1000) / 1000,
+                  projSlg: Math.round(pSlg * 1000) / 1000,
+                  projWoba: t.projWoba,
+              };
+          };
+          const myBatterTfr = tfrMyResultMap.get(tfr.playerId);
+          const osaBatterTfr = tfrOsaResultMap.get(tfr.playerId);
+          if (myBatterTfr || osaBatterTfr) {
+              prospect.tfrBySource = {};
+              if (myBatterTfr) prospect.tfrBySource.my = buildBatterTfrSource(myBatterTfr);
+              if (osaBatterTfr) prospect.tfrBySource.osa = buildBatterTfrSource(osaBatterTfr);
+          }
 
           // Compute development-curve-based TR
           prospect.developmentTR = prospectDevelopmentCurveService.calculateProspectTR(prospect);

@@ -81,6 +81,10 @@ interface HitterTrueRatingFields {
   /** True Future Rating for prospects */
   trueFutureRating?: number;
   tfrPercentile?: number;
+  /** TFR component ratings (peak potential) */
+  tfrContact?: number;
+  tfrPower?: number;
+  tfrEye?: number;
   /** Flag indicating this is a prospect without MLB stats */
   isProspect?: boolean;
   /** Star gap (POT - OVR) for prospects */
@@ -709,6 +713,7 @@ export class TrueRatingsView {
         this.saveFilterPreferences();
         this.updatePlayerToggleButtons();
         this.updateRatingsToggleButtons(); // Sync raw stats button state
+        this.updatePitcherColumns(); // Refresh columns (e.g., TFR columns depend on showProspects)
 
         // If we changed from Raw Stats to True Ratings, we need to refetch the data
         if (ratingsViewChanged) {
@@ -1725,6 +1730,9 @@ export class TrueRatingsView {
         // Hitter True Rating fields - from farm data (single source of truth)
         trueFutureRating: farmProspect.trueFutureRating,
         tfrPercentile: farmProspect.percentile,
+        tfrContact: farmProspect.trueRatings.contact,
+        tfrPower: farmProspect.trueRatings.power,
+        tfrEye: farmProspect.trueRatings.eye,
         estimatedPower: farmProspect.developmentTR?.power ?? farmProspect.trueRatings.power,
         estimatedEye: farmProspect.developmentTR?.eye ?? farmProspect.trueRatings.eye,
         estimatedAvoidK: farmProspect.developmentTR?.avoidK ?? farmProspect.trueRatings.avoidK,
@@ -2272,7 +2280,8 @@ export class TrueRatingsView {
         // Handle missing stats for prospects
         if (isProspect && key !== 'playerName' && key !== 'teamDisplay' && key !== 'position' && key !== 'age'
             && key !== 'trueRating' && key !== 'percentile' && key !== 'estimatedPower'
-            && key !== 'estimatedEye' && key !== 'estimatedAvoidK' && key !== 'estimatedContact') {
+            && key !== 'estimatedEye' && key !== 'estimatedAvoidK' && key !== 'estimatedContact'
+            && key !== 'tfrContact' && key !== 'tfrPower' && key !== 'tfrEye') {
           return `<td data-col-key="${key}" class="prospect-stat">${MISSING_STAT_DISPLAY}</td>`;
         }
 
@@ -2284,6 +2293,27 @@ export class TrueRatingsView {
         const value: any = (s as any)[key];
         if (key === 'playerName') {
           return `<td data-col-key="${key}" class="name-col" title="Player ID: ${s.player_id}">${this.formatBatterValue(value, key, s)}</td>`;
+        }
+
+        // Add rating bars for TFR component columns (batter prospects)
+        if (key === 'tfrContact' || key === 'tfrPower' || key === 'tfrEye') {
+          const ratingValue = value;
+          if (typeof ratingValue === 'number' && !isNaN(ratingValue)) {
+            const barType = key === 'tfrContact' ? 'contact' :
+                           key === 'tfrPower' ? 'power' : 'eye';
+            const percentage = Math.min(Math.max((ratingValue - 20) / 60 * 100, 0), 100);
+            const highValueClass = ratingValue >= 65 ? 'high-value' : '';
+            const displayValue = this.formatBatterValue(value, key, s);
+            return `<td data-col-key="${key}">
+              <div class="rating-with-bar">
+                <div class="rating-bar">
+                  <div class="rating-bar-fill ${barType} ${highValueClass} animate-fill" style="--bar-width: ${percentage}%"></div>
+                </div>
+                <span class="rating-value ${barType}">${displayValue}</span>
+              </div>
+            </td>`;
+          }
+          return `<td data-col-key="${key}"></td>`;
         }
 
         // Add rating bars for True Rating columns
@@ -2378,7 +2408,18 @@ export class TrueRatingsView {
         { key: 'estimatedEye', label: 'True Eye', sortKey: 'estimatedEye' },
       ];
 
-      return [...baseColumns, ...trueRatingColumns];
+      const columns = [...baseColumns, ...trueRatingColumns];
+
+      // Add TFR component columns when prospects are visible
+      if (this.showProspects) {
+        columns.push(
+          { key: 'tfrContact', label: 'Future Contact', sortKey: 'tfrContact' },
+          { key: 'tfrPower', label: 'Future Pow', sortKey: 'tfrPower' },
+          { key: 'tfrEye', label: 'Future Eye', sortKey: 'tfrEye' },
+        );
+      }
+
+      return columns;
     }
 
     // Raw stats mode (no True Ratings)
@@ -2508,7 +2549,8 @@ export class TrueRatingsView {
     }
     if (typeof value === 'number') {
       // Clamp estimated ratings for display (20-80 scale)
-      if (key === 'estimatedPower' || key === 'estimatedEye' || key === 'estimatedAvoidK' || key === 'estimatedContact') {
+      if (key === 'estimatedPower' || key === 'estimatedEye' || key === 'estimatedAvoidK' || key === 'estimatedContact'
+          || key === 'tfrContact' || key === 'tfrPower' || key === 'tfrEye') {
         const clamped = Math.max(20, Math.min(80, Math.round(value)));
         return clamped.toString();
       }
@@ -3283,6 +3325,7 @@ export class TrueRatingsView {
     let prospectTfrStuff: number | undefined;
     let prospectTfrControl: number | undefined;
     let prospectTfrHra: number | undefined;
+    let prospectTfrBySource: any;
     let projectionOverride: PlayerProfileData['projectionOverride'];
 
     if (row.isProspect) {
@@ -3297,6 +3340,7 @@ export class TrueRatingsView {
             prospectTfrControl = prospectData.trueRatings.control;
             prospectTfrHra = prospectData.trueRatings.hra;
           }
+          prospectTfrBySource = prospectData.tfrBySource;
           // TR = current ability from development curves (precomputed on RatedProspect)
           prospectEstimatedStuff = prospectData.developmentTR?.stuff ?? prospectData.trueRatings?.stuff ?? row.estimatedStuff;
           prospectEstimatedControl = prospectData.developmentTR?.control ?? prospectData.trueRatings?.control ?? row.estimatedControl;
@@ -3381,6 +3425,15 @@ export class TrueRatingsView {
       projectionBaseYear: Math.max(2000, this.selectedYear - 1),
       forceProjection: row.isProspect, // Force peak projection for prospects
       projectionOverride, // Use farm data projection for consistency
+
+      // Pass projection data directly so the modal doesn't recalculate
+      projIp: projectionOverride?.projectedStats?.ip,
+      projWar: projectionOverride?.projectedStats?.war,
+      projK9: projectionOverride?.projectedStats?.k9,
+      projBb9: projectionOverride?.projectedStats?.bb9,
+      projHr9: projectionOverride?.projectedStats?.hr9,
+      projFip: projectionOverride?.projectedStats?.fip,
+      tfrBySource: row.isProspect ? prospectTfrBySource : undefined,
     };
 
     await pitcherProfileModal.show(profileData as any, this.selectedYear);
@@ -3454,6 +3507,7 @@ export class TrueRatingsView {
     let tfrObp: number | undefined;
     let tfrSlg: number | undefined;
     let tfrPa: number | undefined;
+    let batterTfrBySource: any;
 
     try {
       const unifiedData = this._cachedUnifiedHitterTfrData
@@ -3476,6 +3530,7 @@ export class TrueRatingsView {
         tfrObp = tfrEntry.projObp;
         tfrSlg = tfrEntry.projSlg;
         tfrPa = tfrEntry.projPa;
+        batterTfrBySource = tfrEntry.tfrBySource;
 
         if (row.isProspect) {
           // Pure prospect: projected stats from TFR
@@ -3575,6 +3630,7 @@ export class TrueRatingsView {
       tfrObp,
       tfrSlg,
       tfrPa,
+      tfrBySource: batterTfrBySource,
     };
 
     await batterProfileModal.show(profileData, this.selectedYear);

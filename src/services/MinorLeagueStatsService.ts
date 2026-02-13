@@ -494,7 +494,7 @@ class MinorLeagueStatsService {
     const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
     const startYear = LEAGUE_START_YEAR;
     const currentYear = await dateService.getCurrentYear();
-    const endYear = currentYear; // Only load up to current year
+    const endYear = currentYear - 1; // CSVs only bundled for historical years; current year fetched from API on demand
 
     let loaded = 0;
     const errors: string[] = [];

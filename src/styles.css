@@ -2564,7 +2564,7 @@ th .stat-tooltip {
 }
 
 .modal-draggable.dragging {
-  position: fixed;
+  position: fixed !important;
   margin: 0;
 }
 
@@ -7954,19 +7954,19 @@ th .stat-tooltip {
 
 /* 3-axis triangle positions for pitching chart (Stuff top, Control lower-right, HRA lower-left) */
 .pitcher-profile-modal .pitching-axis-top {
-  top: -11%;
-  left: 54%;
+  top: -15%;
+  left: 52%;
   transform: translateX(-50%);
 }
 
 .pitcher-profile-modal .pitching-axis-lower-right {
-  bottom: 6%;
-  right: 20%;
+  bottom: 10%;
+  right: 25%;
   align-items: center;
 }
 
 .pitcher-profile-modal .pitching-axis-lower-left {
-  bottom: 6%;
+  bottom: 10%;
   left: 30%;
   align-items: center;
 }
@@ -8003,7 +8003,7 @@ th .stat-tooltip {
 /* Arsenal + Stamina Column */
 .pitcher-profile-modal .arsenal-col {
   flex: 0 0 280px;
-  min-width: 0;
+  min-width: 300px;
   margin-left: -80px;
   display: flex;
   flex-direction: column;
@@ -8011,11 +8011,22 @@ th .stat-tooltip {
 }
 
 .pitcher-profile-modal .arsenal-section {
-  margin-top: 0;
+  margin-top: 10px;
+}
+
+.pitcher-profile-modal .arsenal-section .chart-section-label {
+  margin: 0 0 0px;
 }
 
 .pitcher-profile-modal .arsenal-radar-wrapper {
   margin-top: 0;
+  overflow: visible;
+}
+
+.pitcher-profile-modal .arsenal-radar-wrapper .apexcharts-canvas,
+.pitcher-profile-modal .arsenal-radar-wrapper .apexcharts-canvas svg,
+.pitcher-profile-modal .arsenal-radar-wrapper .apexcharts-svg {
+  overflow: visible !important;
 }
 
 .pitcher-profile-modal .pitch-count-badge {
@@ -8028,24 +8039,165 @@ th .stat-tooltip {
   margin-left: 4px;
 }
 
-.pitcher-profile-modal .stamina-section {
-  padding: 0 1rem;
-  margin-top: 0.5rem;
+/* Arsenal horizontal bars (for 1-2 pitches) */
+.pitcher-profile-modal .arsenal-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.5rem 0.25rem;
 }
 
-.pitcher-profile-modal .stamina-section .chart-section-label {
-  margin: 0 0 0.5rem;
-}
-
-.pitcher-profile-modal .stamina-gauge-row {
+.pitcher-profile-modal .arsenal-bar-item {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-  justify-content: center;
+  gap: 0.5rem;
 }
 
-.pitcher-profile-modal .stamina-ip-badge {
-  margin-top: 0;
+.pitcher-profile-modal .arsenal-bar-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #e7e9ea;
+  min-width: 70px;
+  text-align: right;
+}
+
+.pitcher-profile-modal .arsenal-bar-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pitcher-profile-modal .arsenal-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  background: #1d9bf0;
+  transition: width 0.4s ease;
+}
+
+.pitcher-profile-modal .arsenal-bar-value {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #1d9bf0;
+  min-width: 24px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Usage section (replaces stamina gauge) */
+.pitcher-profile-modal .usage-section {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.pitcher-profile-modal .usage-section-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.pitcher-profile-modal .usage-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-bottom: 0.35rem;
+}
+
+.pitcher-profile-modal .usage-row:last-child {
+  margin-bottom: 0;
+}
+
+.pitcher-profile-modal .usage-row-label {
+  font-size: 0.65rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.pitcher-profile-modal .usage-badges {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.pitcher-profile-modal .usage-badge {
+  flex: 1 1 0;
+  min-width: 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0.35rem 0.25rem;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 4px;
+}
+
+.pitcher-profile-modal .usage-badge-value {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #e7e9ea;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pitcher-profile-modal .usage-badge-proj {
+  background: rgba(212, 165, 116, 0.10);
+  border: 1px solid rgba(212, 165, 116, 0.18);
+}
+
+.pitcher-profile-modal .usage-badge-proj .usage-badge-value {
+  color: rgba(212, 165, 116, 0.85);
+}
+
+.pitcher-profile-modal .usage-badge-scout {
+  background: rgba(139, 148, 158, 0.12);
+  border: 1px solid rgba(139, 148, 158, 0.20);
+}
+
+.pitcher-profile-modal .usage-badge-scout .usage-badge-value {
+  color: #8b949e;
+}
+
+.pitcher-profile-modal .usage-badge-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.pitcher-profile-modal .usage-bar-track {
+  flex: 1;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.pitcher-profile-modal .usage-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 28px;
+}
+
+.pitcher-profile-modal .usage-bar-value {
+  font-size: 0.65rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  padding-right: 4px;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
 /* Chart section labels */
@@ -8067,7 +8219,7 @@ th .stat-tooltip {
 
 /* ─── Projection Section ─── */
 .pitcher-profile-modal .projection-section {
-  margin-top: 1.25rem;
+  margin-top: 0;
   margin-bottom: 0;
   padding-bottom: 0;
 }
