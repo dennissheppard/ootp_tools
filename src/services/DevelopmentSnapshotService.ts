@@ -111,6 +111,16 @@ class DevelopmentSnapshotService {
   }
 
   /**
+   * Get all development snapshots for a given date.
+   *
+   * @param date - YYYY-MM-DD date string
+   * @returns Array of snapshots at that date
+   */
+  async getSnapshotsByDate(date: string): Promise<DevelopmentSnapshotRecord[]> {
+    return indexedDBService.getDevelopmentSnapshotsByDate(date);
+  }
+
+  /**
    * Get the latest snapshot for each player.
    * Useful for showing current state across all players.
    *

@@ -10,9 +10,9 @@ import { leagueStatsService } from '../services/LeagueStatsService';
 import { fipWarService } from '../services/FipWarService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { trueFutureRatingService } from '../services/TrueFutureRatingService';
-import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
 import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
-import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
+import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers, applyExclusiveMetricToggle } from '../components/DevelopmentChart';
+import { aiScoutingService, AIScoutingPlayerData } from '../services/AIScoutingService';
 
 export type { PlayerRatingsData as PlayerProfileData };
 
@@ -43,7 +43,10 @@ export class PlayerProfileModal {
   // Development chart state
   private developmentChart: DevelopmentChart | null = null;
   private activeDevMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra'];
-  private activeDevScoutSource: 'my' | 'osa' = 'my'; // Track which scout source is active for development tab
+
+  // Analysis toggle state (Projections vs True Analysis)
+  private viewMode: 'projections' | 'analysis' = 'analysis';
+  private cachedAnalysisHtml: string = '';
 
   // League configuration
   private readonly LEAGUE_START_YEAR = 2000;
@@ -165,6 +168,9 @@ export class PlayerProfileModal {
     this.projectionMode = 'current';
     this.currentProjectionHtml = '';
     this.peakProjectionHtml = '';
+    // Reset analysis view
+    this.viewMode = 'analysis';
+    this.cachedAnalysisHtml = '';
 
     // Store current data for interactive year selection
     this.currentPlayerData = data;
@@ -614,6 +620,7 @@ export class PlayerProfileModal {
         this.bindScoutSourceToggle(data, combinedStats, hasMinorLeague, projectionHtml);
         this.bindTabSwitching();
         this.bindProjectionToggle();
+        this.bindAnalysisToggle();
         // Trigger shimmer animation on True Ratings bars only (not scout bars)
         requestAnimationFrame(() => {
           const ratingBars = bodyEl.querySelectorAll<HTMLElement>('.bar-estimated.rating-elite, .bar-estimated.rating-plus, .bar-estimated.rating-avg, .bar-estimated.rating-fringe, .bar-estimated.rating-poor');
@@ -621,6 +628,11 @@ export class PlayerProfileModal {
         });
         this.bindFlipCardLocking();
         this.bindYearSelector();
+
+        // Auto-fetch analysis if it's the default view
+        if (this.viewMode === 'analysis' && !this.cachedAnalysisHtml) {
+          this.fetchAndRenderAnalysis();
+        }
       }
     } catch (error) {
       if (bodyEl) {
@@ -665,7 +677,15 @@ export class PlayerProfileModal {
       <div class="profile-tab-content">
         <div class="tab-pane active" data-pane="ratings">
           ${PlayerRatingsCard.renderRatingsComparison(data, hasScout)}
-          ${projectionHtml}
+          <div class="analysis-toggle-row">
+            <div class="analysis-toggle">
+              <button class="analysis-toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-view="analysis">True Analysis</button>
+              <button class="analysis-toggle-btn ${this.viewMode === 'projections' ? 'active' : ''}" data-view="projections">Projections</button>
+            </div>
+          </div>
+          <div class="analysis-content-area">
+            ${this.viewMode === 'projections' ? projectionHtml : (this.cachedAnalysisHtml || this.renderAnalysisLoading())}
+          </div>
           ${PlayerRatingsCard.renderSeasonStatsTable(stats, { showLevel, hasScouting: hasScout })}
         </div>
         <div class="tab-pane" data-pane="development">
@@ -677,32 +697,22 @@ export class PlayerProfileModal {
 
   private renderDevelopmentTab(playerId: number): string {
     const isProspect = this.currentPlayerData?.isProspect === true;
-    const dataMode = isProspect ? 'scout' : 'true';
+    const dataMode: 'true' | 'tfr' = isProspect ? 'tfr' : 'true';
 
     // Set default active metrics based on player type
-    if (!isProspect) {
+    if (isProspect) {
       this.activeDevMetrics = ['trueStuff', 'trueControl', 'trueHra'];
     } else {
-      this.activeDevMetrics = ['scoutStuff', 'scoutControl', 'scoutHra'];
+      this.activeDevMetrics = ['trueStuff', 'trueControl', 'trueHra'];
     }
 
-    // Only show my/osa source toggle for prospects (scouting snapshots)
-    const scoutSourceToggle = isProspect ? `
-      <div class="dev-scout-toggle custom-dropdown" id="dev-scout-toggle">
-        <span class="dropdown-trigger">${this.activeDevScoutSource === 'my' ? 'My' : 'OSA'}</span>
-        <div class="dropdown-menu">
-          <div class="dropdown-item ${this.activeDevScoutSource === 'my' ? 'active' : ''}" data-value="my">My</div>
-          <div class="dropdown-item ${this.activeDevScoutSource === 'osa' ? 'active' : ''}" data-value="osa">OSA</div>
-        </div>
-      </div>
-    ` : '';
+    const title = isProspect ? 'TFR Development History' : 'True Rating History';
 
     return `
       <div class="development-section">
         <div class="development-header">
-          <h4>${isProspect ? 'Development History' : 'True Rating History'}</h4>
+          <h4>${title}</h4>
           <div class="development-controls">
-            ${scoutSourceToggle}
             <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
           </div>
         </div>
@@ -726,31 +736,8 @@ export class PlayerProfileModal {
       // MLB pitcher: calculate historical True Ratings from stats
       snapshots = await trueRatingsService.calculateHistoricalPitcherTR(playerId);
     } else {
-      // Prospect: use scouting snapshots with my/osa source selection
-      const allSnapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
-
-      // Determine which sources have data
-      const hasMySnapshots = allSnapshots.some(s => s.source === 'my');
-      const hasOsaSnapshots = allSnapshots.some(s => s.source === 'osa');
-
-      // Set default source if current selection has no data
-      if (this.activeDevScoutSource === 'my' && !hasMySnapshots && hasOsaSnapshots) {
-        this.activeDevScoutSource = 'osa';
-      } else if (this.activeDevScoutSource === 'osa' && !hasOsaSnapshots && hasMySnapshots) {
-        this.activeDevScoutSource = 'my';
-      }
-
-      // Filter snapshots by active source (never mix my and osa)
-      snapshots = allSnapshots.filter(s => s.source === this.activeDevScoutSource);
-
-      // Show/hide toggle based on whether both sources have data
-      const toggleEl = this.overlay?.querySelector<HTMLElement>('#dev-scout-toggle');
-      if (toggleEl) {
-        toggleEl.style.display = (hasMySnapshots && hasOsaSnapshots) ? '' : 'none';
-      }
-
-      // Bind scout source toggle
-      this.bindDevScoutSourceToggle(playerId);
+      // Prospect pitcher: calculate historical TFR from scouting snapshots
+      snapshots = await trueRatingsService.calculateHistoricalPitcherTFR(playerId);
     }
 
     // Update snapshot count
@@ -773,11 +760,9 @@ export class PlayerProfileModal {
     const container = this.overlay?.querySelector('.development-section');
     if (container) {
       bindMetricToggleHandlers(container as HTMLElement, (metric, enabled) => {
-        if (enabled && !this.activeDevMetrics.includes(metric)) {
-          this.activeDevMetrics.push(metric);
-        } else if (!enabled) {
-          this.activeDevMetrics = this.activeDevMetrics.filter(m => m !== metric);
-        }
+        this.activeDevMetrics = applyExclusiveMetricToggle(
+          container as HTMLElement, this.activeDevMetrics, metric, enabled
+        );
         this.developmentChart?.updateMetrics(this.activeDevMetrics);
       });
     }
@@ -1079,6 +1064,152 @@ export class PlayerProfileModal {
     });
   }
 
+  private async fetchAndRenderAnalysis(): Promise<void> {
+    const contentArea = this.overlay?.querySelector('.analysis-content-area');
+    if (!contentArea || !this.currentPlayerData) return;
+
+    try {
+      const aiData = await this.buildAIScoutingData();
+      if (aiData) {
+        const blurb = await aiScoutingService.getAnalysis(this.currentPlayerData.playerId, 'pitcher', aiData);
+        this.cachedAnalysisHtml = this.renderAnalysisBlurb(blurb);
+        if (this.viewMode === 'analysis') {
+          contentArea.innerHTML = this.cachedAnalysisHtml;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to generate analysis:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      if (this.viewMode === 'analysis') {
+        contentArea.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
+      }
+    }
+  }
+
+  private renderAnalysisLoading(): string {
+    return `
+      <div class="analysis-loading">
+        <span class="analysis-loading-text">Reviewing Player Data...</span>
+      </div>
+    `;
+  }
+
+  private renderAnalysisBlurb(text: string): string {
+    const profileMatch = text.match(/Profile:\s*\n([\s\S]*?)(?=\nStrengths:|\n*$)/i);
+    const strengthsMatch = text.match(/Strengths:\s*\n([\s\S]*?)(?=\nRisk:|\n*$)/i);
+    const riskMatch = text.match(/Risk:\s*\n([\s\S]*?)$/i);
+
+    const profile = profileMatch?.[1]?.trim() ?? '';
+    const strengths = strengthsMatch?.[1]?.trim() ?? '';
+    const risk = riskMatch?.[1]?.trim() ?? '';
+
+    const strengthItems = strengths
+      .split('\n')
+      .map(l => l.replace(/^-\s*/, '').trim())
+      .filter(l => l.length > 0)
+      .map(l => `<li>${l}</li>`)
+      .join('');
+
+    return `
+      <div class="analysis-blurb">
+        ${profile ? `<div class="analysis-profile"><strong>Profile:</strong> ${profile}</div>` : ''}
+        ${strengthItems ? `<div class="analysis-strengths"><strong>Strengths:</strong><ul>${strengthItems}</ul></div>` : ''}
+        ${risk ? `<div class="analysis-risk"><strong>Risk:</strong> ${risk}</div>` : ''}
+      </div>
+    `;
+  }
+
+  private async buildAIScoutingData(): Promise<AIScoutingPlayerData | null> {
+    const data = this.currentPlayerData;
+    if (!data) return null;
+
+    const activeSource = data.activeScoutSource ?? 'my';
+    const scoutStuff = activeSource === 'osa' ? data.osaStuff : data.scoutStuff;
+    const scoutControl = activeSource === 'osa' ? data.osaControl : data.scoutControl;
+    const scoutHra = activeSource === 'osa' ? data.osaHra : data.scoutHra;
+    const scoutOvr = activeSource === 'osa' ? data.osaOvr : data.scoutOvr;
+    const scoutPot = activeSource === 'osa' ? data.osaPot : data.scoutPot;
+    const scoutStamina = activeSource === 'osa' ? data.osaStamina : data.scoutStamina;
+    const injury = activeSource === 'osa' ? data.osaInjuryProneness : data.scoutInjuryProneness;
+
+    return {
+      playerName: data.playerName,
+      age: data.age,
+      position: data.position ?? data.positionLabel,
+      team: data.team,
+      parentOrg: data.parentTeam || data.team,
+      injuryProneness: injury ?? data.injuryProneness,
+      scoutStuff,
+      scoutControl,
+      scoutHra,
+      scoutStamina,
+      scoutOvr,
+      scoutPot,
+      trueRating: data.trueRating,
+      trueFutureRating: data.trueFutureRating,
+      estimatedStuff: data.estimatedStuff,
+      estimatedControl: data.estimatedControl,
+      estimatedHra: data.estimatedHra,
+      projFip: data.projFip,
+      projK9: data.projK9,
+      projBb9: data.projBb9,
+      projHr9: data.projHr9,
+      projWar: data.projWar,
+      projIp: data.projIp,
+    };
+  }
+
+  private bindAnalysisToggle(): void {
+    if (!this.overlay || !this.currentPlayerData) return;
+    const buttons = this.overlay.querySelectorAll<HTMLButtonElement>('.analysis-toggle-btn');
+    if (buttons.length === 0) return;
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const newView = btn.dataset.view as 'projections' | 'analysis';
+        if (!newView || newView === this.viewMode) return;
+
+        this.viewMode = newView;
+
+        // Update button active states
+        buttons.forEach(b => b.classList.toggle('active', b.dataset.view === newView));
+
+        const contentArea = this.overlay?.querySelector('.analysis-content-area');
+        if (!contentArea || !this.currentPlayerData) return;
+
+        if (newView === 'projections') {
+          // Swap back to projection section
+          const projHtml = this.projectionMode === 'peak' ? this.peakProjectionHtml : this.currentProjectionHtml;
+          contentArea.innerHTML = projHtml;
+          this.bindProjectionToggle();
+          this.bindFlipCardLocking();
+        } else {
+          // Show analysis
+          if (this.cachedAnalysisHtml) {
+            contentArea.innerHTML = this.cachedAnalysisHtml;
+          } else {
+            contentArea.innerHTML = this.renderAnalysisLoading();
+
+            try {
+              const aiData = await this.buildAIScoutingData();
+              if (aiData) {
+                const blurb = await aiScoutingService.getAnalysis(this.currentPlayerData.playerId, 'pitcher', aiData);
+                this.cachedAnalysisHtml = this.renderAnalysisBlurb(blurb);
+                if (this.viewMode === 'analysis') {
+                  contentArea.innerHTML = this.cachedAnalysisHtml;
+                }
+              }
+            } catch (err) {
+              console.error('Failed to generate analysis:', err);
+              const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+              contentArea.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
+            }
+          }
+        }
+      });
+    });
+  }
+
   private bindScoutUploadLink(): void {
     if (!this.overlay) return;
     const link = this.overlay.querySelector<HTMLAnchorElement>('.scout-upload-link');
@@ -1088,37 +1219,6 @@ export class PlayerProfileModal {
       e.preventDefault();
       const tabId = link.dataset.tabTarget ?? 'tab-data-management';
       window.dispatchEvent(new CustomEvent('wbl:navigate-tab', { detail: { tabId } }));
-    });
-  }
-
-  private bindDevScoutSourceToggle(playerId: number): void {
-    if (!this.overlay) return;
-    const toggleContainer = this.overlay.querySelector<HTMLElement>('#dev-scout-toggle.custom-dropdown');
-    if (!toggleContainer) return;
-
-    const items = toggleContainer.querySelectorAll<HTMLElement>('.dropdown-item');
-    items.forEach(item => {
-      item.addEventListener('click', async (e) => {
-        const newSource = (e.target as HTMLElement).dataset.value as 'my' | 'osa';
-        if (!newSource || newSource === this.activeDevScoutSource) return;
-
-        // Update active source
-        this.activeDevScoutSource = newSource;
-
-        // Update dropdown display
-        const trigger = toggleContainer.querySelector('.dropdown-trigger');
-        if (trigger) {
-          trigger.textContent = newSource === 'my' ? 'My' : 'OSA';
-        }
-
-        // Update active state on menu items
-        items.forEach(i => {
-          i.classList.toggle('active', i.dataset.value === newSource);
-        });
-
-        // Re-initialize chart with new source
-        await this.initDevelopmentChart(playerId);
-      });
     });
   }
 

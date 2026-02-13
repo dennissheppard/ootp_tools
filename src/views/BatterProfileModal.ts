@@ -12,10 +12,11 @@ import { dateService } from '../services/DateService';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
 import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
 import { BatterTfrSourceData } from '../services/TeamRatingsService';
-import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
-import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
+import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
+import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers, applyExclusiveMetricToggle } from '../components/DevelopmentChart';
 import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
+import { aiScoutingService, AIScoutingPlayerData } from '../services/AIScoutingService';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -168,6 +169,10 @@ export class BatterProfileModal {
   // Track which radar series are hidden via legend toggle
   private hiddenSeries = new Set<string>();
 
+  // Analysis toggle state (Projections vs True Analysis)
+  private viewMode: 'projections' | 'analysis' = 'analysis';
+  private cachedAnalysisHtml: string = '';
+
   constructor() {
     this.ensureOverlayExists();
   }
@@ -274,6 +279,9 @@ export class BatterProfileModal {
 
     // Reset projection toggle
     this.projectionMode = 'current';
+    // Reset analysis view
+    this.viewMode = 'analysis';
+    this.cachedAnalysisHtml = '';
 
     // Store current data for re-rendering on toggle
     this.currentData = data;
@@ -937,7 +945,15 @@ export class BatterProfileModal {
       <div class="profile-tab-content">
         <div class="tab-pane active" data-pane="ratings">
           ${ratingsSection}
-          ${projectionContent}
+          <div class="analysis-toggle-row">
+            <div class="analysis-toggle">
+              <button class="analysis-toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-view="analysis">True Analysis</button>
+              <button class="analysis-toggle-btn ${this.viewMode === 'projections' ? 'active' : ''}" data-view="projections">Projections</button>
+            </div>
+          </div>
+          <div class="analysis-content-area">
+            ${this.viewMode === 'projections' ? projectionContent : (this.cachedAnalysisHtml || this.renderAnalysisLoading())}
+          </div>
         </div>
         <div class="tab-pane" data-pane="career">
           ${careerContent}
@@ -1675,13 +1691,25 @@ export class BatterProfileModal {
   // ─── Development Tab ──────────────────────────────────────────────────
 
   private renderDevelopmentTab(playerId: number): string {
+    const isProspect = this.currentData?.isProspect === true;
+    const dataMode: 'true' | 'tfr' = isProspect ? 'tfr' : 'true';
+
+    // Set default active metrics based on player type
+    if (isProspect) {
+      this.activeDevMetrics = ['truePower', 'trueEye', 'trueAvoidK'];
+    } else {
+      this.activeDevMetrics = ['truePower', 'trueEye', 'trueAvoidK'];
+    }
+
+    const title = isProspect ? 'TFR Development History' : 'True Rating History';
+
     return `
       <div class="development-section">
         <div class="development-header">
-          <h4>Development History</h4>
+          <h4>${title}</h4>
           <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
         </div>
-        ${renderMetricToggles(this.activeDevMetrics, 'hitter')}
+        ${renderMetricToggles(this.activeDevMetrics, 'hitter', dataMode)}
         <div class="development-chart-container" id="development-chart-${playerId}"></div>
       </div>
     `;
@@ -1694,24 +1722,28 @@ export class BatterProfileModal {
       this.developmentChart = null;
     }
 
-    // Fetch snapshots
-    const snapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+    const isProspect = this.currentData?.isProspect === true;
+    let snapshots: DevelopmentSnapshotRecord[];
 
-    // Filter to only hitter snapshots (those with hitter-specific fields)
-    const hitterSnapshots = snapshots.filter(s =>
-      s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
-    );
+    if (!isProspect) {
+      // MLB batter: calculate historical True Ratings from stats
+      snapshots = await trueRatingsService.calculateHistoricalBatterTR(playerId);
+    } else {
+      // Prospect batter: calculate historical TFR from scouting snapshots
+      snapshots = await trueRatingsService.calculateHistoricalHitterTFR(playerId);
+    }
 
     // Update snapshot count
     const countEl = this.overlay?.querySelector('#dev-snapshot-count');
     if (countEl) {
-      countEl.textContent = `${hitterSnapshots.length} snapshot${hitterSnapshots.length !== 1 ? 's' : ''}`;
+      const label = isProspect ? 'snapshot' : 'season';
+      countEl.textContent = `${snapshots.length} ${label}${snapshots.length !== 1 ? 's' : ''}`;
     }
 
     // Create and render chart
     this.developmentChart = new DevelopmentChart({
       containerId: `development-chart-${playerId}`,
-      snapshots: hitterSnapshots,
+      snapshots,
       metrics: this.activeDevMetrics,
       height: 280,
     });
@@ -1721,11 +1753,9 @@ export class BatterProfileModal {
     const container = this.overlay?.querySelector('.development-section');
     if (container) {
       bindMetricToggleHandlers(container as HTMLElement, (metric, enabled) => {
-        if (enabled && !this.activeDevMetrics.includes(metric)) {
-          this.activeDevMetrics.push(metric);
-        } else if (!enabled) {
-          this.activeDevMetrics = this.activeDevMetrics.filter(m => m !== metric);
-        }
+        this.activeDevMetrics = applyExclusiveMetricToggle(
+          container as HTMLElement, this.activeDevMetrics, metric, enabled
+        );
         this.developmentChart?.updateMetrics(this.activeDevMetrics);
       });
     }
@@ -1786,9 +1816,15 @@ export class BatterProfileModal {
     this.bindScoutSourceToggle();
     this.bindTabSwitching();
     this.bindProjectionToggle();
+    this.bindAnalysisToggle();
     this.initRadarChart(this.currentData!);
     this.initRunningRadarChart(this.currentData!);
     this.lockTabContentHeight();
+
+    // Auto-fetch analysis if it's the default view
+    if (this.viewMode === 'analysis' && !this.cachedAnalysisHtml) {
+      this.fetchAndRenderAnalysis();
+    }
   }
 
   /** Measure all tab panes and set min-height to the tallest, preventing layout shift on tab switch */
@@ -1885,6 +1921,159 @@ export class BatterProfileModal {
     });
   }
 
+  private renderAnalysisLoading(): string {
+    return `
+      <div class="analysis-loading">
+        <span class="analysis-loading-text">Reviewing Player Data...</span>
+      </div>
+    `;
+  }
+
+  private renderAnalysisBlurb(text: string): string {
+    // Parse the structured blurb into sections
+    const profileMatch = text.match(/Profile:\s*\n([\s\S]*?)(?=\nStrengths:|\n*$)/i);
+    const strengthsMatch = text.match(/Strengths:\s*\n([\s\S]*?)(?=\nRisk:|\n*$)/i);
+    const riskMatch = text.match(/Risk:\s*\n([\s\S]*?)$/i);
+
+    const profile = profileMatch?.[1]?.trim() ?? '';
+    const strengths = strengthsMatch?.[1]?.trim() ?? '';
+    const risk = riskMatch?.[1]?.trim() ?? '';
+
+    const strengthItems = strengths
+      .split('\n')
+      .map(l => l.replace(/^-\s*/, '').trim())
+      .filter(l => l.length > 0)
+      .map(l => `<li>${l}</li>`)
+      .join('');
+
+    return `
+      <div class="analysis-blurb">
+        ${profile ? `<div class="analysis-profile"><strong>Profile:</strong> ${profile}</div>` : ''}
+        ${strengthItems ? `<div class="analysis-strengths"><strong>Strengths:</strong><ul>${strengthItems}</ul></div>` : ''}
+        ${risk ? `<div class="analysis-risk"><strong>Risk:</strong> ${risk}</div>` : ''}
+      </div>
+    `;
+  }
+
+  private buildAIScoutingData(): AIScoutingPlayerData | null {
+    const data = this.currentData;
+    if (!data) return null;
+
+    return {
+      playerName: data.playerName,
+      age: data.age,
+      position: data.positionLabel,
+      positionNum: data.position,
+      team: data.team,
+      parentOrg: data.parentTeam || data.team,
+      injuryProneness: this.scoutingData?.injuryProneness ?? data.injuryProneness,
+      scoutPower: this.scoutingData?.power ?? data.scoutPower,
+      scoutEye: this.scoutingData?.eye ?? data.scoutEye,
+      scoutAvoidK: this.scoutingData?.avoidK ?? data.scoutAvoidK,
+      scoutContact: this.scoutingData?.contact ?? data.scoutContact,
+      scoutGap: this.scoutingData?.gap ?? data.scoutGap,
+      scoutSpeed: this.scoutingData?.speed ?? data.scoutSpeed,
+      scoutOvr: data.scoutOvr,
+      scoutPot: data.scoutPot,
+      trueRating: data.trueRating,
+      trueFutureRating: data.trueFutureRating,
+      estimatedPower: data.estimatedPower,
+      estimatedEye: data.estimatedEye,
+      estimatedAvoidK: data.estimatedAvoidK,
+      estimatedContact: data.estimatedContact,
+      projAvg: data.projAvg,
+      projObp: data.projObp,
+      projSlg: data.projSlg,
+      projHr: data.projHr,
+      projSb: data.projSb,
+      projPa: data.projPa,
+      projWar: data.projWar,
+      projBbPct: data.projBbPct,
+      projKPct: data.projKPct,
+    };
+  }
+
+  private async fetchAndRenderAnalysis(): Promise<void> {
+    const contentArea = this.overlay?.querySelector('.analysis-content-area');
+    if (!contentArea || !this.currentData) return;
+
+    try {
+      const aiData = this.buildAIScoutingData();
+      if (aiData) {
+        const blurb = await aiScoutingService.getAnalysis(this.currentData.playerId, 'hitter', aiData);
+        this.cachedAnalysisHtml = this.renderAnalysisBlurb(blurb);
+        if (this.viewMode === 'analysis') {
+          contentArea.innerHTML = this.cachedAnalysisHtml;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to generate analysis:', err);
+      const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+      if (this.viewMode === 'analysis') {
+        contentArea.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
+      }
+    }
+  }
+
+  private bindAnalysisToggle(): void {
+    if (!this.overlay || !this.currentData) return;
+    const buttons = this.overlay.querySelectorAll<HTMLButtonElement>('.analysis-toggle-btn');
+    if (buttons.length === 0) return;
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const newView = btn.dataset.view as 'projections' | 'analysis';
+        if (!newView || newView === this.viewMode) return;
+
+        this.viewMode = newView;
+
+        // Update button active states
+        buttons.forEach(b => b.classList.toggle('active', b.dataset.view === newView));
+
+        const contentArea = this.overlay?.querySelector('.analysis-content-area');
+        if (!contentArea || !this.currentData) return;
+
+        if (newView === 'projections') {
+          // Swap back to projection table
+          contentArea.innerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
+          this.bindProjectionToggle();
+          // Re-bind flip cards in projection
+          const flipCells = contentArea.querySelectorAll<HTMLElement>('.flip-cell');
+          flipCells?.forEach(cell => {
+            cell.addEventListener('click', (e) => {
+              e.stopPropagation();
+              cell.classList.toggle('is-flipped');
+            });
+          });
+        } else {
+          // Show analysis
+          if (this.cachedAnalysisHtml) {
+            contentArea.innerHTML = this.cachedAnalysisHtml;
+          } else {
+            // Show loading
+            contentArea.innerHTML = this.renderAnalysisLoading();
+
+            try {
+              const aiData = this.buildAIScoutingData();
+              if (aiData) {
+                const blurb = await aiScoutingService.getAnalysis(this.currentData.playerId, 'hitter', aiData);
+                this.cachedAnalysisHtml = this.renderAnalysisBlurb(blurb);
+                // Only update if still on analysis view
+                if (this.viewMode === 'analysis') {
+                  contentArea.innerHTML = this.cachedAnalysisHtml;
+                }
+              }
+            } catch (err) {
+              console.error('Failed to generate analysis:', err);
+              const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+              contentArea.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
+            }
+          }
+        }
+      });
+    });
+  }
+
   private bindScoutSourceToggle(): void {
     if (!this.overlay) return;
     const buttons = this.overlay.querySelectorAll<HTMLButtonElement>('.scout-source-toggle .scout-toggle-btn');
@@ -1944,11 +2133,16 @@ export class BatterProfileModal {
         const warSlot = this.overlay?.querySelector('.war-emblem-slot');
         if (warSlot) warSlot.innerHTML = this.renderWarEmblem(this.currentData);
 
-        // Re-render the projection section below
-        const projSection = this.overlay?.querySelector('.projection-section');
-        if (projSection && this.currentData) {
-          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
-          this.bindProjectionToggle();
+        // Invalidate cached analysis since scout data changed
+        this.cachedAnalysisHtml = '';
+
+        // Re-render the projection section below (only if in projections view)
+        if (this.viewMode === 'projections') {
+          const projSection = this.overlay?.querySelector('.projection-section');
+          if (projSection && this.currentData) {
+            projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
+            this.bindProjectionToggle();
+          }
         }
       });
     });

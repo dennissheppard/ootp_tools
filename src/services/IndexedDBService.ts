@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'wbl_database';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const SCOUTING_STORE = 'scouting_ratings';
 const STATS_STORE = 'minor_league_stats';
 const METADATA_STORE = 'minor_league_metadata';
@@ -20,6 +20,7 @@ const BATTING_STATS_STORE = 'minor_league_batting_stats'; // League-level battin
 const PLAYER_BATTING_STATS_STORE = 'player_minor_league_batting_stats'; // Player-indexed batting stats
 const MLB_PLAYER_BATTING_STATS_STORE = 'mlb_player_batting_stats'; // MLB player batting stats cache
 const HITTER_SCOUTING_STORE = 'hitter_scouting_ratings'; // Hitter scouting data (future)
+const AI_SCOUTING_BLURB_STORE = 'ai_scouting_blurbs'; // v9: AI-generated scouting reports
 
 export interface ScoutingRecord {
   key: string; // Format: "YYYY-MM-DD_source"
@@ -146,6 +147,15 @@ export interface MlbPlayerBattingStatsRecord {
   data: any[]; // Array of BattingStats
   fetchedAt: number;
   gameDate?: string; // game date when data was cached
+}
+
+export interface AIScoutingBlurbRecord {
+  key: string;           // "playerId_pitcher" or "playerId_hitter"
+  playerId: number;
+  playerType: 'pitcher' | 'hitter';
+  blurbText: string;
+  dataHash: string;
+  generatedAt: number;
 }
 
 class IndexedDBService {
@@ -281,6 +291,13 @@ class IndexedDBService {
           hitterScoutingStore.createIndex('date', 'date', { unique: false });
           hitterScoutingStore.createIndex('source', 'source', { unique: false });
           console.log(`✅ Created hitter scouting ratings store`);
+        }
+
+        // Create AI scouting blurbs store (v9)
+        if (!db.objectStoreNames.contains(AI_SCOUTING_BLURB_STORE)) {
+          const aiBlurbStore = db.createObjectStore(AI_SCOUTING_BLURB_STORE, { keyPath: 'key' });
+          aiBlurbStore.createIndex('playerId', 'playerId', { unique: false });
+          console.log(`✅ Created AI scouting blurbs cache store`);
         }
 
         console.log(`✅ IndexedDB upgrade complete (now v${newVersion})`);
@@ -1082,6 +1099,27 @@ class IndexedDBService {
     });
   }
 
+  async getDevelopmentSnapshotsByDate(date: string): Promise<DevelopmentSnapshotRecord[]> {
+    await this.init();
+    if (!this.db) return [];
+
+    if (!this.db.objectStoreNames.contains(DEVELOPMENT_SNAPSHOTS_STORE)) {
+      return [];
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([DEVELOPMENT_SNAPSHOTS_STORE], 'readonly');
+      const store = transaction.objectStore(DEVELOPMENT_SNAPSHOTS_STORE);
+      const index = store.index('date');
+      const request = index.getAll(date);
+
+      request.onsuccess = () => {
+        resolve(request.result as DevelopmentSnapshotRecord[]);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   async deleteAllDevelopmentSnapshots(): Promise<void> {
     await this.init();
     if (!this.db) return;
@@ -1315,6 +1353,48 @@ class IndexedDBService {
   }
 
   // Check if we have batting data
+  // AI Scouting Blurb methods (v9)
+  async saveAIBlurb(record: AIScoutingBlurbRecord): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(AI_SCOUTING_BLURB_STORE)) {
+      console.warn(`⚠️ Cannot save AI blurb - IndexedDB needs upgrade to v9. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([AI_SCOUTING_BLURB_STORE], 'readwrite');
+      const store = transaction.objectStore(AI_SCOUTING_BLURB_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAIBlurb(playerId: number, playerType: 'pitcher' | 'hitter'): Promise<AIScoutingBlurbRecord | null> {
+    await this.init();
+    if (!this.db) return null;
+
+    if (!this.db.objectStoreNames.contains(AI_SCOUTING_BLURB_STORE)) {
+      return null;
+    }
+
+    const key = `${playerId}_${playerType}`;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([AI_SCOUTING_BLURB_STORE], 'readonly');
+      const store = transaction.objectStore(AI_SCOUTING_BLURB_STORE);
+      const request = store.get(key);
+
+      request.onsuccess = () => {
+        resolve(request.result as AIScoutingBlurbRecord | null);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
   async hasMinorLeagueBattingData(): Promise<boolean> {
     await this.init();
     if (!this.db) return false;

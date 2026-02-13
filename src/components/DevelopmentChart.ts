@@ -20,9 +20,11 @@ export type PitcherTrueMetric = 'trueStuff' | 'trueControl' | 'trueHra';
 export type HitterTrueMetric = 'truePower' | 'trueEye' | 'trueAvoidK' | 'trueContact' | 'trueGap' | 'trueSpeed';
 // True Rating star metric (common)
 export type TrueRatingMetric = 'trueRating';
+// True Future Rating star metric
+export type TrueFutureRatingMetric = 'trueFutureRating';
 // Combined type
 export type DevelopmentMetric = PitcherDevelopmentMetric | HitterDevelopmentMetric | CommonDevelopmentMetric
-  | PitcherTrueMetric | HitterTrueMetric | TrueRatingMetric;
+  | PitcherTrueMetric | HitterTrueMetric | TrueRatingMetric | TrueFutureRatingMetric;
 
 interface DevelopmentChartConfig {
   containerId: string;
@@ -61,6 +63,8 @@ const METRIC_CONFIG: Record<DevelopmentMetric, { name: string; color: string; sc
   trueSpeed: { name: 'True Speed', color: '#06b6d4', scale: 'scouting' },
   // True Rating star metric
   trueRating: { name: 'True Rating', color: '#ffc107', scale: 'stars' },
+  // True Future Rating star metric
+  trueFutureRating: { name: 'TFR Stars', color: '#4caf50', scale: 'stars' },
 };
 
 export class DevelopmentChart {
@@ -126,6 +130,7 @@ export class DevelopmentChart {
       this.chart.updateOptions({
         series,
         colors,
+        yaxis: this.buildYAxisOptions(),
       });
     }
   }
@@ -166,26 +171,46 @@ export class DevelopmentChart {
     });
   }
 
-  private buildChartOptions(): ApexCharts.ApexOptions {
-    const series = this.buildSeries();
-    const colors = this.metrics.map(m => METRIC_CONFIG[m].color);
-
-    // Determine if we're showing stars (0.5-5) or scouting (2-8 after /10)
+  private buildYAxisOptions(): ApexYAxis {
     const hasStars = this.metrics.some(m => METRIC_CONFIG[m].scale === 'stars');
     const hasScouting = this.metrics.some(m => METRIC_CONFIG[m].scale === 'scouting');
     const hasSpeed = this.metrics.some(m => METRIC_CONFIG[m].scale === 'speed');
 
-    // Y-axis config based on what we're showing
-    // Speed is normalized to 2-8 range, so it works with scouting
     let yMin = 0;
     let yMax = 8;
-    if (hasStars && !hasScouting && !hasSpeed) {
+    let tickAmount = 6;
+    const starsOnly = hasStars && !hasScouting && !hasSpeed;
+    if (starsOnly) {
       yMin = 0;
       yMax = 5;
+      tickAmount = 5; // 0, 1, 2, 3, 4, 5
     } else if ((hasScouting || hasSpeed) && !hasStars) {
       yMin = 2;
       yMax = 8;
     }
+
+    return {
+      min: yMin,
+      max: yMax,
+      tickAmount,
+      labels: {
+        style: {
+          colors: '#8b98a5',
+          fontSize: '11px',
+        },
+        formatter: (val: number) => {
+          if (hasStars && !hasScouting) {
+            return val.toFixed(1);
+          }
+          return Math.round(val * 10).toString();
+        },
+      },
+    };
+  }
+
+  private buildChartOptions(): ApexCharts.ApexOptions {
+    const series = this.buildSeries();
+    const colors = this.metrics.map(m => METRIC_CONFIG[m].color);
 
     return {
       chart: {
@@ -282,24 +307,7 @@ export class DevelopmentChart {
           show: false,
         },
       },
-      yaxis: {
-        min: yMin,
-        max: yMax,
-        tickAmount: 6,
-        labels: {
-          style: {
-            colors: '#8b98a5',
-            fontSize: '11px',
-          },
-          formatter: (val) => {
-            if (hasStars && !hasScouting) {
-              return val.toFixed(1);
-            }
-            // Show as 20-80 scale labels
-            return Math.round(val * 10).toString();
-          },
-        },
-      },
+      yaxis: this.buildYAxisOptions(),
       legend: {
         show: true,
         position: 'top',
@@ -338,7 +346,7 @@ export class DevelopmentChart {
           </svg>
         </div>
         <h4>Not Enough Data</h4>
-        <p>Upload scouting data over time to track development trends.</p>
+        <p>Development data will appear as more seasons or scouting snapshots become available.</p>
         <p class="development-empty-hint">At least 2 snapshots needed for visualization.</p>
       </div>
     `;
@@ -354,16 +362,20 @@ export class DevelopmentChart {
 export function renderMetricToggles(
   activeMetrics: DevelopmentMetric[],
   playerType: 'pitcher' | 'hitter' = 'pitcher',
-  dataMode: 'scout' | 'true' = 'scout'
+  dataMode: 'scout' | 'true' | 'tfr' = 'scout'
 ): string {
   const pitcherScoutMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra', 'scoutOvr', 'scoutPot'];
   const hitterScoutMetrics: DevelopmentMetric[] = ['scoutPower', 'scoutEye', 'scoutAvoidK', 'scoutBabip', 'scoutOvr', 'scoutPot'];
   const pitcherTrueMetrics: DevelopmentMetric[] = ['trueStuff', 'trueControl', 'trueHra', 'trueRating'];
   const hitterTrueMetrics: DevelopmentMetric[] = ['truePower', 'trueEye', 'trueAvoidK', 'trueContact', 'trueGap', 'trueSpeed', 'trueRating'];
+  const pitcherTfrMetrics: DevelopmentMetric[] = ['trueStuff', 'trueControl', 'trueHra', 'trueFutureRating'];
+  const hitterTfrMetrics: DevelopmentMetric[] = ['truePower', 'trueEye', 'trueAvoidK', 'trueContact', 'trueGap', 'trueSpeed', 'trueFutureRating'];
 
   let allMetrics: DevelopmentMetric[];
   if (dataMode === 'true') {
     allMetrics = playerType === 'hitter' ? hitterTrueMetrics : pitcherTrueMetrics;
+  } else if (dataMode === 'tfr') {
+    allMetrics = playerType === 'hitter' ? hitterTfrMetrics : pitcherTfrMetrics;
   } else {
     allMetrics = playerType === 'hitter' ? hitterScoutMetrics : pitcherScoutMetrics;
   }
@@ -383,6 +395,53 @@ export function renderMetricToggles(
       }).join('')}
     </div>
   `;
+}
+
+/** Star-scale metrics that are mutually exclusive with component (20-80) metrics */
+const STAR_METRICS: Set<string> = new Set(['trueRating', 'trueFutureRating', 'scoutOvr', 'scoutPot']);
+
+/**
+ * Handle exclusive toggle between star metrics and component metrics.
+ * When a star metric is enabled, all component metrics are unchecked.
+ * When a component metric is enabled, all star metrics are unchecked.
+ *
+ * @returns The new active metrics array after applying exclusivity rules
+ */
+export function applyExclusiveMetricToggle(
+  container: HTMLElement,
+  activeMetrics: DevelopmentMetric[],
+  metric: DevelopmentMetric,
+  enabled: boolean
+): DevelopmentMetric[] {
+  let newMetrics = [...activeMetrics];
+  const isStarToggle = STAR_METRICS.has(metric);
+
+  if (enabled) {
+    if (isStarToggle) {
+      // Enabling a star metric: uncheck and remove all component metrics
+      const toRemove = newMetrics.filter(m => !STAR_METRICS.has(m));
+      newMetrics = newMetrics.filter(m => STAR_METRICS.has(m));
+      for (const removed of toRemove) {
+        const cb = container.querySelector<HTMLInputElement>(`input[data-metric="${removed}"]`);
+        if (cb) cb.checked = false;
+      }
+    } else {
+      // Enabling a component metric: uncheck and remove all star metrics
+      const toRemove = newMetrics.filter(m => STAR_METRICS.has(m));
+      newMetrics = newMetrics.filter(m => !STAR_METRICS.has(m));
+      for (const removed of toRemove) {
+        const cb = container.querySelector<HTMLInputElement>(`input[data-metric="${removed}"]`);
+        if (cb) cb.checked = false;
+      }
+    }
+    if (!newMetrics.includes(metric)) {
+      newMetrics.push(metric);
+    }
+  } else {
+    newMetrics = newMetrics.filter(m => m !== metric);
+  }
+
+  return newMetrics;
 }
 
 /**
