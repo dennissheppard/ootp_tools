@@ -1,6 +1,6 @@
 /**
  * Shared component for rendering player ratings card
- * Used by both PlayerProfileModal and StatsView for consistent display
+ * Used by profile modals and StatsView for consistent display
  */
 
 import { PlayerYearlyDetail } from '../services/TrueRatingsService';
@@ -10,6 +10,8 @@ import { MinorLeagueLevel, getLevelLabel } from '../models/Stats';
 export interface SeasonStatsRow extends PlayerYearlyDetail {
   level?: MinorLeagueLevel | 'MLB';
 }
+
+export type { PlayerRatingsData as PlayerProfileData };
 
 export interface PlayerRatingsData {
   playerId: number;

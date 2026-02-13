@@ -1,6 +1,6 @@
 import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Player';
 import { pitcherProfileModal } from './PitcherProfileModal';
-import type { PlayerProfileData } from './PlayerProfileModal';
+import type { PlayerProfileData } from './PlayerRatingsCard';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { OnboardingView } from './OnboardingView';
 import { playerService } from '../services/PlayerService';

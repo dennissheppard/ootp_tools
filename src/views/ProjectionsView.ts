@@ -5,7 +5,7 @@ import { scoutingDataService } from '../services/ScoutingDataService';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { pitcherProfileModal } from './PitcherProfileModal';
-import type { PlayerProfileData } from './PlayerProfileModal';
+import type { PlayerProfileData } from './PlayerRatingsCard';
 import { trueRatingsService } from '../services/TrueRatingsService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';

@@ -7,7 +7,7 @@ import { hitterTrueRatingsCalculationService, YearlyHittingStats, getYearWeights
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { TruePlayerStats, TruePlayerBattingStats, trueRatingsService } from '../services/TrueRatingsService';
 import { pitcherProfileModal } from './PitcherProfileModal';
-import type { PlayerProfileData } from './PlayerProfileModal';
+import type { PlayerProfileData } from './PlayerRatingsCard';
 import { batterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { playerService } from '../services/PlayerService';

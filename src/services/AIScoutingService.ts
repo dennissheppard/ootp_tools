@@ -65,50 +65,58 @@ export interface AIScoutingPlayerData {
   projBbPct?: number;
   projKPct?: number;
 
+  // Personality traits (H = high, N = neutral, L = low)
+  leadership?: 'H' | 'N' | 'L';
+  loyalty?: 'H' | 'N' | 'L';
+  adaptability?: 'H' | 'N' | 'L';
+  greed?: 'H' | 'N' | 'L';
+  workEthic?: 'H' | 'N' | 'L';
+  intelligence?: 'H' | 'N' | 'L';
+
+  // Contract info
+  contractSalary?: string;
+  contractYears?: string;
+  contractClauses?: string;
+
   // Rich context strings (populated internally by the service)
   teamContext?: string;
   leagueLeaders?: string;
   orgRoster?: string;
 }
 
-const SYSTEM_PROMPT = `You are the lead analyst at True Ratings — the FanGraphs of the World Baseball League (WBL). You're the scouting nerd who lives and dies by the numbers, but you have a sharp eye for the story behind them. You write with confidence, dry wit, and occasional bite. You're not mean, but you don't sugarcoat.
+const SYSTEM_PROMPT = `You are the snarky lead analyst at True Ratings — the FanGraphs of the World Baseball League (WBL). You write with confident, dry wit and sharp analytical insight. You value numbers first, but understand roster construction and league context.
 
 TERMINOLOGY:
-- True Ratings are on a numeric scale (e.g., "a 4.2 True Rating" or "a 3.8 TR"). NEVER call them "stars" — they are not star ratings. You can say a team "is full of stars" colloquially, but "4.5-star True Rating" is WRONG. Just "4.5 True Rating" or "4.5 TR".
-- True Future Rating (TFR) follows the same rule — "a 4.0 TFR", never "4.0-star TFR".
-- Component ratings (True Stuff, True Power, etc.) are on a 20-80 scouting scale.
+- True Ratings (TR) are numeric (e.g., "4.2 True Rating" or "4.2 TR"). NEVER refer to them as stars.
+- True Future Rating (TFR) follows the same rule.
+- Component ratings (True Stuff, True Power, etc.) use the 20–80 scouting scale.
 
-LEAGUE CONTEXT you already know:
-- The WBL is a simulation baseball league with real baseball mechanics
-- Pitching is at a premium in this league — good arms are hard to find and expensive
-- Home runs have been trending down the last few years — power isn't what it used to be
-- Good hitting catchers are unicorns — any catcher who can actually hit is worth his weight in gold
-- True Ratings (TR) are derived from actual statistical performance and are your bread and butter — they're what matter
-- Scouting ratings are the "old school" view — useful for context but your True Ratings are more reliable for MLB-level players
-- True Future Rating (TFR) projects a prospect's peak ceiling — it blends their minor league stats with scouting data
+LEAGUE CONTEXT:
+- WBL uses real baseball mechanics.
+- Pitching is scarce and highly valued.
+- Home runs are trending down; the gap between 70 and 80 power is smaller than it used to be. League leaders are hitting about 30, so lower power guys who hit ~10 aren't necessarily considered low value, especially if they have high Average or Gap ratings. 
+- Because home runs have been trending down, elite HRA (home run allowed) rated pitchers might not be as valuable as they once were - guys with a 60 only give up a few more homers than a guy with an 80.
+- Good hitting catchers are extremely rare/valuable.
+- True Ratings are performance-driven and more reliable than scouting for MLB-level players. The more MLB data a player has, the more reliable True Ratings are.
+- TFR blends minor league performance and scouting to project ceiling.
+- Older players who have been on the same team for many years are emotionally valuable and revered. Numbers will be retired, children named after, etc.
 
-ANALYSIS APPROACH:
-- Lead with True Ratings when available — they're YOUR system, your pride and joy
-- Reference scouting grades as supporting context or to highlight discrepancies ("the scouts see 55 power but the numbers say 62 — we'll take the numbers")
-- For prospects without MLB stats, lean on TFR and scouting
-- DON'T just restate the numbers — ANALYZE them. Compare to the league leaders provided, to the org's roster, to historical context
-- If a player's projected K/9 would rank near the league leaders, say so. If their HR total would lead the league, say so
-- Think about how this player fits (or doesn't fit) in their organization's current roster
-- When the player is on a minor league team, always frame analysis in terms of the PARENT ORGANIZATION — that's who they're developing for
-- Be specific with comparisons: "His projected 3.15 FIP would've ranked 4th in the league last year" is better than "He has good stuff"
+ANALYSIS PRINCIPLES:
+- Lead with True Ratings — they are the foundation, your bread & butter.
+- Use scouting grades as context, especially when they differ from the numbers. But you know True Ratings are better.
+- For prospects under 21, only look at Future Ratings and scouting. They haven't had time to develop their True Ratings yet.
+- For prospects 21 and over, you can use True Ratings more, but until they have MLB experience, you're Future focused
+- Analyze the ratings and stats and context — do not simply restate numbers.
+- Compare projections to league leaders, team needs, and historical context.
+- Frame minor leaguers in terms of their parent organization.
+- Be specific: “His projected 3.15 FIP would have ranked 4th last season” is better than “He has good stuff.”
+- A 5.0 TR is a superstar. A 2.5 TR is average. A 5.0 TFR signals elite prospect ceiling.
+- Put a player's history into perspective. If he's been on a team for 15 years and is aging and not as good now, nod to that, show respect, don't just bash.
+- If salary information is available and you reference it, use the following as context: league minimum salary is $228k. Arbitration eligible guys are usually getting between $1m-$8m. Very good players make $6m-$10m. Super stars make $12m+. Anything north of $21m for a single season is eye popping.
+- If personality information is available and you reference it, only link personality to performance where it makes sense. Greed doesn't impact performance, but might impact contract. A low work ethic or adaptibility or intelligence may impact performance or development or growth.
 
-Format your response EXACTLY as:
-
-PROFILE:
-[2-3 sentences — player archetype, how they fit their organization, what kind of player they are. Compare to league peers and org context.]
-
-STRENGTHS:
-- [strength with league/org comparison — e.g., "True Power of 68 puts him in the top tier; his projected 32 HR would've been 3rd in the WBL last year"]
-- [strength with specific context]
-- [strength with specific context]
-
-RISK:
-[1-2 sentences on limitations, red flags, or what could go wrong. Be specific and reference the data.]`;
+Format your response in a structured, sectioned prose summary style scouting report of no more than 250 words. All of the numbers you'd be referencing are already in charts above this analysis. Do not restate a table or listing or bullets of ratings or stats.
+`;
 
 class AIScoutingService {
 
@@ -133,6 +141,8 @@ class AIScoutingService {
 
     // Build prompt and call API
     const userPrompt = this.buildPrompt(playerType, enriched);
+    console.log(`%c[True Analysis] Prompt for ${data.playerName}`, 'color: #6cf; font-weight: bold');
+    console.log(userPrompt);
     const blurb = await this.callOpenAI(userPrompt);
 
     // Cache result
@@ -383,6 +393,30 @@ class AIScoutingService {
     }
     if (data.injuryProneness) lines.push(`Durability: ${data.injuryProneness}`);
 
+    // PERSONALITY — clubhouse context
+    const traitMap: Record<string, string> = { H: 'High', N: 'Average', L: 'Low' };
+    const traits: string[] = [];
+    if (data.leadership) traits.push(`Leadership: ${traitMap[data.leadership]}`);
+    if (data.workEthic) traits.push(`Work Ethic: ${traitMap[data.workEthic]}`);
+    if (data.intelligence) traits.push(`Intelligence: ${traitMap[data.intelligence]}`);
+    if (data.loyalty) traits.push(`Loyalty: ${traitMap[data.loyalty]}`);
+    if (data.greed) traits.push(`Greed: ${traitMap[data.greed]}`);
+    if (data.adaptability) traits.push(`Adaptability: ${traitMap[data.adaptability]}`);
+    if (traits.length > 0) {
+      lines.push('');
+      lines.push('=== PERSONALITY ===');
+      traits.forEach(t => lines.push(t));
+    }
+
+    // CONTRACT — financial context
+    if (data.contractSalary || data.contractYears) {
+      lines.push('');
+      lines.push('=== CONTRACT ===');
+      if (data.contractSalary) lines.push(`Current Salary: ${data.contractSalary}`);
+      if (data.contractYears) lines.push(`Contract: ${data.contractYears}`);
+      if (data.contractClauses) lines.push(`Clauses: ${data.contractClauses}`);
+    }
+
     // TRUE RATINGS — lead with these
     lines.push('');
     lines.push('=== TRUE RATINGS (your system, stats-derived) ===');
@@ -516,6 +550,8 @@ class AIScoutingService {
       'estimatedPower', 'estimatedEye', 'estimatedAvoidK', 'estimatedContact',
       'projFip', 'projK9', 'projBb9', 'projHr9', 'projWar', 'projIp',
       'projAvg', 'projObp', 'projSlg', 'projHr', 'projSb', 'projPa',
+      'leadership', 'loyalty', 'adaptability', 'greed', 'workEthic', 'intelligence',
+      'contractSalary', 'contractYears', 'contractClauses',
       'teamContext', 'leagueLeaders', 'orgRoster'
     ];
 
@@ -539,3 +575,72 @@ class AIScoutingService {
 }
 
 export const aiScoutingService = new AIScoutingService();
+
+/**
+ * Convert markdown text (as returned by the AI) to safe HTML.
+ * Handles: headers, bold, italic, unordered lists, horizontal rules, paragraphs, line breaks.
+ */
+export function markdownToHtml(md: string): string {
+  const escape = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const inline = (s: string) =>
+    escape(s)
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\*(.+?)\*/g, '<em>$1</em>')
+      .replace(/  $/, '<br>');
+
+  const lines = md.split('\n');
+  const out: string[] = [];
+  let inList = false;
+  let inParagraph = false;
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+
+    // Horizontal rule
+    if (/^-{3,}$/.test(line) || /^\*{3,}$/.test(line)) {
+      if (inList) { out.push('</ul>'); inList = false; }
+      if (inParagraph) { out.push('</p>'); inParagraph = false; }
+      out.push('<hr>');
+      continue;
+    }
+
+    // Headers
+    const hMatch = line.match(/^(#{1,4})\s+(.+)$/);
+    if (hMatch) {
+      if (inList) { out.push('</ul>'); inList = false; }
+      if (inParagraph) { out.push('</p>'); inParagraph = false; }
+      // Map # → h3, ## → h3, ### → h4, #### → h5 (keep headings small in modal)
+      const level = Math.min(hMatch[1].length + 2, 5);
+      out.push(`<h${level}>${inline(hMatch[2])}</h${level}>`);
+      continue;
+    }
+
+    // Unordered list items
+    const liMatch = line.match(/^[-*]\s+(.+)$/);
+    if (liMatch) {
+      if (inParagraph) { out.push('</p>'); inParagraph = false; }
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${inline(liMatch[1])}</li>`);
+      continue;
+    }
+
+    // Close list if we hit a non-list line
+    if (inList) { out.push('</ul>'); inList = false; }
+
+    // Empty line = paragraph break
+    if (line.trim() === '') {
+      if (inParagraph) { out.push('</p>'); inParagraph = false; }
+      continue;
+    }
+
+    // Regular text
+    if (!inParagraph) { out.push('<p>'); inParagraph = true; }
+    else { out.push('<br>'); }
+    out.push(inline(line));
+  }
+
+  if (inList) out.push('</ul>');
+  if (inParagraph) out.push('</p>');
+
+  return out.join('\n');
+}

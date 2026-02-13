@@ -13,7 +13,6 @@ export * from './FarmRankingsView';
 export * from './TeamRatingsView';
 export * from './DataManagementView';
 export * from './PlayerRatingsCard';
-export * from './PlayerProfileModal';
 export * from './PitcherProfileModal';
 export * from './ProjectionsView';
 export * from './DevTrackerView';

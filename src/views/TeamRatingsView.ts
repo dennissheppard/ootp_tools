@@ -2,7 +2,7 @@ import { teamRatingsService, TeamRatingResult, RatedPlayer, TeamPowerRanking } f
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { dateService } from '../services/DateService';
 import { pitcherProfileModal } from './PitcherProfileModal';
-import type { PlayerProfileData } from './PlayerProfileModal';
+import type { PlayerProfileData } from './PlayerRatingsCard';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';

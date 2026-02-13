@@ -1,6 +1,6 @@
 /**
  * Batter Profile Modal - Full-featured modal for viewing batter details
- * Parallels PlayerProfileModal functionality for pitchers
+ * Batter profile modal with ratings, projections, and development tracking
  */
 
 import { getPositionLabel } from '../models/Player';
@@ -16,7 +16,7 @@ import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
 import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers, applyExclusiveMetricToggle } from '../components/DevelopmentChart';
 import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
-import { aiScoutingService, AIScoutingPlayerData } from '../services/AIScoutingService';
+import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -1930,29 +1930,7 @@ export class BatterProfileModal {
   }
 
   private renderAnalysisBlurb(text: string): string {
-    // Parse the structured blurb into sections
-    const profileMatch = text.match(/Profile:\s*\n([\s\S]*?)(?=\nStrengths:|\n*$)/i);
-    const strengthsMatch = text.match(/Strengths:\s*\n([\s\S]*?)(?=\nRisk:|\n*$)/i);
-    const riskMatch = text.match(/Risk:\s*\n([\s\S]*?)$/i);
-
-    const profile = profileMatch?.[1]?.trim() ?? '';
-    const strengths = strengthsMatch?.[1]?.trim() ?? '';
-    const risk = riskMatch?.[1]?.trim() ?? '';
-
-    const strengthItems = strengths
-      .split('\n')
-      .map(l => l.replace(/^-\s*/, '').trim())
-      .filter(l => l.length > 0)
-      .map(l => `<li>${l}</li>`)
-      .join('');
-
-    return `
-      <div class="analysis-blurb">
-        ${profile ? `<div class="analysis-profile"><strong>Profile:</strong> ${profile}</div>` : ''}
-        ${strengthItems ? `<div class="analysis-strengths"><strong>Strengths:</strong><ul>${strengthItems}</ul></div>` : ''}
-        ${risk ? `<div class="analysis-risk"><strong>Risk:</strong> ${risk}</div>` : ''}
-      </div>
-    `;
+    return `<div class="analysis-blurb">${markdownToHtml(text)}</div>`;
   }
 
   private buildAIScoutingData(): AIScoutingPlayerData | null {
@@ -1990,6 +1968,31 @@ export class BatterProfileModal {
       projWar: data.projWar,
       projBbPct: data.projBbPct,
       projKPct: data.projKPct,
+      // Personality
+      leadership: this.scoutingData?.leadership,
+      loyalty: this.scoutingData?.loyalty,
+      adaptability: this.scoutingData?.adaptability,
+      greed: this.scoutingData?.greed,
+      workEthic: this.scoutingData?.workEthic,
+      intelligence: this.scoutingData?.intelligence,
+      // Contract
+      ...this.buildContractContext(),
+    };
+  }
+
+  private buildContractContext(): Pick<AIScoutingPlayerData, 'contractSalary' | 'contractYears' | 'contractClauses'> {
+    if (!this.contract || this.contract.years === 0) return {};
+    const c = this.contract;
+    const currentSalary = c.salaries[c.currentYear] ?? 0;
+    const clauses: string[] = [];
+    if (c.noTrade) clauses.push('No Trade Clause');
+    if (c.lastYearTeamOption) clauses.push('Team Option (final year)');
+    if (c.lastYearPlayerOption) clauses.push('Player Option (final year)');
+    if (c.lastYearVestingOption) clauses.push('Vesting Option (final year)');
+    return {
+      contractSalary: currentSalary === 0 ? 'Minimum League Contract' : this.formatSalary(currentSalary),
+      contractYears: `Year ${c.currentYear + 1} of ${c.years}`,
+      contractClauses: clauses.length > 0 ? clauses.join(', ') : undefined,
     };
   }
 
