@@ -52,6 +52,9 @@ export interface PlayerRatingsData {
   osaPitches?: string[];
   osaPitchRatings?: Record<string, number>;
 
+  // Injury proneness (for PitcherProfileModal fallback)
+  injuryProneness?: string;
+
   // Legacy single-source fields (deprecated, use my/osa variants)
   pitchCount?: number;
   pitches?: string[];  // List of pitch names
