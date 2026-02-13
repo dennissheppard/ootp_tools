@@ -5854,6 +5854,35 @@ th .stat-tooltip {
   color: var(--color-text);
 }
 
+.dev-mode-toggle {
+  display: flex;
+  gap: 0;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.dev-mode-btn {
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background: transparent;
+  color: var(--color-text-muted);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.dev-mode-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--color-text);
+}
+
+.dev-mode-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
 .development-controls {
   display: flex;
   align-items: center;

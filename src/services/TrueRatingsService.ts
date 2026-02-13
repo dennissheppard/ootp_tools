@@ -11,6 +11,8 @@ import { indexedDBService } from './IndexedDBService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
 import { minorLeagueStatsService } from './MinorLeagueStatsService';
+import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
+import { fipWarService } from './FipWarService';
 // Type-only imports to avoid circular dependency (both TFR services import trueRatingsService)
 import type { HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
 import type { TrueFutureRatingInput } from './TrueFutureRatingService';
@@ -1090,6 +1092,139 @@ class TrueRatingsService {
         });
       }
     }
+
+    return results.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Get historical raw batting stats for an MLB player, one record per year.
+   * Combines stints within the same year. Only processes splitId === 1 (overall).
+   */
+  public async getHistoricalBatterStats(playerId: number): Promise<DevelopmentSnapshotRecord[]> {
+    const allStats = await statsService.getBattingStats(playerId);
+    if (allStats.length === 0) return [];
+
+    // Group by year, filter to splitId === 1
+    const byYear = new Map<number, { ab: number; pa: number; h: number; d: number; t: number; hr: number; bb: number; k: number; sb: number; cs: number; hp: number; sf: number }>();
+
+    for (const stat of allStats) {
+      if (stat.splitId !== 1) continue;
+      if (!byYear.has(stat.year)) {
+        byYear.set(stat.year, { ab: 0, pa: 0, h: 0, d: 0, t: 0, hr: 0, bb: 0, k: 0, sb: 0, cs: 0, hp: 0, sf: 0 });
+      }
+      const entry = byYear.get(stat.year)!;
+      entry.ab += stat.ab;
+      entry.pa += stat.pa;
+      entry.h += stat.h;
+      entry.d += stat.d;
+      entry.t += stat.t;
+      entry.hr += stat.hr;
+      entry.bb += stat.bb;
+      entry.k += stat.k;
+      entry.sb += stat.sb;
+      entry.cs += stat.cs;
+      entry.hp += stat.hp;
+      entry.sf += stat.sf;
+    }
+
+    const results: DevelopmentSnapshotRecord[] = [];
+    const years = [...byYear.keys()].sort();
+    for (const year of years) {
+      const totals = byYear.get(year)!;
+      if (totals.pa === 0) continue;
+
+      // Calculate offensive WAR (OPS+ based, matching TrueRatingsView.calculateOffensiveWar)
+      let offWar = 0;
+      const obpDenom = totals.ab + totals.bb + totals.hp + totals.sf;
+      const obp = obpDenom > 0 ? (totals.h + totals.bb + totals.hp) / obpDenom : 0;
+      const tb = totals.h + totals.d + (2 * totals.t) + (3 * totals.hr);
+      const slg = totals.ab > 0 ? tb / totals.ab : 0;
+
+      const leagueAvg = await leagueBattingAveragesService.getLeagueAverages(year);
+      if (leagueAvg && totals.ab > 0) {
+        const opsPlus = leagueBattingAveragesService.calculateOpsPlus(obp, slg, leagueAvg);
+        const runsPerWin = 10;
+        const runsAboveAvg = ((opsPlus - 100) / 10) * (totals.pa / 600) * 10;
+        const replacementRuns = (totals.pa / 600) * 20;
+        const sbRuns = totals.sb * 0.2 - totals.cs * 0.4;
+        offWar = (runsAboveAvg + replacementRuns + sbRuns) / runsPerWin;
+      }
+
+      results.push({
+        key: `${playerId}_stat_${year}`,
+        playerId,
+        date: `${year}-07-01`,
+        snapshotType: 'data_upload',
+        playerType: 'hitter',
+        statAvg: totals.ab > 0 ? totals.h / totals.ab : 0,
+        statHrPct: (totals.hr / totals.pa) * 100,
+        statBbPct: (totals.bb / totals.pa) * 100,
+        statKPct: (totals.k / totals.pa) * 100,
+        statHr: totals.hr,
+        statBb: totals.bb,
+        statK: totals.k,
+        stat2b: totals.d,
+        stat3b: totals.t,
+        statSb: totals.sb,
+        statSbPct: (totals.sb + totals.cs) > 0 ? (totals.sb / (totals.sb + totals.cs)) * 100 : 0,
+        statWar: Math.round(offWar * 10) / 10,
+        source: 'calculated',
+      });
+    }
+
+    return results;
+  }
+
+  /**
+   * Get historical raw pitching stats for an MLB player, one record per year.
+   * Combines stints within the same year. Only processes splitId === 1 (overall).
+   */
+  public async getHistoricalPitcherStats(playerId: number): Promise<DevelopmentSnapshotRecord[]> {
+    const allStats = await statsService.getPitchingStats(playerId);
+    if (allStats.length === 0) return [];
+
+    // Group by year, filter to splitId === 1
+    const byYear = new Map<number, { ipOuts: number; hr: number; bb: number; k: number }>();
+
+    for (const stat of allStats) {
+      if (stat.splitId !== 1) continue;
+      if (!byYear.has(stat.year)) {
+        byYear.set(stat.year, { ipOuts: 0, hr: 0, bb: 0, k: 0 });
+      }
+      const entry = byYear.get(stat.year)!;
+      entry.ipOuts += this.ipToOuts(stat.ip);
+      entry.hr += stat.hr;
+      entry.bb += stat.bb;
+      entry.k += stat.k;
+    }
+
+    const results: DevelopmentSnapshotRecord[] = [];
+    byYear.forEach((totals, year) => {
+      const ip = totals.ipOuts / 3;
+      if (ip <= 0) return;
+      const hr9 = (totals.hr / ip) * 9;
+      const bb9 = (totals.bb / ip) * 9;
+      const k9 = (totals.k / ip) * 9;
+      const fip = ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47;
+      // Calculate FIP WAR using FipWarService constants
+      const war = fipWarService.calculateWar(fip, ip);
+      results.push({
+        key: `${playerId}_stat_${year}`,
+        playerId,
+        date: `${year}-07-01`,
+        snapshotType: 'data_upload',
+        playerType: 'pitcher',
+        statFip: Math.round(fip * 100) / 100,
+        statHr9: Math.round(hr9 * 100) / 100,
+        statBb9: Math.round(bb9 * 100) / 100,
+        statK9: Math.round(k9 * 100) / 100,
+        statHr: totals.hr,
+        statBb: totals.bb,
+        statK: totals.k,
+        statWar: war,
+        source: 'calculated',
+      });
+    });
 
     return results.sort((a, b) => a.date.localeCompare(b.date));
   }

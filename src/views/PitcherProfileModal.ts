@@ -113,6 +113,11 @@ export class PitcherProfileModal {
   // Development tab state
   private developmentChart: DevelopmentChart | null = null;
   private activeDevMetrics: DevelopmentMetric[] = ['scoutStuff', 'scoutControl', 'scoutHra'];
+  private devMode: 'ratings' | 'stats' = 'ratings';
+  private cachedRatingSnapshots: DevelopmentSnapshotRecord[] | null = null;
+  private cachedStatSnapshots: DevelopmentSnapshotRecord[] | null = null;
+  private savedRatingMetrics: DevelopmentMetric[] | null = null;
+  private savedStatMetrics: DevelopmentMetric[] | null = null;
 
   // Radar chart instances
   private radarChart: RadarChart | null = null;
@@ -1656,17 +1661,35 @@ export class PitcherProfileModal {
     const isProspect = this.currentData?.isProspect === true;
     const dataMode: 'true' | 'tfr' = isProspect ? 'tfr' : 'true';
 
+    // Reset dev mode on new player
+    this.devMode = 'ratings';
+    this.cachedRatingSnapshots = null;
+    this.cachedStatSnapshots = null;
+    this.savedRatingMetrics = null;
+    this.savedStatMetrics = null;
+
     this.activeDevMetrics = ['trueStuff', 'trueControl', 'trueHra'];
 
     const title = isProspect ? 'TFR Development History' : 'True Rating History';
+
+    // MLB pitchers get Ratings/Stats toggle
+    const devModeToggle = !isProspect ? `
+      <div class="dev-mode-toggle">
+        <button class="dev-mode-btn active" data-dev-mode="ratings">Ratings</button>
+        <button class="dev-mode-btn" data-dev-mode="stats">Stats</button>
+      </div>
+    ` : '';
 
     return `
       <div class="development-section">
         <div class="development-header">
           <h4>${title}</h4>
+          ${devModeToggle}
           <span class="snapshot-count" id="dev-snapshot-count">Loading...</span>
         </div>
-        ${renderMetricToggles(this.activeDevMetrics, 'pitcher', dataMode)}
+        <div class="development-toggles-container">
+          ${renderMetricToggles(this.activeDevMetrics, 'pitcher', dataMode)}
+        </div>
         <div class="development-chart-container" id="development-chart-${playerId}"></div>
       </div>
     `;
@@ -1684,6 +1707,7 @@ export class PitcherProfileModal {
     if (!isProspect) {
       // MLB pitcher: calculate historical True Ratings from stats
       snapshots = await trueRatingsService.calculateHistoricalPitcherTR(playerId);
+      this.cachedRatingSnapshots = snapshots;
     } else {
       // Prospect pitcher: calculate historical TFR from scouting snapshots
       snapshots = await trueRatingsService.calculateHistoricalPitcherTFR(playerId);
@@ -1712,6 +1736,86 @@ export class PitcherProfileModal {
         this.developmentChart?.updateMetrics(this.activeDevMetrics);
       });
     }
+
+    // Bind dev mode toggle (Ratings/Stats) for MLB pitchers
+    if (!isProspect) {
+      this.bindDevModeToggle(playerId);
+    }
+  }
+
+  private bindDevModeToggle(playerId: number): void {
+    const buttons = this.overlay?.querySelectorAll<HTMLButtonElement>('.dev-mode-btn');
+    if (!buttons || buttons.length === 0) return;
+
+    buttons.forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const newMode = btn.dataset.devMode as 'ratings' | 'stats';
+        if (newMode === this.devMode) return;
+
+        this.devMode = newMode;
+        buttons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+
+        // Save current mode's metrics before switching
+        if (this.devMode === 'ratings') {
+          this.savedRatingMetrics = this.activeDevMetrics;
+        } else {
+          this.savedStatMetrics = this.activeDevMetrics;
+        }
+
+        if (newMode === 'stats') {
+          if (!this.cachedStatSnapshots) {
+            this.cachedStatSnapshots = await trueRatingsService.getHistoricalPitcherStats(playerId);
+          }
+          this.activeDevMetrics = this.savedStatMetrics || ['statBb9', 'statK9'];
+          this.rerenderDevChart(this.cachedStatSnapshots, 'stats', 'pitcher', playerId);
+        } else {
+          if (!this.cachedRatingSnapshots) {
+            this.cachedRatingSnapshots = await trueRatingsService.calculateHistoricalPitcherTR(playerId);
+          }
+          this.activeDevMetrics = this.savedRatingMetrics || ['trueStuff', 'trueControl', 'trueHra'];
+          this.rerenderDevChart(this.cachedRatingSnapshots, 'true', 'pitcher', playerId);
+        }
+      });
+    });
+  }
+
+  private rerenderDevChart(
+    snapshots: DevelopmentSnapshotRecord[],
+    dataMode: 'true' | 'tfr' | 'stats',
+    playerType: 'pitcher' | 'hitter',
+    playerId: number
+  ): void {
+    // Update toggles HTML
+    const togglesContainer = this.overlay?.querySelector('.development-toggles-container');
+    if (togglesContainer) {
+      togglesContainer.innerHTML = renderMetricToggles(this.activeDevMetrics, playerType, dataMode);
+      bindMetricToggleHandlers(togglesContainer as HTMLElement, (metric, enabled) => {
+        this.activeDevMetrics = applyExclusiveMetricToggle(
+          togglesContainer as HTMLElement, this.activeDevMetrics, metric, enabled
+        );
+        this.developmentChart?.updateMetrics(this.activeDevMetrics);
+      });
+    }
+
+    // Update snapshot count
+    const countEl = this.overlay?.querySelector('#dev-snapshot-count');
+    if (countEl) {
+      countEl.textContent = `${snapshots.length} season${snapshots.length !== 1 ? 's' : ''}`;
+    }
+
+    // Destroy and recreate chart with new data
+    if (this.developmentChart) {
+      this.developmentChart.destroy();
+      this.developmentChart = null;
+    }
+    this.developmentChart = new DevelopmentChart({
+      containerId: `development-chart-${playerId}`,
+      snapshots,
+      metrics: this.activeDevMetrics,
+      height: 280,
+    });
+    this.developmentChart.render();
   }
 
   // ─── Shared Utilities ────────────────────────────────────────────────
@@ -1859,7 +1963,7 @@ export class PitcherProfileModal {
   private renderAnalysisLoading(): string {
     return `
       <div class="analysis-loading">
-        <span class="analysis-loading-text">Reviewing Player Data...</span>
+        <span class="analysis-loading-text">Scouting Player...</span>
       </div>
     `;
   }

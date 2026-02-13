@@ -118,6 +118,24 @@ export interface DevelopmentSnapshotRecord {
   trueContact?: number;
   trueGap?: number;
   trueSpeed?: number;
+  // Batter stat fields (raw MLB stats for stats chart mode)
+  statAvg?: number;
+  statHrPct?: number;
+  statBbPct?: number;
+  statKPct?: number;
+  statHr?: number;
+  statBb?: number;
+  statK?: number;
+  stat2b?: number;
+  stat3b?: number;
+  statSb?: number;
+  statSbPct?: number;
+  statWar?: number;
+  // Pitcher stat fields (raw MLB stats for stats chart mode)
+  statFip?: number;
+  statHr9?: number;
+  statBb9?: number;
+  statK9?: number;
   // Metadata
   source: 'my' | 'osa' | 'calculated';
   level?: string; // MLB, AAA, AA, A, R
