@@ -2543,7 +2543,7 @@ th .stat-tooltip {
 }
 
 .modal-body {
-  padding: 1rem 1.25rem 1.25rem;
+  padding: 0 1.25rem 1.25rem;
   overflow: auto;
 }
 
@@ -6047,6 +6047,7 @@ th .stat-tooltip {
 .batter-profile-modal .modal-lg {
   width: min(960px, 95vw);
   max-width: 960px;
+  max-height: 85vh;
   position: relative;
   overflow: hidden;
 }
@@ -6921,6 +6922,120 @@ th .stat-tooltip {
   background: rgba(var(--color-primary-rgb), 0.1);
 }
 
+/* Analysis Toggle (Projections / True Analysis) */
+.analysis-toggle-row {
+  display: flex;
+  justify-content: flex-start;
+  margin: 0 0 0.5rem 0;
+}
+.analysis-toggle {
+  display: inline-flex;
+  gap: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.analysis-toggle-btn {
+  padding: 0.2rem 0.75rem;
+  font-size: 0.8rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.analysis-toggle-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+.analysis-toggle-btn:hover:not(.active) {
+  background: rgba(var(--color-primary-rgb), 0.1);
+}
+
+/* Analysis Loading Shimmer */
+.analysis-loading {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 2.5rem 1rem;
+  min-height: 140px;
+  gap: 1rem;
+}
+.analysis-loading-text {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  background: linear-gradient(
+    90deg,
+    var(--color-text-muted) 0%,
+    var(--color-primary) 40%,
+    #fff 50%,
+    var(--color-primary) 60%,
+    var(--color-text-muted) 100%
+  );
+  background-size: 300% 100%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: analysis-shimmer 2s ease-in-out infinite;
+}
+.analysis-loading::after {
+  content: '';
+  width: 160px;
+  height: 3px;
+  border-radius: 3px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--color-primary) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: analysis-shimmer 2s ease-in-out infinite;
+  opacity: 0.6;
+}
+@keyframes analysis-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* Analysis Blurb */
+.analysis-blurb {
+  padding: 0.75rem 0.5rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.analysis-profile {
+  margin-bottom: 0.75rem;
+}
+.analysis-profile strong,
+.analysis-strengths strong,
+.analysis-risk strong {
+  color: var(--color-text);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.analysis-strengths {
+  margin-bottom: 0.75rem;
+}
+.analysis-strengths ul {
+  margin: 0.25rem 0 0 1.2rem;
+  padding: 0;
+}
+.analysis-strengths li {
+  margin-bottom: 0.25rem;
+}
+.analysis-risk {
+  margin-bottom: 0.25rem;
+}
+.analysis-error {
+  color: #e57373;
+  font-style: italic;
+}
+
 /* Skeleton Loading */
 .batter-profile-modal .loading-skeleton {
   opacity: 0.6;
@@ -7562,6 +7677,7 @@ th .stat-tooltip {
 .pitcher-profile-modal .modal-lg {
   width: min(960px, 95vw);
   max-width: 960px;
+  max-height: 85vh;
   position: relative;
   overflow: hidden;
 }

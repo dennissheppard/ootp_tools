@@ -1,4 +1,5 @@
 import { Player } from '../models/Player';
+import { HitterScoutingRatings, PitcherScoutingRatings } from '../models/ScoutingData';
 import { playerService } from './PlayerService';
 import { statsService } from './StatsService';
 import { dateService } from './DateService';
@@ -7,6 +8,12 @@ import { YearlyHittingStats, HitterTrueRatingInput, hitterTrueRatingsCalculation
 import { DevelopmentSnapshotRecord } from './IndexedDBService';
 import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
+import { developmentSnapshotService } from './DevelopmentSnapshotService';
+import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
+import { minorLeagueStatsService } from './MinorLeagueStatsService';
+// Type-only imports to avoid circular dependency (both TFR services import trueRatingsService)
+import type { HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
+import type { TrueFutureRatingInput } from './TrueFutureRatingService';
 
 /**
  * Yearly stats detail for player profile modal
@@ -1081,6 +1088,216 @@ class TrueRatingsService {
           trueRating: playerResult.trueRating,
           source: 'calculated',
         });
+      }
+    }
+
+    return results.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Calculate historical TFR for a hitter prospect across all scouting snapshot dates.
+   * For each unique date, runs the full TFR pipeline with the entire prospect pool
+   * at that date, then extracts the target player's component ratings.
+   *
+   * @param playerId - The player ID to calculate historical TFR for
+   * @returns Array of synthetic DevelopmentSnapshotRecord objects (one per snapshot date)
+   */
+  public async calculateHistoricalHitterTFR(playerId: number): Promise<DevelopmentSnapshotRecord[]> {
+    // Get all scouting snapshots for this player
+    const playerSnapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+    const hitterSnapshots = playerSnapshots.filter(s =>
+      s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
+    );
+
+    if (hitterSnapshots.length === 0) return [];
+
+    // Extract unique dates
+    const uniqueDates = [...new Set(hitterSnapshots.map(s => s.date))].sort();
+
+    const currentYear = await dateService.getCurrentYear();
+    const results: DevelopmentSnapshotRecord[] = [];
+
+    for (const date of uniqueDates) {
+      try {
+        // Get ALL hitter scouting snapshots at this date
+        const allSnapshotsAtDate = await developmentSnapshotService.getSnapshotsByDate(date);
+        const hitterSnapshotsAtDate = allSnapshotsAtDate.filter(s =>
+          s.playerType === 'hitter' || s.scoutPower !== undefined || s.scoutEye !== undefined
+        );
+
+        if (hitterSnapshotsAtDate.length === 0) continue;
+
+        // Determine year from date
+        const year = parseInt(date.substring(0, 4), 10);
+
+        // Fetch all minor league batting stats for the pool
+        const allMinorStats = await minorLeagueBattingStatsService.getAllPlayerStatsBatch(
+          Math.max(year - 2, 2000),
+          Math.min(year, currentYear)
+        );
+
+        // Build TFR inputs for all prospects at this date
+        const allPlayers = await playerService.getAllPlayers();
+        const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
+        const tfrInputs: HitterTrueFutureRatingInput[] = [];
+        for (const snap of hitterSnapshotsAtDate) {
+          const player = playerMap.get(snap.playerId);
+          const age = snap.age ?? player?.age ?? 22;
+
+          // Convert snapshot to HitterScoutingRatings
+          const scouting: HitterScoutingRatings = {
+            playerId: snap.playerId,
+            power: snap.scoutPower ?? 50,
+            eye: snap.scoutEye ?? 50,
+            avoidK: snap.scoutAvoidK ?? 50,
+            contact: snap.scoutBabip ?? 50,
+            gap: snap.scoutGap ?? 50,
+            speed: snap.scoutSpeed ?? 50,
+            ovr: snap.scoutOvr ?? 2.5,
+            pot: snap.scoutPot ?? 2.5,
+          };
+
+          const minorStats = allMinorStats.get(snap.playerId) ?? [];
+
+          tfrInputs.push({
+            playerId: snap.playerId,
+            playerName: player ? `${player.firstName} ${player.lastName}` : 'Unknown',
+            age,
+            scouting,
+            minorLeagueStats: minorStats,
+          });
+        }
+
+        if (tfrInputs.length === 0) continue;
+
+        // Calculate TFR for the full pool (dynamic import to avoid circular dependency)
+        const { hitterTrueFutureRatingService } = await import('./HitterTrueFutureRatingService');
+        const tfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
+
+        // Find target player in results
+        const playerResult = tfrResults.find(r => r.playerId === playerId);
+        if (playerResult) {
+          results.push({
+            key: `${playerId}_${date}_tfr`,
+            playerId,
+            date,
+            snapshotType: 'data_upload',
+            playerType: 'hitter',
+            truePower: playerResult.truePower,
+            trueEye: playerResult.trueEye,
+            trueAvoidK: playerResult.trueAvoidK,
+            trueContact: playerResult.trueContact,
+            trueGap: playerResult.trueGap,
+            trueSpeed: playerResult.trueSpeed,
+            trueFutureRating: playerResult.trueFutureRating,
+            source: 'calculated',
+          });
+        }
+      } catch (error) {
+        console.warn(`Failed to calculate hitter TFR for date ${date}:`, error);
+      }
+    }
+
+    return results.sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  /**
+   * Calculate historical TFR for a pitcher prospect across all scouting snapshot dates.
+   * For each unique date, runs the full TFR pipeline with the entire prospect pool
+   * at that date, then extracts the target player's component ratings.
+   *
+   * @param playerId - The player ID to calculate historical TFR for
+   * @returns Array of synthetic DevelopmentSnapshotRecord objects (one per snapshot date)
+   */
+  public async calculateHistoricalPitcherTFR(playerId: number): Promise<DevelopmentSnapshotRecord[]> {
+    // Get all scouting snapshots for this player
+    const playerSnapshots = await developmentSnapshotService.getPlayerSnapshots(playerId);
+    const pitcherSnapshots = playerSnapshots.filter(s =>
+      s.playerType === 'pitcher' || s.scoutStuff !== undefined || s.scoutControl !== undefined
+    );
+
+    if (pitcherSnapshots.length === 0) return [];
+
+    // Extract unique dates
+    const uniqueDates = [...new Set(pitcherSnapshots.map(s => s.date))].sort();
+
+    const currentYear = await dateService.getCurrentYear();
+    const results: DevelopmentSnapshotRecord[] = [];
+
+    for (const date of uniqueDates) {
+      try {
+        // Get ALL pitcher scouting snapshots at this date
+        const allSnapshotsAtDate = await developmentSnapshotService.getSnapshotsByDate(date);
+        const pitcherSnapshotsAtDate = allSnapshotsAtDate.filter(s =>
+          s.playerType === 'pitcher' || s.scoutStuff !== undefined || s.scoutControl !== undefined
+        );
+
+        if (pitcherSnapshotsAtDate.length === 0) continue;
+
+        // Determine year from date
+        const year = parseInt(date.substring(0, 4), 10);
+
+        // Fetch all minor league pitching stats for the pool
+        const allMinorStats = await minorLeagueStatsService.getAllPlayerStatsBatch(
+          Math.max(year - 2, 2000),
+          Math.min(year, currentYear)
+        );
+
+        // Build TFR inputs for all prospects at this date
+        const allPlayers = await playerService.getAllPlayers();
+        const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
+        const tfrInputs: TrueFutureRatingInput[] = [];
+        for (const snap of pitcherSnapshotsAtDate) {
+          const player = playerMap.get(snap.playerId);
+          const age = snap.age ?? player?.age ?? 22;
+
+          // Convert snapshot to PitcherScoutingRatings
+          const scouting: PitcherScoutingRatings = {
+            playerId: snap.playerId,
+            stuff: snap.scoutStuff ?? 50,
+            control: snap.scoutControl ?? 50,
+            hra: snap.scoutHra ?? 50,
+            ovr: snap.scoutOvr ?? 2.5,
+            pot: snap.scoutPot ?? 2.5,
+          };
+
+          const minorStats = allMinorStats.get(snap.playerId) ?? [];
+
+          tfrInputs.push({
+            playerId: snap.playerId,
+            playerName: player ? `${player.firstName} ${player.lastName}` : 'Unknown',
+            age,
+            scouting,
+            minorLeagueStats: minorStats,
+          });
+        }
+
+        if (tfrInputs.length === 0) continue;
+
+        // Calculate TFR for the full pool (dynamic import to avoid circular dependency)
+        const { trueFutureRatingService } = await import('./TrueFutureRatingService');
+        const tfrResults = await trueFutureRatingService.calculateTrueFutureRatings(tfrInputs);
+
+        // Find target player in results
+        const playerResult = tfrResults.find(r => r.playerId === playerId);
+        if (playerResult) {
+          results.push({
+            key: `${playerId}_${date}_tfr`,
+            playerId,
+            date,
+            snapshotType: 'data_upload',
+            playerType: 'pitcher',
+            trueStuff: playerResult.trueStuff,
+            trueControl: playerResult.trueControl,
+            trueHra: playerResult.trueHra,
+            trueFutureRating: playerResult.trueFutureRating,
+            source: 'calculated',
+          });
+        }
+      } catch (error) {
+        console.warn(`Failed to calculate pitcher TFR for date ${date}:`, error);
       }
     }
 
