@@ -3,21 +3,16 @@ import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingSt
 import { scoutingDataService, ScoutingSource, PITCH_TYPE_ALIASES } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { dateService } from '../services/DateService';
-import { indexedDBService } from '../services/IndexedDBService';
 import { trueRatingsService, LEAGUE_START_YEAR } from '../services/TrueRatingsService';
 import { MessageModal } from './MessageModal';
 import { storageMigration } from '../services/StorageMigration';
 
-type DataMode = 'stats' | 'scouting';
 type ScoutingPlayerType = 'pitcher' | 'hitter';
 
 export class DataManagementView {
   private container: HTMLElement;
-  private selectedYear: number = 2021;
-  private selectedLevel: MinorLeagueLevel = 'aaa';
   private selectedFiles: File[] = [];
   private messageModal: MessageModal;
-  private currentMode: DataMode = 'stats';
   private selectedScoutingSource: ScoutingSource = 'my';
   private selectedScoutingPlayerType: ScoutingPlayerType = 'pitcher';
   private currentGameDate: string = '';
@@ -71,46 +66,12 @@ export class DataManagementView {
           </div>
         </div>
 
-        <div id="default-minors-banner" style="display: none; background: rgba(0, 186, 124, 0.1); border-left: 3px solid var(--color-primary); padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
-            <div style="flex: 1;">
-              <strong id="default-minors-title">Bundled Minor League Data</strong>
-              <p id="default-minors-message" style="margin: 0.5rem 0 0 0; opacity: 0.9;">Loading...</p>
-            </div>
-            <button id="load-default-minors-btn" class="btn btn-primary" style="display: none;">Load Bundled Data</button>
-          </div>
-        </div>
-
-        <div class="draft-header" style="margin-bottom: 1.5rem;">
-            <div class="toggle-group" role="tablist" aria-label="Data type">
-                <button class="toggle-btn active" data-mode="stats" role="tab" aria-selected="true">Minor League Stats</button>
-                <button class="toggle-btn" data-mode="scouting" role="tab" aria-selected="false">Scouting Reports</button>
-            </div>
-        </div>
-
         <div class="potential-stats-content" style="grid-template-columns: 1fr;">
           <div class="csv-upload-container">
-            <h3 class="form-title">Upload Data</h3>
-            
-            <!-- Stats Inputs -->
-            <div id="stats-inputs" class="rating-inputs" style="grid-template-columns: 1fr 1fr; margin-bottom: 1.5rem;">
-                <div class="rating-field">
-                    <label for="upload-year">Default Year</label>
-                    <input type="number" id="upload-year" min="2000" max="2030" value="${this.selectedYear}">
-                </div>
-                <div class="rating-field">
-                    <label for="upload-level">Default Level</label>
-                    <select id="upload-level" style="padding: 0.5rem; border: 1px solid var(--color-border); border-radius: 4px; background-color: var(--color-surface); color: var(--color-text); width: 100%;">
-                        <option value="aaa">AAA</option>
-                        <option value="aa">AA</option>
-                        <option value="a">A</option>
-                        <option value="r">R</option>
-                    </select>
-                </div>
-            </div>
+            <h3 class="form-title">Upload Scouting Data</h3>
 
             <!-- Scouting Inputs -->
-            <div id="scouting-inputs" class="rating-inputs" style="display: none; grid-template-columns: 1fr 1fr 1fr; margin-bottom: 1.5rem;">
+            <div id="scouting-inputs" class="rating-inputs" style="grid-template-columns: 1fr 1fr 1fr; margin-bottom: 1.5rem;">
                 <div class="rating-field">
                     <label for="scout-player-type">Player Type</label>
                     <div class="toggle-group" style="justify-self: start;">
@@ -135,8 +96,8 @@ export class DataManagementView {
               <input type="file" id="file-input" accept=".csv" multiple hidden>
               <div id="upload-prompt">
                 <p>Drop one or more CSV files here or <button type="button" class="btn-link" id="browse-btn">browse</button></p>
-                <p class="csv-format" id="format-hint">Format: ID,Name,IP,HR,BB,K,HR/9,BB/9,K/9</p>
-                <p class="csv-format" id="naming-hint">Naming convention: <code>[level]_stats_[year].csv</code> (e.g. aaa_stats_2020.csv)</p>
+                <p class="csv-format" id="format-hint">Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]</p>
+                <p class="csv-format" id="naming-hint">For bulk upload, use: <code>pitcher_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. pitcher_scouting_my_2024-03-15.csv)</p>
               </div>
               <div id="file-display" style="display: none;">
                 <div id="file-list" style="margin-bottom: 1rem; max-height: 200px; overflow-y: auto;"></div>
@@ -173,32 +134,16 @@ export class DataManagementView {
     `;
 
     this.bindEvents();
-    this.updateModeUI();
     this.checkMigrationNeeded();
     this.checkDefaultOsaStatus();
-    this.checkDefaultMinorsStatus();
   }
 
   private bindEvents(): void {
-    const yearInput = this.container.querySelector<HTMLInputElement>('#upload-year');
-    const levelSelect = this.container.querySelector<HTMLSelectElement>('#upload-level');
     const fileInput = this.container.querySelector<HTMLInputElement>('#file-input');
     const browseBtn = this.container.querySelector<HTMLButtonElement>('#browse-btn');
     const dropZone = this.container.querySelector<HTMLDivElement>('#drop-zone');
     const uploadBtn = this.container.querySelector<HTMLButtonElement>('#upload-btn');
     const clearFileBtn = this.container.querySelector<HTMLButtonElement>('#clear-file');
-    
-    // Mode Toggles
-    this.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            this.currentMode = btn.dataset.mode as DataMode;
-            this.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            this.selectedFiles = [];
-            this.updateFileDisplay();
-            this.updateModeUI();
-        });
-    });
 
     // Source Toggles
     this.container.querySelectorAll<HTMLButtonElement>('[data-source]').forEach(btn => {
@@ -215,16 +160,8 @@ export class DataManagementView {
             this.selectedScoutingPlayerType = btn.dataset.playerType as ScoutingPlayerType;
             this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
-            this.updateModeUI();
+            this.updateFormatHints();
         });
-    });
-
-    yearInput?.addEventListener('change', (e) => {
-      this.selectedYear = Number((e.target as HTMLInputElement).value);
-    });
-
-    levelSelect?.addEventListener('change', (e) => {
-        this.selectedLevel = (e.target as HTMLSelectElement).value as MinorLeagueLevel;
     });
 
     browseBtn?.addEventListener('click', () => fileInput?.click());
@@ -268,57 +205,26 @@ export class DataManagementView {
     // Load default OSA button
     const loadDefaultOsaBtn = this.container.querySelector<HTMLButtonElement>('#load-default-osa-btn');
     loadDefaultOsaBtn?.addEventListener('click', () => this.handleLoadDefaultOsa());
-
-    // Load default minors button
-    const loadDefaultMinorsBtn = this.container.querySelector<HTMLButtonElement>('#load-default-minors-btn');
-    loadDefaultMinorsBtn?.addEventListener('click', () => this.handleLoadDefaultMinors());
   }
 
-  private updateModeUI(): void {
-      const statsInputs = this.container.querySelector<HTMLElement>('#stats-inputs');
-      const scoutingInputs = this.container.querySelector<HTMLElement>('#scouting-inputs');
+  private updateFormatHints(): void {
       const formatHint = this.container.querySelector<HTMLElement>('#format-hint');
       const namingHint = this.container.querySelector<HTMLElement>('#naming-hint');
 
-      if (this.currentMode === 'stats') {
-          if (statsInputs) statsInputs.style.display = 'grid';
-          if (scoutingInputs) scoutingInputs.style.display = 'none';
-          if (formatHint) formatHint.textContent = 'Format: ID,Name,IP,HR,BB,K,HR/9,BB/9,K/9';
-          if (namingHint) namingHint.innerHTML = 'Naming convention: <code>[level]_stats_[year].csv</code> (e.g. aaa_stats_2020.csv)';
+      if (this.selectedScoutingPlayerType === 'pitcher') {
+          if (formatHint) formatHint.textContent = 'Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]';
+          if (namingHint) namingHint.innerHTML = 'For bulk upload, use: <code>pitcher_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. pitcher_scouting_my_2024-03-15.csv)';
       } else {
-          if (statsInputs) statsInputs.style.display = 'none';
-          if (scoutingInputs) scoutingInputs.style.display = 'grid';
-          if (this.selectedScoutingPlayerType === 'pitcher') {
-              if (formatHint) formatHint.textContent = 'Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]';
-              if (namingHint) namingHint.innerHTML = 'For bulk upload, use: <code>pitcher_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. pitcher_scouting_my_2024-03-15.csv)';
-          } else {
-              if (formatHint) formatHint.textContent = 'Format: player_id, name, power, eye, avoidK [, babip, gap, speed, age]';
-              if (namingHint) namingHint.innerHTML = 'For bulk upload, use: <code>hitter_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. hitter_scouting_osa_2024-03-15.csv)';
-          }
+          if (formatHint) formatHint.textContent = 'Format: player_id, name, power, eye, avoidK [, babip, gap, speed, age]';
+          if (namingHint) namingHint.innerHTML = 'For bulk upload, use: <code>hitter_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. hitter_scouting_osa_2024-03-15.csv)';
       }
   }
 
   private async handleFileSelection(files: FileList): Promise<void> {
     this.selectedFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.csv'));
 
-    // Auto-detect year/level only for stats mode
-    if (this.currentMode === 'stats' && this.selectedFiles.length === 1) {
-        const file = this.selectedFiles[0];
-        const { year, level } = this.detectFileInfo(file.name);
-        if (year) {
-             this.selectedYear = year;
-             const inputs = this.container.querySelectorAll<HTMLInputElement>('input[type="number"]');
-             inputs.forEach(i => i.value = year.toString());
-        }
-        if (level) {
-            this.selectedLevel = level;
-            const levelSelect = this.container.querySelector<HTMLSelectElement>('#upload-level');
-            if (levelSelect) levelSelect.value = level;
-        }
-    }
-
-    // Check for filename/toggle mismatches in scouting mode
-    if (this.currentMode === 'scouting' && this.selectedFiles.length === 1) {
+    // Check for filename/toggle mismatches
+    if (this.selectedFiles.length === 1) {
       await this.checkScoutingFileMismatch();
     }
 
@@ -350,7 +256,7 @@ export class DataManagementView {
         this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => {
           b.classList.toggle('active', b.dataset.playerType === 'hitter');
         });
-        this.updateModeUI();
+        this.updateFormatHints();
       }
     } else if (this.selectedScoutingPlayerType === 'hitter' && pitcherKeywords.test(combined)) {
       const choice = await this.messageModal.confirm(
@@ -363,7 +269,7 @@ export class DataManagementView {
         this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => {
           b.classList.toggle('active', b.dataset.playerType === 'pitcher');
         });
-        this.updateModeUI();
+        this.updateFormatHints();
       }
     }
 
@@ -393,28 +299,6 @@ export class DataManagementView {
         });
       }
     }
-  }
-
-  private detectFileInfo(filename: string): { year?: number, level?: MinorLeagueLevel } {
-    const name = filename.toLowerCase();
-    let level: MinorLeagueLevel | undefined;
-    let year: number | undefined;
-
-    if (name.startsWith('aaa_') || name.includes('aaa')) level = 'aaa';
-    else if (name.startsWith('aa_') || name.includes('aa')) level = 'aa';
-    else if (name.startsWith('a_') || name.includes('high_a') || name.includes('low_a')) level = 'a';
-    else if (name.startsWith('r_') || name.includes('rookie')) level = 'r';
-
-    if (!level) {
-        if (name.includes('_a_') || name.startsWith('a_')) level = 'a';
-    }
-
-    const yearMatch = name.match(/20\d{2}/);
-    if (yearMatch) {
-        year = parseInt(yearMatch[0], 10);
-    }
-
-    return { year, level };
   }
 
   /**
@@ -477,29 +361,6 @@ export class DataManagementView {
 
     // Helper: check if any alias matches a normalized header
     const findHeader = (aliases: string[]) => headers.some(h => aliases.includes(h));
-
-    if (this.currentMode === 'stats') {
-      // Minor league stats: need ip + at least some counting stats (hr, bb, k)
-      const statsKeywords = ['ip', 'innings'];
-      const countingKeywords = ['hr', 'hra', 'homeruns', 'bb', 'walks', 'k', 'so', 'strikeouts'];
-      const hasIp = headers.some(h => statsKeywords.includes(h));
-      const countingFound = countingKeywords.filter(kw => headers.includes(kw));
-      if (!hasIp) {
-        return `Missing required column "IP". Expected stats columns: IP, HR, BB, K.`;
-      }
-      if (countingFound.length < 2) {
-        return `Missing counting stat columns. Expected at least HR, BB, and K (found: ${countingFound.join(', ') || 'none'}).`;
-      }
-
-      // Warn if this looks like scouting data, not stats
-      const scoutingKeywords = ['stuff', 'control', 'power', 'eye', 'avoidk', 'avoid_k'];
-      if (scoutingKeywords.some(kw => headers.includes(kw))) {
-        return `Headers look like scouting data (found: ${scoutingKeywords.filter(kw => headers.includes(kw)).join(', ')}), but you have "Minor League Stats" selected. Switch to "Scouting Reports" mode?`;
-      }
-      return null;
-    }
-
-    // --- Scouting mode validation ---
 
     // Determine effective player type
     const scoutInfo = this.detectScoutingFileInfo(filename);
@@ -586,22 +447,14 @@ export class DataManagementView {
         
         if (fileList) {
             fileList.innerHTML = this.selectedFiles.map(f => {
-                let details = '';
-                if (this.currentMode === 'stats') {
-                    const info = this.detectFileInfo(f.name);
-                    const yearStr = info.year ? info.year : `<span style="opacity:0.5">Using ${this.selectedYear}</span>`;
-                    const levelStr = info.level ? info.level.toUpperCase() : `<span style="opacity:0.5">Using ${this.selectedLevel.toUpperCase()}</span>`;
-                    details = `${levelStr} ${yearStr}`;
-                } else {
-                    const scoutInfo = this.detectScoutingFileInfo(f.name);
-                    const displaySource = scoutInfo.source || this.selectedScoutingSource;
-                    const displayType = scoutInfo.playerType || this.selectedScoutingPlayerType;
-                    const displayDate = scoutInfo.date
-                        ? `<span style="color: var(--color-success)">${scoutInfo.date}</span>`
-                        : `<span style="opacity:0.5">${this.currentGameDate || 'Current'}</span>`;
-                    const typeLabel = displayType === 'hitter' ? 'Hitter' : 'Pitcher';
-                    details = `${typeLabel} <span style="color: var(--color-primary)">${displaySource.toUpperCase()}</span> ${displayDate}`;
-                }
+                const scoutInfo = this.detectScoutingFileInfo(f.name);
+                const displaySource = scoutInfo.source || this.selectedScoutingSource;
+                const displayType = scoutInfo.playerType || this.selectedScoutingPlayerType;
+                const displayDate = scoutInfo.date
+                    ? `<span style="color: var(--color-success)">${scoutInfo.date}</span>`
+                    : `<span style="opacity:0.5">${this.currentGameDate || 'Current'}</span>`;
+                const typeLabel = displayType === 'hitter' ? 'Hitter' : 'Pitcher';
+                const details = `${typeLabel} <span style="color: var(--color-primary)">${displaySource.toUpperCase()}</span> ${displayDate}`;
 
                 return `<div style="display:flex; justify-content:space-between; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.1)">
                     <span>${f.name}</span>
@@ -641,54 +494,40 @@ export class DataManagementView {
                 continue;
             }
 
-            if (this.currentMode === 'stats') {
-                const stats = minorLeagueStatsService.parseCsv(content);
-                if (stats.length === 0) {
-                    failCount++;
-                    errors.push(`${file.name}: No valid stats found.`);
-                    continue;
-                }
-                const info = this.detectFileInfo(file.name);
-                const year = info.year || this.selectedYear;
-                const level = info.level || this.selectedLevel;
-                await minorLeagueStatsService.saveStats(year, level, stats, 'csv');
-                successCount++;
-            } else {
-                // Detect date, source, and player type from filename
-                const scoutInfo = this.detectScoutingFileInfo(file.name);
-                const saveSource = scoutInfo.source || this.selectedScoutingSource;
-                const saveDate = scoutInfo.date || this.currentGameDate || new Date().toISOString().split('T')[0];
+            // Detect date, source, and player type from filename
+            const scoutInfo = this.detectScoutingFileInfo(file.name);
+            const saveSource = scoutInfo.source || this.selectedScoutingSource;
+            const saveDate = scoutInfo.date || this.currentGameDate || new Date().toISOString().split('T')[0];
 
-                // For multi-file bulk uploads, validate naming when no date detected
-                if (this.selectedFiles.length > 1 && !scoutInfo.date) {
-                    failCount++;
-                    const typePrefix = this.selectedScoutingPlayerType === 'hitter' ? 'hitter' : 'pitcher';
-                    errors.push(`${file.name}: Could not detect date from filename. For bulk upload, name files like ${typePrefix}_scouting_${this.selectedScoutingSource}_YYYY-MM-DD.csv`);
-                    continue;
-                }
-
-                // Determine player type from filename or UI selection
-                const playerType = scoutInfo.playerType || this.selectedScoutingPlayerType;
-
-                if (playerType === 'hitter') {
-                    const ratings = hitterScoutingDataService.parseScoutingCsv(content, saveSource);
-                    if (ratings.length === 0) {
-                        failCount++;
-                        errors.push(`${file.name}: No valid hitter scouting data found.`);
-                        continue;
-                    }
-                    await hitterScoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
-                } else {
-                    const ratings = scoutingDataService.parseScoutingCsv(content, saveSource);
-                    if (ratings.length === 0) {
-                        failCount++;
-                        errors.push(`${file.name}: No valid scouting data found.`);
-                        continue;
-                    }
-                    await scoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
-                }
-                successCount++;
+            // For multi-file bulk uploads, validate naming when no date detected
+            if (this.selectedFiles.length > 1 && !scoutInfo.date) {
+                failCount++;
+                const typePrefix = this.selectedScoutingPlayerType === 'hitter' ? 'hitter' : 'pitcher';
+                errors.push(`${file.name}: Could not detect date from filename. For bulk upload, name files like ${typePrefix}_scouting_${this.selectedScoutingSource}_YYYY-MM-DD.csv`);
+                continue;
             }
+
+            // Determine player type from filename or UI selection
+            const playerType = scoutInfo.playerType || this.selectedScoutingPlayerType;
+
+            if (playerType === 'hitter') {
+                const ratings = hitterScoutingDataService.parseScoutingCsv(content, saveSource);
+                if (ratings.length === 0) {
+                    failCount++;
+                    errors.push(`${file.name}: No valid hitter scouting data found.`);
+                    continue;
+                }
+                await hitterScoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
+            } else {
+                const ratings = scoutingDataService.parseScoutingCsv(content, saveSource);
+                if (ratings.length === 0) {
+                    failCount++;
+                    errors.push(`${file.name}: No valid scouting data found.`);
+                    continue;
+                }
+                await scoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
+            }
+            successCount++;
 
         } catch (err) {
             failCount++;
@@ -711,7 +550,7 @@ export class DataManagementView {
     this.refreshExistingDataList();
 
     // Emit event to notify other views that scouting data was updated
-    if (this.currentMode === 'scouting' && successCount > 0) {
+    if (successCount > 0) {
       window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
         detail: { source: this.selectedScoutingSource }
       }));
@@ -737,41 +576,7 @@ export class DataManagementView {
       const tbody = this.container.querySelector<HTMLElement>('#existing-data-list');
       if (!tbody) return;
 
-      const foundData: {type: 'Stats' | 'Scout' | 'HitterScout', yearOrDate: string, details: string, count: number, id: string, isLatest?: boolean, source?: 'api' | 'csv'}[] = [];
-      const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
-
-      // Try to get stats metadata from IndexedDB
-      const allMetadata = await indexedDBService.getAllStatsMetadata();
-
-      if (allMetadata.length > 0) {
-          // Use metadata if available (v2 database)
-          for (const meta of allMetadata) {
-              foundData.push({
-                  type: 'Stats',
-                  yearOrDate: meta.year.toString(),
-                  details: meta.level.toUpperCase(),
-                  count: meta.recordCount,
-                  id: `stats_${meta.year}_${meta.level}`,
-                  source: meta.source
-              });
-          }
-      } else {
-          // Fallback to old method if metadata not available (v1 database)
-          for (let y = 2000; y <= 2030; y++) {
-              for (const l of levels) {
-                  if (await minorLeagueStatsService.hasStats(y, l)) {
-                      const stats = await minorLeagueStatsService.getStats(y, l);
-                      foundData.push({
-                          type: 'Stats',
-                          yearOrDate: y.toString(),
-                          details: l.toUpperCase(),
-                          count: stats.length,
-                          id: `stats_${y}_${l}`
-                      });
-                  }
-              }
-          }
-      }
+      const foundData: {type: 'Scout' | 'HitterScout', yearOrDate: string, details: string, count: number, id: string, isLatest?: boolean}[] = [];
 
       // Check Pitcher Scouting Snapshots
       let totalScoutingSnapshots = 0;
@@ -820,26 +625,18 @@ export class DataManagementView {
       }
 
       tbody.innerHTML = foundData.map(d => {
-          let sourceBadge = '';
-          if (d.type === 'Stats' && d.source) {
-              sourceBadge = d.source === 'api'
-                  ? '<span class="badge" style="background: rgba(0, 186, 124, 0.2); color: #00ba7c; margin-left: 0.5rem; font-size: 0.7em;">API</span>'
-                  : '<span class="badge" style="background: rgba(255, 165, 0, 0.2); color: #ffa500; margin-left: 0.5rem; font-size: 0.7em;">CSV</span>';
-          }
-
           let latestBadge = '';
-          if ((d.type === 'Scout' || d.type === 'HitterScout') && d.isLatest) {
+          if (d.isLatest) {
               latestBadge = `<span class="badge" style="background: rgba(0, 186, 124, 0.2); color: #00ba7c; margin-left: 0.5rem; font-size: 0.7em;">LATEST</span>`;
           }
 
-          const badgeClass = d.type === 'Stats' ? 'badge-position' : d.type === 'HitterScout' ? 'badge-active' : 'badge-retired';
-          const displayType = d.type === 'HitterScout' ? 'Scout' : d.type;
+          const badgeClass = d.type === 'HitterScout' ? 'badge-active' : 'badge-retired';
 
           return `
             <tr>
-                <td><span class="badge ${badgeClass}">${displayType}</span></td>
+                <td><span class="badge ${badgeClass}">Scout</span></td>
                 <td>${d.yearOrDate}</td>
-                <td>${d.details} ${sourceBadge}${latestBadge}</td>
+                <td>${d.details} ${latestBadge}</td>
                 <td>${d.count} records</td>
                 <td style="text-align: right;">
                     <button class="btn-link delete-btn" data-id="${d.id}" data-type="${d.type}" style="color: var(--color-error);">Delete</button>
@@ -856,18 +653,8 @@ export class DataManagementView {
               if (!id) return;
 
               if (confirm(`Are you sure you want to delete this data?`)) {
-                  // Handle Stats: ID format "stats_2021_aaa"
-                  if (id.startsWith('stats_')) {
-                      const parts = id.split('_');
-                      if (parts.length >= 3) {
-                          const year = parseInt(parts[1], 10);
-                          const level = parts[2] as MinorLeagueLevel;
-                          await minorLeagueStatsService.clearStats(year, level);
-                          await indexedDBService.deleteStatsMetadata(year, level);
-                      }
-                  }
                   // Handle Hitter Scouting: ID format "hitter_YYYY-MM-DD_source"
-                  else if (type === 'HitterScout' || id.startsWith('hitter_')) {
+                  if (type === 'HitterScout' || id.startsWith('hitter_')) {
                       const hitterKey = id.replace(/^hitter_/, '');
                       await hitterScoutingDataService.clearScoutingRatings(hitterKey);
                   }
@@ -1115,25 +902,10 @@ export class DataManagementView {
     const doneBtn = this.container.querySelector('#onboarding-done-btn');
     if (doneBtn) {
       doneBtn.addEventListener('click', () => {
-        // Set mode state BEFORE rendering so initial state is correct
-        this.currentMode = 'scouting';
         this.selectedScoutingSource = 'my';
-
         this.render();
         this.refreshExistingDataList();
         this.fetchGameDate();
-
-        // Update toggle buttons to match state
-        this.container.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.mode === this.currentMode);
-        });
-
-        // Update scout source toggles
-        this.container.querySelectorAll<HTMLButtonElement>('[data-scouting-source]').forEach(btn => {
-          btn.classList.toggle('active', btn.dataset.scoutingSource === this.selectedScoutingSource);
-        });
-
-        this.updateModeUI();
       });
     }
   }
@@ -1271,87 +1043,4 @@ export class DataManagementView {
     }
   }
 
-  private async checkDefaultMinorsStatus(): Promise<void> {
-    const banner = this.container.querySelector<HTMLElement>('#default-minors-banner');
-    const message = this.container.querySelector<HTMLElement>('#default-minors-message');
-    const button = this.container.querySelector<HTMLButtonElement>('#load-default-minors-btn');
-
-    if (!banner || !message || !button) return;
-
-    try {
-      // Check how many datasets are already loaded
-      const metadata = await indexedDBService.getAllStatsMetadata();
-      const loadedCount = metadata.length;
-
-      // Calculate expected datasets (LEAGUE_START_YEAR to current year × 4 levels)
-      const currentYear = await dateService.getCurrentYear();
-      const yearCount = currentYear - LEAGUE_START_YEAR + 1;
-      const expectedCount = yearCount * 4;
-
-      if (loadedCount === 0) {
-        // No data loaded yet
-        banner.style.display = 'block';
-        message.textContent = `Found bundled minor league data. Click to load ~88+ datasets.`;
-        button.style.display = 'block';
-        button.disabled = false;
-      } else if (loadedCount < expectedCount) {
-        // Partially loaded
-        banner.style.display = 'block';
-        message.innerHTML = `⚠️ Partial data loaded (${loadedCount}/${expectedCount} datasets). <button id="reload-minors-btn" class="btn-link">Load from bundle</button>`;
-        button.style.display = 'none';
-
-        // Bind the inline reload button
-        setTimeout(() => {
-          const reloadBtn = this.container.querySelector('#reload-minors-btn');
-          reloadBtn?.addEventListener('click', () => this.handleLoadDefaultMinors());
-        }, 0);
-      } else {
-        // Fully loaded
-        banner.style.display = 'block';
-        message.textContent = `✅ Minor league data loaded (${loadedCount} datasets)`;
-        button.style.display = 'none';
-      }
-    } catch (error) {
-      console.error('Error checking default minors status:', error);
-      banner.style.display = 'none';
-    }
-  }
-
-  private async handleLoadDefaultMinors(): Promise<void> {
-    const button = this.container.querySelector<HTMLButtonElement>('#load-default-minors-btn');
-    const message = this.container.querySelector<HTMLElement>('#default-minors-message');
-
-    if (button) {
-      button.disabled = true;
-      button.textContent = 'Loading...';
-    }
-
-    if (message) {
-      message.textContent = 'Loading bundled minor league data...';
-    }
-
-    try {
-      const result = await minorLeagueStatsService.loadDefaultMinorLeagueData();
-
-      let resultMessage = `Loaded ${result.loaded} datasets from bundled files.`;
-      if (result.errors.length > 0) {
-        resultMessage += `\n\n${result.errors.length} files failed to load.`;
-      }
-
-      this.messageModal.show('Success', resultMessage);
-
-      // Refresh the data list and status
-      await this.refreshExistingDataList();
-      await this.checkDefaultMinorsStatus();
-
-    } catch (error) {
-      console.error('Error loading default minors:', error);
-      this.messageModal.show('Error', `Failed to load bundled minor league data: ${error}`);
-    } finally {
-      if (button) {
-        button.disabled = false;
-        button.textContent = 'Load Bundled Data';
-      }
-    }
-  }
 }
