@@ -991,6 +991,7 @@ export class PitcherProfileModal {
     const s = this.scoutingData;
     const pitchRatings = s?.pitches ?? data.pitchRatings;
     const stamina = s?.stamina ?? data.scoutStamina;
+    const hasScoutingData = s !== null || data.scoutStamina !== undefined || (data.pitchRatings && Object.keys(data.pitchRatings).length > 0);
 
     // Pitch arsenal
     let arsenalChartHtml = '';
@@ -1017,6 +1018,15 @@ export class PitcherProfileModal {
           </div>
         `;
       }
+    } else if (!hasScoutingData) {
+      arsenalChartHtml = `
+        <div class="arsenal-section">
+          <h4 class="chart-section-label">Arsenal</h4>
+          <div class="radar-chart-placeholder">
+            <p class="placeholder-label">No scouting data</p>
+          </div>
+        </div>
+      `;
     }
 
     // Usage section (replaces stamina gauge)
