@@ -329,6 +329,7 @@ export interface TeamPowerRanking {
   teamId: number;
   teamName: string;
   teamRating: number;  // Weighted 0.5-5.0 scale
+  seasonYear?: number; // Year this ranking is from (used in All-Time mode)
 
   // Component scores
   rotationRating: number;
@@ -376,7 +377,7 @@ export interface TeamRatingResult {
 class TeamRatingsService {
   /**
    * Get Power Rankings for all MLB teams
-   * Ranks teams by weighted Team Rating = 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench
+   * Ranks teams by weighted Team Rating = 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench
    */
   async getPowerRankings(year: number): Promise<TeamPowerRanking[]> {
     // 1. Fetch all required data
@@ -621,7 +622,7 @@ class TeamRatingsService {
       const benchRating = bench.length > 0 ? bench.reduce((sum, b) => sum + b.trueRating, 0) / bench.length : 0;
 
       // Calculate Team Rating (weighted average)
-      const teamRating = (rotationRating * 0.30) + (lineupRating * 0.45) + (bullpenRating * 0.20) + (benchRating * 0.05);
+      const teamRating = (rotationRating * 0.40) + (lineupRating * 0.40) + (bullpenRating * 0.15) + (benchRating * 0.05);
 
       powerRankings.push({
         teamId: team.id,
@@ -641,6 +642,54 @@ class TeamRatingsService {
 
     // Sort by Team Rating descending
     return powerRankings.sort((a, b) => b.teamRating - a.teamRating);
+  }
+
+  /**
+   * Get All-Time Power Rankings across all historical years.
+   * Runs getPowerRankings for each year, tags results with seasonYear,
+   * and returns all teams sorted by teamRating descending.
+   * Uses batched parallel processing for performance.
+   */
+  async getAllTimePowerRankings(
+    startYear: number = 2000,
+    endYear?: number,
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<TeamPowerRanking[]> {
+    const finalEndYear = endYear ?? (await dateService.getCurrentYear() - 1);
+    const years = Array.from(
+      { length: finalEndYear - startYear + 1 },
+      (_, i) => startYear + i
+    );
+
+    const allRankings: TeamPowerRanking[] = [];
+    let completed = 0;
+
+    // Process in batches of 3 to avoid overwhelming IndexedDB
+    const batchSize = 3;
+    for (let i = 0; i < years.length; i += batchSize) {
+      const batch = years.slice(i, i + batchSize);
+      const batchResults = await Promise.all(
+        batch.map(async (year) => {
+          try {
+            const rankings = await this.getPowerRankings(year);
+            return rankings.map(r => ({ ...r, seasonYear: year }));
+          } catch (err) {
+            console.warn(`[AllTime] Failed to load year ${year}:`, err);
+            return [];
+          }
+        })
+      );
+
+      for (const yearRankings of batchResults) {
+        allRankings.push(...yearRankings);
+      }
+
+      completed += batch.length;
+      onProgress?.(completed, years.length);
+    }
+
+    // Sort all teams across all years by teamRating descending
+    return allRankings.sort((a, b) => b.teamRating - a.teamRating);
   }
 
   /**

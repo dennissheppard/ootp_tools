@@ -1,0 +1,5 @@
+# WBL Baseball Analytics Dashboard
+# Private analytics tool - no indexing needed
+
+User-agent: *
+Disallow: /

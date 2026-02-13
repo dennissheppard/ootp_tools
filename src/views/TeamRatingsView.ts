@@ -25,6 +25,7 @@ interface PlayerRowContext {
 export class TeamRatingsView {
   private container: HTMLElement;
   private selectedYear: number = 2020;
+  private isAllTime: boolean = false;
   private viewMode: 'projected' | 'power-rankings' = 'power-rankings';
   private results: TeamRatingResult[] = [];
   private powerRankings: TeamPowerRanking[] = [];
@@ -41,7 +42,7 @@ export class TeamRatingsView {
   private projectionsColumns: Array<{ key: string; label: string; sortKey?: string; title?: string }> = [
     { key: 'rank', label: '#' },
     { key: 'teamName', label: 'Team' },
-    { key: 'total', label: 'Total', sortKey: 'total', title: 'Weighted Total: 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench' },
+    { key: 'total', label: 'Total', sortKey: 'total', title: 'Weighted Total: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench' },
     { key: 'rotation', label: 'Rotation', sortKey: 'rotation' },
     { key: 'lineup', label: 'Lineup', sortKey: 'lineup' },
     { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen' },
@@ -52,7 +53,7 @@ export class TeamRatingsView {
   private powerRankingsColumns: Array<{ key: string; label: string; sortKey?: string; title?: string }> = [
     { key: 'rank', label: '#' },
     { key: 'teamName', label: 'Team' },
-    { key: 'teamRating', label: 'Team Rating', sortKey: 'teamRating', title: 'Weighted composite: 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench' },
+    { key: 'teamRating', label: 'Team Rating', sortKey: 'teamRating', title: 'Weighted composite: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench' },
     { key: 'rotation', label: 'Rotation', sortKey: 'rotation', title: 'Average True Rating of top 5 starting pitchers' },
     { key: 'lineup', label: 'Lineup', sortKey: 'lineup', title: 'Average True Rating of 9 lineup positions (best player per position)' },
     { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen', title: 'Average True Rating of top 8 relievers' },
@@ -87,11 +88,14 @@ export class TeamRatingsView {
               <!-- Year Dropdown -->
               <div class="filter-dropdown" data-filter="year">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
-                  Year: <span id="selected-year-display">${this.selectedYear}</span> ▾
+                  Year: <span id="selected-year-display">${this.isAllTime ? 'All-Time' : this.selectedYear}</span> ▾
                 </button>
                 <div class="filter-dropdown-menu" id="year-dropdown-menu">
+                  <div class="filter-dropdown-item ${this.isAllTime ? 'selected' : ''}"
+                       data-value="all-time">All-Time</div>
+                  <div style="border-top: 1px solid var(--color-border, #333); margin: 2px 0;"></div>
                   ${this.yearOptions.map(year => `
-                    <div class="filter-dropdown-item ${year === this.selectedYear ? 'selected' : ''}"
+                    <div class="filter-dropdown-item ${!this.isAllTime && year === this.selectedYear ? 'selected' : ''}"
                          data-value="${year}">${year}</div>
                   `).join('')}
                 </div>
@@ -156,15 +160,30 @@ export class TeamRatingsView {
     // Year dropdown item selection
     this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(item => {
       item.addEventListener('click', (e) => {
-        const year = (e.target as HTMLElement).dataset.value;
-        if (!year) return;
+        const value = (e.target as HTMLElement).dataset.value;
+        if (!value) return;
 
-        this.selectedYear = parseInt(year, 10);
+        if (value === 'all-time') {
+          this.isAllTime = true;
+          // Force power-rankings mode for All-Time
+          if (this.viewMode !== 'power-rankings') {
+            this.viewMode = 'power-rankings';
+            this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
+              const b = btn as HTMLElement;
+              const isActive = b.dataset.viewMode === 'power-rankings';
+              b.classList.toggle('active', isActive);
+              b.setAttribute('aria-pressed', String(isActive));
+            });
+          }
+        } else {
+          this.isAllTime = false;
+          this.selectedYear = parseInt(value, 10);
+        }
 
         // Update display
         const displaySpan = this.container.querySelector('#selected-year-display');
         if (displaySpan) {
-          displaySpan.textContent = year;
+          displaySpan.textContent = this.isAllTime ? 'All-Time' : String(this.selectedYear);
         }
 
         // Update selected state
@@ -186,10 +205,23 @@ export class TeamRatingsView {
     this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const mode = (e.target as HTMLElement).dataset.viewMode as 'projected' | 'power-rankings';
-        if (mode === this.viewMode) return;
+        if (mode === this.viewMode && !this.isAllTime) return;
 
         this.viewMode = mode;
         this.teamSortState.clear();
+
+        // All-Time is only available in power-rankings mode — switch off if going to projections
+        if (this.isAllTime && mode === 'projected') {
+          this.isAllTime = false;
+          if (this.currentGameYear !== null) {
+            this.selectedYear = this.currentGameYear;
+          }
+          // Update dropdown selected state
+          this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(i => {
+            const val = (i as HTMLElement).dataset.value;
+            i.classList.toggle('selected', val === String(this.selectedYear));
+          });
+        }
 
         // If switching to projections, force current game year
         if (this.viewMode === 'projected' && this.currentGameYear !== null) {
@@ -228,14 +260,17 @@ export class TeamRatingsView {
   }
 
   private renderTableLoadingState(): string {
-      const title = this.viewMode === 'power-rankings' ? 'Team Power Rankings' : 'Team Projections';
+      const title = this.isAllTime ? 'All-Time Power Rankings' : (this.viewMode === 'power-rankings' ? 'Team Power Rankings' : 'Team Projections');
       const columnCount = this.viewMode === 'power-rankings'
           ? this.powerRankingsColumns.length
           : this.projectionsColumns.length;
+      const loadingNote = this.isAllTime
+          ? '<span class="note-text" id="all-time-progress">Loading all historical seasons...</span>'
+          : '<span class="note-text">Loading...</span>';
 
       return `
         <div class="stats-table-container loading-skeleton">
-          <h3 class="section-title">${title} <span class="note-text">Loading...</span></h3>
+          <h3 class="section-title">${title} ${loadingNote}</h3>
           <table class="stats-table" style="width: 100%;">
             <thead>
               <tr>
@@ -256,7 +291,21 @@ export class TeamRatingsView {
 
   private async loadData(): Promise<void> {
     try {
-        if (this.viewMode === 'power-rankings') {
+        if (this.isAllTime) {
+            // All-Time mode: load power rankings for every year with progress
+            this.viewMode = 'power-rankings';
+            this.powerRankings = await teamRatingsService.getAllTimePowerRankings(
+              2000,
+              undefined,
+              (completed, total) => {
+                const progressEl = this.container.querySelector('#all-time-progress');
+                if (progressEl) {
+                  progressEl.textContent = `Loading year ${completed} of ${total}...`;
+                }
+              }
+            );
+            this.results = [];
+        } else if (this.viewMode === 'power-rankings') {
             this.powerRankings = await teamRatingsService.getPowerRankings(this.selectedYear);
             this.results = [];
         } else if (this.viewMode === 'projected') {
@@ -412,10 +461,10 @@ export class TeamRatingsView {
   }
 
   private calculateProjectionsTotalWar(team: TeamRatingResult): number {
-      // Same weighting as Power Rankings: 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench
-      return (team.rotationWar * 0.30) +
-             ((team.lineupWar ?? 0) * 0.45) +
-             (team.bullpenWar * 0.20) +
+      // Same weighting as Power Rankings: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench
+      return (team.rotationWar * 0.40) +
+             ((team.lineupWar ?? 0) * 0.40) +
+             (team.bullpenWar * 0.15) +
              ((team.benchWar ?? 0) * 0.05);
   }
 
@@ -743,7 +792,8 @@ export class TeamRatingsView {
 
       // Render team rows
       const rows = this.powerRankings.map((team, idx) => {
-          const teamKey = `pr-${team.teamId}`;
+          const teamKey = this.isAllTime ? `pr-${team.teamId}-${team.seasonYear}` : `pr-${team.teamId}`;
+          const displayName = this.isAllTime ? `${team.teamName} <span style="color: var(--color-text-muted); font-weight: 400;">(${team.seasonYear})</span>` : team.teamName;
 
           const cells = this.powerRankingsColumns.map(col => {
               switch (col.key) {
@@ -754,11 +804,11 @@ export class TeamRatingsView {
                         <td style="font-weight: 600; text-align: left;" data-col-key="${col.key}">
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
-                                ${team.teamName}
+                                ${displayName}
                             </div>
                         </td>`;
                   case 'teamRating': {
-                      const trTip = `Rot ${team.rotationRating.toFixed(2)}×30% + Lin ${team.lineupRating.toFixed(2)}×45% + Pen ${team.bullpenRating.toFixed(2)}×20% + Ben ${team.benchRating.toFixed(2)}×5% = ${team.teamRating.toFixed(2)}`;
+                      const trTip = `Rot ${team.rotationRating.toFixed(2)}×40% + Lin ${team.lineupRating.toFixed(2)}×40% + Pen ${team.bullpenRating.toFixed(2)}×15% + Ben ${team.benchRating.toFixed(2)}×5% = ${team.teamRating.toFixed(2)}`;
                       return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.teamRating)}" style="font-weight: 600;" title="${trTip}">${team.teamRating.toFixed(2)}</span></td>`;
                   }
                   case 'rotation':
@@ -787,12 +837,15 @@ export class TeamRatingsView {
       }).join('');
 
       // Render full table spanning both grid columns
+      const tableTitle = this.isAllTime ? 'All-Time Power Rankings' : 'Team Power Rankings';
+      const tableDesc = this.isAllTime
+          ? `Best teams across all seasons (${this.powerRankings.length} team-seasons). Scores are the average TR of each roster group. Team Rating is a weighted composite: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench.`
+          : 'Scores are the average TR of each roster group. Team Rating is a weighted composite: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench. Hover over badges for details.';
       const tableHtml = `
         <div class="stats-table-container">
-            <h3 class="section-title">Team Power Rankings <span class="note-text">(Ranked by ${this.getPowerRankingsSortLabel()})</span></h3>
-            <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">              
-              Scores are the average TR of each roster group. Team Rating is a weighted composite:
-              45% Lineup + 30% Rotation + 20% Bullpen + 5% Bench. Hover over badges for details.
+            <h3 class="section-title">${tableTitle} <span class="note-text">(Ranked by ${this.getPowerRankingsSortLabel()})</span></h3>
+            <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">
+              ${tableDesc}
             </p>
             <table class="stats-table power-rankings-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
@@ -1360,7 +1413,10 @@ export class TeamRatingsView {
         if (!playerId) return;
 
         if (this.viewMode === 'power-rankings') {
-          this.openPowerRankingPlayerProfile(playerId);
+          // In All-Time mode, find the teamKey from the nearest team row to disambiguate
+          const detailsRow = link.closest('tr[id^="details-"]');
+          const teamRowKey = detailsRow ? (detailsRow as HTMLElement).id.replace('details-', '') : undefined;
+          this.openPowerRankingPlayerProfile(playerId, teamRowKey);
           return;
         }
 
@@ -1568,28 +1624,36 @@ export class TeamRatingsView {
     }, 900);
   }
 
-  private async openPowerRankingPlayerProfile(playerId: number): Promise<void> {
+  private async openPowerRankingPlayerProfile(playerId: number, teamKey?: string): Promise<void> {
     // Find player in power rankings data
     let playerData: any = null;
     let isPitcher = false;
+    let playerSeasonYear: number | undefined;
 
     for (const team of this.powerRankings) {
+      // In All-Time mode, match by teamKey to find the right year's team
+      if (teamKey) {
+        const expectedKey = this.isAllTime ? `pr-${team.teamId}-${team.seasonYear}` : `pr-${team.teamId}`;
+        if (expectedKey !== teamKey) continue;
+      }
       // Check rotation and bullpen
       playerData = team.rotation.find(p => p.playerId === playerId);
       if (playerData) {
         isPitcher = true;
+        playerSeasonYear = team.seasonYear;
         break;
       }
       playerData = team.bullpen.find(p => p.playerId === playerId);
       if (playerData) {
         isPitcher = true;
+        playerSeasonYear = team.seasonYear;
         break;
       }
       // Check lineup and bench
       playerData = team.lineup.find(p => p.playerId === playerId);
-      if (playerData) break;
+      if (playerData) { playerSeasonYear = team.seasonYear; break; }
       playerData = team.bench.find(p => p.playerId === playerId);
-      if (playerData) break;
+      if (playerData) { playerSeasonYear = team.seasonYear; break; }
     }
 
     if (!playerData) {
@@ -1655,11 +1719,11 @@ export class TeamRatingsView {
         pitches,
         pitchRatings,
         isProspect: false,
-        year: this.selectedYear,
-        showYearLabel: false
+        year: playerSeasonYear ?? this.selectedYear,
+        showYearLabel: !!playerSeasonYear
       };
 
-      await pitcherProfileModal.show(profileData as any, this.selectedYear);
+      await pitcherProfileModal.show(profileData as any, playerSeasonYear ?? this.selectedYear);
     } else {
       // Batter
       const [myScoutingRatings, osaScoutingRatings] = await Promise.all([
@@ -1706,7 +1770,7 @@ export class TeamRatingsView {
         projWar: playerData.stats?.war,
       };
 
-      await this.batterProfileModal.show(profileData, this.selectedYear);
+      await this.batterProfileModal.show(profileData, playerSeasonYear ?? this.selectedYear);
     }
   }
 
@@ -1901,7 +1965,9 @@ export class TeamRatingsView {
       }
       const year = this.selectedYear;
       const isCurrentOrFuture = this.currentGameYear !== null && year >= this.currentGameYear;
-      const baseMessage = isCurrentOrFuture
+      const baseMessage = this.isAllTime
+          ? 'No historical data found. Make sure stats data has been loaded for at least one season.'
+          : isCurrentOrFuture
           ? `No ${year} data yet. Try a previous year or check back once the season starts. For now, check out the team projections!`
           : `No data found for ${year}.`;
 
