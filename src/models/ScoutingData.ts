@@ -19,6 +19,10 @@ export interface PitcherScoutingRatings {
   greed?: 'H' | 'N' | 'L';
   workEthic?: 'H' | 'N' | 'L';
   intelligence?: 'H' | 'N' | 'L';
+  /** Pitcher type: Ex FB, FB, Neu, GB, Ex GB */
+  pitcherType?: string;
+  /** Pitcher BABIP tendency */
+  babip?: string;
   source?: 'my' | 'osa';
 }
 

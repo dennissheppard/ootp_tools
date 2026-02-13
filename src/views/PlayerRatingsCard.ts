@@ -80,11 +80,22 @@ export interface PlayerRatingsData {
     };
   };
 
+  // Projected stats (passed through to modal so it doesn't recalculate)
+  projIp?: number;
+  projWar?: number;
+  projK9?: number;
+  projBb9?: number;
+  projHr9?: number;
+  projFip?: number;
+
   // TFR ceiling data (for ceiling bars when both TR and TFR exist)
   hasTfrUpside?: boolean;
   tfrStuff?: number;
   tfrControl?: number;
   tfrHra?: number;
+
+  // TFR by scout source (for toggle in modal)
+  tfrBySource?: { my?: any; osa?: any };
 
   // Toggle state
   activeScoutSource?: 'my' | 'osa';  // Which source is currently displayed

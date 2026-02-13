@@ -360,6 +360,7 @@ export class GlobalSearchBar {
 
       // If no MLB True Rating and we have scouting data, get TFR from full prospect rankings
       let projectionOverride: PlayerProfileData['projectionOverride'] = undefined;
+      let farmProspect: any = undefined;
 
       if (!playerResult && scoutMatch) {
         try {
@@ -374,7 +375,7 @@ export class GlobalSearchBar {
 
             // Use development-curve-based TR if available (from farm data), fallback to TFR
             const pitcherFarmData = await teamRatingsService.getFarmData(year);
-            const farmProspect = pitcherFarmData.prospects.find(p => p.playerId === playerId);
+            farmProspect = pitcherFarmData.prospects.find(p => p.playerId === playerId);
             playerResult = {
               estimatedStuff: farmProspect?.developmentTR?.stuff ?? tfrResult.trueStuff,
               estimatedControl: farmProspect?.developmentTR?.control ?? tfrResult.trueControl,
@@ -506,6 +507,7 @@ export class GlobalSearchBar {
         projectionBaseYear: Math.max(2000, year - 1),
         forceProjection: isProspect, // Force peak projection for prospects
         projectionOverride, // Pass pre-calculated TFR projection to match FarmRankingsView
+        tfrBySource: isProspect ? farmProspect?.tfrBySource : undefined,
       };
     } catch (error) {
       console.error('Error fetching player ratings:', error);
@@ -668,6 +670,7 @@ export class GlobalSearchBar {
       let tfrObp: number | undefined;
       let tfrSlg: number | undefined;
       let tfrPa: number | undefined;
+      let batterTfrBySource: any;
 
       try {
         const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(year);
@@ -689,6 +692,7 @@ export class GlobalSearchBar {
           tfrObp = tfrEntry.projObp;
           tfrSlg = tfrEntry.projSlg;
           tfrPa = tfrEntry.projPa;
+          batterTfrBySource = tfrEntry.tfrBySource;
 
           if (isProspect) {
             // Pure prospect: use TFR data for everything
@@ -776,6 +780,7 @@ export class GlobalSearchBar {
         tfrObp,
         tfrSlg,
         tfrPa,
+        tfrBySource: batterTfrBySource,
       };
     } catch (error) {
       console.error('Error fetching batter ratings:', error);

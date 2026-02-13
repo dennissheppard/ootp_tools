@@ -1194,7 +1194,7 @@ function tracePitcherTFR(
   console.log(`  Projected FIP = ${projFip.toFixed(2)}`);
 
   // --- STEP 8: IP Projection ---
-  console.log('\n--- STEP 8: Projected IP (Peak Workload) ---\n');
+  console.log('\n--- STEP 8: Projected IP ---\n');
 
   const stamina = scouting.stamina ?? 50;
   const injury = scouting.injury ?? 'Normal';
@@ -1209,45 +1209,109 @@ function tracePitcherTFR(
     console.log(`  Pitches: ${pitchEntries.map(([k, v]) => `${k}=${v}`).join(', ')}`);
   }
 
-  // Role classification (matches TeamRatingsService logic)
-  const usablePitchCount = Object.values(pitches).filter(v => v >= 45).length;
-  const isSp = stamina >= 30 && usablePitchCount >= 3;
-  console.log(`\n  Usable pitches (≥45 rating): ${usablePitchCount}`);
-  console.log(`  Role classification: ${isSp ? 'STARTER' : 'RELIEVER'} (need stamina≥30 AND 3+ pitches≥45)`);
+  // Role classification (matches ProjectionService: pitches >= 25, stamina >= 35)
+  const usablePitchCount = Object.values(pitches).filter(v => v >= 25).length;
+  const isSp = stamina >= 35 && usablePitchCount >= 3;
+  console.log(`\n  Usable pitches (≥25 rating): ${usablePitchCount}`);
+  console.log(`  Role classification: ${isSp ? 'STARTER' : 'RELIEVER'} (need stamina≥35 AND 3+ pitches≥25)`);
 
+  // 8a. Base IP from stamina
   let baseIp: number;
-  let projectedIp: number;
   if (isSp) {
     baseIp = 30 + (stamina * 3.0);
-    console.log(`\n  SP Base IP = 30 + (${stamina} × 3.0) = ${baseIp.toFixed(0)}`);
+    console.log(`\n  8a. SP Base IP = 30 + (${stamina} × 3.0) = ${baseIp.toFixed(0)}`);
   } else {
     baseIp = 50 + (stamina * 0.5);
-    console.log(`\n  RP Base IP = 50 + (${stamina} × 0.5) = ${baseIp.toFixed(0)}`);
+    console.log(`\n  8a. RP Base IP = 50 + (${stamina} × 0.5) = ${baseIp.toFixed(0)}`);
   }
 
-  // Injury modifier
+  // 8b. Injury modifier
   let injuryFactor = 1.0;
   switch (injury) {
-    case 'Iron Man': injuryFactor = 1.15; break;
-    case 'Durable': injuryFactor = 1.10; break;
+    case 'Iron Man': case 'Ironman': injuryFactor = 1.15; break;
+    case 'Durable': injuryFactor = 1.08; break;
     case 'Normal': injuryFactor = 1.0; break;
-    case 'Fragile': injuryFactor = 0.90; break;
+    case 'Fragile': injuryFactor = 0.92; break;
     case 'Wrecked': injuryFactor = 0.75; break;
   }
-  console.log(`  Injury modifier: ${injury} → ${injuryFactor.toFixed(2)}×`);
-  console.log(`  After injury: ${baseIp.toFixed(0)} × ${injuryFactor.toFixed(2)} = ${(baseIp * injuryFactor).toFixed(0)}`);
+  baseIp *= injuryFactor;
+  console.log(`  8b. Injury modifier: ${injury} → ×${injuryFactor.toFixed(2)} → ${baseIp.toFixed(0)}`);
 
+  // 8c. Skill modifier (better pitchers get more innings)
+  let skillMod = 1.0;
+  if (projFip <= 3.50) skillMod = 1.20;
+  else if (projFip <= 4.00) skillMod = 1.10;
+  else if (projFip <= 4.50) skillMod = 1.0;
+  else if (projFip <= 5.00) skillMod = 0.90;
+  else skillMod = 0.80;
+  baseIp *= skillMod;
+  console.log(`  8c. Skill modifier: FIP ${projFip.toFixed(2)} → ×${skillMod.toFixed(2)} → ${baseIp.toFixed(0)}`);
+
+  // 8d. Historical blend (for MLB players with career stats)
+  // Load MLB IP history from recent years
+  const mlbIpHistory: { year: number; ip: number; gs: number }[] = [];
+  for (let y = baseYear; y >= baseYear - 5; y--) {
+    const mlbStats = loadMLBPitchingStats(playerId, y);
+    if (mlbStats && mlbStats.ip > 0) {
+      mlbIpHistory.push({ year: y, ip: mlbStats.ip, gs: mlbStats.gs });
+    }
+  }
+  mlbIpHistory.sort((a, b) => b.year - a.year); // Most recent first
+
+  if (mlbIpHistory.length > 0) {
+    const minIpThreshold = isSp ? 50 : 10;
+    const completedSeasons = mlbIpHistory.filter(s => s.ip >= minIpThreshold);
+    console.log(`  8d. Historical IP blend:`);
+    console.log(`      All MLB seasons: ${mlbIpHistory.map(s => `${s.year}=${Math.round(s.ip)}IP`).join(', ')}`);
+    console.log(`      Completed seasons (≥${minIpThreshold} IP): ${completedSeasons.map(s => `${s.year}=${Math.round(s.ip)}IP`).join(', ')}`);
+
+    if (completedSeasons.length > 0) {
+      const weights = [5, 3, 2];
+      let totalWeightedIp = 0;
+      let totalWeight = 0;
+      for (let i = 0; i < Math.min(completedSeasons.length, 3); i++) {
+        totalWeightedIp += completedSeasons[i].ip * weights[i];
+        totalWeight += weights[i];
+      }
+      const weightedIp = totalWeightedIp / totalWeight;
+      console.log(`      Weighted avg (5/3/2): ${weightedIp.toFixed(1)} IP`);
+
+      // Established players: 35% model + 65% history
+      const modelIp = baseIp;
+      baseIp = (baseIp * 0.35) + (weightedIp * 0.65);
+      console.log(`      Blend: 35% model (${modelIp.toFixed(0)}) + 65% history (${weightedIp.toFixed(0)}) = ${baseIp.toFixed(0)}`);
+    }
+  } else {
+    console.log(`  8d. Historical IP blend: No MLB history found (pure model projection)`);
+  }
+
+  // 8e. Elite pitcher boost
+  let eliteBoost = 1.0;
+  if (projFip < 3.0) eliteBoost = 1.08;
+  else if (projFip < 3.5) eliteBoost = 1.08 - ((projFip - 3.0) / 0.5) * 0.05;
+  else if (projFip < 4.0) eliteBoost = 1.03 - ((projFip - 3.5) / 0.5) * 0.03;
+  if (eliteBoost > 1.0) {
+    baseIp *= eliteBoost;
+    console.log(`  8e. Elite FIP boost: ×${eliteBoost.toFixed(2)} → ${baseIp.toFixed(0)}`);
+  } else {
+    console.log(`  8e. Elite FIP boost: none (FIP ≥ 4.0)`);
+  }
+
+  // Final clamp
+  let projectedIp: number;
   if (isSp) {
-    projectedIp = Math.round(Math.max(120, Math.min(260, baseIp * injuryFactor)));
+    projectedIp = Math.round(Math.max(120, Math.min(260, baseIp)));
     console.log(`  Clamped (120-260): ${projectedIp} IP`);
   } else {
-    projectedIp = Math.round(Math.max(40, Math.min(80, baseIp * injuryFactor)));
+    projectedIp = Math.round(Math.max(40, Math.min(80, baseIp)));
     console.log(`  Clamped (40-80): ${projectedIp} IP`);
   }
 
-  // WAR calculation
-  const replacementFip = 5.00;
-  const runsPerWin = 9.0;
+  console.log(`\n  ► Projected IP: ${projectedIp}`);
+
+  // WAR calculation (matches FipWarService: replacement 5.20, runsPerWin 8.50)
+  const replacementFip = 5.20;
+  const runsPerWin = 8.50;
   const peakWar = ((replacementFip - projFip) / runsPerWin) * (projectedIp / 9);
   console.log(`\n  WAR = ((${replacementFip.toFixed(2)} - ${projFip.toFixed(2)}) / ${runsPerWin.toFixed(1)}) × (${projectedIp} / 9)`);
   console.log(`      = ${((replacementFip - projFip) / runsPerWin).toFixed(3)} × ${(projectedIp / 9).toFixed(1)}`);

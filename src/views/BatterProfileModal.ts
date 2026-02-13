@@ -11,6 +11,7 @@ import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingSt
 import { dateService } from '../services/DateService';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
 import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
+import { BatterTfrSourceData } from '../services/TeamRatingsService';
 import { developmentSnapshotService } from '../services/DevelopmentSnapshotService';
 import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers } from '../components/DevelopmentChart';
 import { contractService, Contract } from '../services/ContractService';
@@ -109,6 +110,9 @@ export interface BatterProfileData {
   tfrObp?: number;
   tfrSlg?: number;
   tfrPa?: number;
+
+  // TFR by scout source (for toggle in modal)
+  tfrBySource?: { my?: BatterTfrSourceData; osa?: BatterTfrSourceData };
 }
 
 interface BatterSeasonStats {
@@ -760,7 +764,7 @@ export class BatterProfileModal {
           ${starsHtml}
         </div>` : ''}
         <div class="metadata-info-row">
-          <span class="info-label">$:</span>
+          <span class="info-label">$$$:</span>
           <span class="contract-info">${contractHtml}</span>
         </div>
         <div class="metadata-info-row">
@@ -1059,26 +1063,36 @@ export class BatterProfileModal {
     let projSba: number | undefined;
     let projSbPct: number | undefined;
 
-    // Use pre-computed projections or derive from ratings
-    if (data.projAvg !== undefined) {
+    // For prospects, prefer TFR blended rates (which update on scout toggle)
+    const isProspectCtx = data.trueRating === undefined && data.trueFutureRating !== undefined;
+
+    if (isProspectCtx && data.tfrAvg !== undefined) {
+      projAvg = data.tfrAvg;
+    } else if (data.projAvg !== undefined) {
       projAvg = data.projAvg;
     } else if (data.estimatedContact !== undefined) {
       projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
     }
 
-    if (data.projHrPct !== undefined) {
+    if (isProspectCtx && data.tfrHrPct !== undefined) {
+      projHrPct = data.tfrHrPct;
+    } else if (data.projHrPct !== undefined) {
       projHrPct = data.projHrPct;
     } else if (data.estimatedPower !== undefined) {
       projHrPct = HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
     }
 
-    if (data.projBbPct !== undefined) {
+    if (isProspectCtx && data.tfrBbPct !== undefined) {
+      projBbPct = data.tfrBbPct;
+    } else if (data.projBbPct !== undefined) {
       projBbPct = data.projBbPct;
     } else if (data.estimatedEye !== undefined) {
       projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
     }
 
-    if (data.projKPct !== undefined) {
+    if (isProspectCtx && data.tfrKPct !== undefined) {
+      projKPct = data.tfrKPct;
+    } else if (data.projKPct !== undefined) {
       projKPct = data.projKPct;
     } else if (data.estimatedAvoidK !== undefined) {
       projKPct = HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
@@ -1127,9 +1141,6 @@ export class BatterProfileModal {
       this.radarChart.destroy();
       this.radarChart = null;
     }
-
-    // Reset hidden series when chart rebuilds
-    this.hiddenSeries.clear();
 
     const s = this.scoutingData;
     const categories = ['Contact', 'Eye', 'Power', 'Gap', 'AvoidK'];
@@ -1214,7 +1225,24 @@ export class BatterProfileModal {
       },
     });
     this.radarChart.render();
-    this.addProjectionLegendItem();
+
+    // Defer series toggles until ApexCharts has fully initialized its DOM
+    const seriesNames = new Set(series.map(s => s.name));
+    const seriesToHide = [...this.hiddenSeries].filter(n => n !== 'Stat Projections' && seriesNames.has(n));
+    if (seriesToHide.length > 0 || this.hiddenSeries.size > 0) {
+      requestAnimationFrame(() => {
+        for (const name of seriesToHide) {
+          this.radarChart?.toggleSeries(name);
+        }
+        // Re-inject custom legend item after ApexCharts legend DOM settles
+        requestAnimationFrame(() => {
+          this.addProjectionLegendItem();
+          this.updateAxisBadgeVisibility();
+        });
+      });
+    } else {
+      this.addProjectionLegendItem();
+    }
   }
 
   /** Inject a custom "Stat Projections" toggle into the hitting chart legend */
@@ -1324,8 +1352,8 @@ export class BatterProfileModal {
     let projBbPct: number;
     let projKPct: number;
 
-    // Peak mode: use TFR blended rates directly
-    if (isPeakMode && data.tfrAvg !== undefined && data.tfrObp !== undefined && data.tfrSlg !== undefined) {
+    // Peak mode (or prospect peak): use TFR blended rates directly
+    if ((isPeakMode || isProspectPeak) && data.tfrAvg !== undefined && data.tfrObp !== undefined && data.tfrSlg !== undefined) {
       projAvg = data.tfrAvg;
       projObp = data.tfrObp;
       projSlg = data.tfrSlg;
@@ -1333,7 +1361,7 @@ export class BatterProfileModal {
       projKPct = data.tfrKPct ?? 22.0;
     }
     // Current mode: use pre-computed TR blended projections
-    else if (!isPeakMode && data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
+    else if (!isPeakMode && !isProspectPeak && data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
       projAvg = data.projAvg;
       projObp = data.projObp;
       projSlg = data.projSlg;
@@ -1881,6 +1909,26 @@ export class BatterProfileModal {
 
         if (!this.currentData) return;
 
+        // Swap TFR fields from tfrBySource when toggling scout source
+        const sourceKey = wantsOsa ? 'osa' : 'my';
+        const altTfr = this.currentData.tfrBySource?.[sourceKey];
+        if (altTfr) {
+          this.currentData.tfrPower = altTfr.power;
+          this.currentData.tfrEye = altTfr.eye;
+          this.currentData.tfrAvoidK = altTfr.avoidK;
+          this.currentData.tfrContact = altTfr.contact;
+          this.currentData.tfrGap = altTfr.gap;
+          this.currentData.tfrSpeed = altTfr.speed;
+          this.currentData.trueFutureRating = altTfr.trueFutureRating;
+          this.currentData.tfrPercentile = altTfr.tfrPercentile;
+          this.currentData.tfrBbPct = altTfr.projBbPct;
+          this.currentData.tfrKPct = altTfr.projKPct;
+          this.currentData.tfrHrPct = altTfr.projHrPct;
+          this.currentData.tfrAvg = altTfr.projAvg;
+          this.currentData.tfrObp = altTfr.projObp;
+          this.currentData.tfrSlg = altTfr.projSlg;
+        }
+
         // Re-render the ratings section (radar + running chart)
         const ratingsSection = this.overlay?.querySelector('.ratings-section');
         if (ratingsSection) {
@@ -1889,6 +1937,12 @@ export class BatterProfileModal {
           this.initRadarChart(this.currentData); // Re-init radar with new scout data
           this.initRunningRadarChart(this.currentData); // Re-init running radar
         }
+
+        // Update header emblems after TFR swap
+        const ratingsSlot = this.overlay?.querySelector('.rating-emblem-slot');
+        if (ratingsSlot) ratingsSlot.innerHTML = this.renderRatingEmblem(this.currentData);
+        const warSlot = this.overlay?.querySelector('.war-emblem-slot');
+        if (warSlot) warSlot.innerHTML = this.renderWarEmblem(this.currentData);
 
         // Re-render the projection section below
         const projSection = this.overlay?.querySelector('.projection-section');

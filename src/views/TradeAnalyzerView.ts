@@ -153,6 +153,7 @@ export class TradeAnalyzerView {
       let estimatedGap: number | undefined;
       let estimatedSpeed: number | undefined;
       let isProspect = false;
+      let batterTfrBySource: any;
 
       // Check if this is a prospect (no MLB projection or minor leaguer)
       if (!batterProjection || (team && team.parentTeamId !== 0)) {
@@ -178,6 +179,7 @@ export class TradeAnalyzerView {
             estimatedContact = prospectData.developmentTR?.contact ?? prospectData.trueRatings.contact;
             estimatedGap = prospectData.developmentTR?.gap ?? prospectData.trueRatings.gap;
             estimatedSpeed = prospectData.developmentTR?.speed ?? prospectData.trueRatings.speed;
+            batterTfrBySource = prospectData.tfrBySource;
           }
         } catch (e) {
           console.warn('Could not load hitter farm data for prospect lookup:', e);
@@ -225,6 +227,7 @@ export class TradeAnalyzerView {
         projBbPct,
         projKPct,
         projHrPct,
+        tfrBySource: batterTfrBySource,
       };
 
       await this.batterProfileModal.show(profileData, this.currentYear);

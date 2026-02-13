@@ -2301,6 +2301,7 @@ export class FarmRankingsView {
           tfrStuff: prospect?.trueRatings?.stuff,
           tfrControl: prospect?.trueRatings?.control,
           tfrHra: prospect?.trueRatings?.hra,
+          tfrBySource: prospect?.tfrBySource,
       }, this.selectedYear);
   }
 
@@ -2381,6 +2382,13 @@ export class FarmRankingsView {
           tfrContact: hitterProspect?.trueRatings.contact,
           tfrGap: hitterProspect?.trueRatings.gap,
           tfrSpeed: hitterProspect?.trueRatings.speed,
+          tfrBbPct: hitterProspect?.projBbPct,
+          tfrKPct: hitterProspect?.projKPct,
+          tfrHrPct: hitterProspect?.projHrPct,
+          tfrAvg: hitterProspect?.projAvg,
+          tfrObp: hitterProspect?.projObp,
+          tfrSlg: hitterProspect?.projSlg,
+          tfrBySource: hitterProspect?.tfrBySource,
       };
 
       await batterProfileModal.show(batterData, this.selectedYear);

@@ -751,13 +751,14 @@ class TrueFutureRatingService {
    * @returns Array of TrueFutureRatingResult
    */
   async getProspectTrueFutureRatings(
-    year: number
+    year: number,
+    scoutPriority?: 'my' | 'osa'
   ): Promise<TrueFutureRatingResult[]> {
-    // Get scouting data with fallback (My Scout > OSA)
-    let scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
+    // Get scouting data with fallback (priority determined by scoutPriority param)
+    let scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year, scoutPriority);
     if (scoutingFallback.ratings.length === 0) {
         console.warn(`[TFR] No scouting data found for ${year}. Falling back to latest available data.`);
-        scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
+        scoutingFallback = await scoutingDataFallbackService.getScoutingRatingsWithFallback(undefined, scoutPriority);
     }
 
     const scoutingRatings = scoutingFallback.ratings;

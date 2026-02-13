@@ -1848,6 +1848,14 @@ export class TeamRatingsView {
       projectionYear: seasonYear,
       projectionBaseYear: Math.max(2000, seasonYear - 1),
       forceProjection: this.viewMode === 'projected',
+      // Pass projection data directly so the modal doesn't recalculate
+      projIp: this.viewMode === 'projected' ? row.stats.ip : undefined,
+      projWar: this.viewMode === 'projected' ? (row.stats.war ?? undefined) : undefined,
+      projK9: this.viewMode === 'projected' ? row.stats.k9 : undefined,
+      projBb9: this.viewMode === 'projected' ? row.stats.bb9 : undefined,
+      projHr9: this.viewMode === 'projected' ? row.stats.hr9 : undefined,
+      projFip: this.viewMode === 'projected' ? row.stats.fip : undefined,
+
       projectionOverride: this.viewMode === 'projected'
         ? {
             projectedStats: {
