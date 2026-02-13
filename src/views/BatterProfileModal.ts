@@ -1008,6 +1008,7 @@ export class BatterProfileModal {
     const sr = s?.stealingAggressiveness ?? data.scoutSR;
     const ste = s?.stealingAbility ?? data.scoutSTE;
     const scoutSpeed = s?.speed ?? data.scoutSpeed;
+    const hasRunningData = sr !== undefined || ste !== undefined || scoutSpeed !== undefined;
 
     const runningAxes = [
       { label: 'SB Ability', pos: 'top', value: ste, projLabel: 'SB%', projValue: projStats.projSbPct !== undefined ? Math.round(projStats.projSbPct) + '%' : undefined },
@@ -1050,10 +1051,21 @@ export class BatterProfileModal {
           </div>
           <div class="running-radar-col">
             <h4 class="chart-section-label">Running Ratings</h4>
+            ${hasRunningData ? `
             <div class="radar-chart-wrapper running-radar-wrapper">
               <div id="batter-running-radar-chart"></div>
               ${runningAxisLabelsHtml}
             </div>
+            ` : `
+            <div class="radar-chart-placeholder running-radar-wrapper">
+              <div class="placeholder-axes">
+                <span>SB Abil</span>
+                <span>SB Freq</span>
+                <span>Speed</span>
+              </div>
+              <p class="placeholder-label">No scouting data</p>
+            </div>
+            `}
           </div>
         </div>
       </div>

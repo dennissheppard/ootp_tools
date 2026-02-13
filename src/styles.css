@@ -6650,6 +6650,48 @@ th .stat-tooltip {
   margin-top: 44px;
 }
 
+/* Radar chart placeholder for missing scouting data */
+.radar-chart-placeholder {
+  border: 2px dashed var(--color-border, #333);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  margin-top: 44px;
+  opacity: 0.6;
+}
+
+.radar-chart-placeholder .placeholder-axes {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.radar-chart-placeholder .placeholder-axes span {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-muted);
+  padding: 3px 8px;
+  border: 1px dashed var(--color-border, #444);
+  border-radius: 4px;
+}
+
+.radar-chart-placeholder .placeholder-label {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin: 0;
+}
+
+/* Pitcher arsenal placeholder */
+.pitcher-profile-modal .radar-chart-placeholder {
+  min-height: 120px;
+  margin-top: 10px;
+}
+
 /* Chart Section Labels */
 .batter-profile-modal .chart-section-label {
   font-size: 0.75rem;
