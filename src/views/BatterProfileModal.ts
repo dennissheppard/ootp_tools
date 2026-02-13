@@ -10,7 +10,7 @@ import { HitterScoutingRatings } from '../models/ScoutingData';
 import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingStatsService';
 import { dateService } from '../services/DateService';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
-import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
+import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
 import { BatterTfrSourceData } from '../services/TeamRatingsService';
 import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
 import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers, applyExclusiveMetricToggle } from '../components/DevelopmentChart';
@@ -167,6 +167,9 @@ export class BatterProfileModal {
   // League WAR ceiling for arc scaling
   private leagueWarMax: number = 8;
 
+  // Dynamic league averages (loaded per year)
+  private leagueAvg: LeagueBattingAverages | null = null;
+
   // Projection toggle state (Current vs Peak)
   private projectionMode: 'current' | 'peak' = 'current';
   private currentStats: BatterSeasonStats[] = [];
@@ -294,6 +297,9 @@ export class BatterProfileModal {
     // Store projection year (next year)
     const currentYear = await dateService.getCurrentYear();
     this.projectionYear = currentYear;
+
+    // Load dynamic league averages (prior year as baseline for projections)
+    this.leagueAvg = await leagueBattingAveragesService.getLeagueAverages(currentYear - 1);
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -673,6 +679,17 @@ export class BatterProfileModal {
     return `${rounded}${suffix}`;
   }
 
+  /**
+   * Compute wOBA from component rates.
+   * All rates are per-PA (bbRate) or per-AB (avg, doublesRate, triplesRate, hrRate).
+   */
+  private computeWoba(bbRate: number, avg: number, doublesRate: number, triplesRate: number, hrRate: number): number {
+    const abRate = 1 - bbRate; // approximate AB/PA
+    const singlesPerAb = Math.max(0, avg - doublesRate - triplesRate - hrRate);
+    return 0.69 * bbRate +
+      abRate * (0.89 * singlesPerAb + 1.27 * doublesRate + 1.62 * triplesRate + 2.10 * hrRate);
+  }
+
   private calculateProjWar(data: BatterProfileData): number | undefined {
     const s = this.scoutingData;
     const sr = s?.stealingAggressiveness ?? data.scoutSR;
@@ -683,12 +700,17 @@ export class BatterProfileModal {
       const age = data.age ?? 27;
       const injuryProneness = s?.injuryProneness ?? data.injuryProneness;
       const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
-      let badgeObp: number | undefined;
-      let badgeSlg: number | undefined;
 
-      if (data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
-        badgeObp = data.projObp;
-        badgeSlg = data.projSlg;
+      // Compute wOBA for WAR calculation
+      let woba: number | undefined;
+      if (data.projWoba !== undefined) {
+        woba = data.projWoba;
+      } else if (data.projAvg !== undefined && data.projBbPct !== undefined && data.projHrPct !== undefined) {
+        const bbRate = data.projBbPct / 100;
+        const hrPerAb = (data.projHrPct / 100) / 0.88;
+        const doublesPerAb = data.projDoublesRate ?? 0.04;
+        const triplesPerAb = data.projTriplesRate ?? 0.005;
+        woba = this.computeWoba(bbRate, data.projAvg, doublesPerAb, triplesPerAb, hrPerAb);
       } else if (data.estimatedPower !== undefined && data.estimatedEye !== undefined &&
                  data.estimatedContact !== undefined) {
         const projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
@@ -698,24 +720,22 @@ export class BatterProfileModal {
         const speedForBadge = data.tfrSpeed ?? data.estimatedSpeed;
         const doublesPerAb = gapForBadge !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(gapForBadge) : 0.04;
         const triplesPerAb = speedForBadge !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(speedForBadge) : 0.005;
-        const iso = doublesPerAb + 2 * triplesPerAb + 3 * hrPerAb;
-        badgeObp = Math.min(0.450, projAvg + (projBbPct / 100));
-        badgeSlg = projAvg + iso;
+        woba = this.computeWoba(projBbPct / 100, projAvg, doublesPerAb, triplesPerAb, hrPerAb);
       }
 
-      if (badgeObp !== undefined && badgeSlg !== undefined) {
-        const lgObp = 0.320;
-        const lgSlg = 0.400;
-        const projOpsPlus = Math.round(100 * ((badgeObp / lgObp) + (badgeSlg / lgSlg) - 1));
-        const runsPerWin = 10;
-        const replacementRuns = (projPa / 600) * 20;
-        const runsAboveAvg = ((projOpsPlus - 100) / 10) * (projPa / 600) * 10;
+      if (woba !== undefined) {
         let sbRuns = 0;
         if (sr !== undefined && ste !== undefined) {
           const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-          sbRuns = sbProj.sb * 0.2 - sbProj.cs * 0.4;
+          sbRuns = leagueBattingAveragesService.calculateBaserunningRuns(sbProj.sb, sbProj.cs);
         }
-        projWar = Math.round(((runsAboveAvg + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
+        if (this.leagueAvg) {
+          projWar = leagueBattingAveragesService.calculateBattingWar(woba, projPa, this.leagueAvg, sbRuns);
+        } else {
+          // Fallback with hardcoded constants
+          const fallbackAvg: LeagueBattingAverages = { year: 0, lgObp: 0.320, lgSlg: 0.400, lgWoba: 0.320, lgRpa: 0.115, wobaScale: 1.15, runsPerWin: 10, totalPa: 0, totalRuns: 0 };
+          projWar = leagueBattingAveragesService.calculateBattingWar(woba, projPa, fallbackAvg, sbRuns);
+        }
       }
     }
     return projWar;
@@ -1387,9 +1407,9 @@ export class BatterProfileModal {
     const latestStat = isPeakMode ? undefined : stats.find(s => s.level === 'MLB');
     const age = isPeakMode ? 27 : (data.age ?? 27);
 
-    // League averages for OPS+ calculation
-    const lgObp = 0.320;
-    const lgSlg = 0.400;
+    // League averages for OPS+ calculation (dynamic with fallback)
+    const lgObp = this.leagueAvg?.lgObp ?? 0.320;
+    const lgSlg = this.leagueAvg?.lgSlg ?? 0.400;
 
     // Calculate projected stats from ratings
     let projAvg: number;
@@ -1492,14 +1512,34 @@ export class BatterProfileModal {
 
     // Calculate OPS and OPS+
     const projOps = projObp + projSlg;
-    const projOpsPlus = Math.round(100 * ((projObp / lgObp) + (projSlg / lgSlg) - 1));
+    const projOpsPlus = this.leagueAvg
+      ? leagueBattingAveragesService.calculateOpsPlus(projObp, projSlg, this.leagueAvg)
+      : Math.round(100 * ((projObp / lgObp) + (projSlg / lgSlg) - 1));
 
-    // Calculate WAR from OPS+ (rough approximation)
-    const runsPerWin = 10;
-    const replacementRuns = (projPa / 600) * 20;
-    const runsAboveAvg = ((projOpsPlus - 100) / 10) * (projPa / 600) * 10;
-    const calculatedWar = (runsAboveAvg + replacementRuns) / runsPerWin;
-    const projWar = isPeakMode ? Math.round(calculatedWar * 10) / 10 : (data.projWar ?? Math.round(calculatedWar * 10) / 10);
+    // Calculate WAR from wOBA (same approach as farm rankings)
+    const projHrPerAb = projPa > 0 ? projHr / (projPa * abPerPa) : 0;
+    const projDoublesPerAb = projAb > 0 ? proj2b / projAb : 0.04;
+    const projTriplesPerAb = projAb > 0 ? proj3b / projAb : 0.005;
+    const projWoba = data.projWoba ?? this.computeWoba(projBbPct / 100, projAvg, projDoublesPerAb, projTriplesPerAb, projHrPerAb);
+
+    // SB runs for WAR (use projected SB and CS)
+    let projSbRuns = 0;
+    if (hasSrSte) {
+      const sbProjForWar = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+      projSbRuns = leagueBattingAveragesService.calculateBaserunningRuns(sbProjForWar.sb, sbProjForWar.cs);
+    } else if (data.projSb !== undefined) {
+      const projCsForWar = data.projCs ?? Math.round(projSb * 0.25);
+      projSbRuns = leagueBattingAveragesService.calculateBaserunningRuns(projSb, projCsForWar);
+    }
+
+    let calculatedWar: number;
+    if (this.leagueAvg) {
+      calculatedWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, this.leagueAvg, projSbRuns);
+    } else {
+      const fallbackAvg: LeagueBattingAverages = { year: 0, lgObp: 0.320, lgSlg: 0.400, lgWoba: 0.320, lgRpa: 0.115, wobaScale: 1.15, runsPerWin: 10, totalPa: 0, totalRuns: 0 };
+      calculatedWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, fallbackAvg, projSbRuns);
+    }
+    const projWar = isPeakMode ? calculatedWar : (data.projWar ?? calculatedWar);
 
     const formatStat = (val: number, decimals: number = 3) => val.toFixed(decimals);
     const formatPct = (val: number) => val.toFixed(1) + '%';
@@ -1529,11 +1569,25 @@ export class BatterProfileModal {
       const actualKPct = latestStat.pa > 0 ? (latestStat.k / latestStat.pa) * 100 : 0;
       const actualHrPct = latestStat.pa > 0 ? (latestStat.hr / latestStat.pa) * 100 : 0;
       const actualOps = latestStat.obp + latestStat.slg;
-      const actualOpsPlus = Math.round(100 * ((latestStat.obp / lgObp) + (latestStat.slg / lgSlg) - 1));
+      const actualOpsPlus = this.leagueAvg
+        ? leagueBattingAveragesService.calculateOpsPlus(latestStat.obp, latestStat.slg, this.leagueAvg)
+        : Math.round(100 * ((latestStat.obp / lgObp) + (latestStat.slg / lgSlg) - 1));
 
-      const actualRunsAboveAvg = ((actualOpsPlus - 100) / 10) * (latestStat.pa / 600) * 10;
-      const actualReplacementRuns = (latestStat.pa / 600) * 20;
-      const actualWar = Math.round(((actualRunsAboveAvg + actualReplacementRuns) / runsPerWin) * 10) / 10;
+      // Compute actual wOBA from counting stats
+      const actualAb = latestStat.pa * 0.88;
+      const actualH = latestStat.avg * actualAb;
+      const actualSingles = Math.max(0, actualH - (latestStat.d ?? 0) - (latestStat.t ?? 0) - latestStat.hr);
+      const actualWoba = latestStat.pa > 0
+        ? (0.69 * latestStat.bb + 0.89 * actualSingles + 1.27 * (latestStat.d ?? 0) + 1.62 * (latestStat.t ?? 0) + 2.10 * latestStat.hr) / latestStat.pa
+        : 0.320;
+      const actualSbRuns = leagueBattingAveragesService.calculateBaserunningRuns(latestStat.sb, latestStat.cs);
+      let actualWar: number;
+      if (this.leagueAvg) {
+        actualWar = leagueBattingAveragesService.calculateBattingWar(actualWoba, latestStat.pa, this.leagueAvg, actualSbRuns);
+      } else {
+        const fallbackAvg: LeagueBattingAverages = { year: 0, lgObp: 0.320, lgSlg: 0.400, lgWoba: 0.320, lgRpa: 0.115, wobaScale: 1.15, runsPerWin: 10, totalPa: 0, totalRuns: 0 };
+        actualWar = leagueBattingAveragesService.calculateBattingWar(actualWoba, latestStat.pa, fallbackAvg, actualSbRuns);
+      }
 
       comparisonRow = `
         <tr class="actual-row">
@@ -1634,9 +1688,9 @@ export class BatterProfileModal {
   }
 
   private renderCareerStatsContent(stats: BatterSeasonStats[]): string {
-    // League averages for OPS+ calculation
-    const lgObp = 0.320;
-    const lgSlg = 0.400;
+    // League averages for OPS+ calculation (dynamic with fallback)
+    const lgObp = this.leagueAvg?.lgObp ?? 0.320;
+    const lgSlg = this.leagueAvg?.lgSlg ?? 0.400;
 
     if (stats.length === 0) {
       return `<p class="no-stats">No batting stats found for this player.</p>`;
