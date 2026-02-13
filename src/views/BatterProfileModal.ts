@@ -1951,6 +1951,8 @@ export class BatterProfileModal {
       scoutContact: this.scoutingData?.contact ?? data.scoutContact,
       scoutGap: this.scoutingData?.gap ?? data.scoutGap,
       scoutSpeed: this.scoutingData?.speed ?? data.scoutSpeed,
+      scoutStealAbility: this.scoutingData?.stealingAbility,
+      scoutStealAggression: this.scoutingData?.stealingAggressiveness,
       scoutOvr: data.scoutOvr,
       scoutPot: data.scoutPot,
       trueRating: data.trueRating,

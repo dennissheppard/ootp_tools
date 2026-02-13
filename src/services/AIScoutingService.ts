@@ -31,6 +31,8 @@ export interface AIScoutingPlayerData {
   scoutContact?: number;
   scoutGap?: number;
   scoutSpeed?: number;
+  scoutStealAbility?: number;
+  scoutStealAggression?: number;
   scoutOvr?: number;
   scoutPot?: number;
 
@@ -84,7 +86,7 @@ export interface AIScoutingPlayerData {
   orgRoster?: string;
 }
 
-const SYSTEM_PROMPT = `You are the snarky lead analyst at True Ratings — the FanGraphs of the World Baseball League (WBL). You write with confident, dry wit and sharp analytical insight. You value numbers first, but understand roster construction and league context.
+const SYSTEM_PROMPT = `You are the snarky lead analyst at True Ratings — the FanGraphs of the World Baseball League (WBL). You write with confident, dry wit and sharp analytical insight. Sometimes you can be biting. You value numbers first, but understand roster construction and league context.
 
 TERMINOLOGY:
 - True Ratings (TR) are numeric (e.g., "4.2 True Rating" or "4.2 TR"). NEVER refer to them as stars.
@@ -110,12 +112,12 @@ ANALYSIS PRINCIPLES:
 - Compare projections to league leaders, team needs, and historical context.
 - Frame minor leaguers in terms of their parent organization.
 - Be specific: “His projected 3.15 FIP would have ranked 4th last season” is better than “He has good stuff.”
-- A 5.0 TR is a superstar. A 2.5 TR is average. A 5.0 TFR signals elite prospect ceiling.
+- A 5.0 TR is a superstar. A 2.5 TR is average. 2.0 is probably replacement level. A 5.0 TFR signals elite prospect ceiling.
 - Put a player's history into perspective. If he's been on a team for 15 years and is aging and not as good now, nod to that, show respect, don't just bash.
 - If salary information is available and you reference it, use the following as context: league minimum salary is $228k. Arbitration eligible guys are usually getting between $1m-$8m. Very good players make $6m-$10m. Super stars make $12m+. Anything north of $21m for a single season is eye popping.
 - If personality information is available and you reference it, only link personality to performance where it makes sense. Greed doesn't impact performance, but might impact contract. A low work ethic or adaptibility or intelligence may impact performance or development or growth.
 
-Format your response in a structured, sectioned prose summary style scouting report of no more than 250 words. All of the numbers you'd be referencing are already in charts above this analysis. Do not restate a table or listing or bullets of ratings or stats.
+Format your response in a structured, sectioned summary style scouting report of no more than 200 words. Use bullets if it helps your point. All of the numbers you'd be referencing are already in charts above this analysis. Do not restate a table or listing or bullets of ratings or stats or player information. It would be redundant with the player profile.
 `;
 
 class AIScoutingService {
@@ -449,6 +451,8 @@ class AIScoutingService {
       if (data.scoutContact !== undefined) lines.push(`Scout Contact: ${data.scoutContact}`);
       if (data.scoutGap !== undefined) lines.push(`Scout Gap: ${data.scoutGap}`);
       if (data.scoutSpeed !== undefined) lines.push(`Scout Speed: ${data.scoutSpeed}`);
+      if (data.scoutStealAbility !== undefined) lines.push(`Stealing Ability: ${data.scoutStealAbility}`);
+      if (data.scoutStealAggression !== undefined) lines.push(`Stealing Aggressiveness: ${data.scoutStealAggression}`);
     }
     if (data.scoutOvr !== undefined) lines.push(`Scout OVR: ${data.scoutOvr}`);
     if (data.scoutPot !== undefined) lines.push(`Scout POT: ${data.scoutPot}`);
@@ -544,6 +548,7 @@ class AIScoutingService {
       'age', 'position', 'injuryProneness', 'parentOrg',
       'scoutStuff', 'scoutControl', 'scoutHra', 'scoutStamina',
       'scoutPower', 'scoutEye', 'scoutAvoidK', 'scoutContact', 'scoutGap', 'scoutSpeed',
+      'scoutStealAbility', 'scoutStealAggression',
       'scoutOvr', 'scoutPot',
       'trueRating', 'trueFutureRating',
       'estimatedStuff', 'estimatedControl', 'estimatedHra',
