@@ -37,6 +37,7 @@ export class FarmRankingsView {
   private top100Prospects: RatedProspect[] = [];
   private top100HitterProspects: RatedHitterProspect[] = [];
   private selectedTeam: string = 'all';
+  private selectedPosition: string = 'all';
 
   // Sorting and Dragging state
   private systemsSortKey: string = 'totalWar';
@@ -179,6 +180,25 @@ export class FarmRankingsView {
                 </div>
               </div>
 
+              <div class="filter-dropdown" data-filter="position" style="display: none;">
+                <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                  Pos: <span id="selected-position-display">All</span> ▾
+                </button>
+                <div class="filter-dropdown-menu" id="position-dropdown-menu">
+                  <div class="filter-dropdown-item selected" data-value="all">All</div>
+                  <div class="filter-dropdown-item" data-value="P">P</div>
+                  <div class="filter-dropdown-item" data-value="C">C</div>
+                  <div class="filter-dropdown-item" data-value="1B">1B</div>
+                  <div class="filter-dropdown-item" data-value="2B">2B</div>
+                  <div class="filter-dropdown-item" data-value="SS">SS</div>
+                  <div class="filter-dropdown-item" data-value="3B">3B</div>
+                  <div class="filter-dropdown-item" data-value="LF">LF</div>
+                  <div class="filter-dropdown-item" data-value="CF">CF</div>
+                  <div class="filter-dropdown-item" data-value="RF">RF</div>
+                  <div class="filter-dropdown-item" data-value="DH">DH</div>
+                </div>
+              </div>
+
               <button class="toggle-btn" data-view-mode="reports" aria-pressed="false" style="border-right: none; border-top-right-radius: var(--border-radius); border-bottom-right-radius: var(--border-radius);">Reports</button>
               <button class="toggle-btn" id="export-tfr-btn" title="Export TFR data for automated testing" style="display: none;">Export for Testing</button>
             </div>
@@ -286,6 +306,9 @@ export class FarmRankingsView {
         });
     });
 
+    // Position dropdown (static items, bind once)
+    this.bindPositionDropdownListeners();
+
     // Export for testing button
     this.container.querySelector('#export-tfr-btn')?.addEventListener('click', () => {
         this.exportTFRForTesting();
@@ -384,6 +407,7 @@ export class FarmRankingsView {
 
       menu.innerHTML = items;
       this.bindTeamDropdownListeners();
+      this.bindPositionDropdownListeners();
   }
 
   private bindTeamDropdownListeners(): void {
@@ -405,6 +429,29 @@ export class FarmRankingsView {
               (e.target as HTMLElement).classList.add('selected');
 
               // Close dropdown
+              (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+
+              this.renderView();
+          });
+      });
+  }
+
+  private bindPositionDropdownListeners(): void {
+      this.container.querySelectorAll('#position-dropdown-menu .filter-dropdown-item').forEach(item => {
+          item.addEventListener('click', (e) => {
+              const value = (e.target as HTMLElement).dataset.value;
+              if (!value) return;
+
+              this.selectedPosition = value;
+
+              const displaySpan = this.container.querySelector('#selected-position-display');
+              if (displaySpan) {
+                  displaySpan.textContent = value === 'all' ? 'All' : value;
+              }
+
+              this.container.querySelectorAll('#position-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+              (e.target as HTMLElement).classList.add('selected');
+
               (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
               this.renderView();
@@ -472,6 +519,11 @@ export class FarmRankingsView {
       const teamFilter = this.container.querySelector<HTMLElement>('[data-filter="team"]');
       if (teamFilter) {
           teamFilter.style.display = this.viewMode === 'top-100' ? 'inline-block' : 'none';
+      }
+
+      const posFilter = this.container.querySelector<HTMLElement>('[data-filter="position"]');
+      if (posFilter) {
+          posFilter.style.display = this.viewMode === 'top-100' ? 'inline-block' : 'none';
       }
 
       // Show/Hide Prospect Type Toggles
@@ -1078,10 +1130,18 @@ export class FarmRankingsView {
       });
       } // end if (!isDefaultSort)
 
-      // Filter by team if selected
-      const filtered = this.selectedTeam === 'all'
-          ? combined.slice(0, 100)
-          : combined.filter(p => p.team === this.selectedTeam).slice(0, 100);
+      // Filter by team and position if selected
+      let filtered = combined;
+      if (this.selectedTeam !== 'all') {
+          filtered = filtered.filter(p => p.team === this.selectedTeam);
+      }
+      if (this.selectedPosition !== 'all') {
+          filtered = filtered.filter(p => {
+              const posLabel = p.isPitcher ? 'P' : getPositionLabel(p.positionNum || 0);
+              return posLabel === this.selectedPosition;
+          });
+      }
+      filtered = filtered.slice(0, 100);
 
       if (filtered.length === 0) {
           return '<p class="no-stats">No prospects found for this team.</p>';
@@ -1471,11 +1531,16 @@ export class FarmRankingsView {
   private renderTopProspects(): string {
       if (!this.data || this.data.prospects.length === 0) return '<p class="no-stats">No prospect data available.</p>';
 
-      const filteredProspects = this.selectedTeam === 'all'
+      let filteredProspects = this.selectedTeam === 'all'
           ? this.top100Prospects
           : this.top100Prospects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
 
-      if (filteredProspects.length === 0) return '<p class="no-stats">No top 100 prospects found for this team.</p>';
+      // Position filter: pitcher-only view only shows pitchers, so only filter if "P" or "all" selected
+      if (this.selectedPosition !== 'all' && this.selectedPosition !== 'P') {
+          filteredProspects = []; // Non-pitcher position selected but viewing pitchers only
+      }
+
+      if (filteredProspects.length === 0) return '<p class="no-stats">No top 100 prospects found for this filter.</p>';
 
       // Build a map of prospect ID to their percentile-based rank
       const percentileRankMap = new Map<number, number>();
@@ -1564,11 +1629,20 @@ export class FarmRankingsView {
   private renderHitterTopProspects(): string {
       if (!this.hitterData || this.hitterData.prospects.length === 0) return '<p class="no-stats">No hitter prospect data available.</p>';
 
-      const filteredProspects = this.selectedTeam === 'all'
+      let filteredProspects = this.selectedTeam === 'all'
           ? this.top100HitterProspects
           : this.top100HitterProspects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
 
-      if (filteredProspects.length === 0) return '<p class="no-stats">No top 100 hitter prospects found for this team.</p>';
+      // Filter by position
+      if (this.selectedPosition !== 'all') {
+          if (this.selectedPosition === 'P') {
+              filteredProspects = []; // Pitcher selected but viewing hitters only
+          } else {
+              filteredProspects = filteredProspects.filter(p => getPositionLabel(p.position) === this.selectedPosition);
+          }
+      }
+
+      if (filteredProspects.length === 0) return '<p class="no-stats">No top 100 hitter prospects found for this filter.</p>';
 
       // Build a map of prospect ID to their percentile-based rank
       const percentileRankMap = new Map<number, number>();
@@ -1734,9 +1808,9 @@ export class FarmRankingsView {
       groups.set(pos, []);
     }
 
-    // Group all prospects by position
+    // Group all prospects by position (convert numeric position to label)
     for (const prospect of this.hitterData.prospects) {
-      const pos = String(prospect.position || 'DH');
+      const pos = getPositionLabel(prospect.position) || 'DH';
       if (!groups.has(pos)) {
         groups.set(pos, []);
       }
@@ -1864,7 +1938,7 @@ export class FarmRankingsView {
   private renderHitterCell(player: RatedHitterProspect, column: FarmColumn): string {
     switch (column.key) {
       case 'position':
-        return String(player.position || 'DH');
+        return getPositionLabel(player.position) || 'DH';
       case 'name':
         return `<button class="btn-link player-name-link" data-player-id="${player.playerId}" data-player-type="hitter" title="ID: ${player.playerId}">${player.name}</button>`;
       case 'trueFutureRating':
