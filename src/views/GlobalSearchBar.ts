@@ -12,6 +12,7 @@ import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { teamService } from '../services/TeamService';
 import { teamRatingsService } from '../services/TeamRatingsService';
+import { analyticsService } from '../services/AnalyticsService';
 
 export interface GlobalSearchBarOptions {
   onSearch: (query: string) => void;
@@ -167,6 +168,8 @@ export class GlobalSearchBar {
       this.onLoading(false);
     }
 
+    analyticsService.trackSearchPerformed(this.searchInput.value.trim(), players.length);
+
     if (players.length === 0) {
       const resultsContainer = this.dropdown.querySelector<HTMLElement>('.global-search-results')!;
       resultsContainer.innerHTML = `
@@ -227,6 +230,12 @@ export class GlobalSearchBar {
 
   private async handlePlayerSelect(player: Player): Promise<void> {
     this.closeDropdown();
+
+    analyticsService.trackPlayerProfileOpened({
+      playerId: player.id,
+      playerName: getFullName(player),
+      playerType: isPitcher(player) ? 'pitcher' : 'batter',
+    });
 
     // Fetch the player's ratings data and show modal
     try {

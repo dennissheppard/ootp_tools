@@ -21,6 +21,7 @@ import { fipWarService } from '../services/FipWarService';
 import { leagueStatsService } from '../services/LeagueStatsService';
 import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
 import { teamRatingsService, HitterFarmData, FarmData } from '../services/TeamRatingsService';
+import { analyticsService } from '../services/AnalyticsService';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -515,6 +516,8 @@ export class TrueRatingsView {
         this.selectedYear = parseInt(value, 10);
         this.currentPage = 1;
         this.saveFilterPreferences();
+
+        analyticsService.trackYearChanged(this.selectedYear, 'true-ratings');
 
         // Update display text
         const displaySpan = this.container.querySelector('#selected-year-display');
@@ -3291,6 +3294,15 @@ export class TrueRatingsView {
     const row = this.playerRowLookup.get(playerId);
     if (!row) return;
 
+    analyticsService.trackPlayerProfileOpened({
+      playerId,
+      playerName: row.playerName,
+      playerType: 'pitcher',
+      team: row.teamFilter,
+      trueRating: row.trueRating,
+      isProspect: row.isProspect,
+    });
+
     // Fetch scouting data fresh (more reliable than cached class properties)
     const [myRatings, osaRatings] = await Promise.all([
       scoutingDataService.getLatestScoutingRatings('my'),
@@ -3442,6 +3454,15 @@ export class TrueRatingsView {
   private async openBatterProfile(playerId: number): Promise<void> {
     const row = this._batterRowLookup?.get(playerId);
     if (!row) return;
+
+    analyticsService.trackPlayerProfileOpened({
+      playerId,
+      playerName: row.playerName,
+      playerType: 'batter',
+      team: row.teamFilter,
+      trueRating: row.trueRating,
+      isProspect: row.isProspect,
+    });
 
     // Fetch player and team info
     const player = await playerService.getPlayerById(playerId);
@@ -3646,6 +3667,8 @@ export class TrueRatingsView {
         this.currentPage = 1;
         this.saveFilterPreferences();
 
+        analyticsService.trackTeamSelected(value, 'true-ratings');
+
         // Update display text
         const displaySpan = this.container.querySelector('#selected-team-display');
         const itemText = (e.target as HTMLElement).textContent;
@@ -3687,6 +3710,8 @@ export class TrueRatingsView {
 
         // If mode changed, update sort key
         if (previousMode !== this.mode) {
+          analyticsService.trackModeSwitched(this.mode, 'true-ratings');
+
           // Use Percentile as default sort for True Ratings view, WAR for Raw Stats view
           if (this.mode === 'pitchers') {
             this.sortKey = this.showRawStats ? 'ra9war' : 'percentile';

@@ -6,6 +6,7 @@ import { dateService } from '../services/DateService';
 import { trueRatingsService, LEAGUE_START_YEAR } from '../services/TrueRatingsService';
 import { MessageModal } from './MessageModal';
 import { storageMigration } from '../services/StorageMigration';
+import { AnalyticsDashboardView } from './AnalyticsDashboardView';
 
 type ScoutingPlayerType = 'pitcher' | 'hitter';
 
@@ -24,11 +25,22 @@ export class DataManagementView {
     this.refreshExistingDataList();
     this.fetchGameDate();
     this.setupOnboardingListener();
+    this.setupAnalyticsToggle();
   }
 
   private setupOnboardingListener(): void {
     window.addEventListener('wbl:first-time-onboarding', () => {
       this.startOnboarding();
+    });
+  }
+
+  private setupAnalyticsToggle(): void {
+    window.addEventListener('wbl:show-analytics', () => {
+      const el = this.container.querySelector<HTMLElement>('#analytics-dashboard-container');
+      if (el) {
+        const isHidden = el.style.display === 'none';
+        el.style.display = isHidden ? 'block' : 'none';
+      }
     });
   }
 
@@ -43,6 +55,8 @@ export class DataManagementView {
   private render(): void {
     this.container.innerHTML = `
       <div class="potential-stats-section">
+        <div id="analytics-dashboard-container" style="display: none;"></div>
+
         <h2 class="section-title">Data Management</h2>
         <p class="section-subtitle">Manage historical statistics and scouting reports (MLB stats are always current and fetched from the S+ API)</p>
 
@@ -136,6 +150,12 @@ export class DataManagementView {
     this.bindEvents();
     this.checkMigrationNeeded();
     this.checkDefaultOsaStatus();
+
+    // Mount analytics dashboard
+    const dashboardContainer = this.container.querySelector<HTMLElement>('#analytics-dashboard-container');
+    if (dashboardContainer) {
+      new AnalyticsDashboardView(dashboardContainer);
+    }
   }
 
   private bindEvents(): void {

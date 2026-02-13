@@ -6,6 +6,7 @@ import { dateService } from './services/DateService';
 import { indexedDBService } from './services/IndexedDBService';
 import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
+import { analyticsService } from './services/AnalyticsService';
 
 class App {
   private controller: PlayerController;
@@ -52,6 +53,8 @@ class App {
     this.setupTabs();
     this.bindController();
     this.preloadPlayers();
+
+    analyticsService.trackAppOpen();
 
     // Trigger onboarding if first-time user
     // This must happen AFTER views are initialized so listeners are ready
@@ -157,6 +160,10 @@ class App {
         <button class="tab-button ${this.activeTabId === 'tab-calculators' ? 'active' : ''}" data-tab-target="tab-calculators">
           <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           <span>Calculators</span>
+        </button>
+        <button class="tab-button ${this.activeTabId === 'tab-data-management' ? 'active' : ''}" data-tab-target="tab-data-management">
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span>Data</span>
         </button>
       </nav>
 
@@ -335,19 +342,35 @@ class App {
       }
     });
 
-    // Double-click logo to access Data Management
+    // Double-click logo to toggle analytics dashboard
     const logo = document.querySelector<HTMLImageElement>('.app-logo');
     if (logo) {
       logo.addEventListener('dblclick', () => {
         this.setActiveTab('tab-data-management');
+        window.dispatchEvent(new CustomEvent('wbl:show-analytics'));
       });
     }
   }
+
+  private static readonly TAB_NAMES: Record<string, string> = {
+    'tab-true-ratings': 'True Ratings',
+    'tab-projections': 'Projections',
+    'tab-farm-rankings': 'Farm Rankings',
+    'tab-team-ratings': 'Team Ratings',
+    'tab-team-planning': 'Team Planning',
+    'tab-trade-analyzer': 'Trade Analyzer',
+    'tab-calculators': 'Calculators',
+    'tab-data-management': 'Data Management',
+    'tab-dev-tracker': 'Dev Tracker',
+    'tab-search': 'Search',
+  };
 
   private setActiveTab(tabId: string): void {
     if (this.activeTabId === tabId) return;
     this.activeTabId = tabId;
     localStorage.setItem(this.TAB_PREF_KEY, tabId);
+
+    analyticsService.trackTabVisit(tabId, App.TAB_NAMES[tabId] ?? tabId);
 
     const tabButtons = document.querySelectorAll<HTMLButtonElement>('[data-tab-target]');
     const tabPanels = document.querySelectorAll<HTMLElement>('.tab-panel');

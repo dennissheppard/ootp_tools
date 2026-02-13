@@ -20,3 +20,4 @@ export * from './TeamPlanningView';
 export * from './TradeAnalyzerView';
 export * from './AboutView';
 export * from './OnboardingView';
+export * from './AnalyticsDashboardView';
