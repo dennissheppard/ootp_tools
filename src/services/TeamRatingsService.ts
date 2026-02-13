@@ -754,12 +754,11 @@ class TeamRatingsService {
           scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
       }
 
-      const [allPlayers, tfrResults, tfrResultsOsa, teams, leagueStats, contracts] = await Promise.all([
+      const [allPlayers, tfrResults, tfrResultsOsa, teams, contracts] = await Promise.all([
           playerService.getAllPlayers(),
           trueFutureRatingService.getProspectTrueFutureRatings(year),
           trueFutureRatingService.getProspectTrueFutureRatings(year, 'osa'),
           teamService.getAllTeams(),
-          leagueStatsService.getLeagueStats(year),
           contractService.getAllContracts()
       ]);
 
@@ -771,9 +770,7 @@ class TeamRatingsService {
       const teamMap = new Map(teams.map(t => [t.id, t]));
       const scoutingMap = new Map(scoutingData.ratings.map(s => [s.playerId, s]));
 
-      // Calculate Replacement Level FIP (League Avg + 1.00)
-      const replacementFip = (leagueStats.avgFip || 4.20) + 1.00;
-      const runsPerWin = 8.5; // Standard WBL constant
+      // Use FipWarService calibrated defaults (replacementFip=5.20, runsPerWin=8.50)
 
       const orgGroups = new Map<number, { rotation: RatedProspect[], bullpen: RatedProspect[] }>();
       const allProspects: RatedProspect[] = [];
@@ -842,7 +839,7 @@ class TeamRatingsService {
               projectedIp = Math.round(Math.max(40, Math.min(80, baseIp * injuryFactor)));
           }
 
-          const peakWar = fipWarService.calculateWar(tfr.projFip, projectedIp, replacementFip, runsPerWin);
+          const peakWar = fipWarService.calculateWar(tfr.projFip, projectedIp);
 
           // Determine level label - use contract to detect IC players
           const playerContract = contracts.get(tfr.playerId);
