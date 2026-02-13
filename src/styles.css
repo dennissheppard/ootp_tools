@@ -7868,7 +7868,7 @@ th .stat-tooltip {
   position: relative;
 }
 
-.pitcher-profile-modal .chart-section-header .chart-section-label { margin: 0; }
+.pitcher-profile-modal .chart-section-header .chart-section-label { margin: 0; margin-left: 25px; }
 .pitcher-profile-modal .chart-section-header .scout-source-toggle { position: absolute; left: 0; }
 
 .pitcher-profile-modal .ratings-layout {
@@ -7886,13 +7886,13 @@ th .stat-tooltip {
   position: relative;
 }
 
-/* Shift pitching radar chart left to center under heading */
+/* Shift pitching radar chart left to make room for FIP column */
 .pitcher-profile-modal .ratings-radar-col > .radar-chart-wrapper {
-  transform: translateX(-40px);
+  transform: translateX(-15px);
 }
 
 .pitcher-profile-modal .ratings-radar-col .apexcharts-legend {
-  transform: translateX(40px) translateY(-15px);
+  transform: translateX(0px) translateY(-15px);
 }
 
 /* Custom "Stat Projections" legend item */
@@ -7955,19 +7955,19 @@ th .stat-tooltip {
 /* 3-axis triangle positions for pitching chart (Stuff top, Control lower-right, HRA lower-left) */
 .pitcher-profile-modal .pitching-axis-top {
   top: -15%;
-  left: 52%;
+  left: 57%;
   transform: translateX(-50%);
 }
 
 .pitcher-profile-modal .pitching-axis-lower-right {
   bottom: 10%;
-  right: 25%;
+  right: 5%;
   align-items: center;
 }
 
 .pitcher-profile-modal .pitching-axis-lower-left {
   bottom: 10%;
-  left: 30%;
+  left: 20%;
   align-items: center;
 }
 
@@ -8000,11 +8000,67 @@ th .stat-tooltip {
   letter-spacing: 0.03em;
 }
 
+/* FIP Column (middle column between radar and arsenal) */
+.pitcher-profile-modal .fip-col {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-left: 0;
+  margin-top: 0;
+  transform: translateX(-85px);
+}
+
+/* FIP Emblem — badge style (no arc) */
+.pitcher-profile-modal .fip-emblem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  min-width: 100px;
+}
+
+.pitcher-profile-modal .fip-emblem-label {
+  font-size: 0.6rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--fip-color);
+}
+
+.pitcher-profile-modal .fip-emblem-value {
+  font-size: 1.5rem;
+  font-weight: 800;
+  color: var(--fip-color);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.pitcher-profile-modal .fip-percentile {
+  font-size: 0.55rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.03em;
+}
+
+.pitcher-profile-modal .fip-emblem.fip-elite { --fip-color: #1d9bf0; }
+.pitcher-profile-modal .fip-emblem.fip-great { --fip-color: #00ba7c; }
+.pitcher-profile-modal .fip-emblem.fip-above-avg { --fip-color: #34d399; }
+.pitcher-profile-modal .fip-emblem.fip-avg { --fip-color: #ffc107; }
+.pitcher-profile-modal .fip-emblem.fip-below-avg { --fip-color: #f4a261; }
+.pitcher-profile-modal .fip-emblem.fip-poor { --fip-color: #888; }
+.pitcher-profile-modal .fip-emblem.fip-none { --fip-color: #666; }
+
 /* Arsenal + Stamina Column */
 .pitcher-profile-modal .arsenal-col {
   flex: 0 0 280px;
   min-width: 300px;
-  margin-left: -80px;
+  margin-left: 0;
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -8359,6 +8415,11 @@ th .stat-tooltip {
 @media (max-width: 700px) {
   .pitcher-profile-modal .ratings-layout {
     flex-direction: column;
+  }
+  .pitcher-profile-modal .fip-col {
+    margin-left: 0;
+    margin-top: 0;
+    transform: none;
   }
   .pitcher-profile-modal .arsenal-col {
     flex: 1 1 auto;

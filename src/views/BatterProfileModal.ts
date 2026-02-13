@@ -310,7 +310,7 @@ export class BatterProfileModal {
     // Set header logo watermark
     const watermark = this.overlay.querySelector<HTMLImageElement>('.modal-logo-watermark');
     if (watermark) {
-      const logoUrl = this.getTeamLogoUrl(data.team);
+      const logoUrl = this.getTeamLogoUrl(data.team) ?? this.getTeamLogoUrl(data.parentTeam);
       if (logoUrl) {
         watermark.src = logoUrl;
         watermark.style.display = '';

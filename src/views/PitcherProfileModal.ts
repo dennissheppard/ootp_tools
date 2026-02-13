@@ -123,6 +123,9 @@ export class PitcherProfileModal {
   // League WAR ceiling for arc scaling
   private leagueWarMax: number = 5;
 
+  // Sorted league FIP distribution (ascending) for percentile calculation
+  private leagueFipDistribution: number[] = [];
+
   // Projection toggle state
   private projectionMode: 'current' | 'peak' = 'current';
   private currentStats: PitcherSeasonStats[] = [];
@@ -258,7 +261,7 @@ export class PitcherProfileModal {
     // Set logo watermark
     const watermark = this.overlay.querySelector<HTMLImageElement>('.modal-logo-watermark');
     if (watermark) {
-      const logoUrl = this.getTeamLogoUrl(data.team);
+      const logoUrl = this.getTeamLogoUrl(data.team) ?? this.getTeamLogoUrl(data.parentTeam);
       if (logoUrl) {
         watermark.src = logoUrl;
         watermark.style.display = '';
@@ -292,10 +295,25 @@ export class PitcherProfileModal {
 
       this.contract = allContracts.get(data.playerId) ?? null;
 
-      // Compute league WAR ceiling from last year's leader
+      // Compute league WAR ceiling and FIP distribution from last year's pitchers
       if (lastYearPitching.length > 0) {
         const maxWar = lastYearPitching.reduce((max, p) => Math.max(max, p.war ?? 0), 0);
         this.leagueWarMax = Math.max(4, maxWar);
+
+        // Build FIP distribution from pitchers with 50+ IP
+        this.leagueFipDistribution = lastYearPitching
+          .filter(p => {
+            const ip = typeof p.ip === 'string' ? parseFloat(p.ip) : (p.outs ?? 0) / 3;
+            return ip >= 50;
+          })
+          .map(p => {
+            const ip = typeof p.ip === 'string' ? parseFloat(p.ip) : (p.outs ?? 0) / 3;
+            const k9 = (p.k / ip) * 9;
+            const bb9 = (p.bb / ip) * 9;
+            const hr9 = (p.hra / ip) * 9;
+            return ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47;
+          })
+          .sort((a, b) => a - b);
       }
 
       const myScouting = myScoutingAll.find(s => s.playerId === data.playerId);
@@ -624,6 +642,47 @@ export class PitcherProfileModal {
     return undefined;
   }
 
+  // ─── FIP Emblem (middle column in ratings section) ─────────────────
+
+  private renderFipEmblem(data: PitcherProfileData): string {
+    const projStats = this.computeProjectedStats(data);
+    const projFip = projStats.projFip;
+    const fipText = typeof projFip === 'number' ? projFip.toFixed(2) : '--';
+    const fipLabel = data.isProspect ? 'Proj Peak FIP' : 'Proj FIP';
+    const badgeClass = this.getFipBadgeClass(projFip);
+
+    // Compute FIP percentile from league distribution (lower FIP = higher percentile)
+    let percentileHtml = '';
+    if (typeof projFip === 'number' && this.leagueFipDistribution.length > 0) {
+      const dist = this.leagueFipDistribution;
+      // Count how many league pitchers have a WORSE (higher) FIP
+      let betterThanCount = 0;
+      for (let i = 0; i < dist.length; i++) {
+        if (dist[i] >= projFip) { betterThanCount = dist.length - i; break; }
+      }
+      const percentile = Math.round((betterThanCount / dist.length) * 100);
+      percentileHtml = `<span class="fip-percentile">${this.formatPercentile(percentile)} Percentile</span>`;
+    }
+
+    return `
+      <div class="fip-emblem ${badgeClass}">
+        <span class="fip-emblem-label">${fipLabel}</span>
+        <span class="fip-emblem-value">${fipText}</span>
+        ${percentileHtml}
+      </div>
+    `;
+  }
+
+  private getFipBadgeClass(fip?: number): string {
+    if (fip === undefined) return 'fip-none';
+    if (fip <= 2.75) return 'fip-elite';
+    if (fip <= 3.25) return 'fip-great';
+    if (fip <= 3.75) return 'fip-above-avg';
+    if (fip <= 4.25) return 'fip-avg';
+    if (fip <= 4.75) return 'fip-below-avg';
+    return 'fip-poor';
+  }
+
   // ─── Header: Vitals ──────────────────────────────────────────────────
 
   private renderHeaderVitals(data: PitcherProfileData): string {
@@ -886,6 +945,9 @@ export class PitcherProfileModal {
     // Arsenal + Stamina column
     const arsenalHtml = this.renderArsenalColumn(data);
 
+    // FIP emblem (middle column)
+    const fipEmblemHtml = this.renderFipEmblem(data);
+
     return `
       <div class="ratings-section">
         <div class="ratings-layout">
@@ -898,6 +960,9 @@ export class PitcherProfileModal {
               <div id="pitcher-radar-chart"></div>
               ${pitchingAxisLabelsHtml}
             </div>
+          </div>
+          <div class="fip-col">
+            ${fipEmblemHtml}
           </div>
           <div class="arsenal-col">
             ${arsenalHtml}
