@@ -80,12 +80,15 @@ const POSITION_LABELS: Record<number, string> = {
 class BatterProjectionService {
   async getProjectionsWithContext(year: number): Promise<BatterProjectionContext> {
     // Get all required data
-    const [allPlayers, allTeams, scoutingList, leagueAvg] = await Promise.all([
+    const [allPlayers, allTeams, scoutingList, leagueAvgCurrent] = await Promise.all([
       playerService.getAllPlayers(),
       teamService.getAllTeams(),
       hitterScoutingDataService.getLatestScoutingRatings('osa'),
       leagueBattingAveragesService.getLeagueAverages(year),
     ]);
+
+    // Fall back to prior year's league averages if current year not available yet
+    const leagueAvg = leagueAvgCurrent ?? await leagueBattingAveragesService.getLeagueAverages(year - 1);
 
     // Also try to get "my" scouting ratings
     const myScoutingList = await hitterScoutingDataService.getLatestScoutingRatings('my');

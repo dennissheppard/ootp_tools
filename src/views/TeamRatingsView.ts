@@ -52,11 +52,11 @@ export class TeamRatingsView {
   private powerRankingsColumns: Array<{ key: string; label: string; sortKey?: string; title?: string }> = [
     { key: 'rank', label: '#' },
     { key: 'teamName', label: 'Team' },
-    { key: 'teamRating', label: 'Team Rating', sortKey: 'teamRating', title: '30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench' },
-    { key: 'rotation', label: 'Rotation', sortKey: 'rotation' },
-    { key: 'lineup', label: 'Lineup', sortKey: 'lineup' },
-    { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen' },
-    { key: 'bench', label: 'Bench', sortKey: 'bench' }
+    { key: 'teamRating', label: 'Team Rating', sortKey: 'teamRating', title: 'Weighted composite: 30% Rotation + 45% Lineup + 20% Bullpen + 5% Bench' },
+    { key: 'rotation', label: 'Rotation', sortKey: 'rotation', title: 'Average True Rating of top 5 starting pitchers' },
+    { key: 'lineup', label: 'Lineup', sortKey: 'lineup', title: 'Average True Rating of 9 lineup positions (best player per position)' },
+    { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen', title: 'Average True Rating of top 8 relievers' },
+    { key: 'bench', label: 'Bench', sortKey: 'bench', title: 'Average True Rating of remaining bench batters' }
   ];
 
   constructor(container: HTMLElement) {
@@ -516,7 +516,7 @@ export class TeamRatingsView {
           return `
             <tr>
                 <td style="color: var(--color-text-muted); width: 30px;">${idx + 1}</td>
-                <td><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type, player.playerId)}" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
+                <td style="text-align: left;"><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type, player.playerId)}" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
                 <td style="text-align: center;"><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(1)}</span></td>
                 <td style="text-align: center;">${player.stats.ip.toFixed(1)}</td>
                 <td style="text-align: center;">${(player.stats.war ?? 0).toFixed(1)}</td>
@@ -529,7 +529,7 @@ export class TeamRatingsView {
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>Name</th>
+                    <th style="text-align: left;">Name</th>
                     <th style="text-align: center;">TR</th>
                     <th style="text-align: center;">IP</th>
                     <th style="text-align: center;">WAR</th>
@@ -553,7 +553,7 @@ export class TeamRatingsView {
           return `
             <tr>
                 <td style="color: var(--color-text-muted); width: 30px;">${idx + 1}</td>
-                <td><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type as any, batter.playerId)}" data-player-id="${batter.playerId}" title="ID: ${batter.playerId}">${batter.name}</button></td>
+                <td style="text-align: left;"><button class="btn-link player-name-link" data-player-key="${this.buildPlayerKey(teamKey, type as any, batter.playerId)}" data-player-id="${batter.playerId}" title="ID: ${batter.playerId}">${batter.name}</button></td>
                 <td style="text-align: center;">${batter.positionLabel || '-'}</td>
                 <td style="text-align: center;"><span class="badge ${this.getRatingClass(batter.trueRating)}">${batter.trueRating.toFixed(1)}</span></td>
                 <td style="text-align: center;">${batter.stats?.pa ?? '-'}</td>
@@ -567,7 +567,7 @@ export class TeamRatingsView {
             <thead>
                 <tr>
                     <th>#</th>
-                    <th>Name</th>
+                    <th style="text-align: left;">Name</th>
                     <th style="text-align: center;">Pos</th>
                     <th style="text-align: center;">TR</th>
                     <th style="text-align: center;">PA</th>
@@ -757,16 +757,18 @@ export class TeamRatingsView {
                                 ${team.teamName}
                             </div>
                         </td>`;
-                  case 'teamRating':
-                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.teamRating)}" style="font-weight: 600;">${team.teamRating.toFixed(2)}</span></td>`;
+                  case 'teamRating': {
+                      const trTip = `Rot ${team.rotationRating.toFixed(2)}×30% + Lin ${team.lineupRating.toFixed(2)}×45% + Pen ${team.bullpenRating.toFixed(2)}×20% + Ben ${team.benchRating.toFixed(2)}×5% = ${team.teamRating.toFixed(2)}`;
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.teamRating)}" style="font-weight: 600;" title="${trTip}">${team.teamRating.toFixed(2)}</span></td>`;
+                  }
                   case 'rotation':
-                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.rotationRating)}">${team.rotationRating.toFixed(2)}</span></td>`;
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.rotationRating)}" title="Avg TR of ${team.rotation.length} SP">${team.rotationRating.toFixed(2)}</span></td>`;
                   case 'lineup':
-                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.lineupRating)}">${team.lineupRating.toFixed(2)}</span></td>`;
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.lineupRating)}" title="Avg TR of ${team.lineup.length} position players">${team.lineupRating.toFixed(2)}</span></td>`;
                   case 'bullpen':
-                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.bullpenRating)}">${team.bullpenRating.toFixed(2)}</span></td>`;
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.bullpenRating)}" title="Avg TR of ${team.bullpen.length} RP">${team.bullpenRating.toFixed(2)}</span></td>`;
                   case 'bench':
-                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.benchRating)}">${team.benchRating.toFixed(2)}</span></td>`;
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getRatingClass(team.benchRating)}" title="Avg TR of ${team.bench.length} bench batters">${team.benchRating.toFixed(2)}</span></td>`;
                   default:
                       return `<td data-col-key="${col.key}"></td>`;
               }
@@ -788,6 +790,10 @@ export class TeamRatingsView {
       const tableHtml = `
         <div class="stats-table-container">
             <h3 class="section-title">Team Power Rankings <span class="note-text">(Ranked by ${this.getPowerRankingsSortLabel()})</span></h3>
+            <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">              
+              Scores are the average TR of each roster group. Team Rating is a weighted composite:
+              45% Lineup + 30% Rotation + 20% Bullpen + 5% Bench. Hover over badges for details.
+            </p>
             <table class="stats-table power-rankings-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>
@@ -1021,39 +1027,42 @@ export class TeamRatingsView {
 
       const playerRows = players.map((player, idx) => {
         if (type === 'pitcher') {
+          const fipStr = player.stats?.fip != null ? player.stats.fip.toFixed(2) : '?';
+          const warTip = player.stats?.war != null ? `WAR = ((5.20 − ${fipStr} FIP) / 8.50) × (${player.stats.ip.toFixed(0)} IP / 9)` : '';
           return `
             <tr>
               <td>${idx + 1}</td>
-              <td><button class="btn-link player-name-link" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
+              <td style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
               <td>${player.role}</td>
-              <td><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(2)}</span></td>
-              <td>${player.trueStuff}</td>
-              <td>${player.trueControl}</td>
-              <td>${player.trueHra}</td>
+              <td><span class="badge ${this.getRatingClass(player.trueRating)}" title="50% scouting + 50% stats, confidence-weighted by IP">${player.trueRating.toFixed(2)}</span></td>
+              <td title="Stuff: K/9-based (20–80)">${player.trueStuff}</td>
+              <td title="Control: BB/9-based (20–80)">${player.trueControl}</td>
+              <td title="HR Avoidance: HR/9-based (20–80)">${player.trueHra}</td>
               <td>${player.stats?.ip?.toFixed(1) ?? '-'}</td>
-              <td>${player.stats?.war?.toFixed(1) ?? '-'}</td>
+              <td${warTip ? ` title="${warTip}"` : ''}>${player.stats?.war?.toFixed(1) ?? '-'}</td>
             </tr>
           `;
         } else {
+          const warTip = player.stats?.war != null ? `WAR from wOBA-based wRAA + baserunning, per ${player.stats.pa} PA` : '';
           return `
             <tr>
               <td>${idx + 1}</td>
-              <td><button class="btn-link player-name-link" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
+              <td style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${player.playerId}" title="ID: ${player.playerId}">${player.name}</button></td>
               <td>${player.positionLabel}</td>
-              <td><span class="badge ${this.getRatingClass(player.trueRating)}">${player.trueRating.toFixed(2)}</span></td>
-              <td>${player.estimatedPower}</td>
-              <td>${player.estimatedEye}</td>
-              <td>${player.estimatedContact}</td>
+              <td><span class="badge ${this.getRatingClass(player.trueRating)}" title="50% scouting + 50% stats, confidence-weighted by PA">${player.trueRating.toFixed(2)}</span></td>
+              <td title="Power: HR%-based (20–80)">${player.estimatedPower}</td>
+              <td title="Eye: BB%-based (20–80)">${player.estimatedEye}</td>
+              <td title="Contact: AVG-based (20–80)">${player.estimatedContact}</td>
               <td>${player.stats?.pa ?? '-'}</td>
-              <td>${player.stats?.war?.toFixed(1) ?? '-'}</td>
+              <td${warTip ? ` title="${warTip}"` : ''}>${player.stats?.war?.toFixed(1) ?? '-'}</td>
             </tr>
           `;
         }
       }).join('');
 
       const headers = type === 'pitcher'
-        ? '<th>#</th><th>Name</th><th>Role</th><th>TR</th><th>Stuff</th><th>Ctrl</th><th>HRA</th><th>IP</th><th>WAR</th>'
-        : '<th>#</th><th>Name</th><th>Pos</th><th>TR</th><th>Pow</th><th>Eye</th><th>Con</th><th>PA</th><th>WAR</th>';
+        ? '<th>#</th><th style="text-align: left;">Name</th><th>Role</th><th title="True Rating: scouting + stats blend (0.5–5.0)">TR</th><th title="Stuff rating (20–80): strikeout ability from K/9">Stuff</th><th title="Control rating (20–80): walk prevention from BB/9">Ctrl</th><th title="HR Avoidance rating (20–80): HR prevention from HR/9">HRA</th><th title="Innings Pitched this season">IP</th><th title="Wins Above Replacement this season">WAR</th>'
+        : '<th>#</th><th style="text-align: left;">Name</th><th>Pos</th><th title="True Rating: scouting + stats blend (0.5–5.0)">TR</th><th title="Power rating (20–80): HR ability from HR%">Pow</th><th title="Eye rating (20–80): plate discipline from BB%">Eye</th><th title="Contact rating (20–80): batting average ability">Con</th><th title="Plate Appearances this season">PA</th><th title="Wins Above Replacement this season">WAR</th>';
 
       return `
         <div>
