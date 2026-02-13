@@ -576,7 +576,7 @@ export class DataManagementView {
       const tbody = this.container.querySelector<HTMLElement>('#existing-data-list');
       if (!tbody) return;
 
-      const foundData: {type: 'Scout' | 'HitterScout', yearOrDate: string, details: string, count: number, id: string, isLatest?: boolean}[] = [];
+      const foundData: {type: 'Scout' | 'HitterScout', source: 'my' | 'osa', yearOrDate: string, details: string, count: number, id: string, isLatest?: boolean}[] = [];
 
       // Check Pitcher Scouting Snapshots
       let totalScoutingSnapshots = 0;
@@ -589,6 +589,7 @@ export class DataManagementView {
               snapshots.forEach((snap, index) => {
                   foundData.push({
                       type: 'Scout',
+                      source: source as 'my' | 'osa',
                       yearOrDate: snap.date,
                       details: `Pitcher ${source === 'my' ? 'My' : 'OSA'}`,
                       count: snap.count,
@@ -606,6 +607,7 @@ export class DataManagementView {
               snapshots.forEach((snap, index) => {
                   foundData.push({
                       type: 'HitterScout',
+                      source: source as 'my' | 'osa',
                       yearOrDate: snap.date,
                       details: `Hitter ${source === 'my' ? 'My' : 'OSA'}`,
                       count: snap.count,
@@ -630,11 +632,12 @@ export class DataManagementView {
               latestBadge = `<span class="badge" style="background: rgba(0, 186, 124, 0.2); color: #00ba7c; margin-left: 0.5rem; font-size: 0.7em;">LATEST</span>`;
           }
 
-          const badgeClass = d.type === 'HitterScout' ? 'badge-active' : 'badge-retired';
+          const badgeClass = d.source === 'osa' ? 'badge-active' : 'badge-retired';
+          const badgeLabel = d.source === 'osa' ? 'OSA' : 'My Scout';
 
           return `
             <tr>
-                <td><span class="badge ${badgeClass}">Scout</span></td>
+                <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
                 <td>${d.yearOrDate}</td>
                 <td>${d.details} ${latestBadge}</td>
                 <td>${d.count} records</td>
