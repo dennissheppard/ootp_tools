@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'wbl_database';
-const DB_VERSION = 9;
+const DB_VERSION = 10;
 const SCOUTING_STORE = 'scouting_ratings';
 const STATS_STORE = 'minor_league_stats';
 const METADATA_STORE = 'minor_league_metadata';
@@ -21,6 +21,7 @@ const PLAYER_BATTING_STATS_STORE = 'player_minor_league_batting_stats'; // Playe
 const MLB_PLAYER_BATTING_STATS_STORE = 'mlb_player_batting_stats'; // MLB player batting stats cache
 const HITTER_SCOUTING_STORE = 'hitter_scouting_ratings'; // Hitter scouting data (future)
 const AI_SCOUTING_BLURB_STORE = 'ai_scouting_blurbs'; // v9: AI-generated scouting reports
+const TEAM_PLANNING_OVERRIDES_STORE = 'team_planning_overrides'; // v10: User cell overrides in team planning grid
 
 export interface ScoutingRecord {
   key: string; // Format: "YYYY-MM-DD_source"
@@ -176,6 +177,23 @@ export interface AIScoutingBlurbRecord {
   generatedAt: number;
 }
 
+export interface TeamPlanningOverrideRecord {
+  key: string;             // "teamId_position_year"
+  teamId: number;
+  position: string;        // "C", "SP1", etc.
+  year: number;
+  playerId: number | null;
+  playerName: string;
+  age: number;
+  rating: number;
+  salary: number;
+  contractStatus: string;
+  level?: string;
+  isProspect?: boolean;
+  sourceType: 'extend' | 'org' | 'trade-target' | 'fa-target';
+  createdAt: number;
+}
+
 class IndexedDBService {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
@@ -316,6 +334,13 @@ class IndexedDBService {
           const aiBlurbStore = db.createObjectStore(AI_SCOUTING_BLURB_STORE, { keyPath: 'key' });
           aiBlurbStore.createIndex('playerId', 'playerId', { unique: false });
           console.log(`✅ Created AI scouting blurbs cache store`);
+        }
+
+        // Create team planning overrides store (v10)
+        if (!db.objectStoreNames.contains(TEAM_PLANNING_OVERRIDES_STORE)) {
+          const overridesStore = db.createObjectStore(TEAM_PLANNING_OVERRIDES_STORE, { keyPath: 'key' });
+          overridesStore.createIndex('teamId', 'teamId', { unique: false });
+          console.log(`✅ Created team planning overrides store`);
         }
 
         console.log(`✅ IndexedDB upgrade complete (now v${newVersion})`);
@@ -1428,6 +1453,123 @@ class IndexedDBService {
 
       request.onsuccess = () => {
         resolve(request.result > 0);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+  // Team Planning Override methods (v10)
+  async saveTeamPlanningOverride(record: TeamPlanningOverrideRecord): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(TEAM_PLANNING_OVERRIDES_STORE)) {
+      console.warn(`⚠️ Cannot save planning override - IndexedDB needs upgrade to v10. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([TEAM_PLANNING_OVERRIDES_STORE], 'readwrite');
+      const store = transaction.objectStore(TEAM_PLANNING_OVERRIDES_STORE);
+      const request = store.put(record);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async saveTeamPlanningOverrides(records: TeamPlanningOverrideRecord[]): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(TEAM_PLANNING_OVERRIDES_STORE)) {
+      console.warn(`⚠️ Cannot save planning overrides - IndexedDB needs upgrade to v10. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([TEAM_PLANNING_OVERRIDES_STORE], 'readwrite');
+      const store = transaction.objectStore(TEAM_PLANNING_OVERRIDES_STORE);
+
+      let completed = 0;
+      const total = records.length;
+
+      if (total === 0) {
+        resolve();
+        return;
+      }
+
+      for (const record of records) {
+        const request = store.put(record);
+        request.onsuccess = () => {
+          completed++;
+          if (completed === total) resolve();
+        };
+        request.onerror = () => reject(request.error);
+      }
+    });
+  }
+
+  async getTeamPlanningOverrides(teamId: number): Promise<TeamPlanningOverrideRecord[]> {
+    await this.init();
+    if (!this.db) return [];
+
+    if (!this.db.objectStoreNames.contains(TEAM_PLANNING_OVERRIDES_STORE)) {
+      return [];
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([TEAM_PLANNING_OVERRIDES_STORE], 'readonly');
+      const store = transaction.objectStore(TEAM_PLANNING_OVERRIDES_STORE);
+      const index = store.index('teamId');
+      const request = index.getAll(teamId);
+
+      request.onsuccess = () => {
+        resolve(request.result as TeamPlanningOverrideRecord[]);
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteTeamPlanningOverride(key: string): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(TEAM_PLANNING_OVERRIDES_STORE)) {
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([TEAM_PLANNING_OVERRIDES_STORE], 'readwrite');
+      const store = transaction.objectStore(TEAM_PLANNING_OVERRIDES_STORE);
+      const request = store.delete(key);
+
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteAllTeamPlanningOverrides(teamId: number): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(TEAM_PLANNING_OVERRIDES_STORE)) {
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([TEAM_PLANNING_OVERRIDES_STORE], 'readwrite');
+      const store = transaction.objectStore(TEAM_PLANNING_OVERRIDES_STORE);
+      const index = store.index('teamId');
+      const request = index.openCursor(IDBKeyRange.only(teamId));
+
+      request.onsuccess = (event) => {
+        const cursor = (event.target as IDBRequest).result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        } else {
+          resolve();
+        }
       };
       request.onerror = () => reject(request.error);
     });
