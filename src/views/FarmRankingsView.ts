@@ -809,17 +809,50 @@ export class FarmRankingsView {
           t.hittingDetails = s;
       });
 
-      // 2. Calculate Combined Stats
+      // 2. Build unified tier counts from merged prospect pool
+      //    (separate pitcher/hitter tier counts can't be summed — they use independent rankings)
+      const allProspects: { orgId: number; percentile: number; tfr: number }[] = [];
+      if (this.data?.prospects) {
+          for (const p of this.data.prospects) {
+              allProspects.push({ orgId: p.orgId, percentile: p.percentile || 0, tfr: p.trueFutureRating });
+          }
+      }
+      if (this.hitterData?.prospects) {
+          for (const p of this.hitterData.prospects) {
+              allProspects.push({ orgId: p.orgId, percentile: p.percentile || 0, tfr: p.trueFutureRating });
+          }
+      }
+      // Sort by percentile desc, TFR tiebreaker (same as renderCombinedTopProspects)
+      allProspects.sort((a, b) => {
+          const cmp = b.percentile - a.percentile;
+          if (cmp !== 0) return cmp;
+          return b.tfr - a.tfr;
+      });
+      // Assign unified ranks and count tiers per team
+      const teamTierCounts = new Map<number, { elite: number; aboveAvg: number; average: number; fringe: number }>();
+      allProspects.forEach((p, idx) => {
+          const rank = idx + 1;
+          if (!teamTierCounts.has(p.orgId)) {
+              teamTierCounts.set(p.orgId, { elite: 0, aboveAvg: 0, average: 0, fringe: 0 });
+          }
+          const tc = teamTierCounts.get(p.orgId)!;
+          if (rank <= 100) tc.elite++;
+          else if (rank <= 300) tc.aboveAvg++;
+          else if (rank <= 500) tc.average++;
+          else tc.fringe++;
+      });
+
       const unifiedSystems = Array.from(teamMap.values()).map(t => {
+          const tc = teamTierCounts.get(t.teamId) ?? { elite: 0, aboveAvg: 0, average: 0, fringe: 0 };
+          const elite = tc.elite;
+          const aboveAvg = tc.aboveAvg;
+          const average = tc.average;
+          const fringe = tc.fringe;
+
+          // Farm Score from unified tier counts
           const pScore = t.pitchingDetails?.totalWar ?? 0;
           const hScore = t.hittingDetails?.totalScore ?? 0;
-          const totalScore = pScore + hScore;
-
-          // Sum Tiers
-          const elite = (t.pitchingDetails?.tierCounts.elite ?? 0) + (t.hittingDetails?.tierCounts.elite ?? 0);
-          const aboveAvg = (t.pitchingDetails?.tierCounts.aboveAvg ?? 0) + (t.hittingDetails?.tierCounts.aboveAvg ?? 0);
-          const average = (t.pitchingDetails?.tierCounts.average ?? 0) + (t.hittingDetails?.tierCounts.average ?? 0);
-          const fringe = (t.pitchingDetails?.tierCounts.fringe ?? 0) + (t.hittingDetails?.tierCounts.fringe ?? 0);
+          const totalScore = (elite * 10) + (aboveAvg * 5) + (average * 1);
 
           // Determine Top Prospect
           let topProspectName = 'N/A';

@@ -6023,6 +6023,7 @@ th .stat-tooltip {
   gap: 0;
   margin-bottom: 1.5rem;
   border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
 }
 
 .profile-tab {
@@ -6056,8 +6057,20 @@ th .stat-tooltip {
   background: var(--color-primary);
 }
 
+.batter-profile-modal .modal-body,
+.pitcher-profile-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
 .profile-tab-content {
   position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .tab-pane {
@@ -6065,7 +6078,56 @@ th .stat-tooltip {
 }
 
 .tab-pane.active {
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* Ratings tab: radar stays visible, only analysis/projections scroll */
+.tab-pane[data-pane="ratings"] .ratings-section {
+  flex-shrink: 0;
+}
+.tab-pane[data-pane="ratings"] .analysis-toggle-row {
+  flex-shrink: 0;
+}
+.tab-pane[data-pane="ratings"].active {
+  overflow-y: auto;
+}
+.analysis-content-area {
+  flex: 1;
+  min-height: 200px;
+  display: flex;
+  flex-direction: column;
+}
+.analysis-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.analysis-pane::-webkit-scrollbar {
+  width: 5px;
+}
+.analysis-pane::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
+}
+.projections-pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+.projections-pane::-webkit-scrollbar {
+  width: 5px;
+}
+.projections-pane::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
 }
 
 /* =============================================================================
@@ -6076,7 +6138,7 @@ th .stat-tooltip {
 .batter-profile-modal .modal-lg {
   width: min(960px, 95vw);
   max-width: 960px;
-  max-height: 85vh;
+  max-height: calc(85vh + 25px);
   position: relative;
   overflow: hidden;
 }
@@ -6535,7 +6597,7 @@ th .stat-tooltip {
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  margin: -18px 0 60px;
+  margin: 0 0 58px;
   padding: 0;
   position: relative;
 }
@@ -6645,31 +6707,31 @@ th .stat-tooltip {
    Legend on left — polygon center shifted rightward to ~58% */
 .batter-profile-modal .radar-axis-top {
   top: -16%;
-  left: 54%;
+  left: 52%;
   transform: translateX(-50%);
 }
 
 .batter-profile-modal .radar-axis-upper-right {
   top: 24%;
-  right: 19%;
+  right: 22%;
   align-items: center;
 }
 
 .batter-profile-modal .radar-axis-lower-right {
-  bottom: 0%;
-  right: 26%;
+  bottom: 4%;
+  right: 28%;
   align-items: center;
 }
 
 .batter-profile-modal .radar-axis-lower-left {
-  bottom: 0%;
-  left: 34%;
+  bottom: 4%;
+  left: 35%;
   align-items: center;
 }
 
 .batter-profile-modal .radar-axis-upper-left {
   top: 24%;
-  left: 25%;
+  left: 26%;
   align-items: center;
 }
 
@@ -6682,7 +6744,7 @@ th .stat-tooltip {
 
 /* Vertically align running chart center with hitting chart center */
 .batter-profile-modal .running-radar-wrapper {
-  margin-top: 44px;
+  margin-top: 74px;
 }
 
 /* Radar chart placeholder for missing scouting data */
@@ -7078,23 +7140,12 @@ th .stat-tooltip {
 }
 
 /* Analysis Blurb */
-/* Analysis blurb — scrollable markdown container */
+/* Analysis blurb — markdown container (parent .analysis-pane handles scrolling) */
 .analysis-blurb {
-  max-height: 320px;
-  overflow-y: auto;
   padding: 0.75rem 1rem;
   font-size: 0.85rem;
   line-height: 1.6;
   color: var(--color-text-muted);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.15) transparent;
-}
-.analysis-blurb::-webkit-scrollbar {
-  width: 5px;
-}
-.analysis-blurb::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.15);
-  border-radius: 3px;
 }
 .analysis-blurb h2,
 .analysis-blurb h3,
@@ -7774,7 +7825,7 @@ th .stat-tooltip {
 .pitcher-profile-modal .modal-lg {
   width: min(960px, 95vw);
   max-width: 960px;
-  max-height: 85vh;
+  max-height: calc(85vh + 25px);
   position: relative;
   overflow: hidden;
 }
@@ -8074,7 +8125,7 @@ th .stat-tooltip {
 
 /* ─── Ratings Section: Pitching Radar + Arsenal/Stamina two-column ─── */
 .pitcher-profile-modal .ratings-section {
-  margin-bottom: 0.25rem;
+  margin-bottom: -25px;
 }
 
 .pitcher-profile-modal .chart-section-header {
@@ -8082,7 +8133,7 @@ th .stat-tooltip {
   align-items: center;
   justify-content: center;
   gap: 0.75rem;
-  margin: -18px 0 60px;
+  margin: 0 0 60px;
   padding: 0;
   position: relative;
 }
@@ -8111,7 +8162,7 @@ th .stat-tooltip {
 }
 
 .pitcher-profile-modal .ratings-radar-col .apexcharts-legend {
-  transform: translateX(0px) translateY(-15px);
+  transform: translateX(5px) translateY(-15px);
 }
 
 /* Custom "Stat Projections" legend item */
@@ -8173,20 +8224,20 @@ th .stat-tooltip {
 
 /* 3-axis triangle positions for pitching chart (Stuff top, Control lower-right, HRA lower-left) */
 .pitcher-profile-modal .pitching-axis-top {
-  top: -15%;
-  left: 57%;
+  top: -13%;
+  left: 53%;
   transform: translateX(-50%);
 }
 
 .pitcher-profile-modal .pitching-axis-lower-right {
-  bottom: 10%;
-  right: 5%;
+  bottom: 20%;
+  right: 15%;
   align-items: center;
 }
 
 .pitcher-profile-modal .pitching-axis-lower-left {
-  bottom: 10%;
-  left: 20%;
+  bottom: 20%;
+  left: 19%;
   align-items: center;
 }
 

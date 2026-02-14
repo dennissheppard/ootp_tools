@@ -990,7 +990,12 @@ export class BatterProfileModal {
             </div>
           </div>
           <div class="analysis-content-area">
-            ${this.viewMode === 'projections' ? projectionContent : (this.cachedAnalysisHtml || this.renderAnalysisLoading())}
+            <div class="analysis-pane" style="${this.viewMode === 'analysis' ? '' : 'display:none'}">
+              ${this.cachedAnalysisHtml || this.renderAnalysisLoading()}
+            </div>
+            <div class="projections-pane" style="${this.viewMode === 'projections' ? '' : 'display:none'}">
+              ${projectionContent}
+            </div>
           </div>
         </div>
         <div class="tab-pane" data-pane="career">
@@ -1022,7 +1027,7 @@ export class BatterProfileModal {
       { label: 'Contact', pos: 'top', est: data.estimatedContact, scout: s?.contact, tfr: data.tfrContact, projLabel: 'AVG', projValue: projStats.projAvg?.toFixed(3) },
       { label: 'Eye', pos: 'upper-right', est: data.estimatedEye, scout: s?.eye, tfr: data.tfrEye, projLabel: 'BB%', projValue: projStats.projBbPct !== undefined ? projStats.projBbPct.toFixed(1) + '%' : undefined },
       { label: 'Power', pos: 'lower-right', est: data.estimatedPower, scout: s?.power, tfr: data.tfrPower, projLabel: 'HR%', projValue: projStats.projHrPct !== undefined ? projStats.projHrPct.toFixed(1) + '%' : undefined },
-      { label: 'Gap', pos: 'lower-left', est: data.estimatedGap, scout: s?.gap, tfr: data.tfrGap, projLabel: '2B', projValue: projStats.proj2b?.toString() },
+      { label: 'Gap', pos: 'lower-left', est: data.estimatedGap ?? s?.gap, scout: data.estimatedGap !== undefined ? s?.gap : undefined, tfr: data.tfrGap, projLabel: '2B', projValue: projStats.proj2b?.toString() },
       { label: 'AvoidK', pos: 'upper-left', est: data.estimatedAvoidK, scout: s?.avoidK, tfr: data.tfrAvoidK, projLabel: 'K%', projValue: projStats.projKPct !== undefined ? projStats.projKPct.toFixed(1) + '%' : undefined },
     ];
 
@@ -1174,7 +1179,7 @@ export class BatterProfileModal {
       proj2b = Math.round(projAb * data.projDoublesRate);
     } else {
       // For prospects: use TFR gap (peak potential) for peak projection, not current TR gap
-      const gapForProj = data.tfrGap ?? data.estimatedGap;
+      const gapForProj = data.tfrGap ?? data.estimatedGap ?? s?.gap;
       if (gapForProj !== undefined) {
         proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(gapForProj));
       }
@@ -1184,7 +1189,7 @@ export class BatterProfileModal {
     if (data.projTriplesRate !== undefined) {
       proj3b = Math.round(projAb * data.projTriplesRate);
     } else {
-      const speedForProj = data.tfrSpeed ?? data.estimatedSpeed;
+      const speedForProj = data.tfrSpeed ?? data.estimatedSpeed ?? s?.speed ?? data.scoutSpeed;
       if (speedForProj !== undefined) {
         proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(speedForProj));
       }
@@ -1289,6 +1294,10 @@ export class BatterProfileModal {
         // ApexCharts re-renders legend DOM on toggle, so re-inject custom item
         requestAnimationFrame(() => this.addProjectionLegendItem());
       },
+      onUpdated: () => {
+        // ApexCharts re-renders legend on resize/redraw, re-inject custom item
+        requestAnimationFrame(() => this.addProjectionLegendItem());
+      },
     });
     this.radarChart.render();
 
@@ -1375,8 +1384,8 @@ export class BatterProfileModal {
       containerId: 'batter-running-radar-chart',
       categories,
       series,
-      height: 240,
-      radarSize: 104,
+      height: 204,
+      radarSize: 88,
       min: 20,
       max: 85,
       legendPosition: 'top',
@@ -1605,7 +1614,7 @@ export class BatterProfileModal {
           <td>${formatStat(latestStat.slg)}</td>
           <td>${formatStat(actualOps)}</td>
           <td>${actualOpsPlus}</td>
-          <td>${typeof latestStat.war === 'number' ? formatStat(latestStat.war, 1) : formatStat(actualWar, 1)}</td>
+          <td>${formatStat(actualWar, 1)}</td>
         </tr>
       `;
     }
@@ -1996,6 +2005,14 @@ export class BatterProfileModal {
     this.bindTabSwitching();
     this.bindProjectionToggle();
     this.bindAnalysisToggle();
+    // Bind flip cards in pre-rendered projection content
+    const flipCells = this.overlay?.querySelectorAll<HTMLElement>('.projection-section .flip-cell');
+    flipCells?.forEach(cell => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        cell.classList.toggle('is-flipped');
+      });
+    });
     this.initRadarChart(this.currentData!);
     this.initRunningRadarChart(this.currentData!);
     this.lockTabContentHeight();
@@ -2190,24 +2207,20 @@ export class BatterProfileModal {
   }
 
   private async fetchAndRenderAnalysis(): Promise<void> {
-    const contentArea = this.overlay?.querySelector('.analysis-content-area');
-    if (!contentArea || !this.currentData) return;
+    const analysisPane = this.overlay?.querySelector('.analysis-pane');
+    if (!analysisPane || !this.currentData) return;
 
     try {
       const aiData = this.buildAIScoutingData();
       if (aiData) {
         const blurb = await aiScoutingService.getAnalysis(this.currentData.playerId, 'hitter', aiData);
         this.cachedAnalysisHtml = this.renderAnalysisBlurb(blurb);
-        if (this.viewMode === 'analysis') {
-          contentArea.innerHTML = this.cachedAnalysisHtml;
-        }
+        analysisPane.innerHTML = this.cachedAnalysisHtml;
       }
     } catch (err) {
       console.error('Failed to generate analysis:', err);
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-      if (this.viewMode === 'analysis') {
-        contentArea.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
-      }
+      analysisPane.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
     }
   }
 
@@ -2226,43 +2239,32 @@ export class BatterProfileModal {
         // Update button active states
         buttons.forEach(b => b.classList.toggle('active', b.dataset.view === newView));
 
-        const contentArea = this.overlay?.querySelector('.analysis-content-area');
-        if (!contentArea || !this.currentData) return;
+        const analysisPane = this.overlay?.querySelector<HTMLElement>('.analysis-pane');
+        const projectionsPane = this.overlay?.querySelector<HTMLElement>('.projections-pane');
+        if (!analysisPane || !projectionsPane || !this.currentData) return;
 
         if (newView === 'projections') {
-          // Swap back to projection table
-          contentArea.innerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
-          this.bindProjectionToggle();
-          // Re-bind flip cards in projection
-          const flipCells = contentArea.querySelectorAll<HTMLElement>('.flip-cell');
-          flipCells?.forEach(cell => {
-            cell.addEventListener('click', (e) => {
-              e.stopPropagation();
-              cell.classList.toggle('is-flipped');
-            });
-          });
+          analysisPane.style.display = 'none';
+          projectionsPane.style.display = '';
         } else {
-          // Show analysis
-          if (this.cachedAnalysisHtml) {
-            contentArea.innerHTML = this.cachedAnalysisHtml;
-          } else {
-            // Show loading
-            contentArea.innerHTML = this.renderAnalysisLoading();
+          projectionsPane.style.display = 'none';
+          analysisPane.style.display = '';
+
+          // Fetch analysis if not cached
+          if (!this.cachedAnalysisHtml) {
+            analysisPane.innerHTML = this.renderAnalysisLoading();
 
             try {
               const aiData = this.buildAIScoutingData();
               if (aiData) {
                 const blurb = await aiScoutingService.getAnalysis(this.currentData.playerId, 'hitter', aiData);
                 this.cachedAnalysisHtml = this.renderAnalysisBlurb(blurb);
-                // Only update if still on analysis view
-                if (this.viewMode === 'analysis') {
-                  contentArea.innerHTML = this.cachedAnalysisHtml;
-                }
+                analysisPane.innerHTML = this.cachedAnalysisHtml;
               }
             } catch (err) {
               console.error('Failed to generate analysis:', err);
               const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-              contentArea.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
+              analysisPane.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
             }
           }
         }
@@ -2331,14 +2333,19 @@ export class BatterProfileModal {
 
         // Invalidate cached analysis since scout data changed
         this.cachedAnalysisHtml = '';
-
-        // Re-render the projection section below (only if in projections view)
-        if (this.viewMode === 'projections') {
-          const projSection = this.overlay?.querySelector('.projection-section');
-          if (projSection && this.currentData) {
-            projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
-            this.bindProjectionToggle();
+        const analysisPane = this.overlay?.querySelector<HTMLElement>('.analysis-pane');
+        if (analysisPane) {
+          analysisPane.innerHTML = this.renderAnalysisLoading();
+          if (this.viewMode === 'analysis') {
+            this.fetchAndRenderAnalysis();
           }
+        }
+
+        // Re-render the projection section
+        const projSection = this.overlay?.querySelector('.projection-section');
+        if (projSection && this.currentData) {
+          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
+          this.bindProjectionToggle();
         }
       });
     });

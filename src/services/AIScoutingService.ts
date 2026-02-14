@@ -80,6 +80,10 @@ export interface AIScoutingPlayerData {
   contractYears?: string;
   contractClauses?: string;
 
+  // Pitcher-specific context
+  projectedRole?: 'SP' | 'SW' | 'RP';
+  pitchArsenal?: string; // e.g. "Fastball 65, Slider 55, Changeup 45"
+
   // Rich context strings (populated internally by the service)
   teamContext?: string;
   leagueLeaders?: string;
@@ -96,29 +100,32 @@ TERMINOLOGY:
 LEAGUE CONTEXT:
 - WBL uses real baseball mechanics.
 - Pitching is scarce and highly valued.
-- Home runs are trending down; the gap between 70 and 80 power is smaller than it used to be. League leaders are hitting about 30, so lower power guys who hit ~10 aren't necessarily considered low value, especially if they have high Average or Gap ratings. 
+- Home runs are trending down; the gap between 70 and 80 power is smaller than it used to be. League leaders are hitting about 30 hr per season, so lower power guys who hit ~10 aren't necessarily considered low value, especially if they have high Average or Gap ratings. 
 - Because home runs have been trending down, elite HRA (home run allowed) rated pitchers might not be as valuable as they once were - guys with a 60 only give up a few more homers than a guy with an 80.
 - Good hitting catchers are extremely rare/valuable.
+- The difference between a 70 stuff pitcher and an 80 stuff pitcher is less than one strikeout per 9 innings, so is the 'extra' stuff that meaningful? Probably not.
+- 70+ of any rating is elite. 65 is all-star potential. 
 - True Ratings are performance-driven and more reliable than scouting for MLB-level players. The more MLB data a player has, the more reliable True Ratings are.
 - TFR blends minor league performance and scouting to project ceiling.
-- Older players who have been on the same team for many years are emotionally valuable and revered. Numbers will be retired, children named after, etc.
+- Pitchers with only 2 pitches are always relievers. More than 2 pitches and a stamina rating 40 or more, they have a chance to be a starting pitcher.
 
 ANALYSIS PRINCIPLES:
-- Lead with True Ratings — they are the foundation, your bread & butter. True Ratings are the intended replacement for scouting ratings.
-- Only use scouting ratings as supporting context if they differ from the TR. But you know True Ratings are better.
-- For prospects under 21, only look at Future Ratings and scouting. Those players haven't had time to develop their True Ratings yet.
-- For prospects 21 and over, you can use True Ratings more, but until they have MLB experience, you're Future focused
-- Once a player has a couple of major league seasons under his belt his True Future Ratings become his True Ratings. Scouting ratings are always 'potential' or future focused.
+- Lead with True Ratings, your bread & butter. True Ratings are the intended replacement for scouting ratings.
+- Only use scouting ratings as supporting context if they differ from the TR. But True Ratings are better.
+- Scouting ratings are always 'potential' or future focused, not current ability.
+- For players under 21, don't look at True Stuff, True Control, True HRA, True Contact, True Power, True Eye, True AvoidK, or True Gap. They don't matter. Only look at their *Future* versions of those Ratings. Those players haven't had time to develop their True Ratings yet.
+- For players 21 and over, you can use True Ratings more, but until they have MLB experience, you're Future focused
+- Once a player has a couple of major league seasons under his belt his True Future Ratings become his True Ratings.
 - Analyze the ratings and stats and context — do not simply restate numbers.
-- Compare projections to league leaders, team needs, and historical context.
+- Compare projections to league leaders, parent organization needs, and historical context.
 - Frame minor leaguers in terms of their parent organization.
 - Be specific: “His projected 3.15 FIP would have ranked 4th last season” is better than “He has good stuff.”
-- A 5.0 TR is a superstar. A 2.5 TR is average. 2.0 is probably replacement level. A 5.0 TFR signals elite prospect ceiling.
+- A 5.0 TR is a superstar. 4.0-4.5 is all-star calibar. 3.5 is everyday player any team would want. 3.0 is above average, solid. A 2.5 TR is average. 2.0 is probably near replacement level. 1.5 is replacement level or worse. A 5.0 TFR signals elite prospect ceiling.
 - Put a player's history into perspective. If he's been on a team for 15 years and is aging and not as good now, nod to that, show respect, don't just bash.
 - If salary information is available and you reference it, use the following as context: league minimum salary is $228k. Arbitration eligible guys are usually getting between $1m-$8m. Very good players make $6m-$10m. Super stars make $12m+. Anything north of $21m for a single season is eye popping.
-- If personality information is available and you reference it, only link personality to performance where it makes sense. Greed doesn't impact performance, but might impact contract. A low work ethic or adaptibility or intelligence may impact performance or development or growth.
+- If player personality information is available and you reference it, only link personality to performance where it makes sense. Greed doesn't impact performance, but might impact contract. A low work ethic or adaptibility or intelligence may impact performance or development or growth.
 
-Format your response in a structured, sectioned summary style scouting report of no more than 200 words. Use bullets if it helps your point. All of the numbers you'd be referencing are already in charts above this analysis. Do not restate a table or listing or bullets of ratings or stats or player information. It would be redundant with the player profile.
+Format your response in a structured, sectioned summary style scouting report of no more than 200 words. Use bullets for analysis if it helps your point, but don't restate position, age, team, or ratings in bullets. All of the numbers you'd be referencing are already in charts above this analysis. Do not restate a table or listing or bullets of ratings or stats or player information. It would be redundant with the player profile.
 `;
 
 class AIScoutingService {
@@ -383,6 +390,10 @@ class AIScoutingService {
     // Header
     lines.push(`=== PLAYER REPORT: ${data.playerName.toUpperCase()} ===`);
     if (data.position) lines.push(`Position: ${data.position}`);
+    if (data.projectedRole) {
+      const roleLabels: Record<string, string> = { SP: 'Starting Pitcher', SW: 'Swingman', RP: 'Relief Pitcher' };
+      lines.push(`Projected Role: ${roleLabels[data.projectedRole] ?? data.projectedRole}`);
+    }
     if (data.age) lines.push(`Age: ${data.age}`);
 
     // Team / org context
@@ -445,6 +456,7 @@ class AIScoutingService {
       if (data.scoutControl !== undefined) lines.push(`Scout Control: ${data.scoutControl}`);
       if (data.scoutHra !== undefined) lines.push(`Scout HRA: ${data.scoutHra}`);
       if (data.scoutStamina !== undefined) lines.push(`Stamina: ${data.scoutStamina}`);
+      if (data.pitchArsenal) lines.push(`Pitch Arsenal: ${data.pitchArsenal}`);
     } else {
       if (data.scoutPower !== undefined) lines.push(`Scout Power: ${data.scoutPower}`);
       if (data.scoutEye !== undefined) lines.push(`Scout Eye: ${data.scoutEye}`);

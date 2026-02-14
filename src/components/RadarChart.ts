@@ -29,6 +29,7 @@ interface RadarChartConfig {
   offsetX?: number;
   offsetY?: number;
   onLegendClick?: (seriesName: string, seriesIndex: number) => void;
+  onUpdated?: () => void;
 }
 
 export class RadarChart {
@@ -46,6 +47,7 @@ export class RadarChart {
   private offsetX: number;
   private offsetY: number;
   private onLegendClick?: (seriesName: string, seriesIndex: number) => void;
+  private onUpdated?: () => void;
 
   constructor(config: RadarChartConfig) {
     this.containerId = config.containerId;
@@ -61,6 +63,7 @@ export class RadarChart {
     this.offsetX = config.offsetX ?? 0;
     this.offsetY = config.offsetY ?? -10;
     this.onLegendClick = config.onLegendClick;
+    this.onUpdated = config.onUpdated;
   }
 
   render(): void {
@@ -123,12 +126,19 @@ export class RadarChart {
           speed: 600,
           dynamicAnimation: { enabled: true, speed: 350 },
         },
-        events: this.onLegendClick ? {
-          legendClick: (_chartContext: any, seriesIndex: number) => {
-            const seriesName = this.series[seriesIndex]?.name ?? '';
-            this.onLegendClick!(seriesName, seriesIndex);
-          },
-        } : {},
+        events: {
+          ...(this.onLegendClick ? {
+            legendClick: (_chartContext: any, seriesIndex: number) => {
+              const seriesName = this.series[seriesIndex]?.name ?? '';
+              this.onLegendClick!(seriesName, seriesIndex);
+            },
+          } : {}),
+          ...(this.onUpdated ? {
+            updated: () => {
+              this.onUpdated!();
+            },
+          } : {}),
+        },
       },
       series: apexSeries,
       colors,

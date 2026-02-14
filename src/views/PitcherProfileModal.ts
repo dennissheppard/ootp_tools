@@ -919,7 +919,12 @@ export class PitcherProfileModal {
             </div>
           </div>
           <div class="analysis-content-area">
-            ${this.viewMode === 'projections' ? projectionContent : (this.cachedAnalysisHtml || this.renderAnalysisLoading())}
+            <div class="analysis-pane" style="${this.viewMode === 'analysis' ? '' : 'display:none'}">
+              ${this.cachedAnalysisHtml || this.renderAnalysisLoading()}
+            </div>
+            <div class="projections-pane" style="${this.viewMode === 'projections' ? '' : 'display:none'}">
+              ${projectionContent}
+            </div>
           </div>
         </div>
         <div class="tab-pane" data-pane="career">
@@ -1285,6 +1290,9 @@ export class PitcherProfileModal {
           this.hiddenSeries.add(seriesName);
         }
         this.updateAxisBadgeVisibility();
+        requestAnimationFrame(() => this.addProjectionLegendItem());
+      },
+      onUpdated: () => {
         requestAnimationFrame(() => this.addProjectionLegendItem());
       },
     });
@@ -1845,6 +1853,14 @@ export class PitcherProfileModal {
     this.bindTabSwitching();
     this.bindProjectionToggle();
     this.bindAnalysisToggle();
+    // Bind flip cards in pre-rendered projection content
+    const flipCells = this.overlay?.querySelectorAll<HTMLElement>('.projection-section .flip-cell');
+    flipCells?.forEach(cell => {
+      cell.addEventListener('click', (e) => {
+        e.stopPropagation();
+        cell.classList.toggle('is-flipped');
+      });
+    });
     this.initRadarChart(this.currentData!);
     this.initArsenalRadarChart(this.currentData!);
     this.lockTabContentHeight();
@@ -1939,24 +1955,20 @@ export class PitcherProfileModal {
   }
 
   private async fetchAndRenderAnalysis(): Promise<void> {
-    const contentArea = this.overlay?.querySelector('.analysis-content-area');
-    if (!contentArea || !this.currentData) return;
+    const analysisPane = this.overlay?.querySelector('.analysis-pane');
+    if (!analysisPane || !this.currentData) return;
 
     try {
       const aiData = this.buildAIScoutingData();
       if (aiData) {
         const blurb = await aiScoutingService.getAnalysis(this.currentData.playerId, 'pitcher', aiData);
         this.cachedAnalysisHtml = this.renderAnalysisBlurb(blurb);
-        if (this.viewMode === 'analysis') {
-          contentArea.innerHTML = this.cachedAnalysisHtml;
-        }
+        analysisPane.innerHTML = this.cachedAnalysisHtml;
       }
     } catch (err) {
       console.error('Failed to generate analysis:', err);
       const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-      if (this.viewMode === 'analysis') {
-        contentArea.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
-      }
+      analysisPane.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
     }
   }
 
@@ -1975,6 +1987,24 @@ export class PitcherProfileModal {
   private buildAIScoutingData(): AIScoutingPlayerData | null {
     const data = this.currentData;
     if (!data) return null;
+
+    // Determine projected role using same logic as Team Ratings
+    const s = this.scoutingData;
+    const pitchRatings = s?.pitches ?? data.pitchRatings;
+    const stamina = s?.stamina ?? data.scoutStamina;
+    const roleInput: PitcherRoleInput = { pitchRatings, stamina, ootpRole: data.role };
+    const projectedRole = determinePitcherRole(roleInput);
+
+    // Build pitch arsenal string (e.g. "Fastball 65, Slider 55, Changeup 45")
+    let pitchArsenal: string | undefined;
+    if (pitchRatings) {
+      const entries = Object.entries(pitchRatings)
+        .filter(([, rating]) => rating >= 25)
+        .sort(([, a], [, b]) => b - a);
+      if (entries.length > 0) {
+        pitchArsenal = entries.map(([name, rating]) => `${name} ${rating}`).join(', ');
+      }
+    }
 
     return {
       playerName: data.playerName,
@@ -2000,6 +2030,8 @@ export class PitcherProfileModal {
       projHr9: data.projHr9,
       projWar: data.projWar,
       projIp: data.projIp,
+      projectedRole,
+      pitchArsenal,
       // Personality
       leadership: this.scoutingData?.leadership,
       loyalty: this.scoutingData?.loyalty,
@@ -2055,38 +2087,32 @@ export class PitcherProfileModal {
         // Update button active states
         buttons.forEach(b => b.classList.toggle('active', b.dataset.view === newView));
 
-        const contentArea = this.overlay?.querySelector('.analysis-content-area');
-        if (!contentArea || !this.currentData) return;
+        const analysisPane = this.overlay?.querySelector<HTMLElement>('.analysis-pane');
+        const projectionsPane = this.overlay?.querySelector<HTMLElement>('.projections-pane');
+        if (!analysisPane || !projectionsPane || !this.currentData) return;
 
         if (newView === 'projections') {
-          contentArea.innerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
-          this.bindProjectionToggle();
-          const flipCells = contentArea.querySelectorAll<HTMLElement>('.flip-cell');
-          flipCells?.forEach(cell => {
-            cell.addEventListener('click', (e) => {
-              e.stopPropagation();
-              cell.classList.toggle('is-flipped');
-            });
-          });
+          analysisPane.style.display = 'none';
+          projectionsPane.style.display = '';
         } else {
-          if (this.cachedAnalysisHtml) {
-            contentArea.innerHTML = this.cachedAnalysisHtml;
-          } else {
-            contentArea.innerHTML = this.renderAnalysisLoading();
+          projectionsPane.style.display = 'none';
+          analysisPane.style.display = '';
+
+          // Fetch analysis if not cached
+          if (!this.cachedAnalysisHtml) {
+            analysisPane.innerHTML = this.renderAnalysisLoading();
 
             try {
               const aiData = this.buildAIScoutingData();
               if (aiData) {
                 const blurb = await aiScoutingService.getAnalysis(this.currentData.playerId, 'pitcher', aiData);
                 this.cachedAnalysisHtml = this.renderAnalysisBlurb(blurb);
-                if (this.viewMode === 'analysis') {
-                  contentArea.innerHTML = this.cachedAnalysisHtml;
-                }
+                analysisPane.innerHTML = this.cachedAnalysisHtml;
               }
             } catch (err) {
               console.error('Failed to generate analysis:', err);
               const errorMsg = err instanceof Error ? err.message : 'Unknown error';
-              contentArea.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
+              analysisPane.innerHTML = `<div class="analysis-blurb"><p class="analysis-error">Failed to generate analysis: ${errorMsg}</p></div>`;
             }
           }
         }
@@ -2148,14 +2174,19 @@ export class PitcherProfileModal {
 
         // Invalidate cached analysis since scout data changed
         this.cachedAnalysisHtml = '';
-
-        // Re-render the projection section (only if in projections view)
-        if (this.viewMode === 'projections') {
-          const projSection = this.overlay?.querySelector('.projection-section');
-          if (projSection && this.currentData) {
-            projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
-            this.bindProjectionToggle();
+        const analysisPane = this.overlay?.querySelector<HTMLElement>('.analysis-pane');
+        if (analysisPane) {
+          analysisPane.innerHTML = this.renderAnalysisLoading();
+          if (this.viewMode === 'analysis') {
+            this.fetchAndRenderAnalysis();
           }
+        }
+
+        // Re-render the projection section
+        const projSection = this.overlay?.querySelector('.projection-section');
+        if (projSection && this.currentData) {
+          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
+          this.bindProjectionToggle();
         }
       });
     });
