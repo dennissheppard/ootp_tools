@@ -176,6 +176,8 @@ export interface RatedHitterProspect {
     teamId: number;
     team: string;
     orgId: number;
+    /** Parent organization name */
+    parentOrg: string;
     /** Projected wOBA at peak */
     projWoba: number;
     /** Percentile rank among hitter prospects */
@@ -1251,6 +1253,7 @@ class TeamRatingsService {
               teamId: player.teamId,
               team: team.nickname,
               orgId,
+              parentOrg: teamMap.get(orgId)?.nickname ?? team.nickname,
               projWoba: tfr.projWoba,
               projBbPct: tfr.projBbPct,
               projKPct: tfr.projKPct,

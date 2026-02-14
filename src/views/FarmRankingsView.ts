@@ -1821,7 +1821,7 @@ export class FarmRankingsView {
           </div>
           <div id="farm-position-depth">
               ${this.renderPositionDepthCollapsible({
-                  title: 'Position Depth Rankings',
+                  title: 'Position Rankings',
                   note: '(Top 5 by Position)',
                   positions: positionGroups
               })}
@@ -1834,7 +1834,7 @@ export class FarmRankingsView {
     if (!this.hitterData) return new Map();
 
     const groups = new Map<string, RatedHitterProspect[]>();
-    const positionOrder = ['C', 'SS', '2B', '3B', '1B', 'CF', 'LF', 'RF', 'DH'];
+    const positionOrder = ['C', '1B', '2B', 'SS', '3B', 'LF', 'CF', 'RF', 'DH'];
 
     // Initialize all positions
     for (const pos of positionOrder) {
@@ -1996,7 +1996,7 @@ export class FarmRankingsView {
     note: string;
     positions: Map<string, RatedHitterProspect[]>;
   }): string {
-    const positionOrder = ['C', 'SS', '2B', '3B', '1B', 'CF', 'LF', 'RF'];
+    const positionOrder = ['C', '1B', '2B', 'SS', '3B', 'LF', 'CF', 'RF'];
 
     // Preview: show top prospect at each key position
     const previewPositions = ['C', 'SS', 'CF'];
@@ -2024,7 +2024,7 @@ export class FarmRankingsView {
         <tr>
           <td style="width: 30px; text-align: center; color: var(--color-text-muted);">${idx + 1}</td>
           <td><button class="btn-link player-name-link" data-player-id="${p.playerId}" data-player-type="hitter" title="ID: ${p.playerId}">${p.name}</button></td>
-          <td>${p.team || 'FA'}</td>
+          <td>${p.parentOrg || 'FA'}</td>
           <td>${this.renderRatingBadge(p.trueFutureRating)}</td>
           <td>${p.projWoba.toFixed(3)}</td>
         </tr>
@@ -2035,7 +2035,7 @@ export class FarmRankingsView {
           <h4 style="margin: 0.5rem 0; font-size: 0.95em; color: var(--color-text-secondary);">${pos}</h4>
           <table class="stats-table" style="width: 100%; font-size: 0.85em;">
             <thead>
-              <tr><th>#</th><th>Name</th><th>Team</th><th>TFR</th><th>wOBA</th></tr>
+              <tr><th>#</th><th>Name</th><th>Org</th><th>TFR</th><th>wOBA</th></tr>
             </thead>
             <tbody>${rows}</tbody>
           </table>
