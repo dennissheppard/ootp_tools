@@ -36,6 +36,7 @@ export interface PlayerRatingsData {
   scoutInjuryProneness?: string;
   scoutOvr?: number;
   scoutPot?: number;
+  retired?: boolean;
 
   // OSA data (parallel structure for toggle)
   osaStuff?: number;

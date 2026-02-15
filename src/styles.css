@@ -6057,6 +6057,17 @@ th .stat-tooltip {
   background: var(--color-primary);
 }
 
+.profile-tab.disabled {
+  color: var(--color-text-muted);
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.profile-tab.disabled:hover {
+  background: none;
+  color: var(--color-text-muted);
+}
+
 .batter-profile-modal .modal-body,
 .pitcher-profile-modal .modal-body {
   display: flex;
