@@ -60,19 +60,20 @@ A **pure peak/ceiling projection system** that projects what a prospect's age-27
    - MiLB stats affect TR (development curves), not TFR (ceiling projection)
 
 2. **Apply ceiling boost** — Scale projections proportionally above average
-   - `ceilingValue = meanValue + (meanValue - avgAtRating50) × 0.35`
+   - `ceilingValue = meanValue + (meanValue - avgAtRating50) × 0.30`
    - At rating 50 (average): no boost. At rating 80 (elite): significant boost
+   - Pitcher boost (0.30) is lower than batter boost (0.35) because pitcher scouting slopes are ~2.5x smaller
 
-3. **Rank all prospects** by each component → percentiles
+3. **Find each component's percentile in MLB distribution** (2015-2020, ages 25-29, 50+ IP)
+   - Each prospect's boosted rate is compared directly against the MLB peak-age distribution
+   - Stuff (K/9), Control (BB/9), HRA (HR/9) all ranked against MLB distributions
 
-4. **Map component percentiles** to MLB peak-age distributions (2015-2020, ages 25-29)
-
-5. **Calculate FIP** from mapped rates with clamping:
+4. **Calculate FIP** from mapped rates with clamping:
    - K9: 3.0 to 13.0
    - BB9: 0.50 to 7.0
    - HR9: 0.15 to 2.5
 
-6. **Map FIP to MLB peak-year FIP distribution** for final TFR rating (0.5-5.0 scale)
+5. **Map FIP to MLB peak-year FIP distribution** for final TFR rating (0.5-5.0 scale)
    - Uses same MLB peak-age pool (2015-2020, ages 25-29, 50+ IP) as component distributions
    - Makes TFR calibration consistent: components and final rating both compared to MLB
 
@@ -339,7 +340,46 @@ K%      1.724  2.214   -0.400
 HR%     0.648  0.849   -0.069
 ```
 
-#### 9. Development-Curve-Based Prospect TR (Feb 2026)
+#### 10. Pitcher Forward/Inverse Intercept Alignment (Feb 2026)
+
+**Problem:** The inverse formulas (stat → rating) in `TrueRatingsCalculationService` used different intercepts than the forward formulas (rating → stat) in `PotentialStatsService`. When the projection pipeline does a round-trip (actual stat → estimate rating → project stat), this created a systematic FIP bias:
+
+| Stat | Old Inverse Intercept | Forward Intercept | Round-trip bias |
+|------|----------------------|-------------------|----------------|
+| K/9  | 2.07                 | 2.10              | +0.03 K/9 |
+| BB/9 | 5.22                 | 5.30              | +0.08 BB/9 |
+| HR/9 | 2.08                 | 2.18              | +0.10 HR/9 |
+
+Net effect: **+0.16 FIP systematic bias** for every pitcher. Since HR/9 has a 13/9 weight in the FIP formula, the 0.10 HR/9 mismatch alone contributed +0.14 FIP.
+
+**Solution:** Aligned all inverse intercepts to match the forward formulas (2.10, 5.30, 2.18) across `TrueRatingsCalculationService`, `StatsView`, `PotentialStatsService`, and `PotentialStatsView`.
+
+**Impact (measured on top 10 starters by 2020 game WAR):**
+- Average FIP gap: +0.296 → +0.132 (55% reduction)
+- Average WAR gap: -1.06 → -0.63 (41% reduction)
+- Top pitcher (6.9 gWAR): projected 5.7 → 6.3 WAR
+
+**Critical lesson:** Forward and inverse formula intercepts MUST always match. Mismatch causes round-trip bias amplified by FIP component weights.
+
+#### 11. IP Projection Double-Penalty Fix (Feb 2026)
+
+**Problem:** The IP projection applied an injury modifier to the model-based IP *before* blending with historical data. Since historical IP already reflects injury outcomes (fragile pitchers have lower historical IP), this was double-counting injury proneness.
+
+Example: A "fragile" pitcher (stamina 60, proven 200 IP):
+- Before: model=175 (fragile penalty), blend: 175×0.35 + 200×0.65 = 191 IP
+- After: model=190 (no penalty when history exists), blend: 190×0.35 + 200×0.65 = 197 IP
+
+**Solution:** Injury modifier now only applies when there's no historical data (prospects). For established pitchers, history already captures durability.
+
+#### 12. Pitcher TFR Architecture Fix (Feb 2026)
+
+**Problem:** The pitcher TFR pipeline ranked prospects **among each other** by component, then mapped those percentile ranks to MLB distributions. The ceiling boost is a linear transform that preserves rank order, so it had **zero effect** on TFR. This also created a "combining unicorn" problem — the #1 prospect in K/9, BB/9, and HR/9 simultaneously received the best MLB value for all three, even though no real pitcher achieves that.
+
+**Solution:** Changed to direct MLB distribution comparison (same approach batters already used). Each prospect's boosted rate value is compared directly against the MLB peak-age distribution to find its percentile.
+
+**Impact:** Ceiling boost now meaningfully affects pitcher TFR ratings; combined with separate calibration (0.30 vs batter's 0.35), produces a healthy pitcher TFR distribution.
+
+#### 13. Development-Curve-Based Prospect TR (Feb 2026)
 
 **Problem:** Prospect TR used a deterministic "devCap" formula: `TR = 50 + (TFR - 50) × (age - 16) / 11`. This was purely a function of TFR + age — it added no independent signal and couldn't differentiate between a 22-year-old who was outperforming expectations vs. one who was underperforming.
 
@@ -435,6 +475,14 @@ Three-model ensemble for future performance:
 - **Neutral** (30%): Status quo
 - **Pessimistic** (30%): Trend-based decline
 
+**Pitcher Projection Pipeline:**
+1. **Multi-year weighted stats** → 3-year average (5/3/2 weighting)
+2. **FIP-aware regression** → regresses toward quality-adjusted target (elite pitchers regress less)
+3. **Scouting blend** → blends with scouting at IP/(IP+60) weight
+4. **Rating estimation** → converts blended rates to 0-100 scale ratings (inverse formulas)
+5. **Ensemble aging** → 35% full aging, 65% 20%-aging (neutral+pessimistic)
+6. **Rating→Rate conversion** → converts aged ratings back to rate stats (forward formulas)
+
 ## Key Services
 
 ### Pitcher Services
@@ -442,8 +490,10 @@ Three-model ensemble for future performance:
 | Service | Purpose |
 |---------|---------|
 | `TrueRatingsService` | MLB stats fetching, pitcher True Rating calculation |
-| `TrueRatingsCalculationService` | Core pitcher TR algorithm with multi-year weighting |
-| `TrueFutureRatingService` | Pitcher prospect TFR (FIP-based peak projections) |
+| `TrueRatingsCalculationService` | Core pitcher TR algorithm with multi-year weighting (inverse formulas) |
+| `TrueFutureRatingService` | Pitcher prospect TFR (FIP-based peak projections, direct MLB distribution comparison) |
+| `PotentialStatsService` | Rating→rate stat conversion (forward formulas — intercepts must match inverse) |
+| `FipWarService` | FIP calculation, WAR formula, constants (FIP_CONSTANT, replacementFip, runsPerWin) |
 | `ScoutingDataService` | Pitcher scouting CSV parsing and storage |
 
 ### Batter Services
@@ -464,7 +514,9 @@ Three-model ensemble for future performance:
 | `ContractService` | Contract parsing, salary schedules, years remaining, team control |
 | `TeamRatingsService` | Farm rankings, organizational depth analysis, Farm Score |
 | `DevTrackerService` | Org development scoring (youth dev, peak WAR, aging curves, trade impact) |
-| `ProjectionService` | Future performance projections |
+| `ProjectionService` | Future performance projections, IP projection pipeline |
+| `EnsembleProjectionService` | Three-model ensemble blending (optimistic/neutral/pessimistic) |
+| `AgingService` | Age-based rating adjustments |
 | `DevelopmentSnapshotService` | Historical scouting snapshot storage |
 | `MinorLeagueStatsService` | Minor league stats from API/CSV |
 | `IndexedDBService` | Persistent browser storage (v7) |
@@ -479,6 +531,7 @@ Primary tools for inspecting and validating ratings:
 |------|---------|-------|
 | `tools/trace-rating.ts` | Trace the full TR/TFR pipeline for a single player — shows every step from scouting/stats through blending, percentiles, and final rating | `npx tsx tools/trace-rating.ts <playerId> --type=batter --full --scouting=my` |
 | `tools/validate-ratings.ts` | Automated TR validation: formula WAR vs game WAR correlation, distribution shape, year-over-year stability, extreme value detection | `npx tsx tools/validate-ratings.ts --year=2020` |
+| `tools/investigate-pitcher-war.ts` | Investigate pitcher WAR projection gaps — compares formula WAR vs game WAR, isolates FIP vs IP contributions, identifies pipeline bottlenecks | `npx tsx tools/investigate-pitcher-war.ts` |
 
 **trace-rating.ts** is the source of truth for debugging. If something looks wrong in the UI, trace the player to see the real pipeline output. Key flags:
 - `--type=batter|pitcher` — player type (auto-detected if omitted)
@@ -544,14 +597,28 @@ These are historical artifacts — useful for understanding how the models were 
 
 ## Key Formulas
 
+**Pitcher Rating↔Rate Conversion (forward and inverse MUST match):**
+```
+Forward (PotentialStatsService):     Inverse (TrueRatingsCalculationService):
+K/9  = 2.10 + 0.074 × Stuff        Stuff   = (K/9  - 2.10) / 0.074
+BB/9 = 5.30 - 0.052 × Control       Control = (5.30 - BB/9) / 0.052
+HR/9 = 2.18 - 0.024 × HRA          HRA     = (2.18 - HR/9) / 0.024
+```
+> **Critical:** These intercepts must be identical in both directions. A mismatch causes round-trip bias amplified by FIP weights (see improvement #10).
+
 **FIP (Fielding Independent Pitching):**
 ```
 FIP = ((13 × HR/9) + (3 × BB/9) - (2 × K/9)) / 9 + 3.47
 ```
 
+**FIP WAR Constants (FipWarService.ts):**
+- `FIP_CONSTANT = 3.47`
+- `replacementFip = avgFip + 1.00` (dynamically calculated; default ~5.20)
+- `runsPerWin = 8.5`
+
 **Pitcher WAR:**
 ```
-WAR = ((5.00 - FIP) / 9) × IP / 50
+WAR = ((replacementFIP - playerFIP) / runsPerWin) × (IP / 9)
 ```
 
 **Batter WAR:**
@@ -651,6 +718,11 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 **Peak Workload Projections:**
 - SP base: 30 + (stamina × 3.0), clamped 120-260 IP
 - RP base: 50 + (stamina × 0.5), clamped 40-80 IP
+- Injury modifiers only apply to prospects without historical data (established pitchers' history already captures durability)
+- Established pitchers use 65% historical IP + 35% model blend
+- Skill modifier: FIP ≤3.50 → 1.20x, FIP ≤4.00 → 1.10x, FIP >5.0 → 0.80x
+- Elite boost: FIP <3.0 → 1.08x (sliding to 1.0 at FIP 4.0)
+- Cap: 105% of historical max IP
 
 **Pitcher MLB Distribution Data:**
 - Source years: 2015-2020

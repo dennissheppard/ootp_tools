@@ -28,7 +28,7 @@ outcomes include **variance** (hot streaks, extreme seasons). The MLB distributi
 goes up to 10.5 WAR/600, but projections from scout ratings max at ~7-8 WAR/600.
 The regression coefficients produce mean outcomes, not peak outcomes.
 
-**Fix:** Added `CEILING_BOOST_FACTOR` (currently 0.35 for batters, 0.35 for pitchers)
+**Fix:** Added `CEILING_BOOST_FACTOR` (currently 0.35 for batters, 0.30 for pitchers)
 that scales up projections proportionally to how far above average each component is:
 ```
 ceilingValue = meanValue + (meanValue - avgAtRating50) * CEILING_BOOST_FACTOR

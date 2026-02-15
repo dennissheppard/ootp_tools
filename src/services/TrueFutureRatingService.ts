@@ -665,7 +665,7 @@ class TrueFutureRatingService {
 
     // K9: higher is better → boost UP above average
     // BB9/HR9: lower is better → boost DOWN below average (formula works naturally)
-    const CEILING_BOOST = .7;
+    const CEILING_BOOST = .3;
     const stuffValue = scoutRates.k9 + (scoutRates.k9 - avgRates.k9) * CEILING_BOOST;
     const controlValue = scoutRates.bb9 + (scoutRates.bb9 - avgRates.bb9) * CEILING_BOOST;
     const hraValue = scoutRates.hr9 + (scoutRates.hr9 - avgRates.hr9) * CEILING_BOOST;
