@@ -487,19 +487,20 @@ export class TrueRatingsView {
 
     const prospectToggle = this.container.querySelector<HTMLButtonElement>('[data-player-toggle="prospect"]');
     if (prospectToggle) {
-      prospectToggle.disabled = disableProspects;
+      // Use class instead of disabled attr so native title tooltip still fires
+      prospectToggle.classList.toggle('toggle-btn-disabled', disableProspects);
       prospectToggle.setAttribute('aria-disabled', String(disableProspects));
       prospectToggle.title = disableProspects
-        ? 'Prospects are only available for the current season.'
+        ? 'Prospect ratings from prior years are not available'
         : '';
     }
 
     const undraftedToggle = this.container.querySelector<HTMLButtonElement>('[data-player-toggle="undrafted"]');
     if (undraftedToggle) {
-      undraftedToggle.disabled = disableProspects;
+      undraftedToggle.classList.toggle('toggle-btn-disabled', disableProspects);
       undraftedToggle.setAttribute('aria-disabled', String(disableProspects));
       undraftedToggle.title = disableProspects
-        ? 'Undrafted players are only available for the current season.'
+        ? 'Undrafted player ratings from prior years are not available'
         : '';
     }
 
@@ -684,6 +685,7 @@ export class TrueRatingsView {
     const buttons = this.container.querySelectorAll<HTMLButtonElement>('[data-player-toggle]');
     buttons.forEach(button => {
       button.addEventListener('click', () => {
+        if (button.classList.contains('toggle-btn-disabled')) return;
         const toggle = button.dataset.playerToggle;
         let ratingsViewChanged = false;
 

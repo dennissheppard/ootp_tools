@@ -395,31 +395,91 @@ Example: A "fragile" pitcher (stamina 60, proven 200 IP):
 
 A year-by-year roster planning grid that shows contract obligations, projected gaps, and where farm system prospects slot in. Select a team and see 6 years of roster planning across lineup, rotation, and bullpen.
 
+**File:** `src/views/TeamPlanningView.ts`
+
 **Grid Structure:**
 - Position rows: C, 1B, 2B, SS, 3B, LF, CF, RF, DH (lineup), SP1-5 (rotation), CL/SU/MR (bullpen)
 - Year columns: current year + 5 forward years
-- Each cell shows abbreviated name, age, True Rating, and salary
+- Each cell shows abbreviated name, age (labeled "Age: X"), star rating, and salary
+- Sections (Lineup, Rotation, Bullpen) are collapsible accordions
+
+**Rating Projections (`projectPlanningRating()`):**
+- Ratings are projected per-year using growth and aging curves — they are NOT static across the grid
+- **Growth phase** (age < 27, TFR > TR): linear interpolation from current TR toward TFR, reaching peak at age 27
+- **Peak plateau**: ages 27-29, no decline
+- **Aging decline**: per-year star loss based on age bracket (30-32: -0.05/yr, 33-35: -0.10/yr, 36-38: -0.20/yr, 39+: -0.30/yr). Decline rate is keyed on age at start of each transition, not end
+- **Floor**: all projected ratings clamped to minimum 0.5
+- All projected ratings rounded to nearest 0.5 (matching the game's star scale)
+- TFR for MLB hitters comes from `getUnifiedHitterTfrData()` (expanded pool including young MLB players with upside); pitcher TFR comes from `getFarmData()` (farm-eligible prospects only — young MLB pitchers only get aging decline for now)
+- Fallback: scans full unified prospect list for any MLB roster player missed by the orgId filter
+
+**Prospect Starting Ratings (`computeProspectCurrentRating()`):**
+- Prospects don't appear at full TFR — they start at an estimated current rating derived from `developmentTR` component ratings
+- For each component: `fraction = (devTR - 20) / max(1, tfrRating - 20)`, averaged across all components
+- `estimatedStar = 0.5 + (TFR - 0.5) * avgFraction`, clamped to [0.5, TFR]
+- Fallback (no developmentTR): age-based fraction `(age - 18) / (peakAge - 18)`
+
+**Team Control & Service Years:**
+- Service years determined by counting actual years with MLB stats in the cached league-wide data (`computeServiceYears()`)
+- Scans all years from `LEAGUE_START_YEAR` (2000) to current year using `trueRatingsService.getTruePitchingStats()` / `getTrueBattingStats()` — these hit the in-memory/IndexedDB cache, making zero additional API calls
+- `teamControlRemaining = TEAM_CONTROL_YEARS (6) - serviceYears + 1`
+- Applies to ALL players (not just minimum-salary) — arb players on 1-year deals correctly show remaining team control years
+- Fallback for players with no stats data: age-based estimate for min-salary players (`age - TYPICAL_DEBUT_AGE`)
+- Years beyond the explicit contract but within team control use `estimateTeamControlSalary()` for salary and show as `arb-eligible` (purple tint)
 
 **Contract Intelligence:**
 - Parses full contract data from `ContractService` (salary schedule, years, options)
-- League minimum contracts (≤$300K) are automatically extended to estimate full team control (3 pre-arb + 3 arb years from typical debut age)
 - Salary formatting: `$228K` for thousands, `$9.7M` / `$21.1M` for millions
-- Color coding: green (under contract), yellow (final year), red (empty/gap)
+- Arb salary estimates by TFR tier in `ARB_TIERS` constant (salary uses TFR, not projected rating)
+
+**Color Coding (cell CSS classes):**
+- `.cell-under-contract` — green: player under explicit contract
+- `.cell-final-year` — yellow: last year of team control (contract or arb)
+- `.cell-arb-eligible` — purple: team-control year beyond explicit contract (estimated arb salary)
+- `.cell-minor-league` — blue: prospect slot (also used for `.cell-prospect` contractStatus)
+- `.cell-empty` — red tint: no player / roster gap
+- `.cell-override` — dashed blue border: manual edit by user
 
 **Prospect Integration:**
-- Fetches hitter prospects from `TeamRatingsService.getHitterFarmData()` and pitcher prospects from `getFarmData()`
+- Hitter prospects from `getUnifiedHitterTfrData()` filtered to `isFarmEligible`; pitcher prospects from `getFarmData()`
 - **ETA estimation** based on current minor league level: MLB=0yr, AAA=1yr, AA=2yr, A=3yr, R=4yr, IC=5yr
   - Elite prospects (TFR ≥ 4.0) get 1 year acceleration; strong prospects (≥ 3.5) get 0.5yr
-- **Scarcity-based position assignment** (same algorithm as `constructOptimalLineup`): fills most constrained positions first (C, SS, CF) before flexible ones, respecting positional flexibility rules (SS can play 1B/2B/3B, CF can play corner OF, etc.)
-- **Year-independent evaluation**: each year column runs a fresh assignment — better prospects arriving later supersede lesser ones (a 5★ catcher in year 3 replaces a 4.5★ from year 1)
-- **Min-contract upgradeability**: league-minimum incumbents can be replaced by higher-rated prospects
-- Pitcher prospects classified as SP (3+ pitches, stamina ≥ 30) or RP; rotation fills with SP prospects, bullpen fills with RP then overflow SP
-- Prospect cells shown in blue tint with level indicator (AAA, AA, etc.)
+- **Greedy improvement-based position assignment**: prospects placed where they provide the biggest rating upgrade over the incumbent, not at the most position-scarce slot. This ensures a 3.0 SS prospect goes to the 1.0-rated 1B slot (+2.0 improvement) rather than the 2.5-rated SS slot (+0.5)
+- Cells open for prospect replacement: empty, existing prospect, min-contract, or arb-eligible
+- Prospect vs incumbent comparison uses projected ratings for both (not static TFR)
+- Pitcher prospects classified as SP (3+ pitches, stamina ≥ 30) or RP; rotation fills with SP, bullpen with RP then overflow SP
 
-**UI:**
-- Team selector uses the standard `filter-dropdown` pattern (consistent with TrueRatingsView/ProjectionsView)
-- Only real MLB teams shown (filtered by power rankings data — excludes all-star/phantom teams)
-- All cells clickable to open player profile modals (with `isProspect` flag for prospect-specific views)
+**Data Flow (key maps):**
+- `playerTfrMap` — playerId → TFR star rating (built from unified hitter data + pitcher farm data + roster fallback scan)
+- `playerServiceYearsMap` — playerId → number of years with MLB stats (from cached league-wide data)
+- `prospectCurrentRatingMap` — playerId → estimated current star rating (from `computeProspectCurrentRating()`)
+- `playerRatingMap` — playerId → max(TR, TFR) for edit modal sorting
+- `playerAgeMap` — playerId → current age (from TFR data)
+
+**View Toggle:**
+- Filter bar toggle: "Planning Grid" shows the grid + color legend; "Org Analysis" shows summary cards + draft strategy
+- **Positions of Strength**: positions with 5+ years of 3.5+ rated coverage, shows position label and player name (e.g., "CF — J. Jones: 6 years of 3.5+ coverage")
+- **Positions of Need**: any cell across the grid with a player rated under 3.0, grouped by player with years listed (e.g., "SS — J. Smith at 2.5 (2022, 2023)"), plus empty year counts
+- **Extension Priorities**: players in penultimate contract year, rated 3.0+, age ≤ 31
+- **Draft Strategy**: matches positions of need with urgency-based suggestions:
+  - Gap in 0-1 years: "SS needed now, lean college player or trade target"
+  - Gap in 2-3 years: "2B needed, lean college player for gap in 3 years"
+  - Gap in 4+ years: "No long term 2B depth in the majors, draft now"
+  - Gaps include both empty cells and cells with sub-3.0 players
+
+**Cell Editing & Overrides:**
+- Any cell is clickable to open `CellEditModal` — assign org players, search all players, extend contracts, or clear
+- Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`), keyed by `{teamId}_{position}_{year}`
+- "Reset Edits" button clears all overrides for the selected team
+
+**Indicators (`computeIndicators()`):**
+- `CLIFF` — age ≥ 33 or ~10yr service (decline risk)
+- `EXT` — extension candidate (under-contract, penultimate year, rating ≥ 3.0, age ≤ 31)
+- `FA` — free agent target needed (empty cell in years 2-4 with no prospect)
+- `TR` — trade target area (underperforming final-year player, no strong prospect coming)
+- `UPGRADE` — year 0 only, MLB-ready prospect better than incumbent
+- `EXPENSIVE` — salary ≥ $10M
+- `TRADE` / `FA_TARGET` — from manual override annotations
 
 ### Farm System Rankings
 
@@ -659,7 +719,7 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - **BatterTrueRatingsView**: MLB batter dashboard with TR/projections
 - **FarmRankingsView**: Top 100 prospects, org rankings with Farm Score, sortable/draggable columns
 - **ProjectionsView**: Future performance projections with 3-model ensemble
-- **TeamPlanningView**: 6-year roster planning grid with contract tracking, prospect ETA, and scarcity-based position assignment
+- **TeamPlanningView**: 6-year roster planning grid with age-based rating projections (growth toward TFR, aging decline), contract tracking, prospect ETA with ramping ratings, accordion sections, and Planning Grid / Org Analysis toggle
 - **DevTrackerView**: Org-level development rankings (2015-2021 WAR), expandable rows with player trajectories and trade impact
 - **TradeAnalyzerView**: Side-by-side player comparisons
 - **DataManagementView**: File uploads with header validation, filename mismatch detection, data refresh

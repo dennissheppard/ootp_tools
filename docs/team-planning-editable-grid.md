@@ -3,15 +3,15 @@
 ## Overview
 The Team Planning view allows users to customize the auto-generated roster grid by clicking on any cell to assign players, extend incumbents, or target trade/FA acquisitions. Changes persist across sessions via IndexedDB.
 
-## Current State (as of 2026-02-14)
-All core features are implemented and building cleanly (`npx tsc --noEmit` + `npm run build` both pass). The feature is functional but has known issues listed below that still need fixing.
+## Current State (as of 2026-02-15)
+All core features are implemented and building cleanly (`npx tsc --noEmit` + `npm run build` both pass).
 
 ## Features Implemented
 - **Cell editing**: Click any cell to open the edit modal with options to extend an incumbent, choose from org, or search all players
 - **Multi-year fill**: Selecting a player fills all remaining years of team control (not just the clicked cell)
   - Minor leaguers: 6 years of team control
-  - MLB players on minimum ($228K): remaining team control estimated from age
-  - MLB players on real contracts: fills years remaining on contract
+  - MLB players: remaining team control determined from actual MLB service years (counted from cached league-wide stats). Applies to all players including arb-eligible — not just minimum salary. Falls back to age-based estimate if no stats data.
+  - MLB players on real contracts: fills max of contract years or team control years remaining
 - **Position filtering**: "Choose from org" only shows players eligible for the grid position (uses same `canPlay` map as auto-fill: e.g., C slot only shows catchers, LF shows LF/CF/RF)
 - **Org list sorted by TFR/TR**: Players sorted highest-rating-first, rating shown next to name
 - **Trade/FA detection**: External players auto-labeled as TRADE or FA targets based on contract coverage at the target year
@@ -30,6 +30,7 @@ All core features are implemented and building cleanly (`npx tsc --noEmit` + `np
 
 ## Known Issues / TODO
 - **Extend option UX**: The extend section works but uses a generic placeholder. Could show estimated extension cost based on arb tiers.
+- **Pitcher TFR for young MLB pitchers**: Young MLB pitchers only get aging decline in the grid (no TFR growth projection) because pitcher TFR comes from `getFarmData()` which only includes farm-eligible prospects.
 
 ## Architecture
 
@@ -75,13 +76,27 @@ Service year for auto-filled prospects is computed from ETA: `serviceYear = yi -
 - `MIN_SALARY = 228_000` — league minimum, also threshold for identifying team-control players
 - `MIN_SALARY_THRESHOLD = MIN_SALARY` — alias used in contract checks
 - `TEAM_CONTROL_YEARS = 6`
-- `TYPICAL_DEBUT_AGE = 23` — used for service time estimation from age
+- `TYPICAL_DEBUT_AGE = 23` — fallback for service time estimation when stats data is unavailable
 - `MIN_PROSPECT_GRID_AGE = 22` — prospects don't appear in grid before this age
+- `MLB_LEAGUE_ID = 200` — league ID used to filter MLB-level stats when counting service years
+
+### Service Year Computation (`computeServiceYears()`)
+- Counts actual years with MLB stats by scanning cached league-wide pitching and batting data (2000 to current year)
+- Uses `trueRatingsService.getTruePitchingStats(year)` / `getTrueBattingStats(year)` which hit in-memory cache first, then IndexedDB — zero additional API calls
+- Only checks roster player IDs (pre-built set from team ranking)
+- Result stored in `playerServiceYearsMap: Map<number, number>`
+- Team control remaining = `6 - serviceYears + 1` (serviceYears includes current year)
+- Falls back to age-based estimate (`age - 23`) only when no stats data exists AND player is on minimum salary
+
+### Prospect Placement Algorithm (Greedy Improvement)
+- For each future year, builds all (prospect, position) candidates with projected improvement over incumbent
+- Sorts by improvement descending — biggest upgrades assigned first
+- This prevents a high-rated prospect from replacing a decent player at a scarce position while a weak player at a flexible position keeps their spot
+- Cells eligible for replacement: empty, existing prospect, min-contract, or arb-eligible
+- Same greedy approach used for hitter lineup, rotation (SP), and bullpen (RP then overflow SP)
 
 ### Future Improvements
 - **Research actual league arbitration salaries**: Current arb estimates are rough tiers. Study real arbitration results for a model based on WAR, position, etc.
-- **Use playerRatingMap for override salaries**: Look up TFR from rating map when computing arb estimates for user-placed players (currently defaults to 3.0 tier)
-- **MLB stats-based service time**: Count years with MLB stats in database instead of estimating from age
 - **Extension cost estimation**: Show projected arb/FA cost when extending a player
 
 ## Position Eligibility (for org list filtering)

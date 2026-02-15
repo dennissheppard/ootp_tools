@@ -402,6 +402,11 @@ body {
   color: #fff;
 }
 
+.toggle-btn.toggle-btn-disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
 .draft-section.hidden {
   display: none;
 }
@@ -7372,12 +7377,6 @@ th .stat-tooltip {
    TEAM PLANNING VIEW STYLES
    ======================================== */
 
-.team-planning-view {
-  padding: 1rem;
-}
-
-
-
 .team-planning-grid-container {
   min-height: 200px;
 }
@@ -7420,7 +7419,7 @@ th .stat-tooltip {
   min-width: 100px;
 }
 
-/* Section headers (LINEUP, ROTATION, BULLPEN) */
+/* Section headers (LINEUP, ROTATION, BULLPEN) — clickable accordion */
 .grid-section-row .grid-section-header {
   padding: 0.5rem 0.75rem;
   font-size: 0.7rem;
@@ -7431,7 +7430,51 @@ th .stat-tooltip {
   background: rgba(29, 155, 240, 0.06);
   border-bottom: 1px solid rgba(29, 155, 240, 0.2);
   border-top: 1px solid rgba(29, 155, 240, 0.2);
+  cursor: pointer;
+  user-select: none;
 }
+.grid-section-row .grid-section-header:hover {
+  background: rgba(29, 155, 240, 0.12);
+}
+.section-chevron {
+  display: inline-block;
+  width: 1em;
+  font-size: 0.75rem;
+}
+
+/* Toolbar row above grid: legend left, reset button right */
+.tp-grid-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.5rem;
+}
+.tp-color-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  padding: 0.5rem 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.legend-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255,255,255,0.1);
+}
+.legend-swatch-contract { background: rgba(0, 186, 124, 0.25); }
+.legend-swatch-final { background: rgba(255, 193, 7, 0.35); }
+.legend-swatch-arb { background: rgba(139, 92, 246, 0.25); }
+.legend-swatch-prospect { background: rgba(59, 130, 246, 0.25); }
+.legend-swatch-empty { background: rgba(244, 33, 46, 0.18); }
+.legend-swatch-override { background: transparent; border: 2px dashed rgba(29, 155, 240, 0.5); }
 
 .grid-data-row:hover {
   background: rgba(255, 255, 255, 0.02);
@@ -7545,8 +7588,8 @@ th .stat-tooltip {
 
 /* Responsive: ensure horizontal scroll on small screens */
 @media (max-width: 768px) {
-  .team-planning-view {
-    padding: 0.5rem;
+  .tp-grid-toolbar {
+    flex-wrap: wrap;
   }
 }
 
@@ -9015,8 +9058,8 @@ th .stat-tooltip {
 
 /* Reset Edits button */
 .tp-reset-btn {
-  margin-left: 0.75rem;
   padding: 0.35rem 0.75rem;
+  flex-shrink: 0;
   font-size: 0.75rem;
   background: rgba(244, 33, 46, 0.1);
   color: #f4212e;
