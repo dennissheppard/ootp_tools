@@ -721,9 +721,46 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - **ProjectionsView**: Future performance projections with 3-model ensemble
 - **TeamPlanningView**: 6-year roster planning grid with age-based rating projections (growth toward TFR, aging decline), contract tracking, prospect ETA with ramping ratings, accordion sections, and Planning Grid / Org Analysis toggle
 - **DevTrackerView**: Org-level development rankings (2015-2021 WAR), expandable rows with player trajectories and trade impact
-- **TradeAnalyzerView**: Side-by-side player comparisons
+- **TradeAnalyzerView**: Multi-asset trade evaluation tool (see below)
 - **DataManagementView**: File uploads with header validation, filename mismatch detection, data refresh
 - **PlayerProfileModal**: Deep-dive with Ratings + Development tabs
+
+### Trade Analyzer
+
+Three-column layout: Team 1 roster (left), analysis panel (center), Team 2 roster (right). Supports trading MLB players, minor leaguers across all levels, and draft picks.
+
+**Key files:**
+- `src/views/TradeAnalyzerView.ts` — Main view (~1700 lines). All UI, data loading, analysis logic.
+- `src/services/AITradeAnalysisService.ts` — OpenAI integration for narrative trade evaluation.
+- `src/styles.css` — Search for `.trade-` and `.team-impact-` and `.ai-trade-` sections.
+
+**Data flow:**
+- `initialize()` loads players, projections, scouting, minor league stats, then in parallel: pitcher farm data (`getFarmData`), hitter farm data (`getHitterFarmData`), power rankings (`getPowerRankings`), and contracts (`getAllContracts`).
+- Precomputed farm data is stored in `pitcherProspectMap` / `hitterProspectMap` (keyed by playerId). These are the single source of truth for prospect TFR — the same full-pool TFR that Farm Rankings shows.
+- When a player is added to a trade, `addPlayerToTrade()` checks: MLB projection map first, then farm data map, then falls back to on-the-fly TFR calculation.
+- `getPlayerRating()` and `updatePlayerList()` follow the same lookup chain for display ratings.
+
+**Team impact analysis:**
+- `calculateTeamImpact(teamNum)` clones the team's power ranking roster, removes outgoing players, inserts incoming players, handles overflow (rotation > 5 spills to bullpen, lineup > 9 spills to bench), and recalculates component averages using the standard 40% rotation + 40% lineup + 15% bullpen + 5% bench formula.
+- `renderTeamImpact()` displays before→after ratings for each component with color-coded deltas and slot tags showing which roster positions are affected.
+
+**AI analysis:**
+- `AITradeAnalysisService` follows `AIScoutingService` patterns: `gpt-4o-mini`, `VITE_OPENAI_API_KEY`, cached in IndexedDB `ai_scouting_blurbs` store with key `trade_<hash>`. Hash is based on player names + pick descriptions.
+- `requestAIAnalysis()` builds a `TradeContext` with player data (name, role, age, TR, TFR, projected stats, salary, contract years), team power rankings, and post-trade rating deltas.
+
+**Player profile modals:**
+- `openPlayerProfile()` passes comprehensive data to pitcher/batter profile modals including: TR, estimated ratings, scouting grades, projected stats, TFR with ceiling components, pitch ratings, injury proneness, parent team, and TFR-by-source toggle data.
+- For pitcher prospects: uses `pitcherProspectMap` for development TR (current ability), TFR (peak ceiling), and peak projection stats.
+- For batter prospects: uses `hitterProspectMap` for the same, plus TFR blended rates.
+
+**Level filtering:**
+- "All Prospects" aggregates all minor league levels (AAA through Rookie) plus International Complex players into one list, still filtered by the pitcher/batter toggle.
+- Draft picks are a separate mode with estimated WAR values (adjustable by pick position for 1st round).
+
+**Architecture notes for future work:**
+- `TradeTeamState` holds both `tradingPlayers` (pitcher `ProjectedPlayer[]`) and `tradingBatters` (`ProjectedBatter[]`) separately because they have different interfaces. Draft picks are a third array (`tradingPicks: DraftPick[]`).
+- The view uses click-to-add (clicking a player row adds them to the trade bucket) and also supports drag-and-drop.
+- `updateAnalysis()` is the central render function for the middle column — it calls `calculateTradeAnalysis()` for WAR totals, `renderTeamImpact()` for before/after ratings, `renderRatingsTable()` for the detailed comparison table, and wires up the AI analysis button.
 
 ## Data Sources
 
