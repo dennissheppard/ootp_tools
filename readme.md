@@ -670,9 +670,9 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 Three-column layout: Team 1 roster (left), analysis panel (center), Team 2 roster (right). Supports trading MLB players, minor leaguers across all levels, and draft picks.
 
 **Key files:**
-- `src/views/TradeAnalyzerView.ts` — Main view (~1700 lines). All UI, data loading, analysis logic.
+- `src/views/TradeAnalyzerView.ts` — Main view (~2100 lines). All UI, data loading, analysis logic.
 - `src/services/AITradeAnalysisService.ts` — OpenAI integration for narrative trade evaluation.
-- `src/styles.css` — Search for `.trade-` and `.team-impact-` and `.ai-trade-` sections.
+- `src/styles.css` — Search for `.trade-`, `.team-impact-`, `.ai-trade-`, `.war-comparison-`, `.asset-type-badge`, `.farm-impact-`, and `.impact-tab-` sections.
 
 **Data flow:**
 - `initialize()` loads players, projections, scouting, minor league stats, then in parallel: pitcher farm data (`getFarmData`), hitter farm data (`getHitterFarmData`), power rankings (`getPowerRankings`), and contracts (`getAllContracts`).
@@ -680,9 +680,36 @@ Three-column layout: Team 1 roster (left), analysis panel (center), Team 2 roste
 - When a player is added to a trade, `addPlayerToTrade()` checks: MLB projection map first, then farm data map, then falls back to on-the-fly TFR calculation.
 - `getPlayerRating()` and `updatePlayerList()` follow the same lookup chain for display ratings.
 
-**Team impact analysis:**
+**Current vs Future WAR split:**
+- WAR is classified into **Current** (MLB players) and **Future** (prospects + draft picks) categories.
+- Classification: pitchers use `projection.isProspect`; batters use `!allBatterProjections.has(playerId)` (same logic as AI analysis context); draft picks are always future.
+- `calculateTeamWar(state)` returns `{ current, future, total }` for each team.
+- The WAR comparison display shows up to three rows per team: **Now** (MLB value), **Future** (prospect peak + pick value, labeled "(peak)"), and **Total**. Rows only appear when their value is > 0.
+- The winning team in each row is highlighted green.
+
+**Trade archetype summaries:**
+- `calculateTradeAnalysis()` determines the trade type based on the current/future WAR split:
+  - **Roster swap** — both sides exchanging > 70% current MLB value
+  - **Win-now vs future** — one side heavily current, the other heavily future (> 50% difference in current/total ratio between teams)
+  - **Prospect swap** — both sides exchanging > 70% future value
+
+**Asset type badges:**
+- Each item in the WAR detail list gets a small inline badge: `MLB` (blue), `Prospect` (green), or `Pick` (purple).
+- Badges use `isProspectPitcher()` / `isProspectBatter()` helper methods for consistent classification.
+
+**Team impact analysis (Roster/Farm tabs):**
 - `calculateTeamImpact(teamNum)` clones the team's power ranking roster, removes outgoing players, inserts incoming players, handles overflow (rotation > 5 spills to bullpen, lineup > 9 spills to bench), and recalculates component averages using the standard 40% rotation + 40% lineup + 15% bullpen + 5% bench formula.
-- `renderTeamImpact()` displays before→after ratings for each component with color-coded deltas and slot tags showing which roster positions are affected.
+- `renderTeamImpact()` includes a **Roster / Farm toggle** when prospects are involved in the trade.
+- **Roster Impact** tab: displays before→after ratings for each component with color-coded deltas and slot tags showing which roster positions are affected.
+- **Farm Impact** tab: shows prospects being lost/gained by each team with TFR star rating and tier label, plus a net tier count summary (e.g., "Losing 1 Elite, Gaining 2 Good").
+- `calculateFarmImpact(teamNum)` looks up prospect TFR from `pitcherProspectMap` / `hitterProspectMap` and classifies into tiers:
+
+| Tier | TFR Range |
+|------|-----------|
+| Elite | ≥ 4.5 |
+| Good | 3.5–4.4 |
+| Average | 2.5–3.4 |
+| Depth | < 2.5 |
 
 **AI analysis:**
 - `AITradeAnalysisService` follows `AIScoutingService` patterns: `gpt-4o-mini`, `VITE_OPENAI_API_KEY`, cached in IndexedDB `ai_scouting_blurbs` store with key `trade_<hash>`. Hash is based on player names + pick descriptions.
@@ -700,7 +727,7 @@ Three-column layout: Team 1 roster (left), analysis panel (center), Team 2 roste
 **Architecture notes for future work:**
 - `TradeTeamState` holds both `tradingPlayers` (pitcher `ProjectedPlayer[]`) and `tradingBatters` (`ProjectedBatter[]`) separately because they have different interfaces. Draft picks are a third array (`tradingPicks: DraftPick[]`).
 - The view uses click-to-add (clicking a player row adds them to the trade bucket) and also supports drag-and-drop.
-- `updateAnalysis()` is the central render function for the middle column — it calls `calculateTradeAnalysis()` for WAR totals, `renderTeamImpact()` for before/after ratings, `renderRatingsTable()` for the detailed comparison table, and wires up the AI analysis button.
+- `updateAnalysis()` is the central render function for the middle column — it calls `calculateTradeAnalysis()` for WAR totals (split by current/future), `renderTeamImpact()` for before/after ratings with Roster/Farm tabs, `renderRatingsTable()` for the detailed comparison table, and wires up the AI analysis button and impact tab toggle handlers.
 
 ## Data Sources
 
