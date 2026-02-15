@@ -54,6 +54,7 @@ export interface PitcherProfileData {
   scoutOvr?: number;
   scoutPot?: number;
   injuryProneness?: string;
+  retired?: boolean;
 
   // Pitch ratings from scouting (pitch name → 20-80 rating)
   pitchRatings?: Record<string, number>;
@@ -899,18 +900,19 @@ export class PitcherProfileModal {
   // ─── Body Rendering ────────────────────────────────────────────────────
 
   private renderBody(data: PitcherProfileData, stats: PitcherSeasonStats[]): string {
+    const isRetired = data.retired === true;
     const ratingsSection = this.renderRatingsSection(data);
     const projectionContent = this.renderProjectionContent(data, stats);
     const careerContent = this.renderCareerStatsContent(stats);
 
     return `
       <div class="profile-tabs">
-        <button class="profile-tab active" data-tab="ratings">Ratings</button>
-        <button class="profile-tab" data-tab="career">Career</button>
+        <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
+        <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
       </div>
       <div class="profile-tab-content">
-        <div class="tab-pane active" data-pane="ratings">
+        <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
           ${ratingsSection}
           <div class="analysis-toggle-row">
             <div class="analysis-toggle">
@@ -927,7 +929,7 @@ export class PitcherProfileModal {
             </div>
           </div>
         </div>
-        <div class="tab-pane" data-pane="career">
+        <div class="tab-pane${isRetired ? ' active' : ''}" data-pane="career">
           ${careerContent}
         </div>
         <div class="tab-pane" data-pane="development">
@@ -1547,7 +1549,7 @@ export class PitcherProfileModal {
 
     const projNote = isPeakMode
       ? '* Peak projection based on True Future Rating. Assumes full development and optimal performance.'
-      : '* Projection based on True Ratings. Assumes full season health.';
+      : '* Projection based on True Ratings';
 
     return `
       <div class="projection-section">
@@ -1865,8 +1867,8 @@ export class PitcherProfileModal {
     this.initArsenalRadarChart(this.currentData!);
     this.lockTabContentHeight();
 
-    // Auto-fetch analysis if it's the default view
-    if (this.viewMode === 'analysis' && !this.cachedAnalysisHtml) {
+    // Auto-fetch analysis if it's the default view (skip for retired players)
+    if (this.viewMode === 'analysis' && !this.cachedAnalysisHtml && !this.currentData?.retired) {
       this.fetchAndRenderAnalysis();
     }
   }
@@ -1905,7 +1907,7 @@ export class PitcherProfileModal {
     tabs?.forEach(tab => {
       tab.addEventListener('click', () => {
         const targetTab = tab.dataset.tab;
-        if (!targetTab) return;
+        if (!targetTab || tab.disabled) return;
 
         tabs.forEach(t => t.classList.remove('active'));
         tab.classList.add('active');

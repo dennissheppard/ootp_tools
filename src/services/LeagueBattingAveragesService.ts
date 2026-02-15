@@ -291,14 +291,17 @@ class LeagueBattingAveragesService {
 
     // Blend with baseline expectation based on amount of historical data
     // More history = more trust in historical data
-    // Trust factor: 0.95 for 4 years, 0.85 for 3 years, 0.7 for 2 years, 0.5 for 1 year
-    // Higher trust factors to better respect actual playing time patterns
-    const trustFactor = Math.min(0.95, 0.35 + (sortedStats.length * 0.15));
+    // Base trust: 0.60 for 1 year, 0.80 for 2, 0.92 for 3, 0.98 for 4
+    // Established full-season players (avg 500+ PA) get a bonus to avoid dragging
+    // down consistent performers with a generic baseline
+    let trustFactor = Math.min(0.98, 0.40 + (sortedStats.length * 0.20));
+    if (historicalAvgPa >= 500 && sortedStats.length >= 2) {
+      trustFactor = Math.min(0.98, trustFactor + 0.05);
+    }
 
     // For players with consistent low PAs, use a lower baseline
     // This prevents bench players from being pulled up toward starter PAs
-    const avgHistoricalPaRaw = historicalAvgPa; // Before age/injury adjustments
-    const baselinePa = avgHistoricalPaRaw < 250
+    const baselinePa = historicalAvgPa < 250
       ? Math.min(this.getBaselinePaByAge(currentAge), 350) // Cap baseline at 350 for bench players
       : this.getBaselinePaByAge(currentAge);
     const baselineAdjusted = baselinePa * injuryMultiplier;

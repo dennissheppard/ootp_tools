@@ -60,6 +60,7 @@ export interface BatterProfileData {
   scoutSR?: number;
   scoutSTE?: number;
   injuryProneness?: string;
+  retired?: boolean;
 
   // Raw stats (historical)
   pa?: number;
@@ -166,6 +167,9 @@ export class BatterProfileModal {
 
   // League WAR ceiling for arc scaling
   private leagueWarMax: number = 8;
+
+  // Cached projected PA for legend display
+  private cachedProjPa: number | undefined;
 
   // Dynamic league averages (loaded per year)
   private leagueAvg: LeagueBattingAverages | null = null;
@@ -480,6 +484,20 @@ export class BatterProfileModal {
       // Store stats for projection re-rendering
       this.currentStats = allStats;
 
+      // Compute history-aware projected PA when we have MLB stats but no pre-calculated value.
+      // If the caller already provided projPa (e.g. from BatterProjectionService), trust it
+      // to avoid divergence from the projections table.
+      // Exclude current year to avoid partial-season contamination (same as BatterProjectionService)
+      if (data.projPa === undefined && mlbStats.length > 0) {
+        const historicalPaData = mlbStats
+          .filter(s => s.year < currentYear2)
+          .map(s => ({ year: s.year, pa: s.pa }));
+        const injProne = this.scoutingData?.injuryProneness ?? data.injuryProneness;
+        data.projPa = leagueBattingAveragesService.getProjectedPaWithHistory(
+          historicalPaData, data.age, injProne
+        );
+      }
+
       // Render full body
       if (bodyEl) {
         bodyEl.innerHTML = this.renderBody(data, allStats);
@@ -699,7 +717,17 @@ export class BatterProfileModal {
     if (projWar === undefined) {
       const age = data.age ?? 27;
       const injuryProneness = s?.injuryProneness ?? data.injuryProneness;
-      const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+      let projPa: number;
+      if (data.projPa !== undefined) {
+        projPa = data.projPa;
+      } else {
+        const mlbHistory = (this.currentStats ?? [])
+          .filter(s2 => s2.level === 'MLB' && s2.year < this.projectionYear)
+          .map(s2 => ({ year: s2.year, pa: s2.pa }));
+        projPa = mlbHistory.length > 0
+          ? leagueBattingAveragesService.getProjectedPaWithHistory(mlbHistory, age, injuryProneness)
+          : leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+      }
 
       // Compute wOBA for WAR calculation
       let woba: number | undefined;
@@ -970,18 +998,19 @@ export class BatterProfileModal {
   // ─── Body Rendering ───────────────────────────────────────────────────
 
   private renderBody(data: BatterProfileData, stats: BatterSeasonStats[]): string {
+    const isRetired = data.retired === true;
     const ratingsSection = this.renderRatingsSection(data);
     const projectionContent = this.renderProjectionContent(data, stats);
     const careerContent = this.renderCareerStatsContent(stats);
 
     return `
       <div class="profile-tabs">
-        <button class="profile-tab active" data-tab="ratings">Ratings</button>
-        <button class="profile-tab" data-tab="career">Career</button>
+        <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
+        <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
       </div>
       <div class="profile-tab-content">
-        <div class="tab-pane active" data-pane="ratings">
+        <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
           ${ratingsSection}
           <div class="analysis-toggle-row">
             <div class="analysis-toggle">
@@ -998,7 +1027,7 @@ export class BatterProfileModal {
             </div>
           </div>
         </div>
-        <div class="tab-pane" data-pane="career">
+        <div class="tab-pane${isRetired ? ' active' : ''}" data-pane="career">
           ${careerContent}
         </div>
         <div class="tab-pane" data-pane="development">
@@ -1022,13 +1051,14 @@ export class BatterProfileModal {
 
     // Compute projected stats for badges
     const projStats = this.computeProjectedStats(data);
+    this.cachedProjPa = projStats.projPa;
 
     const hittingAxes = [
       { label: 'Contact', pos: 'top', est: data.estimatedContact, scout: s?.contact, tfr: data.tfrContact, projLabel: 'AVG', projValue: projStats.projAvg?.toFixed(3) },
-      { label: 'Eye', pos: 'upper-right', est: data.estimatedEye, scout: s?.eye, tfr: data.tfrEye, projLabel: 'BB%', projValue: projStats.projBbPct !== undefined ? projStats.projBbPct.toFixed(1) + '%' : undefined },
-      { label: 'Power', pos: 'lower-right', est: data.estimatedPower, scout: s?.power, tfr: data.tfrPower, projLabel: 'HR%', projValue: projStats.projHrPct !== undefined ? projStats.projHrPct.toFixed(1) + '%' : undefined },
+      { label: 'Eye', pos: 'upper-right', est: data.estimatedEye, scout: s?.eye, tfr: data.tfrEye, projLabel: 'BB', projValue: projStats.projBbPct !== undefined && projStats.projPa ? Math.round(projStats.projPa * projStats.projBbPct / 100).toString() : undefined },
+      { label: 'Power', pos: 'lower-right', est: data.estimatedPower, scout: s?.power, tfr: data.tfrPower, projLabel: 'HR', projValue: projStats.projHr?.toString() },
       { label: 'Gap', pos: 'lower-left', est: data.estimatedGap ?? s?.gap, scout: data.estimatedGap !== undefined ? s?.gap : undefined, tfr: data.tfrGap, projLabel: '2B', projValue: projStats.proj2b?.toString() },
-      { label: 'AvoidK', pos: 'upper-left', est: data.estimatedAvoidK, scout: s?.avoidK, tfr: data.tfrAvoidK, projLabel: 'K%', projValue: projStats.projKPct !== undefined ? projStats.projKPct.toFixed(1) + '%' : undefined },
+      { label: 'AvoidK', pos: 'upper-left', est: data.estimatedAvoidK, scout: s?.avoidK, tfr: data.tfrAvoidK, projLabel: 'K', projValue: projStats.projKPct !== undefined && projStats.projPa ? Math.round(projStats.projPa * projStats.projKPct / 100).toString() : undefined },
     ];
 
     const hittingAxisLabelsHtml = hittingAxes.map(a => {
@@ -1117,8 +1147,8 @@ export class BatterProfileModal {
 
   private computeProjectedStats(data: BatterProfileData): {
     projAvg?: number; projHrPct?: number; projBbPct?: number;
-    projKPct?: number; proj2b?: number; projSba?: number;
-    projSbPct?: number; proj3b?: number;
+    projKPct?: number; projHr?: number; proj2b?: number; projSba?: number;
+    projSbPct?: number; proj3b?: number; projPa?: number;
   } {
     const s = this.scoutingData;
     const sr = s?.stealingAggressiveness ?? data.scoutSR ?? 50;
@@ -1169,11 +1199,26 @@ export class BatterProfileModal {
       projKPct = data.projKPct ?? HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
     }
 
-    // Projected 2B from gap rating
+    // Projected PA — prefer pre-calculated value from caller (e.g. BatterProjectionService)
+    // to stay consistent with the projections table. Only recalculate as fallback.
+    // Exclude current year to avoid partial-season contamination.
     const injuryProneness = s?.injuryProneness ?? data.injuryProneness;
     const age = data.age ?? 27;
-    const projPa = data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+    let projPa: number;
+    if (data.projPa !== undefined) {
+      projPa = data.projPa;
+    } else {
+      const mlbHistory = (this.currentStats ?? [])
+        .filter(s2 => s2.level === 'MLB' && s2.year < this.projectionYear)
+        .map(s2 => ({ year: s2.year, pa: s2.pa }));
+      projPa = mlbHistory.length > 0
+        ? leagueBattingAveragesService.getProjectedPaWithHistory(mlbHistory, age, injuryProneness)
+        : leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+    }
     const projAb = Math.round(projPa * 0.88);
+    const projHr = projHrPct !== undefined ? Math.round(projPa * (projHrPct / 100)) : undefined;
+
+    // Projected 2B from gap rating
 
     if (data.projDoublesRate !== undefined) {
       proj2b = Math.round(projAb * data.projDoublesRate);
@@ -1203,7 +1248,7 @@ export class BatterProfileModal {
       projSbPct = totalSba > 0 ? ((data.projSb ?? sbProj.sb) / totalSba) * 100 : undefined;
     }
 
-    return { projAvg, projHrPct, projBbPct, projKPct, proj2b, projSba, projSbPct, proj3b };
+    return { projAvg, projHrPct, projBbPct, projKPct, projHr, proj2b, projSba, projSbPct, proj3b, projPa };
   }
 
   private initRadarChart(data: BatterProfileData): void {
@@ -1338,9 +1383,10 @@ export class BatterProfileModal {
     item.style.alignItems = 'center';
     item.style.cursor = 'pointer';
 
+    const paLabel = this.cachedProjPa !== undefined ? ` (${this.cachedProjPa} PA)` : '';
     item.innerHTML = `
       <span class="apexcharts-legend-marker" style="background: #d4a574; height: 16px; width: 16px; border-radius: 50%; display: inline-block; margin-right: 4px;"></span>
-      <span class="apexcharts-legend-text" style="color: #e7e9ea; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">Stat Projections</span>
+      <span class="apexcharts-legend-text" style="color: #e7e9ea; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">Stat Projections${paLabel}</span>
     `;
 
     item.addEventListener('click', (e) => {
@@ -1474,11 +1520,22 @@ export class BatterProfileModal {
       projKPct = 22.0;
     }
 
-    // Calculate projected PA based on age and injury proneness
+    // Calculate projected PA — prefer pre-calculated value from caller for consistency.
+    // Exclude current year to avoid partial-season contamination.
     const injuryProneness = this.scoutingData?.injuryProneness ?? data.injuryProneness;
-    const projPa = isPeakMode
-      ? (data.tfrPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, 27))
-      : (data.projPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, age));
+    let projPa: number;
+    if (isPeakMode) {
+      projPa = data.tfrPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, 27);
+    } else if (data.projPa !== undefined) {
+      projPa = data.projPa;
+    } else {
+      const mlbHistory = (stats ?? [])
+        .filter(s2 => s2.level === 'MLB' && s2.year < this.projectionYear)
+        .map(s2 => ({ year: s2.year, pa: s2.pa }));
+      projPa = mlbHistory.length > 0
+        ? leagueBattingAveragesService.getProjectedPaWithHistory(mlbHistory, age, injuryProneness)
+        : leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
+    }
 
     // Calculate projected HR from HR%
     let projHr: number;
@@ -1617,6 +1674,8 @@ export class BatterProfileModal {
           <td>${formatPct(actualBbPct)}</td>
           <td>${formatPct(actualKPct)}</td>
           <td>${formatPct(actualHrPct)}</td>
+          <td>${latestStat.bb}</td>
+          <td>${latestStat.k}</td>
           <td>${latestStat.hr}</td>
           <td>${latestStat.d ?? '—'}</td>
           <td>${latestStat.t ?? '—'}</td>
@@ -1649,8 +1708,8 @@ export class BatterProfileModal {
     ` : '';
 
     const projNote = isPeakMode
-      ? '* Peak projection based on True Future Rating. Assumes full development and optimal performance.'
-      : '* Projection based on True Ratings. Assumes full season health, and EVERYTHING going right for this guy.';
+      ? '* Peak projection based on True Future Rating. Assumes full development and everything going right for this guy.'
+      : '* Projection based on True Ratings.';
 
     return `
       <div class="projection-section">
@@ -1662,21 +1721,23 @@ export class BatterProfileModal {
           <table class="profile-stats-table projection-table" style="table-layout: fixed;">
             <thead>
               <tr>
-                <th style="width: 80px;"></th>
-                <th style="width: 50px;">PA</th>
-                <th style="width: 60px;">AVG</th>
-                <th style="width: 60px;">OBP</th>
-                <th style="width: 60px;">BB%</th>
-                <th style="width: 60px;">K%</th>
-                <th style="width: 60px;">HR%</th>
-                <th style="width: 50px;">HR</th>
-                <th style="width: 50px;">2B</th>
-                <th style="width: 50px;">3B</th>
-                <th style="width: 50px;">SB</th>
-                <th style="width: 60px;">SLG</th>
-                <th style="width: 60px;">OPS</th>
-                <th style="width: 50px;">OPS+</th>
-                <th style="width: 50px;">WAR</th>
+                <th style="width: 78px;"></th>
+                <th style="width: 48px;">PA</th>
+                <th style="width: 58px;">AVG</th>
+                <th style="width: 58px;">OBP</th>
+                <th style="width: 58px;">BB%</th>
+                <th style="width: 58px;">K%</th>
+                <th style="width: 58px;">HR%</th>
+                <th style="width: 48px;">BB</th>
+                <th style="width: 48px;">K</th>
+                <th style="width: 48px;">HR</th>
+                <th style="width: 48px;">2B</th>
+                <th style="width: 48px;">3B</th>
+                <th style="width: 48px;">SB</th>
+                <th style="width: 58px;">SLG</th>
+                <th style="width: 58px;">OPS</th>
+                <th style="width: 48px;">OPS+</th>
+                <th style="width: 48px;">WAR</th>
               </tr>
             </thead>
             <tbody>
@@ -1688,6 +1749,8 @@ export class BatterProfileModal {
                 <td>${bbPctFlip}</td>
                 <td>${kPctDisplay}</td>
                 <td>${hrPctFlip}</td>
+                <td>${Math.round(projPa * projBbPct / 100)}</td>
+                <td>${Math.round(projPa * projKPct / 100)}</td>
                 <td>${projHr}</td>
                 <td>${doublesFlip}</td>
                 <td>${triplesFlip}</td>
@@ -1750,6 +1813,8 @@ export class BatterProfileModal {
           <td style="text-align: center;">${bbPctFlip}</td>
           <td style="text-align: center;">${kPctDisplay}</td>
           <td style="text-align: center;">${hrPctFlip}</td>
+          <td style="text-align: center;">${s.bb}</td>
+          <td style="text-align: center;">${s.k}</td>
           <td style="text-align: center;">${s.hr}</td>
           <td style="text-align: center;">${s.sb}</td>
           <td style="text-align: center;">${s.cs}</td>
@@ -1766,21 +1831,23 @@ export class BatterProfileModal {
         <table class="profile-stats-table" style="table-layout: fixed;">
           <thead>
             <tr>
-              <th style="width: 45px; text-align: center;">Year</th>
-              <th style="width: 45px; text-align: center;">Level</th>
-              <th style="width: 50px; text-align: center;">PA</th>
-              <th style="width: 60px; text-align: center;">AVG</th>
-              <th style="width: 60px; text-align: center;">OBP</th>
-              <th style="width: 60px; text-align: center;">BB%</th>
-              <th style="width: 60px; text-align: center;">K%</th>
-              <th style="width: 60px; text-align: center;">HR%</th>
-              <th style="width: 50px; text-align: center;">HR</th>
-              <th style="width: 40px; text-align: center;">SB</th>
-              <th style="width: 40px; text-align: center;">CS</th>
-              <th style="width: 60px; text-align: center;">SLG</th>
-              <th style="width: 60px; text-align: center;">OPS</th>
-              <th style="width: 50px; text-align: center;">OPS+</th>
-              <th style="width: 50px; text-align: center;">WAR</th>
+              <th style="width: 43px; text-align: center;">Year</th>
+              <th style="width: 43px; text-align: center;">Level</th>
+              <th style="width: 48px; text-align: center;">PA</th>
+              <th style="width: 58px; text-align: center;">AVG</th>
+              <th style="width: 58px; text-align: center;">OBP</th>
+              <th style="width: 58px; text-align: center;">BB%</th>
+              <th style="width: 58px; text-align: center;">K%</th>
+              <th style="width: 58px; text-align: center;">HR%</th>
+              <th style="width: 48px; text-align: center;">BB</th>
+              <th style="width: 48px; text-align: center;">K</th>
+              <th style="width: 48px; text-align: center;">HR</th>
+              <th style="width: 38px; text-align: center;">SB</th>
+              <th style="width: 38px; text-align: center;">CS</th>
+              <th style="width: 58px; text-align: center;">SLG</th>
+              <th style="width: 58px; text-align: center;">OPS</th>
+              <th style="width: 48px; text-align: center;">OPS+</th>
+              <th style="width: 48px; text-align: center;">WAR</th>
             </tr>
           </thead>
           <tbody>
@@ -2027,8 +2094,8 @@ export class BatterProfileModal {
     this.initRunningRadarChart(this.currentData!);
     this.lockTabContentHeight();
 
-    // Auto-fetch analysis if it's the default view
-    if (this.viewMode === 'analysis' && !this.cachedAnalysisHtml) {
+    // Auto-fetch analysis if it's the default view (skip for retired players)
+    if (this.viewMode === 'analysis' && !this.cachedAnalysisHtml && !this.currentData?.retired) {
       this.fetchAndRenderAnalysis();
     }
   }
@@ -2072,7 +2139,7 @@ export class BatterProfileModal {
     tabs?.forEach(tab => {
       tab.addEventListener('click', () => {
         const targetTab = tab.dataset.tab;
-        if (!targetTab) return;
+        if (!targetTab || tab.disabled) return;
 
         // Update tab buttons
         tabs.forEach(t => t.classList.remove('active'));

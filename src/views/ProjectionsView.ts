@@ -443,12 +443,14 @@ export class ProjectionsView {
 
       return `
         <div class="table-wrapper-outer loading-skeleton">
+            <button class="scroll-btn scroll-btn-left" aria-hidden="true" tabindex="-1" disabled></button>
             <div class="table-wrapper">
                 <table class="stats-table true-ratings-table skeleton-table">
                     <thead><tr>${headerCells}</tr></thead>
                     <tbody>${bodyRows}</tbody>
                 </table>
             </div>
+            <button class="scroll-btn scroll-btn-right" aria-hidden="true" tabindex="-1" disabled></button>
         </div>
       `;
   }
@@ -1951,12 +1953,14 @@ export class ProjectionsView {
 
       container.innerHTML = `
         <div class="table-wrapper-outer">
+            <button class="scroll-btn scroll-btn-left" aria-label="Scroll left"></button>
             <div class="table-wrapper">
                 <table class="stats-table true-ratings-table">
                     <thead><tr>${headerHtml}</tr></thead>
                     <tbody>${rowsHtml}</tbody>
                 </table>
             </div>
+            <button class="scroll-btn scroll-btn-right" aria-label="Scroll right"></button>
         </div>
       `;
 
@@ -2009,12 +2013,14 @@ export class ProjectionsView {
 
       container.innerHTML = `
         <div class="table-wrapper-outer">
+            <button class="scroll-btn scroll-btn-left" aria-label="Scroll left"></button>
             <div class="table-wrapper">
                 <table class="stats-table true-ratings-table">
                     <thead><tr>${headerHtml}</tr></thead>
                     <tbody>${rowsHtml}</tbody>
                 </table>
             </div>
+            <button class="scroll-btn scroll-btn-right" aria-label="Scroll right"></button>
         </div>
       `;
 
@@ -2023,8 +2029,14 @@ export class ProjectionsView {
   }
 
   private bindBatterTableEvents(): void {
+      // Scroll buttons
+      this.bindScrollButtons();
+
       // Player Names
       this.bindBatterNameClicks();
+
+      // Flip cards (rating on hover)
+      this.bindFlipCardLocking();
 
       // Percentile bar animations
       this.triggerBarAnimations();
@@ -2204,7 +2216,47 @@ export class ProjectionsView {
       return `<span class="badge ${className}">${rating.toFixed(1)}</span>`;
   }
 
+  private bindScrollButtons(): void {
+      const wrapper = this.container.querySelector<HTMLElement>('.table-wrapper-outer');
+      if (!wrapper) return;
+
+      const tableWrapper = wrapper.querySelector<HTMLElement>('.table-wrapper');
+      const scrollLeftBtn = wrapper.querySelector<HTMLButtonElement>('.scroll-btn-left');
+      const scrollRightBtn = wrapper.querySelector<HTMLButtonElement>('.scroll-btn-right');
+
+      if (!tableWrapper || !scrollLeftBtn || !scrollRightBtn) return;
+
+      const handleScroll = () => {
+          const { scrollLeft, scrollWidth, clientWidth } = tableWrapper;
+          const canScrollLeft = scrollLeft > 0;
+          const canScrollRight = scrollLeft < scrollWidth - clientWidth - 1;
+
+          scrollLeftBtn.classList.toggle('visible', canScrollLeft);
+          scrollRightBtn.classList.toggle('visible', canScrollRight);
+      };
+
+      wrapper.addEventListener('mouseenter', handleScroll);
+      wrapper.addEventListener('mouseleave', () => {
+          scrollLeftBtn.classList.remove('visible');
+          scrollRightBtn.classList.remove('visible');
+      });
+      tableWrapper.addEventListener('scroll', handleScroll);
+
+      scrollLeftBtn.addEventListener('click', () => {
+          tableWrapper.scrollBy({ left: -200, behavior: 'smooth' });
+      });
+
+      scrollRightBtn.addEventListener('click', () => {
+          tableWrapper.scrollBy({ left: 200, behavior: 'smooth' });
+      });
+
+      handleScroll();
+  }
+
   private bindTableEvents(): void {
+      // Scroll buttons
+      this.bindScrollButtons();
+
       // Player Names
       this.bindPlayerNameClicks();
 
