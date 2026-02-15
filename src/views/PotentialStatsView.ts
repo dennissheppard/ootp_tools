@@ -213,9 +213,9 @@ export class PotentialStatsView {
       return `
         <div class="formula-note">
           <strong>WBL "Three True Outcomes":</strong><br>
-          K/9 = 2.07 + 0.074 × Stuff<br>
-          BB/9 = 5.22 - 0.052 × Control<br>
-          HR/9 = 2.08 - 0.024 × HRA (WBL = 0.64× neutral)
+          K/9 = 2.10 + 0.074 × Stuff<br>
+          BB/9 = 5.30 - 0.052 × Control<br>
+          HR/9 = 2.18 - 0.024 × HRA (WBL = 0.64× neutral)
         </div>
       `;
     } else {

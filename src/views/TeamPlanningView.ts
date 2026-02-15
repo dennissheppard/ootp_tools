@@ -315,10 +315,13 @@ export class TeamPlanningView {
       this.cachedOrgPitchers = orgPitchers;
 
       this.gridRows = this.buildGridData(teamRanking);
-      this.fillProspects(orgHitters, orgPitchers);
 
-      // Build player rating map from farm data + rankings for sorting/display
+      // Build player rating map before fillProspects — map has TR for MLB-only players,
+      // TFR for prospects (overwrites TR when a player appears in both MLB + farm data).
+      // fillProspects uses this to avoid replacing young MLB players whose TFR exceeds their TR.
       this.buildPlayerRatingMap(teamRanking, orgHitters, orgPitchers);
+
+      this.fillProspects(orgHitters, orgPitchers);
 
       // Apply user overrides (in-memory map, loaded on team change)
       this.applyOverrides();
@@ -467,7 +470,9 @@ export class TeamPlanningView {
         if (prospect.age + yi < MIN_PROSPECT_GRID_AGE) continue;
         const row = lineupRowMap.get(posLabel)!;
         const current = row.cells.get(year);
-        if (current && current.contractStatus !== 'empty' && (current.isProspect || current.isMinContract) && current.rating >= prospect.trueFutureRating) {
+        // Use TFR from playerRatingMap if available (young MLB player with upside), else cell rating
+        const currentEffective = current?.playerId ? (this.playerRatingMap.get(current.playerId) ?? current.rating) : (current?.rating ?? 0);
+        if (current && current.contractStatus !== 'empty' && (current.isProspect || current.isMinContract) && currentEffective >= prospect.trueFutureRating) {
           continue;
         }
         const eta = hitterETA.get(prospect.playerId)!;
@@ -510,7 +515,8 @@ export class TeamPlanningView {
         if (!best) continue;
         if (best.age + yi < MIN_PROSPECT_GRID_AGE) continue;
 
-        if ((cell.isProspect || cell.isMinContract) && cell.rating >= best.trueFutureRating) continue;
+        const spEffective = cell.playerId ? (this.playerRatingMap.get(cell.playerId) ?? cell.rating) : cell.rating;
+        if ((cell.isProspect || cell.isMinContract) && spEffective >= best.trueFutureRating) continue;
 
         usedThisYear.add(best.playerId);
         const spEta = pitcherETA.get(best.playerId)!;
@@ -537,7 +543,8 @@ export class TeamPlanningView {
         if (!best) continue;
         if (best.age + yi < MIN_PROSPECT_GRID_AGE) continue;
 
-        if ((cell.isProspect || cell.isMinContract) && cell.rating >= best.trueFutureRating) continue;
+        const rpEffective = cell.playerId ? (this.playerRatingMap.get(cell.playerId) ?? cell.rating) : cell.rating;
+        if ((cell.isProspect || cell.isMinContract) && rpEffective >= best.trueFutureRating) continue;
 
         usedThisYear.add(best.playerId);
         const rpEta = pitcherETA.get(best.playerId)!;

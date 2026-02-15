@@ -134,6 +134,7 @@ export interface MLBHitterPercentileDistribution {
   kPctValues: number[];   // Sorted ascending (lower is better)
   hrPctValues: number[];  // Sorted ascending (higher is better) - HR per PA
   avgValues: number[];    // Sorted ascending (higher is better)
+  warValues: number[];    // Sorted ascending (higher is better) - WAR per 600 PA
 }
 
 // ============================================================================
@@ -196,6 +197,25 @@ const PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
   { threshold: 5.0, rating: 1.0 },
   { threshold: 0.0, rating: 0.5 },
 ];
+
+/**
+ * Ceiling boost factor for TFR projections.
+ *
+ * Regression coefficients produce the MEAN outcome for a given scout rating.
+ * TFR is a ceiling/peak projection ("if everything goes right"), so we boost
+ * projections proportionally to how far above average each component is.
+ *
+ * The boost is: ceilingValue = meanValue + (meanValue - avgValue) * CEILING_BOOST
+ * where avgValue is the projected stat at rating 50 (league-average scouting grade).
+ *
+ * At rating 50: no change (average player's ceiling ≈ their mean)
+ * At rating 80: projection boosted 20% above the mean-to-average gap
+ *
+ * This reflects that when an elite prospect "hits their ceiling," they exceed
+ * the mean prediction — an 80-power player who develops perfectly will produce
+ * more HR% than the average 80-power outcome.
+ */
+const CEILING_BOOST_FACTOR = 0.35;
 
 /** wOBA weights */
 const WOBA_WEIGHTS = {
@@ -577,12 +597,19 @@ class HitterTrueFutureRatingService {
    * Uses ages 25-29 only (peak years) to build distributions.
    * This ensures we're mapping prospect peaks to actual MLB peaks.
    */
-  async buildMLBHitterPercentileDistribution(): Promise<MLBHitterPercentileDistribution> {
+  async buildMLBHitterPercentileDistribution(leagueBattingAverages?: LeagueBattingAverages): Promise<MLBHitterPercentileDistribution> {
     const years = [2015, 2016, 2017, 2018, 2019, 2020];
     const allBbPct: number[] = [];
     const allKPct: number[] = [];
     const allHrPct: number[] = [];
     const allAvg: number[] = [];
+    const allWar: number[] = [];
+
+    // Use game-specific league averages (same as used for prospect WAR)
+    const lgWoba = leagueBattingAverages?.lgWoba ?? 0.315;
+    const wobaScale = leagueBattingAverages?.wobaScale ?? 1.15;
+    const runsPerWin = leagueBattingAverages?.runsPerWin ?? 10;
+    const replacementRuns = 20;
 
     // Load DOB data to filter by age
     const dobMap = await this.loadPlayerDOBs();
@@ -616,6 +643,25 @@ class HitterTrueFutureRatingService {
             allKPct.push(kPct);
             allHrPct.push(hrPct);
             allAvg.push(stat.avg);
+
+            // Compute WAR per 600 PA from actual stats for MLB distribution
+            const bbRate = stat.bb / pa;
+            const singleRate = (stat.h - stat.d - stat.t - stat.hr) / pa;
+            const doubleRate = stat.d / pa;
+            const tripleRate = stat.t / pa;
+            const hrRate = stat.hr / pa;
+
+            const woba =
+              WOBA_WEIGHTS.bb * bbRate +
+              WOBA_WEIGHTS.single * Math.max(0, singleRate) +
+              WOBA_WEIGHTS.double * doubleRate +
+              WOBA_WEIGHTS.triple * tripleRate +
+              WOBA_WEIGHTS.hr * hrRate;
+
+            const wRAA = ((woba - lgWoba) / wobaScale) * 600;
+            const sbRuns = (stat.sb * 0.2 - stat.cs * 0.4) * (600 / pa);
+            const war = (wRAA + replacementRuns + sbRuns) / runsPerWin;
+            allWar.push(Math.round(war * 10) / 10);
           }
         }
       } catch (error) {
@@ -628,14 +674,21 @@ class HitterTrueFutureRatingService {
     allKPct.sort((a, b) => a - b);   // Ascending: lower values = lower percentile (but lower is better)
     allHrPct.sort((a, b) => a - b);  // Ascending: lower values = lower percentile
     allAvg.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
+    allWar.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
 
     console.log(`📊 Built MLB hitter distributions: ${allBbPct.length} peak-age hitters (ages 25-29) from 2015-2020`);
+    console.log(`📊 WAR constants used: lgWoba=${lgWoba}, wobaScale=${wobaScale}, runsPerWin=${runsPerWin}`);
+    if (allWar.length > 0) {
+      const p = (pct: number) => allWar[Math.min(Math.floor(pct / 100 * allWar.length), allWar.length - 1)];
+      console.log(`📊 MLB WAR/600 distribution: min=${allWar[0]}, p50=${p(50)}, p75=${p(75)}, p90=${p(90)}, p93=${p(93)}, p95=${p(95)}, p97=${p(97)}, p99=${p(99)}, max=${allWar[allWar.length - 1]}`);
+    }
 
     return {
       bbPctValues: allBbPct,
       kPctValues: allKPct,
       hrPctValues: allHrPct,
       avgValues: allAvg,
+      warValues: allWar,
     };
   }
 
@@ -905,21 +958,21 @@ class HitterTrueFutureRatingService {
   }
 
   /**
-   * Calculate blended component values for a single player.
+   * Calculate component values for a single player's TFR.
    * Returns eye/avoidK/power/contact values (before percentile ranking and MLB mapping).
    *
-   * Uses COMPONENT-SPECIFIC scouting weights based on predictive validity
-   * (from MiLB→MLB transition analysis, n=316):
+   * TFR is a pure ceiling/peak projection: "if this prospect develops perfectly,
+   * what would their peak season look like?" Scout potential ratings define the ceiling,
+   * so all components use 100% scouting. MiLB stats affect TR (current ability via
+   * development curves), not TFR (peak potential).
    *
-   * - AvoidK:  MiLB K% strongly predicts MLB K% (r=0.68) → trust stats 35-60%
-   * - Power:   MiLB HR% moderately predicts MLB HR% (r=0.44) → trust stats 25-45%
-   * - Eye:     MiLB BB% does NOT predict MLB BB% (r=0.05) → 100% scouting
-   * - Contact: MiLB AVG does NOT predict MLB AVG (r=0.18) → 100% scouting
+   * MiLB stats are still computed and returned for use by the development curve
+   * system (ProspectDevelopmentCurveService) and diagnostic tools.
    */
   calculateComponentBlend(input: HitterTrueFutureRatingInput): HitterComponentBlendedResult {
     const { scouting, minorLeagueStats, age } = input;
 
-    // Calculate weighted minor league stats
+    // Calculate weighted minor league stats (used by development curves for TR, not for TFR)
     const currentYear = minorLeagueStats.length > 0
       ? Math.max(...minorLeagueStats.map(s => s.year))
       : new Date().getFullYear();
@@ -928,39 +981,22 @@ class HitterTrueFutureRatingService {
     const totalMinorPa = weightedStats?.totalPa ?? 0;
     const weightedPa = weightedStats?.weightedPa ?? 0;
 
-    // Calculate component-specific scouting weights based on predictive validity
-    const eyeScoutWeight = this.calculateComponentScoutingWeight('eye', weightedPa);
-    const avoidKScoutWeight = this.calculateComponentScoutingWeight('avoidK', weightedPa);
-    const powerScoutWeight = this.calculateComponentScoutingWeight('power', weightedPa);
-    const contactScoutWeight = this.calculateComponentScoutingWeight('contact', weightedPa);
-
-    // Calculate scouting-expected rates
+    // Calculate scouting-expected rates (100% scouting for all TFR components)
     const scoutRates = this.scoutingToExpectedRates(scouting);
 
-    // If no minor league stats, use scouting only
-    let adjustedBbPct = scoutRates.bbPct;
-    let adjustedKPct = scoutRates.kPct;
-    let adjustedHrPct = scoutRates.hrPct;
-    let adjustedAvg = scoutRates.avg;
+    // Apply ceiling boost: TFR projects peak outcomes, not mean outcomes.
+    // Boost each component proportionally to how far above league-average it projects.
+    // Average scouting grade = 50 → compute the stat at rating 50 as the anchor.
+    const avgRates = this.scoutingToExpectedRates({
+      playerId: 0, eye: 50, avoidK: 50, power: 50, contact: 50, gap: 50, speed: 50, ovr: 2.5, pot: 2.5,
+    });
 
-    if (weightedStats) {
-      adjustedBbPct = weightedStats.bbPct;
-      adjustedKPct = weightedStats.kPct;
-      adjustedHrPct = weightedStats.hrPct;
-      adjustedAvg = weightedStats.avg;
-    }
-
-    // Blend scouting and stats with COMPONENT-SPECIFIC weights
-    // Eye (BB%): 100% scout - MiLB BB% doesn't predict MLB BB% (r=0.05)
-    const eyeValue = eyeScoutWeight * scoutRates.bbPct + (1 - eyeScoutWeight) * adjustedBbPct;
-    // AvoidK (K%): ~40-65% scout - MiLB K% strongly predicts MLB K% (r=0.68)
-    const avoidKValue = avoidKScoutWeight * scoutRates.kPct + (1 - avoidKScoutWeight) * adjustedKPct;
-    // Power (HR%): ~55-75% scout - MiLB HR% moderately predicts MLB HR% (r=0.44)
-    const powerValue = powerScoutWeight * scoutRates.hrPct + (1 - powerScoutWeight) * adjustedHrPct;
-    // Contact (AVG): 100% scout - MiLB AVG doesn't predict MLB AVG (r=0.18)
-    const contactValue = contactScoutWeight * scoutRates.avg + (1 - contactScoutWeight) * adjustedAvg;
-    // Gap & Speed: 100% scout - No good research on MiLB 2B/3B rates predicting MLB
-    // Note: Speed is now on 20-80 scale (same as other ratings), default to 50 (average)
+    // BB%/HR%/AVG: higher is better → boost pushes UP above average
+    // K%: lower is better → boost pushes DOWN below average (same formula works naturally)
+    const eyeValue = scoutRates.bbPct + (scoutRates.bbPct - avgRates.bbPct) * CEILING_BOOST_FACTOR;
+    const avoidKValue = scoutRates.kPct + (scoutRates.kPct - avgRates.kPct) * CEILING_BOOST_FACTOR;
+    const powerValue = scoutRates.hrPct + (scoutRates.hrPct - avgRates.hrPct) * CEILING_BOOST_FACTOR;
+    const contactValue = scoutRates.avg + (scoutRates.avg - avgRates.avg) * CEILING_BOOST_FACTOR;
     const gapValue = scouting.gap ?? 50;
     const speedValue = scouting.speed ?? 50;
 
@@ -972,10 +1008,10 @@ class HitterTrueFutureRatingService {
       scoutKPct: Math.round(scoutRates.kPct * 10) / 10,
       scoutHrPct: Math.round(scoutRates.hrPct * 100) / 100,
       scoutAvg: Math.round(scoutRates.avg * 1000) / 1000,
-      adjustedBbPct: Math.round(adjustedBbPct * 10) / 10,
-      adjustedKPct: Math.round(adjustedKPct * 10) / 10,
-      adjustedHrPct: Math.round(adjustedHrPct * 100) / 100,
-      adjustedAvg: Math.round(adjustedAvg * 1000) / 1000,
+      adjustedBbPct: weightedStats ? Math.round(weightedStats.bbPct * 10) / 10 : Math.round(scoutRates.bbPct * 10) / 10,
+      adjustedKPct: weightedStats ? Math.round(weightedStats.kPct * 10) / 10 : Math.round(scoutRates.kPct * 10) / 10,
+      adjustedHrPct: weightedStats ? Math.round(weightedStats.hrPct * 100) / 100 : Math.round(scoutRates.hrPct * 100) / 100,
+      adjustedAvg: weightedStats ? Math.round(weightedStats.avg * 1000) / 1000 : Math.round(scoutRates.avg * 1000) / 1000,
       eyeValue: Math.round(eyeValue * 100) / 100,
       avoidKValue: Math.round(avoidKValue * 100) / 100,
       powerValue: Math.round(powerValue * 100) / 100,  // HR% as percentage
@@ -996,15 +1032,13 @@ class HitterTrueFutureRatingService {
    * Calculate True Future Ratings for multiple hitter prospects.
    *
    * ALGORITHM (Direct MLB Comparison):
-   * 1. Blend scouting + stats separately for each component (eye/avoidK/power/contact)
+   * 1. Convert scout potential ratings to projected peak rate stats (100% scouting)
    * 2. Load MLB peak-age distributions
-   * 3. For Eye/AvoidK/Power/Contact: find blended rate's percentile in MLB distribution
-   *    (blended rates are already MLB-calibrated, so compare directly to MLB hitters)
+   * 3. For Eye/AvoidK/Power/Contact: find projected rate's percentile in MLB distribution
    * 4. For Gap/Speed: rank among prospects (no MLB distribution available)
-   * 5. Projected rates = blended rates (already MLB-calibrated)
+   * 5. Calculate wOBA from projected rates
    * 6. True Ratings = 20 + (MLB percentile / 100) * 60
-   * 7. Calculate wOBA from blended rates
-   * 8. Rank by wOBA among prospects for final TFR star rating
+   * 7. Map WAR/600 to MLB peak-year distribution for final TFR star rating
    */
   async calculateTrueFutureRatings(
     inputs: HitterTrueFutureRatingInput[],
@@ -1017,8 +1051,8 @@ class HitterTrueFutureRatingService {
     // Step 1: Calculate component blends for all prospects
     const componentResults = inputs.map(input => this.calculateComponentBlend(input));
 
-    // Step 2: Load MLB distribution
-    const mlbDist = await this.buildMLBHitterPercentileDistribution();
+    // Step 2: Load MLB distribution (pass league averages so WAR is on same scale as prospects)
+    const mlbDist = await this.buildMLBHitterPercentileDistribution(leagueBattingAverages);
 
     // Step 3: Rank Gap/Speed among prospects (no MLB distribution for these)
     const prospectPercentiles = this.rankProspectsByComponent(componentResults);
@@ -1052,11 +1086,11 @@ class HitterTrueFutureRatingService {
       let projHrPct = result.powerValue;
       let projAvg = result.contactValue;
 
-      // Clamp to realistic ranges
-      projBbPct = Math.max(3.0, Math.min(20.0, projBbPct));
-      projKPct = Math.max(5.0, Math.min(35.0, projKPct));
-      projHrPct = Math.max(0.5, Math.min(8.0, projHrPct));
-      projAvg = Math.max(0.200, Math.min(0.350, projAvg));
+      // Clamp to realistic ceiling ranges (wider than mean projections to allow peak outcomes)
+      projBbPct = Math.max(2.0, Math.min(22.0, projBbPct));
+      projKPct = Math.max(4.0, Math.min(35.0, projKPct));
+      projHrPct = Math.max(0.3, Math.min(10.0, projHrPct));
+      projAvg = Math.max(0.180, Math.min(0.380, projAvg));
 
       // Calculate peak wOBA from blended rates
       const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg, gap, speed);
@@ -1095,13 +1129,18 @@ class HitterTrueFutureRatingService {
       };
     });
 
-    // Step 5: Rank by WAR among prospects to get final percentile and TFR rating
-    const sortedByWar = [...resultsWithWoba].sort((a, b) => b.projWar - a.projWar);
-    const n = sortedByWar.length;
+    // Log top prospect WAR values with full rate breakdowns for debugging
+    const topByWar = [...resultsWithWoba].sort((a, b) => b.projWar - a.projWar).slice(0, 5);
+    for (const r of topByWar) {
+      const input = inputs.find(i => i.playerId === r.playerId);
+      const s = input?.scouting;
+      console.log(`📊 ${r.playerName}: WAR=${r.projWar}, wOBA=${r.projWoba}, BB%=${r.projBbPct}, K%=${r.projKPct}, HR%=${r.projHrPct}, AVG=${r.projAvg} | Scout: eye=${s?.eye}, avK=${s?.avoidK}, pow=${s?.power}, con=${s?.contact}, gap=${s?.gap}, spd=${s?.speed}, SR=${s?.stealingAggressiveness}, STE=${s?.stealingAbility}`);
+    }
 
-    return sortedByWar.map((result, index) => {
-      // Calculate percentile rank (higher WAR = better = higher percentile)
-      const percentile = n > 1 ? ((n - index - 1) / (n - 1)) * 100 : 50;
+    // Step 5: Map WAR to MLB peak-year WAR distribution for final TFR rating
+    // (Components and final rating both compared to MLB, not other prospects)
+    return resultsWithWoba.map((result) => {
+      const percentile = this.findValuePercentileInDistribution(result.projWar, mlbDist.warValues, true);
       const trueFutureRating = this.percentileToRating(percentile);
 
       // True ratings from MLB percentiles: rating = 20 + (percentile / 100) * 60
@@ -1159,7 +1198,7 @@ class HitterTrueFutureRatingService {
 
   /**
    * Calculate TFR for a single hitter prospect (simplified).
-   * Uses component-specific scouting weights based on predictive validity.
+   * Uses 100% scouting — scout potential ratings define the ceiling.
    */
   calculateTrueFutureRating(input: HitterTrueFutureRatingInput): {
     projWoba: number;
@@ -1177,33 +1216,17 @@ class HitterTrueFutureRatingService {
 
     const weightedStats = this.calculateWeightedMinorStats(minorLeagueStats, currentYear);
     const totalMinorPa = weightedStats?.totalPa ?? 0;
-    const weightedPa = weightedStats?.weightedPa ?? 0;
 
-    // Component-specific scouting weights
-    const eyeScoutWeight = this.calculateComponentScoutingWeight('eye', weightedPa);
-    const avoidKScoutWeight = this.calculateComponentScoutingWeight('avoidK', weightedPa);
-    const powerScoutWeight = this.calculateComponentScoutingWeight('power', weightedPa);
-    const contactScoutWeight = this.calculateComponentScoutingWeight('contact', weightedPa);
-
+    // TFR uses pure scouting projections with ceiling boost
     const scoutRates = this.scoutingToExpectedRates(scouting);
+    const avgRates = this.scoutingToExpectedRates({
+      playerId: 0, eye: 50, avoidK: 50, power: 50, contact: 50, gap: 50, speed: 50, ovr: 2.5, pot: 2.5,
+    });
 
-    let adjustedBbPct = scoutRates.bbPct;
-    let adjustedKPct = scoutRates.kPct;
-    let adjustedHrPct = scoutRates.hrPct;
-    let adjustedAvg = scoutRates.avg;
-
-    if (weightedStats) {
-      adjustedBbPct = weightedStats.bbPct;
-      adjustedKPct = weightedStats.kPct;
-      adjustedHrPct = weightedStats.hrPct;
-      adjustedAvg = weightedStats.avg;
-    }
-
-    // Blend with component-specific weights
-    const projBbPct = eyeScoutWeight * scoutRates.bbPct + (1 - eyeScoutWeight) * adjustedBbPct;
-    const projKPct = avoidKScoutWeight * scoutRates.kPct + (1 - avoidKScoutWeight) * adjustedKPct;
-    const projHrPct = powerScoutWeight * scoutRates.hrPct + (1 - powerScoutWeight) * adjustedHrPct;
-    const projAvg = contactScoutWeight * scoutRates.avg + (1 - contactScoutWeight) * adjustedAvg;
+    const projBbPct = scoutRates.bbPct + (scoutRates.bbPct - avgRates.bbPct) * CEILING_BOOST_FACTOR;
+    const projKPct = scoutRates.kPct + (scoutRates.kPct - avgRates.kPct) * CEILING_BOOST_FACTOR;
+    const projHrPct = scoutRates.hrPct + (scoutRates.hrPct - avgRates.hrPct) * CEILING_BOOST_FACTOR;
+    const projAvg = scoutRates.avg + (scoutRates.avg - avgRates.avg) * CEILING_BOOST_FACTOR;
 
     const gap = scouting.gap ?? 50;
     const speed = scouting.speed ?? 50;

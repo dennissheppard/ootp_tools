@@ -1142,7 +1142,7 @@ export class BatterProfileModal {
     } else if (data.projAvg !== undefined) {
       projAvg = data.projAvg;
     } else if (data.estimatedContact !== undefined) {
-      projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
+      projAvg = data.projAvg ?? HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
     }
 
     if (isProspectCtx && data.tfrHrPct !== undefined) {
@@ -1150,7 +1150,7 @@ export class BatterProfileModal {
     } else if (data.projHrPct !== undefined) {
       projHrPct = data.projHrPct;
     } else if (data.estimatedPower !== undefined) {
-      projHrPct = HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
+      projHrPct = data.projHrPct ?? HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
     }
 
     if (isProspectCtx && data.tfrBbPct !== undefined) {
@@ -1158,7 +1158,7 @@ export class BatterProfileModal {
     } else if (data.projBbPct !== undefined) {
       projBbPct = data.projBbPct;
     } else if (data.estimatedEye !== undefined) {
-      projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
+      projBbPct = data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
     }
 
     if (isProspectCtx && data.tfrKPct !== undefined) {
@@ -1166,7 +1166,7 @@ export class BatterProfileModal {
     } else if (data.projKPct !== undefined) {
       projKPct = data.projKPct;
     } else if (data.estimatedAvoidK !== undefined) {
-      projKPct = HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
+      projKPct = data.projKPct ?? HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
     }
 
     // Projected 2B from gap rating
@@ -1443,18 +1443,28 @@ export class BatterProfileModal {
       projBbPct = data.projBbPct ?? 8.5;
       projKPct = data.projKPct ?? 22.0;
     }
-    // Fallback: derive from component ratings
+    // Fallback: derive from component ratings (prefer TFR blended rates for prospects)
     else if (usePower !== undefined && useEye !== undefined &&
              useAvoidK !== undefined && useContact !== undefined) {
-      projBbPct = data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(useEye);
-      projKPct = data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK);
-      projAvg = HitterRatingEstimatorService.expectedAvg(useContact);
-      projObp = Math.min(0.450, projAvg + (projBbPct / 100));
+      projBbPct = (isPeakMode || isProspectPeak)
+        ? (data.tfrBbPct ?? data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(useEye))
+        : (data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(useEye));
+      projKPct = (isPeakMode || isProspectPeak)
+        ? (data.tfrKPct ?? data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK))
+        : (data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK));
+      projAvg = (isPeakMode || isProspectPeak)
+        ? (data.tfrAvg ?? data.projAvg ?? HitterRatingEstimatorService.expectedAvg(useContact))
+        : (data.projAvg ?? HitterRatingEstimatorService.expectedAvg(useContact));
+      projObp = (isPeakMode || isProspectPeak)
+        ? (data.tfrObp ?? Math.min(0.450, projAvg + (projBbPct / 100)))
+        : Math.min(0.450, projAvg + (projBbPct / 100));
       const hrPerAb = (HitterRatingEstimatorService.expectedHrPct(usePower) / 100) / 0.88;
       const doublesPerAb = useGap !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(useGap) : 0.04;
       const triplesPerAb = useSpeed !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(useSpeed) : 0.005;
       const iso = doublesPerAb + 2 * triplesPerAb + 3 * hrPerAb;
-      projSlg = projAvg + iso;
+      projSlg = (isPeakMode || isProspectPeak)
+        ? (data.tfrSlg ?? projAvg + iso)
+        : (projAvg + iso);
     }
     else {
       projAvg = 0.260;

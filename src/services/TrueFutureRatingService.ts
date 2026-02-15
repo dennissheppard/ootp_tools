@@ -200,6 +200,7 @@ export interface MLBPercentileDistribution {
   k9Values: number[];   // Sorted ascending (higher is better)
   bb9Values: number[];  // Sorted ascending (lower is better)
   hr9Values: number[];  // Sorted ascending (lower is better)
+  fipValues: number[];  // Sorted ascending (lower is better)
 }
 
 // ============================================================================
@@ -245,6 +246,7 @@ class TrueFutureRatingService {
     const allK9: number[] = [];
     const allBb9: number[] = [];
     const allHr9: number[] = [];
+    const allFip: number[] = [];
 
     // Load DOB data to filter by age
     const dobMap = await this.loadPlayerDOBs();
@@ -277,6 +279,10 @@ class TrueFutureRatingService {
             allK9.push(k9);
             allBb9.push(bb9);
             allHr9.push(hr9);
+
+            // Compute FIP from actual stats for MLB distribution
+            const fip = this.calculateFip(k9, bb9, hr9);
+            allFip.push(Math.round(fip * 100) / 100);
           }
         }
       } catch (error) {
@@ -288,6 +294,7 @@ class TrueFutureRatingService {
     allK9.sort((a, b) => a - b);  // Ascending: lower values = lower percentile
     allBb9.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
     allHr9.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
+    allFip.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
 
     console.log(`📊 Built MLB distributions: ${allK9.length} peak-age pitchers (ages 25-29) from 2015-2020`);
 
@@ -295,6 +302,7 @@ class TrueFutureRatingService {
       k9Values: allK9,
       bb9Values: allBb9,
       hr9Values: allHr9,
+      fipValues: allFip,
     };
   }
 
@@ -379,6 +387,42 @@ class TrueFutureRatingService {
     const fraction = position - lowerIdx;
 
     return lowerValue + (upperValue - lowerValue) * fraction;
+  }
+
+  /**
+   * Find where a value falls in a sorted MLB distribution.
+   * Returns 0-100 percentile indicating what fraction of MLB pitchers are at or below this value.
+   *
+   * @param value - The rate value to look up
+   * @param sortedValues - Sorted ascending array of MLB rate values
+   * @param higherIsBetter - If true, percentile = % at or below. If false (FIP, BB9, HR9), inverted.
+   * @returns Percentile 0-100
+   */
+  findValuePercentileInDistribution(value: number, sortedValues: number[], higherIsBetter: boolean): number {
+    if (sortedValues.length === 0) return 50;
+
+    const n = sortedValues.length;
+
+    // Binary search: find how many values are <= this value
+    let lo = 0;
+    let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (sortedValues[mid] <= value) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    // lo = number of values <= value
+
+    const fractionAtOrBelow = lo / n * 100;
+
+    if (higherIsBetter) {
+      return Math.max(0, Math.min(100, fractionAtOrBelow));
+    } else {
+      return Math.max(0, Math.min(100, 100 - fractionAtOrBelow));
+    }
   }
 
   /**
@@ -594,43 +638,37 @@ class TrueFutureRatingService {
   }
 
   /**
-   * Calculate blended component values for a single player.
+   * Calculate component values for a single player's TFR.
    * Returns stuff/control/HRA values (before percentile ranking and MLB mapping).
+   *
+   * TFR is a pure ceiling/peak projection: scout potential ratings define the ceiling,
+   * so all components use 100% scouting. MiLB stats affect TR (current ability via
+   * development curves), not TFR (peak potential).
+   *
+   * MiLB stats are still computed and returned for use by diagnostic tools.
    */
   calculateComponentBlend(input: TrueFutureRatingInput): ComponentBlendedResult {
     const { scouting, minorLeagueStats, age } = input;
 
-    // Calculate weighted minor league stats
+    // Calculate weighted minor league stats (used by development curves for TR, not for TFR)
     const currentYear = minorLeagueStats.length > 0
       ? Math.max(...minorLeagueStats.map(s => s.year))
       : new Date().getFullYear();
 
     const weightedStats = this.calculateWeightedMinorStats(minorLeagueStats, currentYear);
     const totalMinorIp = weightedStats?.totalIp ?? 0;
-    const weightedIp = weightedStats?.weightedIp ?? 0;
 
-    // Calculate scouting weight (level-weighted IP-based)
-    // Use weightedIp instead of totalIp to account for level reliability
-    const scoutingWeight = this.calculateScoutingWeight(weightedIp);
-
-    // Calculate scouting-expected rates
+    // TFR uses pure scouting projections with ceiling boost.
+    // Boost each component proportionally to how far above average it projects.
     const scoutRates = this.scoutingToExpectedRates(scouting);
+    const avgRates = this.scoutingToExpectedRates({ playerId: 0, stuff: 50, control: 50, hra: 50 });
 
-    // If no minor league stats, use scouting only
-    let adjustedK9 = scoutRates.k9;
-    let adjustedBb9 = scoutRates.bb9;
-    let adjustedHr9 = scoutRates.hr9;
-
-    if (weightedStats) {
-      adjustedK9 = weightedStats.k9;
-      adjustedBb9 = weightedStats.bb9;
-      adjustedHr9 = weightedStats.hr9;
-    }
-
-    // Blend scouting and stats SEPARATELY for each component
-    const stuffValue = scoutingWeight * scoutRates.k9 + (1 - scoutingWeight) * adjustedK9;
-    const controlValue = scoutingWeight * scoutRates.bb9 + (1 - scoutingWeight) * adjustedBb9;
-    const hraValue = scoutingWeight * scoutRates.hr9 + (1 - scoutingWeight) * adjustedHr9;
+    // K9: higher is better → boost UP above average
+    // BB9/HR9: lower is better → boost DOWN below average (formula works naturally)
+    const CEILING_BOOST = .7;
+    const stuffValue = scoutRates.k9 + (scoutRates.k9 - avgRates.k9) * CEILING_BOOST;
+    const controlValue = scoutRates.bb9 + (scoutRates.bb9 - avgRates.bb9) * CEILING_BOOST;
+    const hraValue = scoutRates.hr9 + (scoutRates.hr9 - avgRates.hr9) * CEILING_BOOST;
 
     return {
       playerId: input.playerId,
@@ -639,9 +677,9 @@ class TrueFutureRatingService {
       scoutK9: Math.round(scoutRates.k9 * 100) / 100,
       scoutBb9: Math.round(scoutRates.bb9 * 100) / 100,
       scoutHr9: Math.round(scoutRates.hr9 * 100) / 100,
-      adjustedK9: Math.round(adjustedK9 * 100) / 100,
-      adjustedBb9: Math.round(adjustedBb9 * 100) / 100,
-      adjustedHr9: Math.round(adjustedHr9 * 100) / 100,
+      adjustedK9: weightedStats ? Math.round(weightedStats.k9 * 100) / 100 : Math.round(scoutRates.k9 * 100) / 100,
+      adjustedBb9: weightedStats ? Math.round(weightedStats.bb9 * 100) / 100 : Math.round(scoutRates.bb9 * 100) / 100,
+      adjustedHr9: weightedStats ? Math.round(weightedStats.hr9 * 100) / 100 : Math.round(scoutRates.hr9 * 100) / 100,
       rawK9: weightedStats ? Math.round(weightedStats.rawK9 * 100) / 100 : undefined,
       rawBb9: weightedStats ? Math.round(weightedStats.rawBb9 * 100) / 100 : undefined,
       rawHr9: weightedStats ? Math.round(weightedStats.rawHr9 * 100) / 100 : undefined,
@@ -656,12 +694,12 @@ class TrueFutureRatingService {
   /**
    * Calculate True Future Ratings for multiple players using percentile-based approach.
    *
-   * NEW ALGORITHM (January 31, 2026):
-   * 1. Blend scouting + stats separately for each component (stuff/control/HRA)
+   * ALGORITHM (Direct MLB Comparison):
+   * 1. Convert scout potential ratings to projected peak rate stats (100% scouting)
    * 2. Rank prospects by each component to get percentiles
    * 3. Map percentiles to MLB distributions (2015-2020)
    * 4. Calculate peak FIP from mapped rates
-   * 5. Rank by FIP for final TFR rating
+   * 5. Map FIP to MLB peak-year distribution for final TFR star rating
    *
    * @param inputs - Array of prospect inputs
    * @returns Array of TrueFutureRatingResult with percentiles and ratings
@@ -673,43 +711,37 @@ class TrueFutureRatingService {
       return [];
     }
 
-    // Step 1: Calculate component blends for all prospects
+    // Step 1: Calculate component blends for all prospects (100% scouting + ceiling boost)
     const componentResults = inputs.map(input => this.calculateComponentBlend(input));
 
-    // Step 2: Rank by each component to get percentiles
-    const componentPercentiles = this.rankProspectsByComponent(componentResults);
-
-    // Step 3: Load MLB distribution for mapping
+    // Step 2: Load MLB distribution for direct comparison
     const mlbDist = await this.buildMLBPercentileDistribution();
 
-    // Step 4: Map percentiles to MLB rates and calculate FIP
+    // Step 3: Use boosted rates directly as projected rates, find percentiles in MLB distributions
+    // This matches the batter TFR approach: compare projected values directly to MLB peak-age
+    // distributions instead of ranking among prospects (which washes out the ceiling boost).
     const resultsWithFip = componentResults.map(result => {
-      const percentiles = componentPercentiles.get(result.playerId)!;
+      // Use boosted component values directly as projected rates (with clamping)
+      let projK9 = Math.max(3.0, Math.min(13.0, result.stuffValue));
+      let projBb9 = Math.max(0.50, Math.min(7.0, result.controlValue));
+      let projHr9 = Math.max(0.15, Math.min(2.5, result.hraValue));
 
-      // Map percentiles to MLB distribution values
-      // For stuff (K9): higher percentile = higher K9 (use percentile as-is)
-      // For control (BB9): higher percentile = lower BB9 (invert percentile)
-      // For HRA (HR9): higher percentile = lower HR9 (invert percentile)
-      let projK9 = this.mapPercentileToMLBValue(percentiles.stuffPercentile, mlbDist.k9Values);
-      let projBb9 = this.mapPercentileToMLBValue(100 - percentiles.controlPercentile, mlbDist.bb9Values);
-      let projHr9 = this.mapPercentileToMLBValue(100 - percentiles.hraPercentile, mlbDist.hr9Values);
+      // Find each component's percentile directly in the MLB distribution
+      // Stuff (K9): higher is better
+      const stuffPercentile = this.findValuePercentileInDistribution(projK9, mlbDist.k9Values, true);
+      // Control (BB9): lower is better
+      const controlPercentile = this.findValuePercentileInDistribution(projBb9, mlbDist.bb9Values, false);
+      // HRA (HR9): lower is better
+      const hraPercentile = this.findValuePercentileInDistribution(projHr9, mlbDist.hr9Values, false);
 
-      // Clamp to realistic ranges based on actual MLB peak-age extremes
-      // Best observed: K9 9.79, BB9 0.89, HR9 0.2 (Dave Larocque 2020, 123 IP)
-      // Allow generational prospects (80/80/80 scouting) to achieve historical bests
-      // If someone is truly elite at ALL three phases, extreme FIP (~2.0) is mathematically correct
-      projK9 = Math.max(3.0, Math.min(11.0, projK9));   // Max K9: 9.79, allow 11.0 for peak ceiling
-      projBb9 = Math.max(0.85, Math.min(7.0, projBb9));  // Min BB9: 0.89 actual, allow 0.85
-      projHr9 = Math.max(0.20, Math.min(2.5, projHr9));  // Min HR9: 0.2 actual (Dave Larocque)
-
-      // Calculate peak FIP from mapped rates
+      // Calculate peak FIP from projected rates
       const projFip = this.calculateFip(projK9, projBb9, projHr9);
 
       return {
         ...result,
-        stuffPercentile: Math.round(percentiles.stuffPercentile * 10) / 10,
-        controlPercentile: Math.round(percentiles.controlPercentile * 10) / 10,
-        hraPercentile: Math.round(percentiles.hraPercentile * 10) / 10,
+        stuffPercentile: Math.round(stuffPercentile * 10) / 10,
+        controlPercentile: Math.round(controlPercentile * 10) / 10,
+        hraPercentile: Math.round(hraPercentile * 10) / 10,
         projK9: Math.round(projK9 * 100) / 100,
         projBb9: Math.round(projBb9 * 100) / 100,
         projHr9: Math.round(projHr9 * 100) / 100,
@@ -717,18 +749,12 @@ class TrueFutureRatingService {
       };
     });
 
-    // Step 5: Rank by FIP among prospects to get final percentile and TFR rating
-    const sortedByFip = [...resultsWithFip].sort((a, b) => a.projFip - b.projFip);
-    const n = sortedByFip.length;
-
-    return sortedByFip.map((result, index) => {
-      // Calculate percentile rank (lower FIP = better = higher percentile)
-      // Handle n=1 edge case to avoid division by zero
-      const percentile = n === 1 ? 50 : ((n - index - 1) / (n - 1)) * 100;
+    // Step 4: Map FIP to MLB peak-year FIP distribution for final TFR rating
+    return resultsWithFip.map((result) => {
+      const percentile = this.findValuePercentileInDistribution(result.projFip, mlbDist.fipValues, false);
       const trueFutureRating = this.percentileToRating(percentile);
 
-      // Calculate true ratings from percentiles: rating = 20 + (percentile / 100) * 60
-      // This normalizes across all prospects - 50th percentile = 50 rating
+      // True ratings from MLB percentiles: rating = 20 + (percentile / 100) * 60
       const trueStuff = Math.round(20 + (result.stuffPercentile / 100) * 60);
       const trueControl = Math.round(20 + (result.controlPercentile / 100) * 60);
       const trueHra = Math.round(20 + (result.hraPercentile / 100) * 60);

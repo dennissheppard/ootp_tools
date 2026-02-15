@@ -699,17 +699,22 @@ class ProjectionService {
     }
 
     // 3. Injury Modifier
-    // Peak projection assumes a healthy season, so less punitive than career average
+    // Only apply to the model-based IP when there's NO historical data to blend with.
+    // When historical data exists, it already reflects injury outcomes (a fragile pitcher's
+    // history shows fewer IP), so applying the modifier here would double-penalize durability.
     const proneness = scouting?.injuryProneness?.toLowerCase() ?? 'normal';
-    let injuryMod = 1.0;
-    switch (proneness) {
-        case 'iron man': injuryMod = 1.15; break;
-        case 'durable': injuryMod = 1.08; break;
-        case 'normal': injuryMod = 1.0; break;
-        case 'fragile': injuryMod = 0.92; break; // Can still have healthy peak season
-        case 'wrecked': injuryMod = 0.75; break; // Significantly limits ceiling
+    const hasHistoricalData = historicalStats && historicalStats.length > 0 && historicalStats.some(s => s.ip >= (isSp ? 50 : 10));
+    if (!hasHistoricalData) {
+        let injuryMod = 1.0;
+        switch (proneness) {
+            case 'iron man': injuryMod = 1.15; break;
+            case 'durable': injuryMod = 1.08; break;
+            case 'normal': injuryMod = 1.0; break;
+            case 'fragile': injuryMod = 0.92; break;
+            case 'wrecked': injuryMod = 0.75; break;
+        }
+        baseIp *= injuryMod;
     }
-    baseIp *= injuryMod;
 
     // 4. Skill Modifier (managers give more IP to better pitchers)
     // Scale IP based on projected skill level (FIP)

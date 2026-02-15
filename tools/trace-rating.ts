@@ -253,6 +253,8 @@ interface BatterScouting {
   gap: number;
   speed: number;
   injury?: string;
+  sr?: number;   // Stealing aggressiveness (20-80)
+  ste?: number;  // Stealing ability (20-80)
 }
 
 // ============================================================================
@@ -571,6 +573,8 @@ function loadBatterScouting(playerId: number, source: 'my' | 'osa' = 'osa'): Bat
     gap: headers.indexOf('GAP P'),
     speed: headers.indexOf('SPE'),
     injury: headers.indexOf('Prone'),
+    sr: headers.indexOf('SR'),
+    ste: headers.indexOf('STE'),
   };
 
   for (const row of rows) {
@@ -583,6 +587,8 @@ function loadBatterScouting(playerId: number, source: 'my' | 'osa' = 'osa'): Bat
         gap: parseInt(row[indices.gap]) || 50,
         speed: parseInt(row[indices.speed]) || 50,
         injury: indices.injury >= 0 ? (row[indices.injury]?.trim() || 'Normal') : 'Normal',
+        sr: indices.sr >= 0 ? parseInt(row[indices.sr]) || undefined : undefined,
+        ste: indices.ste >= 0 ? parseInt(row[indices.ste]) || undefined : undefined,
       };
     }
   }
@@ -1403,6 +1409,358 @@ function tracePitcherTFR(
   console.log(`  Projected Peak WAR: ${peakWar.toFixed(1)}`);
 }
 
+function tracePitcherTFRFull(
+  playerId: number,
+  baseYear: number,
+  scouting: PitcherScouting
+): void {
+  console.log('\n' + '='.repeat(80));
+  console.log(`PITCHER TFR (FULL MODE): Player ID ${playerId}`);
+  console.log('='.repeat(80));
+
+  // --- STEP 1: Scouting Ratings ---
+  console.log('\n--- STEP 1: Scouting Ratings ---\n');
+  console.log(`  Stuff:   ${scouting.stuff}`);
+  console.log(`  Control: ${scouting.control}`);
+  console.log(`  HRA:     ${scouting.hra}`);
+  console.log(`  Stamina: ${scouting.stamina ?? '?'}`);
+  console.log(`  Injury:  ${scouting.injury ?? 'Normal'}`);
+
+  const pitches = scouting.pitches ?? {};
+  const pitchEntries = Object.entries(pitches).filter(([, v]) => v > 0);
+  if (pitchEntries.length > 0) {
+    console.log(`  Pitches: ${pitchEntries.map(([k, v]) => `${k}=${v}`).join(', ')}`);
+  }
+
+  const scoutK9 = PITCHER_FORMULAS.k9.intercept + PITCHER_FORMULAS.k9.slope * scouting.stuff;
+  const scoutBb9 = PITCHER_FORMULAS.bb9.intercept + PITCHER_FORMULAS.bb9.slope * scouting.control;
+  const scoutHr9 = PITCHER_FORMULAS.hr9.intercept + PITCHER_FORMULAS.hr9.slope * scouting.hra;
+
+  console.log(`\n  Scouting Expected Rates:`);
+  console.log(`    K/9 = ${PITCHER_FORMULAS.k9.intercept} + ${PITCHER_FORMULAS.k9.slope} × ${scouting.stuff} = ${scoutK9.toFixed(2)}`);
+  console.log(`    BB/9 = ${PITCHER_FORMULAS.bb9.intercept} + (${PITCHER_FORMULAS.bb9.slope}) × ${scouting.control} = ${scoutBb9.toFixed(2)}`);
+  console.log(`    HR/9 = ${PITCHER_FORMULAS.hr9.intercept} + (${PITCHER_FORMULAS.hr9.slope}) × ${scouting.hra} = ${scoutHr9.toFixed(2)}`);
+
+  // --- STEP 2: Minor League Stats ---
+  console.log('\n--- STEP 2: Minor League Stats ---\n');
+  const allMinorStats: MinorLeaguePitchingStats[] = [];
+  for (let y = baseYear; y >= baseYear - 3; y--) {
+    const stats = loadMinorLeaguePitchingStats(playerId, y);
+    allMinorStats.push(...stats);
+  }
+
+  if (allMinorStats.length === 0) {
+    console.log('  No minor league pitching stats found.');
+    console.log('  Using 100% scouting weight.');
+  } else {
+    for (const s of allMinorStats) {
+      const k9 = (s.k / s.ip) * 9;
+      const bb9 = (s.bb / s.ip) * 9;
+      const hr9 = (s.hra / s.ip) * 9;
+      console.log(`  ${s.year} ${s.level.toUpperCase()}: ${s.ip.toFixed(1)} IP, K/9=${k9.toFixed(2)}, BB/9=${bb9.toFixed(2)}, HR/9=${hr9.toFixed(2)}`);
+    }
+  }
+
+  // --- STEP 3: Level-Weighted IP ---
+  console.log('\n--- STEP 3: Calculate Level-Weighted IP ---\n');
+  let totalWeightedIp = 0;
+  let totalRawIp = 0;
+  for (const s of allMinorStats) {
+    const levelWeight = LEVEL_WEIGHTS[s.level as keyof typeof LEVEL_WEIGHTS] || 0.2;
+    const weightedIp = s.ip * levelWeight;
+    totalWeightedIp += weightedIp;
+    totalRawIp += s.ip;
+    console.log(`  ${s.level.toUpperCase()}: ${s.ip.toFixed(1)} IP × ${levelWeight} = ${weightedIp.toFixed(1)} weighted IP`);
+  }
+  console.log(`\n  Total Raw IP: ${totalRawIp.toFixed(1)}`);
+  console.log(`  Total Weighted IP: ${totalWeightedIp.toFixed(1)}`);
+
+  // --- STEP 4: Scouting Weight ---
+  console.log('\n--- STEP 4: Determine Scouting Weight ---\n');
+  let scoutingWeight: number;
+  if (totalWeightedIp < 75) {
+    scoutingWeight = 1.0;
+    console.log(`  Weighted IP < 75: 100% scouting`);
+  } else if (totalWeightedIp <= 150) {
+    scoutingWeight = 0.8;
+    console.log(`  Weighted IP 75-150: 80% scouting`);
+  } else if (totalWeightedIp <= 250) {
+    scoutingWeight = 0.7;
+    console.log(`  Weighted IP 151-250: 70% scouting`);
+  } else {
+    scoutingWeight = 0.6;
+    console.log(`  Weighted IP 250+: 60% scouting`);
+  }
+
+  // --- STEP 5: Level-Adjusted Stats ---
+  console.log('\n--- STEP 5: Level-Adjusted Minor League Stats ---\n');
+  let adjustedK9Sum = 0, adjustedBb9Sum = 0, adjustedHr9Sum = 0;
+  let totalIpWeight = 0;
+
+  for (const s of allMinorStats) {
+    const levelAdj = PITCHER_LEVEL_ADJUSTMENTS[s.level as keyof typeof PITCHER_LEVEL_ADJUSTMENTS];
+    if (!levelAdj) continue;
+
+    const rawK9 = (s.k / s.ip) * 9;
+    const rawBb9 = (s.bb / s.ip) * 9;
+    const rawHr9 = (s.hra / s.ip) * 9;
+
+    const adjK9 = rawK9 + levelAdj.k9;
+    const adjBb9 = rawBb9 + levelAdj.bb9;
+    const adjHr9 = rawHr9 + levelAdj.hr9;
+
+    console.log(`  ${s.level.toUpperCase()} (${s.ip.toFixed(1)} IP):`);
+    console.log(`    K/9: ${rawK9.toFixed(2)} + ${levelAdj.k9} = ${adjK9.toFixed(2)}`);
+    console.log(`    BB/9: ${rawBb9.toFixed(2)} + ${levelAdj.bb9} = ${adjBb9.toFixed(2)}`);
+    console.log(`    HR/9: ${rawHr9.toFixed(2)} + ${levelAdj.hr9} = ${adjHr9.toFixed(2)}`);
+
+    adjustedK9Sum += adjK9 * s.ip;
+    adjustedBb9Sum += adjBb9 * s.ip;
+    adjustedHr9Sum += adjHr9 * s.ip;
+    totalIpWeight += s.ip;
+  }
+
+  let adjustedK9 = scoutK9;
+  let adjustedBb9 = scoutBb9;
+  let adjustedHr9 = scoutHr9;
+
+  if (totalIpWeight > 0) {
+    adjustedK9 = adjustedK9Sum / totalIpWeight;
+    adjustedBb9 = adjustedBb9Sum / totalIpWeight;
+    adjustedHr9 = adjustedHr9Sum / totalIpWeight;
+    console.log(`\n  Weighted Adjusted Stats (MLB-equivalent):`);
+    console.log(`    K/9: ${adjustedK9.toFixed(2)}`);
+    console.log(`    BB/9: ${adjustedBb9.toFixed(2)}`);
+    console.log(`    HR/9: ${adjustedHr9.toFixed(2)}`);
+  }
+
+  // --- STEP 6: Blend ---
+  console.log('\n--- STEP 6: Blend Scouting and Stats ---\n');
+  const statsWeight = 1 - scoutingWeight;
+  console.log(`  Scouting Weight: ${(scoutingWeight * 100).toFixed(0)}%`);
+  console.log(`  Stats Weight: ${(statsWeight * 100).toFixed(0)}%`);
+
+  const blendedK9 = scoutingWeight * scoutK9 + statsWeight * adjustedK9;
+  const blendedBb9 = scoutingWeight * scoutBb9 + statsWeight * adjustedBb9;
+  const blendedHr9 = scoutingWeight * scoutHr9 + statsWeight * adjustedHr9;
+
+  console.log(`\n  Blended Rates:`);
+  console.log(`    K/9 = ${scoutingWeight.toFixed(2)} × ${scoutK9.toFixed(2)} + ${statsWeight.toFixed(2)} × ${adjustedK9.toFixed(2)} = ${blendedK9.toFixed(2)}`);
+  console.log(`    BB/9 = ${scoutingWeight.toFixed(2)} × ${scoutBb9.toFixed(2)} + ${statsWeight.toFixed(2)} × ${adjustedBb9.toFixed(2)} = ${blendedBb9.toFixed(2)}`);
+  console.log(`    HR/9 = ${scoutingWeight.toFixed(2)} × ${scoutHr9.toFixed(2)} + ${statsWeight.toFixed(2)} × ${adjustedHr9.toFixed(2)} = ${blendedHr9.toFixed(2)}`);
+
+  // --- STEP 7: Projected FIP ---
+  console.log('\n--- STEP 7: Calculate Projected FIP ---\n');
+  const projFip = calculateFip(blendedK9, blendedBb9, blendedHr9);
+  console.log(`  Projected FIP = ${projFip.toFixed(2)}`);
+
+  // --- STEP 8: MLB FIP Distribution & TFR ---
+  console.log('\n--- STEP 8: Final TFR (MLB FIP Distribution) ---\n');
+
+  const dobMap = loadDOBMap();
+  const pitcherMlbDist = buildMLBPitcherDistributions(dobMap);
+  console.log(`  Built distributions from ${pitcherMlbDist.count} peak-age MLB pitchers`);
+
+  const fipPercentile = findValuePercentileInMLB(projFip, pitcherMlbDist.fipValues, false);
+  const tfrRating = percentileToRating(fipPercentile, true);
+
+  console.log(`\n  MLB FIP Distribution: ${pitcherMlbDist.fipValues.length} peak-age pitchers (ages 25-29, 50+ IP, 2015-2020)`);
+  console.log(`    Min=${pitcherMlbDist.fipValues[0]?.toFixed(2)}, Median=${pitcherMlbDist.fipValues[Math.floor(pitcherMlbDist.fipValues.length / 2)]?.toFixed(2)}, Max=${pitcherMlbDist.fipValues[pitcherMlbDist.fipValues.length - 1]?.toFixed(2)}`);
+  console.log(`\n  FIP Percentile: ${fipPercentile.toFixed(1)} (vs MLB peak-age pitchers)`);
+  console.log(`  True Future Rating: ${tfrRating.toFixed(1)} stars`);
+
+  // --- STEP 9: IP Projection ---
+  console.log('\n--- STEP 9: Projected IP ---\n');
+
+  const stamina = scouting.stamina ?? 50;
+  const injury = scouting.injury ?? 'Normal';
+
+  console.log(`  Stamina: ${stamina}`);
+  console.log(`  Injury:  ${injury}`);
+
+  const usablePitchCount = Object.values(pitches).filter(v => v >= 25).length;
+  const isSp = stamina >= 35 && usablePitchCount >= 3;
+  console.log(`\n  Usable pitches (≥25 rating): ${usablePitchCount}`);
+  console.log(`  Role classification: ${isSp ? 'STARTER' : 'RELIEVER'} (need stamina≥35 AND 3+ pitches≥25)`);
+
+  let baseIp: number;
+  if (isSp) {
+    baseIp = 30 + (stamina * 3.0);
+    console.log(`\n  9a. SP Base IP = 30 + (${stamina} × 3.0) = ${baseIp.toFixed(0)}`);
+  } else {
+    baseIp = 50 + (stamina * 0.5);
+    console.log(`\n  9a. RP Base IP = 50 + (${stamina} × 0.5) = ${baseIp.toFixed(0)}`);
+  }
+
+  let injuryFactor = 1.0;
+  switch (injury) {
+    case 'Iron Man': case 'Ironman': injuryFactor = 1.15; break;
+    case 'Durable': injuryFactor = 1.08; break;
+    case 'Normal': injuryFactor = 1.0; break;
+    case 'Fragile': injuryFactor = 0.92; break;
+    case 'Wrecked': injuryFactor = 0.75; break;
+  }
+  baseIp *= injuryFactor;
+  console.log(`  9b. Injury modifier: ${injury} → ×${injuryFactor.toFixed(2)} → ${baseIp.toFixed(0)}`);
+
+  let skillMod = 1.0;
+  if (projFip <= 3.50) skillMod = 1.20;
+  else if (projFip <= 4.00) skillMod = 1.10;
+  else if (projFip <= 4.50) skillMod = 1.0;
+  else if (projFip <= 5.00) skillMod = 0.90;
+  else skillMod = 0.80;
+  baseIp *= skillMod;
+  console.log(`  9c. Skill modifier: FIP ${projFip.toFixed(2)} → ×${skillMod.toFixed(2)} → ${baseIp.toFixed(0)}`);
+
+  const mlbIpHistory: { year: number; ip: number; gs: number }[] = [];
+  for (let y = baseYear; y >= baseYear - 5; y--) {
+    const mlbStats = loadMLBPitchingStats(playerId, y);
+    if (mlbStats && mlbStats.ip > 0) {
+      mlbIpHistory.push({ year: y, ip: mlbStats.ip, gs: mlbStats.gs });
+    }
+  }
+  mlbIpHistory.sort((a, b) => b.year - a.year);
+
+  if (mlbIpHistory.length > 0) {
+    const minIpThreshold = isSp ? 50 : 10;
+    const completedSeasons = mlbIpHistory.filter(s => s.ip >= minIpThreshold);
+    console.log(`  9d. Historical IP blend:`);
+    console.log(`      All MLB seasons: ${mlbIpHistory.map(s => `${s.year}=${Math.round(s.ip)}IP`).join(', ')}`);
+    console.log(`      Completed seasons (≥${minIpThreshold} IP): ${completedSeasons.map(s => `${s.year}=${Math.round(s.ip)}IP`).join(', ')}`);
+
+    if (completedSeasons.length > 0) {
+      const weights = [5, 3, 2];
+      let totalWeightedIpCalc = 0;
+      let totalWeight = 0;
+      for (let i = 0; i < Math.min(completedSeasons.length, 3); i++) {
+        totalWeightedIpCalc += completedSeasons[i].ip * weights[i];
+        totalWeight += weights[i];
+      }
+      const weightedIp = totalWeightedIpCalc / totalWeight;
+      console.log(`      Weighted avg (5/3/2): ${weightedIp.toFixed(1)} IP`);
+
+      const modelIp = baseIp;
+      baseIp = (baseIp * 0.35) + (weightedIp * 0.65);
+      console.log(`      Blend: 35% model (${modelIp.toFixed(0)}) + 65% history (${weightedIp.toFixed(0)}) = ${baseIp.toFixed(0)}`);
+    }
+  } else {
+    console.log(`  9d. Historical IP blend: No MLB history found (pure model projection)`);
+  }
+
+  let eliteBoost = 1.0;
+  if (projFip < 3.0) eliteBoost = 1.08;
+  else if (projFip < 3.5) eliteBoost = 1.08 - ((projFip - 3.0) / 0.5) * 0.05;
+  else if (projFip < 4.0) eliteBoost = 1.03 - ((projFip - 3.5) / 0.5) * 0.03;
+  if (eliteBoost > 1.0) {
+    baseIp *= eliteBoost;
+    console.log(`  9e. Elite FIP boost: ×${eliteBoost.toFixed(2)} → ${baseIp.toFixed(0)}`);
+  } else {
+    console.log(`  9e. Elite FIP boost: none (FIP ≥ 4.0)`);
+  }
+
+  let projectedIp: number;
+  if (isSp) {
+    projectedIp = Math.round(Math.max(120, Math.min(260, baseIp)));
+    console.log(`  Clamped (120-260): ${projectedIp} IP`);
+  } else {
+    projectedIp = Math.round(Math.max(40, Math.min(80, baseIp)));
+    console.log(`  Clamped (40-80): ${projectedIp} IP`);
+  }
+
+  console.log(`\n  ► Projected IP: ${projectedIp}`);
+
+  const replacementFip = 5.20;
+  const runsPerWin = 8.50;
+  const peakWar = ((replacementFip - projFip) / runsPerWin) * (projectedIp / 9);
+  console.log(`\n  WAR = ((${replacementFip.toFixed(2)} - ${projFip.toFixed(2)}) / ${runsPerWin.toFixed(1)}) × (${projectedIp} / 9)`);
+  console.log(`      = ${((replacementFip - projFip) / runsPerWin).toFixed(3)} × ${(projectedIp / 9).toFixed(1)}`);
+  console.log(`      = ${peakWar.toFixed(1)} WAR`);
+
+  // --- STEP 10: Development Curves ---
+  console.log('\n--- STEP 10: Current True Rating (TR) via Development Curves ---\n');
+  console.log('  TR represents current ability on the radar chart (blue solid line).');
+  console.log('  TFR represents peak potential (green dashed line).');
+  console.log('  TR is derived from data-driven development curves (135 MLB pitchers, 2012+ debuts).');
+  console.log('  For each component: cohort selection -> expected MiLB stat at age -> dev fraction -> baseline TR.');
+  console.log('  Individual adjustment: (actual raw - expected) / expected x shrinkage x sensitivity.\n');
+
+  const trAge = calculateAge(dobMap.get(playerId), baseYear) ?? 22;
+  console.log(`  Age: ${trAge}`);
+  console.log(`  Total MiLB IP: ${totalRawIp.toFixed(1)}\n`);
+
+  let rawK9 = 0, rawBb9 = 0, rawHr9 = 0;
+  if (totalRawIp > 0) {
+    let k9IpSum = 0, bb9IpSum = 0, hr9IpSum = 0;
+    for (const s of allMinorStats) {
+      const sk9 = (s.k / s.ip) * 9;
+      const sbb9 = (s.bb / s.ip) * 9;
+      const shr9 = (s.hra / s.ip) * 9;
+      k9IpSum += sk9 * s.ip;
+      bb9IpSum += sbb9 * s.ip;
+      hr9IpSum += shr9 * s.ip;
+    }
+    rawK9 = k9IpSum / totalRawIp;
+    rawBb9 = bb9IpSum / totalRawIp;
+    rawHr9 = hr9IpSum / totalRawIp;
+    console.log(`  Raw IP-weighted stats: K/9=${rawK9.toFixed(2)}, BB/9=${rawBb9.toFixed(2)}, HR/9=${rawHr9.toFixed(2)}`);
+  }
+
+  const tfrStuff = Math.round(20 + ((Math.max(3.0, Math.min(11.0, blendedK9)) - 3.0) / 8.0) * 60);
+  const tfrControl = Math.round(20 + ((7.0 - Math.max(0.85, Math.min(7.0, blendedBb9))) / 6.15) * 60);
+  const tfrHra = Math.round(20 + ((2.5 - Math.max(0.20, Math.min(2.5, blendedHr9))) / 2.30) * 60);
+
+  console.log(`\n  TFR Ratings (derived from blended rates): Stuff=${tfrStuff}, Control=${tfrControl}, HRA=${tfrHra}\n`);
+
+  const pitcherComponents = [
+    { name: 'Stuff',   key: 'stuff',   tfrVal: tfrStuff,   peakStat: blendedK9,  rawStat: totalRawIp > 0 ? rawK9 : undefined,  lower: false },
+    { name: 'Control', key: 'control', tfrVal: tfrControl, peakStat: blendedBb9, rawStat: totalRawIp > 0 ? rawBb9 : undefined, lower: true },
+    { name: 'HRA',     key: 'hra',     tfrVal: tfrHra,     peakStat: blendedHr9, rawStat: totalRawIp > 0 ? rawHr9 : undefined, lower: true },
+  ];
+
+  console.log(`  ${'Component'.padEnd(10)} ${'Cohort'.padEnd(12)} ${'Expected'.padEnd(10)} ${'Actual Raw'.padEnd(12)} ${'DevFrac'.padEnd(8)} ${'Base'.padEnd(6)} ${'Adj'.padEnd(8)} ${'TFR'.padEnd(6)} Final TR  Gap`);
+  console.log(`  ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(10)} ${'─'.repeat(5)}`);
+
+  const pitcherDevCurveDiag = getPitcherDevelopmentCurveDiagnosticsLocal(trAge, totalRawIp);
+
+  for (const c of pitcherComponents) {
+    const diag = pitcherDevCurveDiag(c.key, c.tfrVal, c.peakStat, c.rawStat, c.lower);
+    const gap = c.tfrVal - diag.finalTR;
+    const expectedStr = diag.expectedRaw !== undefined ? diag.expectedRaw.toFixed(2) : '—';
+    const actualStr = c.rawStat !== undefined ? c.rawStat.toFixed(2) : '—';
+    const adjStr = diag.ratingAdjust !== 0 ? (diag.ratingAdjust > 0 ? '+' : '') + diag.ratingAdjust.toFixed(1) : '0';
+    console.log(`  ${c.name.padEnd(10)} ${diag.cohortLabel.padEnd(12)} ${expectedStr.padEnd(10)} ${actualStr.padEnd(12)} ${diag.devFraction.toFixed(2).padEnd(8)} ${String(diag.baseline).padEnd(6)} ${adjStr.padEnd(8)} ${String(c.tfrVal).padEnd(6)} ${String(diag.finalTR).padEnd(10)} +${gap}`);
+  }
+
+  console.log(`\n  Stabilization IP: Stuff=100, Control=150, HRA=200`);
+  console.log(`  Sensitivity: ${TRACE_SENSITIVITY_POINTS} rating points per 100% deviation from expected curve value.`);
+
+  // --- SUMMARY ---
+  console.log('\n--- SUMMARY ---\n');
+  console.log(`  Player ID: ${playerId}`);
+  console.log(`\n  Scouting Ratings:`);
+  console.log(`    Stuff: ${scouting.stuff}, Control: ${scouting.control}, HRA: ${scouting.hra}`);
+  console.log(`    Stamina: ${stamina}, Injury: ${injury}`);
+  if (pitchEntries.length > 0) {
+    console.log(`    Pitches: ${pitchEntries.map(([k, v]) => `${k}=${v}`).join(', ')} (${usablePitchCount} usable)`);
+  }
+  console.log(`\n  Minor League Stats: ${totalRawIp.toFixed(1)} IP (${totalWeightedIp.toFixed(1)} weighted)`);
+  console.log(`  Scouting Weight: ${(scoutingWeight * 100).toFixed(0)}%`);
+  console.log(`\n  Projected Peak Rates (TFR):`);
+  console.log(`    K/9: ${blendedK9.toFixed(2)} (TFR Stuff: ${tfrStuff})`);
+  console.log(`    BB/9: ${blendedBb9.toFixed(2)} (TFR Control: ${tfrControl})`);
+  console.log(`    HR/9: ${blendedHr9.toFixed(2)} (TFR HRA: ${tfrHra})`);
+  console.log(`\n  Current TR (Development Curves):`);
+  for (const c of pitcherComponents) {
+    const diag = pitcherDevCurveDiag(c.key, c.tfrVal, c.peakStat, c.rawStat, c.lower);
+    console.log(`    ${c.name}: ${diag.finalTR} (TFR: ${c.tfrVal}, gap: +${c.tfrVal - diag.finalTR})`);
+  }
+  console.log(`\n  Projected Peak FIP: ${projFip.toFixed(2)}`);
+  console.log(`  Role: ${isSp ? 'SP' : 'RP'}`);
+  console.log(`  Projected Peak IP: ${projectedIp}`);
+  console.log(`  Projected Peak WAR: ${peakWar.toFixed(1)}`);
+  console.log(`  TFR: ${tfrRating.toFixed(1)} stars (${fipPercentile.toFixed(1)}th percentile vs MLB peak-age FIP)`);
+}
+
 function traceBatterTFR(
   playerId: number,
   baseYear: number,
@@ -1750,6 +2108,8 @@ function loadAllBatterScouting(source: 'my' | 'osa'): AllBatterScoutingEntry[] {
     gap: headers.indexOf('GAP P'),
     speed: headers.indexOf('SPE'),
     injury: headers.indexOf('Prone'),
+    sr: headers.indexOf('SR'),
+    ste: headers.indexOf('STE'),
   };
 
   const results: AllBatterScoutingEntry[] = [];
@@ -1768,6 +2128,8 @@ function loadAllBatterScouting(source: 'my' | 'osa'): AllBatterScoutingEntry[] {
         gap: parseInt(row[indices.gap]) || 50,
         speed: parseInt(row[indices.speed]) || 50,
         injury: indices.injury >= 0 ? (row[indices.injury]?.trim() || 'Normal') : 'Normal',
+        sr: indices.sr >= 0 ? parseInt(row[indices.sr]) || undefined : undefined,
+        ste: indices.ste >= 0 ? parseInt(row[indices.ste]) || undefined : undefined,
       },
     });
   }
@@ -1921,6 +2283,7 @@ interface MLBDistributions {
   kPctValues: number[];
   hrPctValues: number[];
   avgValues: number[];
+  warValues: number[];
   count: number;
 }
 
@@ -1935,6 +2298,13 @@ function buildMLBDistributions(dobMap: Map<number, Date>): MLBDistributions {
   const allKPct: number[] = [];
   const allHrPct: number[] = [];
   const allAvg: number[] = [];
+  const allWar: number[] = [];
+
+  // WAR constants (same as used for prospects)
+  const lgWoba = 0.315;
+  const wobaScale = 1.15;
+  const runsPerWin = 10;
+  const replacementRuns = 20;
 
   for (const year of years) {
     const filePath = path.join(DATA_DIR, 'mlb_batting', `${year}_batting.csv`);
@@ -1949,9 +2319,13 @@ function buildMLBDistributions(dobMap: Map<number, Date>): MLBDistributions {
       pa: headers.indexOf('pa'),
       ab: headers.indexOf('ab'),
       h: headers.indexOf('h'),
+      d: headers.indexOf('d'),
+      t: headers.indexOf('t'),
       hr: headers.indexOf('hr'),
       bb: headers.indexOf('bb'),
       k: headers.indexOf('k'),
+      sb: headers.indexOf('sb'),
+      cs: headers.indexOf('cs'),
     };
 
     for (const row of rows) {
@@ -1966,9 +2340,13 @@ function buildMLBDistributions(dobMap: Map<number, Date>): MLBDistributions {
 
       const ab = parseInt(row[indices.ab]) || 0;
       const h = parseInt(row[indices.h]) || 0;
+      const d = parseInt(row[indices.d]) || 0;
+      const t = parseInt(row[indices.t]) || 0;
       const hr = parseInt(row[indices.hr]) || 0;
       const bb = parseInt(row[indices.bb]) || 0;
       const k = parseInt(row[indices.k]) || 0;
+      const sb = parseInt(row[indices.sb]) || 0;
+      const cs = parseInt(row[indices.cs]) || 0;
 
       const bbPct = (bb / pa) * 100;
       const kPct = (k / pa) * 100;
@@ -1982,6 +2360,25 @@ function buildMLBDistributions(dobMap: Map<number, Date>): MLBDistributions {
         allKPct.push(kPct);
         allHrPct.push(hrPct);
         allAvg.push(avg);
+
+        // Compute WAR per 600 PA from actual stats
+        const bbRate = bb / pa;
+        const singleRate = Math.max(0, (h - d - t - hr)) / pa;
+        const doubleRate = d / pa;
+        const tripleRate = t / pa;
+        const hrRate = hr / pa;
+
+        const woba =
+          WOBA_WEIGHTS.bb * bbRate +
+          WOBA_WEIGHTS.single * singleRate +
+          WOBA_WEIGHTS.double * doubleRate +
+          WOBA_WEIGHTS.triple * tripleRate +
+          WOBA_WEIGHTS.hr * hrRate;
+
+        const wRAA = ((woba - lgWoba) / wobaScale) * 600;
+        const sbRuns = (sb * 0.2 - cs * 0.4) * (600 / pa);
+        const war = (wRAA + replacementRuns + sbRuns) / runsPerWin;
+        allWar.push(Math.round(war * 10) / 10);
       }
     }
   }
@@ -1991,13 +2388,94 @@ function buildMLBDistributions(dobMap: Map<number, Date>): MLBDistributions {
   allKPct.sort((a, b) => a - b);
   allHrPct.sort((a, b) => a - b);
   allAvg.sort((a, b) => a - b);
+  allWar.sort((a, b) => a - b);
 
   return {
     bbPctValues: allBbPct,
     kPctValues: allKPct,
     hrPctValues: allHrPct,
     avgValues: allAvg,
+    warValues: allWar,
     count: allBbPct.length,
+  };
+}
+
+interface MLBPitcherDistributions {
+  k9Values: number[];
+  bb9Values: number[];
+  hr9Values: number[];
+  fipValues: number[];
+  count: number;
+}
+
+/**
+ * Build MLB peak-age pitcher distributions from 2015-2020 pitching data.
+ * Mirrors TrueFutureRatingService.buildMLBPercentileDistribution().
+ */
+function buildMLBPitcherDistributions(dobMap: Map<number, Date>): MLBPitcherDistributions {
+  const years = [2015, 2016, 2017, 2018, 2019, 2020];
+  const allK9: number[] = [];
+  const allBb9: number[] = [];
+  const allHr9: number[] = [];
+  const allFip: number[] = [];
+
+  for (const year of years) {
+    const filePath = path.join(DATA_DIR, 'mlb', `${year}.csv`);
+    if (!fs.existsSync(filePath)) continue;
+
+    const csvText = fs.readFileSync(filePath, 'utf-8');
+    const { headers, rows } = parseCSV(csvText);
+
+    const indices = {
+      player_id: headers.indexOf('player_id'),
+      split_id: headers.indexOf('split_id'),
+      ip: headers.indexOf('ip'),
+      k: headers.indexOf('k'),
+      bb: headers.indexOf('bb'),
+      hra: headers.indexOf('hra'),
+    };
+
+    for (const row of rows) {
+      if (parseInt(row[indices.split_id]) !== 1) continue;
+
+      const playerId = parseInt(row[indices.player_id]);
+      const ip = parseIp(row[indices.ip] || '0');
+      if (ip < 50) continue;
+
+      const age = calculateAge(dobMap.get(playerId), year);
+      if (!age || age < 25 || age > 29) continue;
+
+      const k = parseInt(row[indices.k]) || 0;
+      const bb = parseInt(row[indices.bb]) || 0;
+      const hra = parseInt(row[indices.hra]) || 0;
+
+      const k9 = (k / ip) * 9;
+      const bb9 = (bb / ip) * 9;
+      const hr9 = (hra / ip) * 9;
+
+      // Validate rates (same filters as service)
+      if (k9 > 2 && k9 < 15 && bb9 >= 0.5 && bb9 < 8 && hr9 >= 0.2 && hr9 < 3) {
+        allK9.push(k9);
+        allBb9.push(bb9);
+        allHr9.push(hr9);
+
+        const fip = calculateFip(k9, bb9, hr9);
+        allFip.push(Math.round(fip * 100) / 100);
+      }
+    }
+  }
+
+  allK9.sort((a, b) => a - b);
+  allBb9.sort((a, b) => a - b);
+  allHr9.sort((a, b) => a - b);
+  allFip.sort((a, b) => a - b);
+
+  return {
+    k9Values: allK9,
+    bb9Values: allBb9,
+    hr9Values: allHr9,
+    fipValues: allFip,
+    count: allK9.length,
   };
 }
 
@@ -2327,6 +2805,19 @@ function calculateWobaFromRatesService(
     WOBA_WEIGHTS.hr * hrRate;
 
   return Math.max(0.200, Math.min(0.500, woba));
+}
+
+/**
+ * Project stolen bases from SR/STE ratings (mirrors HitterRatingEstimatorService.projectStolenBases).
+ */
+function projectStolenBases(sr: number, ste: number, pa: number): { sb: number; cs: number } {
+  let attempts: number;
+  if (sr <= 55) attempts = -2.300 + 0.155 * sr;
+  else if (sr <= 70) attempts = -62.525 + 1.250 * sr;
+  else attempts = -360.0 + 5.5 * sr;
+  attempts = Math.max(0, attempts) * (pa / 600);
+  const rate = Math.max(0.30, Math.min(0.98, 0.160 + 0.0096 * ste));
+  return { sb: Math.round(attempts * rate), cs: Math.round(attempts * (1 - rate)) };
 }
 
 /**
@@ -2816,28 +3307,35 @@ function traceBatterTFRFull(
     console.log(`  wOBA (from scouting rates) = ${wobaFromScouting.toFixed(3)}`);
 
     // --- STEP 9: Final TFR ---
-    console.log('\n--- STEP 9: Final TFR (Prospect wOBA Ranking) ---\n');
+    console.log('\n--- STEP 9: Final TFR (MLB WAR Distribution) ---\n');
 
-    // Calculate wOBA for ALL prospects using blended rates directly
-    const allWobaResults: { playerId: number; name: string; woba: number }[] = [];
-    for (const blend of blendedResults) {
-      let pBbPct = Math.max(3.0, Math.min(20.0, blend.eyeValue));
-      let pKPct = Math.max(5.0, Math.min(35.0, blend.avoidKValue));
-      let pHrPct = Math.max(0.5, Math.min(8.0, blend.powerValue));
-      let pAvg = Math.max(0.200, Math.min(0.350, blend.contactValue));
+    // WAR coefficients (from HitterTrueFutureRatingService)
+    const lgWoba = 0.315;
+    const wobaScale = 1.15;
+    const runsPerWin = 10;
+    const replacementRuns = 20;
 
-      const woba = calculateWobaFromRatesService(pBbPct, pKPct, pHrPct, pAvg, blend.gapValue, blend.speedValue);
-      allWobaResults.push({ playerId: blend.playerId, name: blend.name, woba });
-    }
+    // Calculate WAR for the target player
+    const targetSbRuns = (() => {
+      if (scouting.sr !== undefined && scouting.ste !== undefined) {
+        const sbProj = projectStolenBases(scouting.sr, scouting.ste, 600);
+        return sbProj.sb * 0.2 - sbProj.cs * 0.4;
+      }
+      return 0;
+    })();
+    const targetWRAA = ((wobaFromBlended - lgWoba) / wobaScale) * 600;
+    const targetWar = Math.round(((targetWRAA + replacementRuns + targetSbRuns) / runsPerWin) * 10) / 10;
 
-    // Sort by wOBA descending and rank
-    allWobaResults.sort((a, b) => b.woba - a.woba);
-    const totalN = allWobaResults.length;
-    const targetRank = allWobaResults.findIndex(r => r.playerId === playerId);
-    const wobaPercentile = totalN > 1 ? ((totalN - targetRank - 1) / (totalN - 1)) * 100 : 50;
-    const tfrRating = percentileToRating(wobaPercentile, true);
+    // Map WAR to MLB peak-year WAR distribution (not prospect pool)
+    const warPercentile = findValuePercentileInMLB(targetWar, mlbDist.warValues, true);
+    const tfrRating = percentileToRating(warPercentile, true);
 
-    console.log(`  wOBA Percentile: ${wobaPercentile.toFixed(1)} (rank ${targetRank + 1} of ${totalN})`);
+    console.log(`  Target WAR breakdown:`);
+    console.log(`    wOBA=${wobaFromBlended.toFixed(3)}, wRAA=${targetWRAA.toFixed(1)}, sbRuns=${targetSbRuns.toFixed(1)}, replacementRuns=${replacementRuns}`);
+    console.log(`    WAR = (${targetWRAA.toFixed(1)} + ${replacementRuns} + ${targetSbRuns.toFixed(1)}) / ${runsPerWin} = ${targetWar.toFixed(1)}`);
+    console.log(`\n  MLB WAR Distribution: ${mlbDist.warValues.length} peak-age hitters (ages 25-29, 300+ PA, 2015-2020)`);
+    console.log(`    Min=${mlbDist.warValues[0]?.toFixed(1)}, Median=${mlbDist.warValues[Math.floor(mlbDist.warValues.length / 2)]?.toFixed(1)}, Max=${mlbDist.warValues[mlbDist.warValues.length - 1]?.toFixed(1)}`);
+    console.log(`\n  WAR Percentile: ${warPercentile.toFixed(1)} (vs MLB peak-age hitters)`);
     console.log(`  True Future Rating: ${tfrRating.toFixed(1)} stars`);
 
     // --- STEP 10: Projected PA (Empirical) ---
@@ -2868,7 +3366,7 @@ function traceBatterTFRFull(
     console.log('\n--- SUMMARY ---\n');
     console.log(`  Player ID: ${playerId}`);
     console.log(`  Scouting Source: ${scoutingSource.toUpperCase()}`);
-    console.log(`  Prospect Pool: ${totalN} prospects`);
+    console.log(`  Prospect Pool: ${prospects.length} prospects`);
     console.log(`  Method: Direct MLB Comparison (blended rates vs MLB peak-age distribution)`);
 
     console.log(`\n  True Ratings (20-80 scale):`);
@@ -2886,22 +3384,9 @@ function traceBatterTFRFull(
     console.log(`    AVG:  ${projAvg.toFixed(3)}`);
 
     console.log(`\n  Projected Peak wOBA: ${wobaFromBlended.toFixed(3)}`);
+    console.log(`  Projected WAR/600PA: ${targetWar.toFixed(1)}`);
     console.log(`  Projected PA: ${projectedPa} (${playerInjury} injury, empirical)`);
-    console.log(`  TFR: ${tfrRating.toFixed(1)} stars (${wobaPercentile.toFixed(1)}th percentile)`);
-
-    // Show top 10 prospects by wOBA for context
-    console.log(`\n  Top 10 Prospects by Projected wOBA:`);
-    for (let i = 0; i < Math.min(10, allWobaResults.length); i++) {
-      const r = allWobaResults[i];
-      const marker = r.playerId === playerId ? ' <-- TARGET' : '';
-      console.log(`    ${(i + 1).toString().padStart(3)}. ${r.name.padEnd(25)} wOBA=${r.woba.toFixed(3)}${marker}`);
-    }
-
-    // If target not in top 10, show their position
-    if (targetRank >= 10) {
-      console.log(`    ...`);
-      console.log(`    ${(targetRank + 1).toString().padStart(3)}. ${(targetInList?.name || `Player ${playerId}`).padEnd(25)} wOBA=${wobaFromBlended.toFixed(3)} <-- TARGET`);
-    }
+    console.log(`  TFR: ${tfrRating.toFixed(1)} stars (${warPercentile.toFixed(1)}th percentile vs MLB peak-age WAR)`);
 
     // --- STEP 11: Current True Rating Derivation (Development Curves) ---
     console.log('\n--- STEP 11: Current True Rating (TR) via Development Curves ---\n');
@@ -3175,7 +3660,11 @@ EXAMPLES:
         }
         console.log(`Loaded pitcher scouting (${scoutingSource.toUpperCase()}): Stuff=${pitcherScouting.stuff}, Control=${pitcherScouting.control}, HRA=${pitcherScouting.hra}, Stamina=${pitcherScouting.stamina ?? '?'}, Injury=${pitcherScouting.injury ?? '?'}`);
       }
-      tracePitcherTFR(playerId, baseYear, pitcherScouting);
+      if (isFull) {
+        tracePitcherTFRFull(playerId, baseYear, pitcherScouting);
+      } else {
+        tracePitcherTFR(playerId, baseYear, pitcherScouting);
+      }
     } else {
       if (!batterScouting) {
         batterScouting = loadBatterScouting(playerId, scoutingSource) ?? undefined;

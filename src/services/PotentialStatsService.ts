@@ -86,7 +86,7 @@ export class PotentialStatsService {
 
   /**
    * Calculate K/9 from Stuff rating (WBL calibrated)
-   * Linear: K/9 = 2.07 + 0.074 * Stuff
+   * Linear: K/9 = 2.10 + 0.074 * Stuff
    */
   static calculateK9(stuff: number): number {
     const k9 = this.calcLinear(WBL_LINEAR.k9, stuff);
@@ -95,7 +95,7 @@ export class PotentialStatsService {
 
   /**
    * Calculate BB/9 from Control rating (WBL calibrated)
-   * Linear: BB/9 = 5.22 - 0.052 * Control
+   * Linear: BB/9 = 5.30 - 0.052 * Control
    * This is a 1:1 relationship in the game engine.
    */
   static calculateBB9(control: number): number {
@@ -105,7 +105,7 @@ export class PotentialStatsService {
 
   /**
    * Calculate HR/9 from HRA rating (WBL calibrated)
-   * Linear: HR/9 = 2.08 - 0.024 * HRA
+   * Linear: HR/9 = 2.18 - 0.024 * HRA
    * Verified from OOTP calculator. WBL is ~64% of neutral HR rates.
    */
   static calculateHR9(hra: number): number {

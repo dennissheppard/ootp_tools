@@ -368,9 +368,9 @@ export class StatsView {
 
             // Set estimated ratings from TFR projections
             playerResult = {
-              estimatedStuff: Math.round((tfrResult.projK9 - 2.07) / 0.074),
-              estimatedControl: Math.round((5.22 - tfrResult.projBb9) / 0.052),
-              estimatedHra: Math.round((2.08 - tfrResult.projHr9) / 0.024),
+              estimatedStuff: Math.round((tfrResult.projK9 - 2.10) / 0.074),
+              estimatedControl: Math.round((5.30 - tfrResult.projBb9) / 0.052),
+              estimatedHra: Math.round((2.18 - tfrResult.projHr9) / 0.024),
             };
           }
         } catch (error) {

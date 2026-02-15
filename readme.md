@@ -55,33 +55,26 @@ A **pure peak/ceiling projection system** that projects what a prospect's age-27
 
 **Algorithm Flow:**
 
-1. **Calculate Level-Weighted IP** for scouting weight determination
-   - AAA: 1.0× (full weight)
-   - AA: 0.7× (100 IP = 70 "AAA-equivalent")
-   - A: 0.4× (100 IP = 40 "AAA-equivalent")
-   - R: 0.2× (100 IP = 20 "AAA-equivalent")
+1. **Convert scout potential ratings to projected peak rates** (100% scouting)
+   - Stuff → K/9, Control → BB/9, HRA → HR/9
+   - MiLB stats affect TR (development curves), not TFR (ceiling projection)
 
-2. **Determine Scouting Weight** based on weighted IP
-   - < 75 weighted IP → 100% scout
-   - 76-150 weighted IP → 80% scout
-   - 151-250 weighted IP → 70% scout
-   - 250+ weighted IP → 60% scout
+2. **Apply ceiling boost** — Scale projections proportionally above average
+   - `ceilingValue = meanValue + (meanValue - avgAtRating50) × 0.35`
+   - At rating 50 (average): no boost. At rating 80 (elite): significant boost
 
-3. **Blend Scouting + Stats** separately per component
-   - Stuff → K9
-   - Control → BB9
-   - HRA → HR9
+3. **Rank all prospects** by each component → percentiles
 
-4. **Rank all prospects** by each component → percentiles
+4. **Map component percentiles** to MLB peak-age distributions (2015-2020, ages 25-29)
 
-5. **Map component percentiles** to MLB peak-age distributions (2015-2020, ages 25-29)
+5. **Calculate FIP** from mapped rates with clamping:
+   - K9: 3.0 to 13.0
+   - BB9: 0.50 to 7.0
+   - HR9: 0.15 to 2.5
 
-6. **Calculate FIP** from mapped rates with clamping:
-   - K9: 3.0 to 11.0
-   - BB9: 0.85 to 7.0
-   - HR9: 0.20 to 2.5
-
-7. **Rank by FIP** for final TFR rating (0.5-5.0 scale)
+6. **Map FIP to MLB peak-year FIP distribution** for final TFR rating (0.5-5.0 scale)
+   - Uses same MLB peak-age pool (2015-2020, ages 25-29, 50+ IP) as component distributions
+   - Makes TFR calibration consistent: components and final rating both compared to MLB
 
 **Peak Workload Projections:**
 
@@ -124,33 +117,33 @@ The system uses **Contact rating** instead of Hit Tool for AVG projection:
 - Contact ≈ 60% Hit Tool + 40% AvoidK (OOTP composite)
 - Scouting CSVs should map the `CON P` column, not `HT P`
 
-**Component-Specific Scouting Weights:**
+**Scouting Weights:**
 
-Different components have different predictive validity from MiLB stats:
+TFR uses **100% scouting potential ratings** for all components — scout ratings define the ceiling, and MiLB stats belong in TR (development curves), not TFR (ceiling projection). MiLB predictive validity research is documented for reference:
 
-| Component | MiLB→MLB Correlation | Scouting Weight | Rationale |
-|-----------|---------------------|-----------------|-----------|
-| Eye (BB%) | r = 0.05 | 100% always | MiLB walk rate is noise |
-| Contact (AVG) | r = 0.18 | 100% always | MiLB batting avg is noise |
-| AvoidK (K%) | r = 0.68 | 40-65% by PA | MiLB K% is predictive |
-| Power (HR%) | r = 0.44 | 75-85% by PA | MiLB HR% moderately predictive |
-| Gap (2B rate) | Not studied | 100% always | No research on MiLB 2B predictive validity |
-| Speed (3B rate) | Not studied | 100% always | No research on MiLB 3B predictive validity |
+| Component | MiLB→MLB Correlation | Rationale for 100% Scouting in TFR |
+|-----------|---------------------|-----------------------------------|
+| Eye (BB%) | r = 0.05 | MiLB walk rate is noise |
+| Contact (AVG) | r = 0.18 | MiLB batting avg is noise |
+| AvoidK (K%) | r = 0.68 | Predictive, but ceiling ≠ current performance |
+| Power (HR%) | r = 0.44 | Moderately predictive, but ceiling ≠ current |
+| Gap (2B rate) | Not studied | No MiLB research available |
+| Speed (3B rate) | Not studied | No MiLB research available |
 
 **Algorithm Flow:**
 
-1. **Calculate Level-Weighted PA** (same weights as pitcher: AAA=1.0, AA=0.7, A=0.4, R=0.2)
+1. **Convert scout potential ratings to projected peak rates** (100% scouting for all components)
+   - Eye → BB%, AvoidK → K%, Power → HR%, Contact → AVG, Gap → 2B rate, Speed → 3B rate
 
-2. **Blend Scouting + Stats** per component using component-specific weights
-   - Eye and Contact: Always 100% scouting (MiLB stats are noise)
-   - AvoidK: 40-65% scouting based on PA
-   - Power: 75-85% scouting based on PA
+2. **Apply ceiling boost** — Scale projections proportionally above average
+   - `ceilingValue = meanValue + (meanValue - avgAtRating50) × 0.35`
+   - At rating 50 (average): no boost. At rating 80 (elite): significant boost
 
-3. **Rank all prospects** by each component → percentiles
+3. **Find each component's percentile in MLB distribution** (2015-2020, ages 25-29, 300+ PA)
+   - Eye, Power, Contact, AvoidK: compared directly to MLB peak-age distributions
+   - Gap, Speed: ranked among prospects (no MLB distribution available)
 
-4. **Map percentiles** to MLB distributions (2015-2021 modern era, 300+ PA)
-
-5. **Calculate wOBA** from mapped rates:
+4. **Calculate wOBA** from projected rates:
    ```
    wOBA = 0.69×BB_rate + 0.89×1B_rate + 1.27×2B_rate + 1.62×3B_rate + 2.10×HR_rate
    ```
@@ -165,22 +158,24 @@ Different components have different predictive validity from MiLB stats:
    projWar = (wRAA + 20 + sbRuns) / runsPerWin
    ```
 
-7. **Rank by WAR** for final TFR rating (0.5-5.0 scale)
+7. **Map WAR to MLB peak-year WAR distribution** for final TFR rating (0.5-5.0 scale)
+   - Uses same MLB peak-age pool (2015-2020, ages 25-29, 300+ PA) as component distributions
+   - Makes TFR calibration consistent: components and final rating both compared to MLB
 
 **TFR Rating Scale:**
 
 | TFR | Percentile | Description |
 |-----|------------|-------------|
-| 5.0 | 99-100% | Elite (top ~10 prospects) |
+| 5.0 | 99-100% | Elite (MVP-caliber peak) |
 | 4.5 | 97-99% | Plus-Plus |
 | 4.0 | 93-97% | Plus |
 | 3.5 | 75-93% | Above Average |
-| 3.0 | 60-75% | Average |
+| 3.0 | 60-75% | Average MLB starter |
 | 2.5 | 35-60% | Fringe |
 | 2.0 | 20-35% | Below Average |
 | 1.5 | 10-20% | Poor |
-| 1.0 | 5-10% | Replacement |
-| 0.5 | 0-5% | Organizational |
+| 1.0 | 5-10% | Replacement level |
+| 0.5 | 0-5% | Below replacement |
 
 ### Prospect True Rating (Development Curves)
 
@@ -474,9 +469,33 @@ Three-model ensemble for future performance:
 | `MinorLeagueStatsService` | Minor league stats from API/CSV |
 | `IndexedDBService` | Persistent browser storage (v7) |
 
-## Calibration Tools
+## Tools
 
-Automated calibration scripts optimize coefficients to minimize projection bias:
+### Debugging & Validation
+
+Primary tools for inspecting and validating ratings:
+
+| Tool | Purpose | Usage |
+|------|---------|-------|
+| `tools/trace-rating.ts` | Trace the full TR/TFR pipeline for a single player — shows every step from scouting/stats through blending, percentiles, and final rating | `npx tsx tools/trace-rating.ts <playerId> --type=batter --full --scouting=my` |
+| `tools/validate-ratings.ts` | Automated TR validation: formula WAR vs game WAR correlation, distribution shape, year-over-year stability, extreme value detection | `npx tsx tools/validate-ratings.ts --year=2020` |
+
+**trace-rating.ts** is the source of truth for debugging. If something looks wrong in the UI, trace the player to see the real pipeline output. Key flags:
+- `--type=batter|pitcher` — player type (auto-detected if omitted)
+- `--full` — full TFR mode with MLB distribution ranking
+- `--scouting=my|osa` — scouting data source
+- `--stage=early|q1_done|q2_done|q3_done|complete` — season stage for stat weighting
+
+**validate-ratings.ts** checks:
+- `--check=war` — Formula WAR vs game WAR correlation (batters ~0.73, pitchers ~0.96)
+- `--check=dist` — Rate stat distributions and league totals
+- `--check=stability` — Year-over-year rating consistency
+- `--check=extremes` — Detect absurd computed values
+- `--check=all` — Run all checks (default)
+
+### Calibration
+
+Scripts for optimizing coefficients against historical data:
 
 | Tool | Purpose | Usage |
 |------|---------|-------|
@@ -484,9 +503,11 @@ Automated calibration scripts optimize coefficients to minimize projection bias:
 | `tools/calibrate_sb_coefficients.ts` | Grid-search SR/STE coefficient space | `npx tsx tools/calibrate_sb_coefficients.ts` |
 | `tools/validate_sb_projections.ts` | Validate SB projections against actuals | `npx tsx tools/validate_sb_projections.ts` |
 | `tools/calibrate_level_adjustments.ts` | Analyze MiLB→MLB predictive validity | For tuning scouting weights |
+| `tools/calibrate_hitter_coefficients.ts` | Find optimal coefficients for scout rating→stat conversion | For coefficient research |
+| `tools/calibrate_gap_speed_coefficients.ts` | Calibrate Gap→Doubles% and Speed→Triples% | For hit composition tuning |
+| `tools/calibrate_ensemble_weights.ts` | Grid-search optimal pitcher projection ensemble weights | For pitcher projection tuning |
 | `tools/test_hitter_tfr.ts` | Validation test against historical outcomes | Validate TFR accuracy |
 | `tools/analyze_hitter_data.ts` | Analyze OOTP engine test data | For coefficient research |
-| `tools/research/explore_development_all_components.ts` | Analyze MiLB development curves by peak cohort | Generates curve constants for `ProspectDevelopmentCurveService` |
 
 **Calibration Process:**
 1. Simulates full projection pipeline (historical stats → ratings → projections)
@@ -494,6 +515,21 @@ Automated calibration scripts optimize coefficients to minimize projection bias:
 3. Iteratively adjusts intercepts to minimize bias
 4. Outputs recommended coefficient changes
 5. Reports MAE (mean absolute error) and bias for each stat
+
+### Research
+
+The `tools/research/` folder contains one-off analysis scripts used during development to build the models:
+
+| Tool | Purpose |
+|------|---------|
+| `explore_development_all_components.ts` | Analyze MiLB batter development curves by peak cohort — generates constants for `ProspectDevelopmentCurveService` |
+| `explore_pitcher_development.ts` | Build pitcher development curves (K/9, BB/9, HR/9) from 2012-2020 peak cohorts |
+| `1_level_adjustments.ts` | Analyze MiLB→MLB stat transitions by level for level adjustment calibration |
+| `optimize_tfr_parameters.ts` / `optimize_tfr_complete.ts` | Parameter optimization for TFR model |
+| `tfr_*_validation.ts` | Various TFR validation and distribution analysis scripts |
+| `mlb_aging_curves.ts` | MLB aging curve analysis |
+
+These are historical artifacts — useful for understanding how the models were built, but not needed for day-to-day use.
 
 ## IndexedDB Schema (v7)
 
@@ -602,19 +638,15 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - HR%: 160 PA
 - AVG: 300 PA
 
-**TFR Scouting Weights (Pitchers):**
-- < 75 weighted IP: 100% scout
-- 76-150 weighted IP: 80% scout
-- 151-250 weighted IP: 70% scout
-- 250+ weighted IP: 60% scout
+**TFR Scouting Weights:**
+- All components use **100% scouting potential ratings** for TFR (ceiling projection)
+- MiLB stats affect TR (development curves via `ProspectDevelopmentCurveService`), not TFR
 
-**TFR Scouting Weights (Batters, by weighted PA):**
-- Eye: 100% always (MiLB BB% is noise, r=0.05)
-- Contact: 100% always (MiLB AVG is noise, r=0.18)
-- AvoidK: 100%/65%/50%/40% at <150/300/500/500+ PA
-- Power: 100%/85%/80%/75% at <150/300/500/500+ PA
-- Gap: 100% always (no research on MiLB 2B predictive validity)
-- Speed: 100% always (no research on MiLB 3B predictive validity)
+**TFR Ceiling Boost:**
+- `CEILING_BOOST_FACTOR = 0.35` (batters, in `HitterTrueFutureRatingService.ts`)
+- `CEILING_BOOST = 0.30` (pitchers, in `TrueFutureRatingService.ts`)
+- Formula: `ceilingValue = meanValue + (meanValue - avgAtRating50) × boost`
+- At rating 50: no boost. At rating 80: significant boost above mean projection
 
 **Peak Workload Projections:**
 - SP base: 30 + (stamina × 3.0), clamped 120-260 IP

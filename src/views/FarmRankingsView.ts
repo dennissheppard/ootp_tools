@@ -1111,12 +1111,8 @@ export class FarmRankingsView {
           return '<p class="no-stats">No prospect data available.</p>';
       }
 
-      // Assign unified ranks by percentile desc, TFR tiebreaker
-      combined.sort((a, b) => {
-          const cmp = (b.percentile || 0) - (a.percentile || 0);
-          if (cmp !== 0) return cmp;
-          return b.tfr - a.tfr;
-      });
+      // Assign unified ranks by peak WAR desc
+      combined.sort((a, b) => (b.peakWar || 0) - (a.peakWar || 0));
       combined.forEach((p, idx) => { p.originalRank = idx + 1; });
 
       // Re-sort by user-selected column (if not the default percentile desc, list is already correct)
