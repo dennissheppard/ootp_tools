@@ -12,7 +12,6 @@ import { playerService } from './PlayerService';
 import { trueFutureRatingService } from './TrueFutureRatingService';
 import { hitterTrueFutureRatingService, HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
 import { hitterScoutingDataService } from './HitterScoutingDataService';
-import { hitterTrueRatingsCalculationService, HitterTrueRatingInput } from './HitterTrueRatingsCalculationService';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { batterProjectionService } from './BatterProjectionService';
 import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
@@ -316,6 +315,17 @@ export interface RatedBatter {
   estimatedEye: number;
   estimatedAvoidK: number;
   estimatedContact: number;
+  estimatedGap?: number;
+  estimatedSpeed?: number;
+  blendedBbPct?: number;
+  blendedKPct?: number;
+  blendedHrPct?: number;
+  blendedAvg?: number;
+  blendedDoublesRate?: number;
+  blendedTriplesRate?: number;
+  woba?: number;
+  projWar?: number;
+  percentile?: number;
   stats?: {
     pa: number;
     avg: number;
@@ -389,17 +399,15 @@ class TeamRatingsService {
       trueRatingsService.getLeagueAverages(year)
     ]);
 
-    // Fetch batting stats, scouting, and league batting averages
-    const [battingStats, myScoutingRatings, osaScoutingRatings, leagueBattingAvg] = await Promise.all([
+    // Fetch batting stats and scouting
+    const [battingStats, myScoutingRatings, osaScoutingRatings] = await Promise.all([
       trueRatingsService.getTrueBattingStats(year),
       hitterScoutingDataService.getLatestScoutingRatings('my'),
       hitterScoutingDataService.getLatestScoutingRatings('osa'),
-      leagueBattingAveragesService.getLeagueAverages(year)
     ]);
 
-    // 2. Get multi-year stats for True Ratings
+    // 2. Get multi-year stats for pitcher True Ratings
     const multiYearPitchingStats = await trueRatingsService.getMultiYearPitchingStats(year, 3);
-    const multiYearBattingStats = await trueRatingsService.getMultiYearBattingStats(year, 4);
 
     // 3. Calculate True Ratings for all pitchers (only those with stats in this year)
     const scoutingMap = new Map(await scoutingDataFallbackService.getScoutingRatingsWithFallback(year).then(s => s.ratings.map(r => [r.playerId, r])));
@@ -428,20 +436,8 @@ class TeamRatingsService {
     // Filter to MLB batters only (level_id === 1, position !== 1)
     const mlbBattingStats = battingStats.filter(stat => stat.level_id === 1 && stat.position !== 1);
 
-    const batterTrInputs: HitterTrueRatingInput[] = [];
-    mlbBattingStats.forEach(stat => {
-      const stats = multiYearBattingStats.get(stat.player_id);
-      if (stats && stats.length > 0 && stat.pa >= 100) {
-        batterTrInputs.push({
-          playerId: stat.player_id,
-          playerName: stat.playerName,
-          yearlyStats: stats,
-          scoutingRatings: hitterScoutingMap.get(stat.player_id)
-        });
-      }
-    });
-    const batterTrResults = hitterTrueRatingsCalculationService.calculateTrueRatings(batterTrInputs, undefined, undefined, leagueBattingAvg ?? undefined);
-    const batterTrMap = new Map(batterTrResults.map((tr: any) => [tr.playerId, tr]));
+    // 4. Use canonical hitter True Ratings (shared cache with TrueRatingsView)
+    const batterTrMap = await trueRatingsService.getHitterTrueRatings(year);
 
     // 5. Build team rosters from stats data (not from player service)
     const teamMap = new Map(allTeams.map(t => [t.id, t]));
@@ -557,6 +553,7 @@ class TeamRatingsService {
           // Estimate rating from scouting: average of key tools on 20-80 scale, converted to 0.5-5.0
           const avgTool = ((scouting.power ?? 50) + (scouting.eye ?? 50) + (scouting.avoidK ?? 50) + (scouting.contact ?? 50)) / 4;
           trueRating = 0.5 + (avgTool - 20) / 60 * 4.5; // Map 20-80 to 0.5-5.0
+          trueRating = Math.round(trueRating * 2) / 2; // Round to nearest 0.5
         }
         if (trueRating === 0) {
           trueRating = 2.0; // Default for players without TR or scouting
@@ -572,6 +569,17 @@ class TeamRatingsService {
           estimatedEye: (trData as any)?.estimatedEye ?? scouting?.eye ?? 50,
           estimatedAvoidK: (trData as any)?.estimatedAvoidK ?? scouting?.avoidK ?? 50,
           estimatedContact: (trData as any)?.estimatedContact ?? scouting?.contact ?? 50,
+          estimatedGap: (trData as any)?.estimatedGap,
+          estimatedSpeed: (trData as any)?.estimatedSpeed,
+          blendedBbPct: trData?.blendedBbPct,
+          blendedKPct: trData?.blendedKPct,
+          blendedHrPct: trData?.blendedHrPct,
+          blendedAvg: trData?.blendedAvg,
+          blendedDoublesRate: trData?.blendedDoublesRate,
+          blendedTriplesRate: trData?.blendedTriplesRate,
+          woba: trData?.woba,
+          projWar: trData?.war,
+          percentile: trData?.percentile,
           stats: {
             pa: stat.pa,
             avg: stat.avg,
@@ -1537,6 +1545,13 @@ class TeamRatingsService {
               estimatedEye: b.estimatedRatings.eye,
               estimatedAvoidK: b.estimatedRatings.avoidK,
               estimatedContact: b.estimatedRatings.contact,
+              blendedBbPct: b.projectedStats.bbPct,
+              blendedKPct: b.projectedStats.kPct,
+              blendedHrPct: b.projectedStats.hrPct,
+              blendedAvg: b.projectedStats.avg,
+              woba: b.projectedStats.woba,
+              projWar: b.projectedStats.war,
+              percentile: b.percentile,
               stats: {
                   pa: b.projectedStats.pa,
                   avg: b.projectedStats.avg,

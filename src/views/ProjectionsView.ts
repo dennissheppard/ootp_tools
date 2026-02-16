@@ -2354,6 +2354,7 @@ export class ProjectionsView {
                   projSlg: batter.projectedStats.slg,
                   projBbPct: batter.projectedStats.bbPct,
                   projKPct: batter.projectedStats.kPct,
+                  projHrPct: batter.projectedStats.hrPct,
                   projPa: batter.projectedStats.pa,
                   projHr: batter.projectedStats.hr,
                   projRbi: batter.projectedStats.rbi,

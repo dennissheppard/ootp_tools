@@ -7857,6 +7857,39 @@ th .stat-tooltip {
   font-size: 0.75rem;
 }
 
+/* Per-year rating cells in section headers */
+.grid-section-rating-cell {
+  padding: 0.35rem 0.5rem;
+  text-align: center;
+  background: rgba(29, 155, 240, 0.06);
+  border-bottom: 1px solid rgba(29, 155, 240, 0.2);
+  border-top: 1px solid rgba(29, 155, 240, 0.2);
+}
+.section-rating-badge {
+  display: inline-block;
+  padding: 0.15rem 0.4rem;
+  border-radius: 3px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+}
+
+/* Team rating row at bottom */
+.grid-team-rating-row .grid-section-header {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.04);
+  border-top: 2px solid rgba(29, 155, 240, 0.3);
+}
+.grid-team-rating-row .grid-section-rating-cell {
+  background: rgba(255, 255, 255, 0.04);
+  border-top: 2px solid rgba(29, 155, 240, 0.3);
+}
+
 /* Toolbar row above grid: legend left, reset button right */
 .tp-grid-toolbar {
   display: flex;
@@ -8100,7 +8133,7 @@ th .stat-tooltip {
 
 .planning-summary-section {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
   margin-top: 1.5rem;
 }
@@ -8138,6 +8171,12 @@ th .stat-tooltip {
   border-bottom: 1px solid rgba(255, 193, 7, 0.2);
 }
 
+.summary-header-draft {
+  background: rgba(29, 155, 240, 0.1);
+  color: var(--color-primary);
+  border-bottom: 1px solid rgba(29, 155, 240, 0.2);
+}
+
 .summary-list {
   list-style: none;
   margin: 0;
@@ -8153,6 +8192,34 @@ th .stat-tooltip {
 
 .summary-list li:last-child {
   border-bottom: none;
+}
+
+/* Grouped needs: position header + nested sub-list */
+.summary-need-group {
+  padding: 0.25rem 0.75rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.summary-need-group:last-child {
+  border-bottom: none;
+}
+
+.summary-need-pos {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding-top: 0.3rem;
+}
+
+.summary-list-nested {
+  padding: 0.15rem 0 0.15rem 0.75rem;
+}
+
+.summary-list-nested li {
+  border-bottom: none;
+  padding: 0.15rem 0;
 }
 
 .summary-empty {
@@ -8231,6 +8298,12 @@ th .stat-tooltip {
 }
 
 /* ===== Responsive: summary stacks at narrow widths ===== */
+
+@media (max-width: 1100px) {
+  .planning-summary-section {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
 
 @media (max-width: 768px) {
   .planning-summary-section {
@@ -9253,6 +9326,29 @@ th .stat-tooltip {
   color: var(--color-text-muted);
 }
 
+.cell-edit-dev-btn {
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.75rem;
+  border: 1px solid rgba(29, 155, 240, 0.4);
+  border-radius: 4px;
+  background: rgba(29, 155, 240, 0.1);
+  color: var(--color-accent);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.cell-edit-dev-btn:hover {
+  background: rgba(29, 155, 240, 0.25);
+}
+.cell-edit-dev-btn.cell-edit-dev-remove {
+  border-color: rgba(255, 152, 0, 0.4);
+  background: rgba(255, 152, 0, 0.1);
+  color: #ffb74d;
+}
+.cell-edit-dev-btn.cell-edit-dev-remove:hover {
+  background: rgba(255, 152, 0, 0.25);
+}
+
 .cell-edit-actions {
   flex: 1;
   overflow-y: auto;
@@ -9385,6 +9481,14 @@ th .stat-tooltip {
   overflow-y: auto;
 }
 
+.cell-edit-projection-note {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  padding: 0.3rem 0.75rem;
+  font-style: italic;
+  border-bottom: 1px solid var(--color-border);
+}
+
 .cell-edit-no-results {
   padding: 0.75rem 1.25rem;
   font-size: 0.8rem;
@@ -9469,6 +9573,33 @@ th .stat-tooltip {
 /* Override cell visual differentiation */
 .cell-override {
   border-left: 2px dashed rgba(29, 155, 240, 0.5) !important;
+}
+
+/* Cell highlight flash for grid navigation from Org Analysis */
+@keyframes cell-flash {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(29, 155, 240, 0); }
+  25%, 75% { box-shadow: 0 0 8px 3px rgba(29, 155, 240, 0.5); background-color: rgba(29, 155, 240, 0.15); }
+  50% { box-shadow: 0 0 14px 5px rgba(29, 155, 240, 0.7); background-color: rgba(29, 155, 240, 0.25); }
+}
+
+.cell-highlight-flash {
+  animation: cell-flash 1s ease-in-out 4;
+  position: relative;
+  z-index: 1;
+}
+
+/* Clickable summary links in Org Analysis */
+.summary-link {
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+  border-radius: 3px;
+}
+
+.summary-link:hover {
+  color: var(--color-primary) !important;
+  background: rgba(29, 155, 240, 0.08);
 }
 
 /* Reset Edits button */

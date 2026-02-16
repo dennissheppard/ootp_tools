@@ -557,6 +557,10 @@ class AIScoutingService {
   private hashData(playerType: string, data: AIScoutingPlayerData): string {
     const hashInput: Record<string, any> = { playerType };
 
+    // Hash on ratings + metadata + context only — NOT derived projections.
+    // Projections are computed from the ratings, so if ratings match the cached
+    // analysis is still valid. This prevents cache misses when different views
+    // pass slightly different derived stats for the same player.
     const fields: (keyof AIScoutingPlayerData)[] = [
       'age', 'position', 'injuryProneness', 'parentOrg',
       'scoutStuff', 'scoutControl', 'scoutHra', 'scoutStamina',
@@ -566,8 +570,6 @@ class AIScoutingService {
       'trueRating', 'trueFutureRating',
       'estimatedStuff', 'estimatedControl', 'estimatedHra',
       'estimatedPower', 'estimatedEye', 'estimatedAvoidK', 'estimatedContact',
-      'projFip', 'projK9', 'projBb9', 'projHr9', 'projWar', 'projIp',
-      'projAvg', 'projObp', 'projSlg', 'projHr', 'projSb', 'projPa',
       'leadership', 'loyalty', 'adaptability', 'greed', 'workEthic', 'intelligence',
       'contractSalary', 'contractYears', 'contractClauses',
       'teamContext', 'leagueLeaders', 'orgRoster'

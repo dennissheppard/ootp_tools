@@ -2204,9 +2204,17 @@ export class TeamRatingsView {
         slg: playerData.stats?.slg,
         hr: playerData.stats?.hr,
         war: playerData.stats?.war,
+        woba: playerData.woba,
+        percentile: playerData.percentile,
         isProspect: false,
-        // Always pass projWar for the header display
-        projWar: playerData.stats?.war,
+        projWar: playerData.projWar ?? playerData.stats?.war,
+        projBbPct: playerData.blendedBbPct,
+        projKPct: playerData.blendedKPct,
+        projHrPct: playerData.blendedHrPct,
+        projAvg: playerData.blendedAvg,
+        projDoublesRate: playerData.blendedDoublesRate,
+        projTriplesRate: playerData.blendedTriplesRate,
+        projWoba: playerData.woba,
       };
 
       await this.batterProfileModal.show(profileData, playerSeasonYear ?? this.selectedYear);
@@ -2281,11 +2289,17 @@ export class TeamRatingsView {
         slg: row.stats?.slg,
         hr: row.stats?.hr,
         war: row.stats?.war,
+        woba: row.woba,
+        percentile: row.percentile,
         isProspect: false,
-        // Always pass projWar for the header display - use projected stats if available, else use actual
-        projWar: row.stats?.war,
-        // Only pass detailed projections in projected mode
-        projAvg: this.viewMode === 'projected' ? row.stats?.avg : undefined,
+        projWar: row.projWar ?? row.stats?.war,
+        projBbPct: row.blendedBbPct,
+        projKPct: row.blendedKPct,
+        projHrPct: row.blendedHrPct,
+        projAvg: row.blendedAvg ?? (this.viewMode === 'projected' ? row.stats?.avg : undefined),
+        projDoublesRate: row.blendedDoublesRate,
+        projTriplesRate: row.blendedTriplesRate,
+        projWoba: row.woba,
         projObp: this.viewMode === 'projected' ? row.stats?.obp : undefined,
         projSlg: this.viewMode === 'projected' ? row.stats?.slg : undefined,
         projPa: this.viewMode === 'projected' ? row.stats?.pa : undefined,

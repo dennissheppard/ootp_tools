@@ -3,8 +3,11 @@ import { HitterScoutingRatings, PitcherScoutingRatings } from '../models/Scoutin
 import { playerService } from './PlayerService';
 import { statsService } from './StatsService';
 import { dateService } from './DateService';
-import { LeagueAverages, YearlyPitchingStats, TrueRatingInput, trueRatingsCalculationService } from './TrueRatingsCalculationService';
-import { YearlyHittingStats, HitterTrueRatingInput, hitterTrueRatingsCalculationService } from './HitterTrueRatingsCalculationService';
+import { LeagueAverages, YearlyPitchingStats, TrueRatingInput, TrueRatingResult, trueRatingsCalculationService, getYearWeights as getPitcherYearWeights } from './TrueRatingsCalculationService';
+import { YearlyHittingStats, HitterTrueRatingInput, HitterTrueRatingResult, hitterTrueRatingsCalculationService, getYearWeights as getHitterYearWeights } from './HitterTrueRatingsCalculationService';
+import { hitterScoutingDataService } from './HitterScoutingDataService';
+import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
+import { determinePitcherRole, PitcherRoleInput } from '../models/Player';
 import { DevelopmentSnapshotRecord } from './IndexedDBService';
 import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
@@ -156,6 +159,12 @@ class TrueRatingsService {
   // Cache for in-flight API requests to prevent duplicate calls
   private inFlightPitchingRequests: Map<number, Promise<TruePlayerStats[]>> = new Map();
   private inFlightBattingRequests: Map<number, Promise<TruePlayerBattingStats[]>> = new Map();
+
+  // Cache for canonical True Ratings (keyed by year)
+  private hitterTrCache: Map<number, Map<number, HitterTrueRatingResult>> = new Map();
+  private hitterTrInFlight: Map<number, Promise<Map<number, HitterTrueRatingResult>>> = new Map();
+  private pitcherTrCache: Map<number, Map<number, TrueRatingResult>> = new Map();
+  private pitcherTrInFlight: Map<number, Promise<Map<number, TrueRatingResult>>> = new Map();
 
   public async getTruePitchingStats(year: number): Promise<TruePlayerStats[]> {
     if (year < LEAGUE_START_YEAR) return [];
@@ -1030,6 +1039,197 @@ class TrueRatingsService {
 
     // Sort by year descending (most recent first)
     return results.sort((a, b) => b.year - a.year);
+  }
+
+  /**
+   * Canonical hitter True Ratings calculation, cached per year.
+   * All views should use this instead of computing TR independently.
+   *
+   * Uses the same parameters as TrueRatingsView:
+   * - Pool: ALL batters from getMultiYearBattingStats with totalPa >= 100
+   * - Scouting: both my and osa (my overrides osa)
+   * - Year weights: dynamic via getSeasonStage() when year === currentYear
+   * - League averages: getDefaultLeagueAverages()
+   * - League batting averages: year-specific from leagueBattingAveragesService
+   */
+  public async getHitterTrueRatings(year: number): Promise<Map<number, HitterTrueRatingResult>> {
+    // Return from cache if available
+    const cached = this.hitterTrCache.get(year);
+    if (cached) return cached;
+
+    // Deduplicate in-flight requests
+    const existing = this.hitterTrInFlight.get(year);
+    if (existing) return existing;
+
+    const promise = this.computeHitterTrueRatings(year).finally(() => {
+      this.hitterTrInFlight.delete(year);
+    });
+    this.hitterTrInFlight.set(year, promise);
+    return promise;
+  }
+
+  private async computeHitterTrueRatings(year: number): Promise<Map<number, HitterTrueRatingResult>> {
+    const currentYear = await dateService.getCurrentYear();
+
+    // Dynamic year weights for current season (matches TrueRatingsView)
+    let yearWeights: number[] | undefined;
+    if (year === currentYear) {
+      const stage = await dateService.getSeasonStage();
+      yearWeights = getHitterYearWeights(stage);
+    }
+
+    // Fetch multi-year stats and scouting data in parallel
+    const [multiYearStats, myScoutingRatings, osaScoutingRatings, leagueBattingAvg] = await Promise.all([
+      this.getMultiYearBattingStats(year),
+      hitterScoutingDataService.getLatestScoutingRatings('my'),
+      hitterScoutingDataService.getLatestScoutingRatings('osa'),
+      leagueBattingAveragesService.getLeagueAverages(year),
+    ]);
+
+    // Build scouting lookup (my overrides osa)
+    const scoutingById = new Map<number, HitterScoutingRatings>();
+    for (const r of osaScoutingRatings) {
+      if (r.playerId > 0) scoutingById.set(r.playerId, r);
+    }
+    for (const r of myScoutingRatings) {
+      if (r.playerId > 0) scoutingById.set(r.playerId, r);
+    }
+
+    // Get player names for any batters missing from single-year stats
+    const allBatters = await this.getTrueBattingStats(year);
+    const nameMap = new Map<number, string>();
+    for (const b of allBatters) {
+      nameMap.set(b.player_id, b.playerName);
+    }
+    // Fill gaps from playerService
+    const missingIds: number[] = [];
+    multiYearStats.forEach((_, pid) => {
+      if (!nameMap.has(pid)) missingIds.push(pid);
+    });
+    if (missingIds.length > 0) {
+      const extraNames = await this.getPlayerNames(missingIds);
+      extraNames.forEach((name, pid) => nameMap.set(pid, name));
+    }
+
+    // Build inputs: ALL batters with totalPa >= 100
+    const inputs: HitterTrueRatingInput[] = [];
+    multiYearStats.forEach((stats, pid) => {
+      const totalPa = stats.reduce((sum, s) => sum + s.pa, 0);
+      if (totalPa < 100) return;
+
+      inputs.push({
+        playerId: pid,
+        playerName: nameMap.get(pid) ?? 'Unknown',
+        yearlyStats: stats,
+        scoutingRatings: scoutingById.get(pid),
+      });
+    });
+
+    const leagueAverages = hitterTrueRatingsCalculationService.getDefaultLeagueAverages();
+    const results = hitterTrueRatingsCalculationService.calculateTrueRatings(
+      inputs, leagueAverages, yearWeights, leagueBattingAvg ?? undefined
+    );
+
+    const resultMap = new Map<number, HitterTrueRatingResult>();
+    for (const r of results) {
+      resultMap.set(r.playerId, r);
+    }
+
+    this.hitterTrCache.set(year, resultMap);
+    return resultMap;
+  }
+
+  /**
+   * Canonical pitcher True Ratings calculation, cached per year.
+   * All views should use this instead of computing TR independently.
+   */
+  public async getPitcherTrueRatings(year: number): Promise<Map<number, TrueRatingResult>> {
+    const cached = this.pitcherTrCache.get(year);
+    if (cached) return cached;
+
+    const existing = this.pitcherTrInFlight.get(year);
+    if (existing) return existing;
+
+    const promise = this.computePitcherTrueRatings(year).finally(() => {
+      this.pitcherTrInFlight.delete(year);
+    });
+    this.pitcherTrInFlight.set(year, promise);
+    return promise;
+  }
+
+  private async computePitcherTrueRatings(year: number): Promise<Map<number, TrueRatingResult>> {
+    const currentYear = await dateService.getCurrentYear();
+
+    // Dynamic year weights for current season (matches TrueRatingsView)
+    let yearWeights: number[] | undefined;
+    if (year === currentYear) {
+      const stage = await dateService.getSeasonStage();
+      yearWeights = getPitcherYearWeights(stage);
+    }
+
+    const [multiYearStats, leagueAverages, scoutingFallback, allPlayers] = await Promise.all([
+      this.getMultiYearPitchingStats(year),
+      this.getLeagueAverages(year),
+      scoutingDataFallbackService.getScoutingRatingsWithFallback(year),
+      playerService.getAllPlayers(),
+    ]);
+
+    // Build scouting lookup
+    const scoutingMap = new Map(scoutingFallback.ratings.map(r => [r.playerId, r]));
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
+    // Get player names from single-year stats
+    const allPitchers = await this.getTruePitchingStats(year);
+    const nameMap = new Map<number, string>();
+    for (const p of allPitchers) {
+      nameMap.set(p.player_id, p.playerName);
+    }
+    const missingIds: number[] = [];
+    multiYearStats.forEach((_, pid) => {
+      if (!nameMap.has(pid)) missingIds.push(pid);
+    });
+    if (missingIds.length > 0) {
+      const extraNames = await this.getPlayerNames(missingIds);
+      extraNames.forEach((name, pid) => nameMap.set(pid, name));
+    }
+
+    // Build inputs: ALL pitchers with totalIp >= 50
+    const inputs: TrueRatingInput[] = [];
+    multiYearStats.forEach((stats, pid) => {
+      const totalIp = stats.reduce((sum, s) => sum + s.ip, 0);
+      if (totalIp < 50) return;
+
+      const scouting = scoutingMap.get(pid);
+      const player = playerMap.get(pid);
+
+      // Determine pitcher role
+      const pitcherStats = allPitchers.find(p => p.player_id === pid);
+      const roleInput: PitcherRoleInput = {
+        pitchRatings: scouting?.pitches,
+        stamina: scouting?.stamina,
+        ootpRole: player?.role,
+        gamesStarted: pitcherStats?.gs,
+        inningsPitched: pitcherStats ? this.parseIp(pitcherStats.ip) : undefined,
+      };
+
+      inputs.push({
+        playerId: pid,
+        playerName: nameMap.get(pid) ?? 'Unknown',
+        yearlyStats: stats,
+        scoutingRatings: scouting,
+        role: determinePitcherRole(roleInput),
+      });
+    });
+
+    const results = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages, yearWeights);
+
+    const resultMap = new Map<number, TrueRatingResult>();
+    for (const r of results) {
+      resultMap.set(r.playerId, r);
+    }
+
+    this.pitcherTrCache.set(year, resultMap);
+    return resultMap;
   }
 
   /**

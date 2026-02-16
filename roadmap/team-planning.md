@@ -408,24 +408,37 @@ Implementation needed:
 - [ ] Integrate personality data into prospect evaluation (flag H WE/AD prospects as higher value)
 - [ ] Use development timelines to project "fills gap in ~Xyr" for each draft pick
 
-### Phase 3: Actionable Indicators
+### Phase 3: Actionable Indicators — COMPLETE
 **Goal: turn the grid into a decision-making tool.**
 
-- [ ] "CLIFF" indicator: use aging curves (peak yr 3-4, decline yr 10+) to flag players entering decline
-- [ ] "EXT" indicator: flag players in penultimate contract year who are still in their prime
-- [ ] "FA" indicator: positions with no contract AND no farm prospect AND no draft target = need FA
-- [ ] "TR" indicator: positions where farm has low-rated prospects AND contract expiring = trade candidate
-- [ ] "DRAFT" indicator: positions where gap aligns with upcoming draft pick value
-- [ ] Summary row/section: "Positions of Strength" / "Positions of Need" / "Extension Priorities" / "Draft Targets"
+- [x] "CLIFF" indicator: age ≥ 33 or ~10yr service (decline risk)
+- [x] "EXT" indicator: extension candidate (under-contract, penultimate year, rating ≥ 3.0, age ≤ 31)
+- [x] "FA" indicator: free agent target needed (empty cell in years 2-4 with no prospect)
+- [x] "TR" indicator: trade target area (underperforming final-year player, no strong prospect coming)
+- [x] "UPGRADE" indicator: year 0 only, MLB-ready prospect better than incumbent
+- [x] "EXPENSIVE" indicator: salary ≥ $10M
+- [x] Summary section: "Positions of Strength" / "Positions of Need" / "Extension Priorities" / "Draft Strategy"
 
-### Phase 4: Financial Layer
+### Phase 4: Financial Layer — COMPLETE
 **Goal: salary cap / luxury tax planning.**
 
-- [ ] Show salary totals per year across the grid
+- [x] Show salary totals per year across the grid (lineup/rotation/bullpen subtotals + grand total)
+- [x] Arbitration salary estimation by TFR tier
+- [x] Color code expensive contracts ($$$ indicator)
+- [x] Section header ratings: per-year average star ratings for each section (LINEUP, ROTATION, BULLPEN)
+- [x] TEAM rating row: overall team rating per year (40% rotation + 40% lineup + 20% bullpen)
 - [ ] Cap space remaining per year
-- [ ] Arbitration raise projections
-- [ ] Color code expensive contracts ($$$ symbol)
 - [ ] "What if" scenarios: what if we extend player X? What if we let player Y walk?
+
+### Phase 4.5: Smart Grid Interactions — COMPLETE (Feb 2026)
+**Goal: grid reacts intelligently to user edits.**
+
+- [x] Override-aware auto-fill: overrides applied before prospect fill, greedy algorithm optimizes around user decisions
+- [x] Final-year cells open for prospect replacement (prevents bad cascading placements)
+- [x] Rotation re-sorted by rating per year (SP1 is always the best pitcher in each column)
+- [x] Development curve overrides: "Set as fully developed" per-player toggle skips growth phase
+- [x] Edit modal shows TFR alongside current rating for cell occupants
+- [x] IndexedDB v11: `player_dev_overrides` store for per-player dev overrides
 
 ### Phase 5: Polish
 - [ ] Diamond view toggle (OOTP-style visual for a single year)

@@ -1,10 +1,8 @@
-import { PitcherScoutingRatings, HitterScoutingRatings } from '../models/ScoutingData';
+import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { Player, getFullName, getPositionLabel, isPitcher, PitcherRole, determinePitcherRole, PitcherRoleInput } from '../models/Player';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
 import { trueRatingsCalculationService, YearlyPitchingStats, getYearWeights } from '../services/TrueRatingsCalculationService';
-import { hitterTrueRatingsCalculationService, YearlyHittingStats, getYearWeights as getHitterYearWeights } from '../services/HitterTrueRatingsCalculationService';
-import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { TruePlayerStats, TruePlayerBattingStats, trueRatingsService } from '../services/TrueRatingsService';
 import { pitcherProfileModal } from './PitcherProfileModal';
 import type { PlayerProfileData } from './PlayerRatingsCard';
@@ -128,10 +126,6 @@ interface ScoutingLookup {
   byName: Map<string, PitcherScoutingRatings[]>;
 }
 
-interface HitterScoutingLookup {
-  byId: Map<number, HitterScoutingRatings>;
-  byName: Map<string, HitterScoutingRatings[]>;
-}
 
 const RAW_PITCHER_COLUMNS: PitcherColumn[] = [
   { key: 'position', label: 'Pos', sortKey: 'position' },
@@ -196,11 +190,6 @@ export class TrueRatingsView {
   private isDraggingColumn = false;
   private scoutingRatings: PitcherScoutingRatings[] = []; // Merged fallback (my > osa)
   private scoutingMetadata: { hasMyScoutData: boolean; fromMyScout: number; fromOSA: number } | null = null;
-  // Hitter scouting data
-  private hitterScoutingRatings: HitterScoutingRatings[] = [];
-  private myHitterScoutingRatings: HitterScoutingRatings[] = [];
-  private osaHitterScoutingRatings: HitterScoutingRatings[] = [];
-  private hitterScoutingLookup: HitterScoutingLookup | null = null;
   private rawPitcherStats: PitcherRow[] = [];
   private rawBatterStats: BatterRow[] = [];
   private playerRowLookup: Map<number, PitcherRow> = new Map();
@@ -1465,66 +1454,19 @@ export class TrueRatingsView {
    * Uses multi-year batting stats and optional hitter scouting data.
    */
   private async buildHitterTrueRatingsStats(batters: BatterRow[]): Promise<BatterRow[]> {
-    // Determine if we should use dynamic season weighting
-    const currentYear = await dateService.getCurrentYear();
-    const isCurrentYear = this.selectedYear === currentYear;
-
-    // Get dynamic year weights if viewing current year
-    let yearWeights: number[] | undefined;
-    if (isCurrentYear) {
-      const stage = await dateService.getSeasonStage();
-      yearWeights = getHitterYearWeights(stage);
-    }
-
-    // Fetch multi-year batting stats
-    const multiYearStats = await trueRatingsService.getMultiYearBattingStats(this.selectedYear);
-
-    // Build hitter scouting lookup
-    this.hitterScoutingLookup = this.buildHitterScoutingLookup(this.hitterScoutingRatings);
-
-    // Build inputs for True Rating calculation
-    const inputs: Array<{
-      playerId: number;
-      playerName: string;
-      yearlyStats: YearlyHittingStats[];
-      scoutingRatings?: HitterScoutingRatings;
-    }> = [];
-    const battersWithStats: BatterRow[] = [];
-
-    batters.forEach((batter) => {
-      const scouting = this.resolveHitterScoutingRating(batter, this.hitterScoutingLookup!);
-      const yearlyStats = multiYearStats.get(batter.player_id) ?? [];
-
-      if (yearlyStats.length === 0) {
-        return;
-      }
-
-      // Minimum PA threshold: Don't calculate TR for batters with <100 total PA
-      const totalPa = yearlyStats.reduce((sum, stat) => sum + stat.pa, 0);
-      if (totalPa < 100) {
-        return;
-      }
-
-      inputs.push({
-        playerId: batter.player_id,
-        playerName: batter.playerName,
-        yearlyStats,
-        scoutingRatings: scouting,
-      });
-      battersWithStats.push(batter);
-    });
-
-    // Calculate True Ratings (pass league batting averages for WAR-based ranking)
-    const leagueAverages = hitterTrueRatingsCalculationService.getDefaultLeagueAverages();
-    const results = hitterTrueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages, yearWeights, this.cachedLeagueBattingAverages ?? undefined);
-    const resultMap = new Map(results.map(result => [result.playerId, result]));
+    // Use canonical cached True Ratings (shared with all views)
+    const resultMap = await trueRatingsService.getHitterTrueRatings(this.selectedYear);
 
     // Enrich batter rows with True Rating data
-    const enrichedBatters: BatterRow[] = battersWithStats.map((batter) => {
-      const result = resultMap.get(batter.player_id);
-      if (!result) return batter;
+    const battersWithStats: BatterRow[] = [];
+    const enrichedBatters: BatterRow[] = [];
 
-      return {
+    for (const batter of batters) {
+      const result = resultMap.get(batter.player_id);
+      if (!result) continue;
+
+      battersWithStats.push(batter);
+      enrichedBatters.push({
         ...batter,
         trueRating: result.trueRating,
         percentile: result.percentile,
@@ -1543,8 +1485,8 @@ export class TrueRatingsView {
         estimatedGap: result.estimatedGap,
         estimatedSpeed: result.estimatedSpeed,
         totalPa: result.totalPa,
-      };
-    });
+      });
+    }
 
     // Find batter prospects (scouting entries without MLB stats)
     const mlbPlayerIds = new Set(battersWithStats.map(b => b.player_id));
@@ -1557,43 +1499,6 @@ export class TrueRatingsView {
     this._batterRowLookup = new Map(allBatters.map(b => [b.player_id, b]));
 
     return allBatters;
-  }
-
-  private buildHitterScoutingLookup(ratings: HitterScoutingRatings[]): HitterScoutingLookup {
-    const byId = new Map<number, HitterScoutingRatings>();
-    const byName = new Map<string, HitterScoutingRatings[]>();
-
-    ratings.forEach((rating) => {
-      if (rating.playerId > 0) {
-        byId.set(rating.playerId, rating);
-      }
-
-      if (rating.playerName) {
-        const normalized = this.normalizeName(rating.playerName);
-        if (!normalized) return;
-        const list = byName.get(normalized) ?? [];
-        list.push(rating);
-        byName.set(normalized, list);
-      }
-    });
-
-    return { byId, byName };
-  }
-
-  private resolveHitterScoutingRating(
-    batter: BatterRow,
-    lookup: HitterScoutingLookup
-  ): HitterScoutingRatings | undefined {
-    // Try by ID first
-    const byId = lookup.byId.get(batter.player_id);
-    if (byId) return byId;
-
-    // Try by name
-    const normalized = this.normalizeName(batter.playerName);
-    const byName = lookup.byName.get(normalized);
-    if (byName && byName.length === 1) return byName[0];
-
-    return undefined;
   }
 
   /**
@@ -3110,50 +3015,14 @@ export class TrueRatingsView {
       this.scoutingRatings = fallback.ratings;
       this.scoutingMetadata = fallback.metadata;
 
-      // Fetch hitter scouting data
-      [this.myHitterScoutingRatings, this.osaHitterScoutingRatings] = await Promise.all([
-        hitterScoutingDataService.getLatestScoutingRatings('my'),
-        hitterScoutingDataService.getLatestScoutingRatings('osa')
-      ]);
-      // Merge hitter scouting (my takes priority over osa)
-      this.hitterScoutingRatings = this.mergeHitterScoutingData(
-        this.myHitterScoutingRatings,
-        this.osaHitterScoutingRatings
-      );
     } else {
       this.scoutingRatings = [];
       this.scoutingMetadata = null;
-      this.hitterScoutingRatings = [];
-      this.myHitterScoutingRatings = [];
-      this.osaHitterScoutingRatings = [];
     }
 
     // this.updateScoutingUploadLabel(); // Removed
     this.updatePitcherColumns();
     this.updateScoutingStatus();
-  }
-
-  private mergeHitterScoutingData(
-    myRatings: HitterScoutingRatings[],
-    osaRatings: HitterScoutingRatings[]
-  ): HitterScoutingRatings[] {
-    const byId = new Map<number, HitterScoutingRatings>();
-
-    // OSA first (lower priority)
-    for (const rating of osaRatings) {
-      if (rating.playerId > 0) {
-        byId.set(rating.playerId, rating);
-      }
-    }
-
-    // My ratings override OSA
-    for (const rating of myRatings) {
-      if (rating.playerId > 0) {
-        byId.set(rating.playerId, rating);
-      }
-    }
-
-    return Array.from(byId.values());
   }
 
   private updateScoutingUploadVisibility(): void {
