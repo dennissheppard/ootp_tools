@@ -13,6 +13,7 @@ import { fipWarService } from '../services/FipWarService';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { projectionAnalysisService, AggregateAnalysisReport } from '../services/ProjectionAnalysisService';
 import { batterProjectionAnalysisService, BatterAggregateAnalysisReport } from '../services/BatterProjectionAnalysisService';
+import { standingsService } from '../services/StandingsService';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -1027,6 +1028,11 @@ export class ProjectionsView {
           </tr>
       `).join('');
 
+      // Team WAR Compression
+      const pitcherTeamWarData = this.aggregateTeamWar(years);
+      const pitcherCompressionMetrics = this.computeCompressionMetrics(pitcherTeamWarData);
+      const pitcherCompressionHtml = this.renderTeamWarCompressionSection(pitcherTeamWarData, pitcherCompressionMetrics, 'Pitcher');
+
       // Age Table (FIP only)
       const sortedAges = Array.from(metricsByAge.entries()).sort((a, b) => a[0].localeCompare(b[0]));
       const ageRows = sortedAges.map(([age, m]) => `
@@ -1297,6 +1303,8 @@ export class ProjectionsView {
                       <tbody>${teamRows}</tbody>
                   </table>
               </div>
+
+              ${pitcherCompressionHtml}
           </div>
       `;
 
@@ -1377,6 +1385,11 @@ export class ProjectionsView {
               <td>${m.woba.count}</td>
           </tr>
       `).join('');
+
+      // Team WAR Compression
+      const batterTeamWarData = this.aggregateTeamWar(years);
+      const batterCompressionMetrics = this.computeCompressionMetrics(batterTeamWarData);
+      const batterCompressionHtml = this.renderTeamWarCompressionSection(batterTeamWarData, batterCompressionMetrics, 'Batter');
 
       // Age Table (wOBA)
       const ageOrder = ['< 24', '24-26', '27-29', '30-33', '34+'];
@@ -1626,8 +1639,203 @@ export class ProjectionsView {
                       <tbody>${teamRows}</tbody>
                   </table>
               </div>
+
+              ${batterCompressionHtml}
           </div>
       `;
+  }
+
+  // --- Team WAR Compression Diagnostics ---
+
+  private linearRegression(xs: number[], ys: number[]): { slope: number; intercept: number; r2: number; n: number } {
+      const n = xs.length;
+      if (n < 2) return { slope: 0, intercept: 0, r2: 0, n };
+
+      const meanX = xs.reduce((a, b) => a + b, 0) / n;
+      const meanY = ys.reduce((a, b) => a + b, 0) / n;
+
+      let ssXX = 0, ssYY = 0, ssXY = 0;
+      for (let i = 0; i < n; i++) {
+          const dx = xs[i] - meanX;
+          const dy = ys[i] - meanY;
+          ssXX += dx * dx;
+          ssYY += dy * dy;
+          ssXY += dx * dy;
+      }
+
+      if (ssXX === 0) return { slope: 0, intercept: meanY, r2: 0, n };
+      const slope = ssXY / ssXX;
+      const intercept = meanY - slope * meanX;
+      const r2 = ssYY === 0 ? 0 : (ssXY * ssXY) / (ssXX * ssYY);
+
+      return { slope, intercept, r2, n };
+  }
+
+  private aggregateTeamWar(years: { year: number; details: { teamName: string; projected: { war: number }; actual: { war: number } }[] }[]): { year: number; teamName: string; projectedWar: number; actualWar: number; playerCount: number; actualWins?: number }[] {
+      const teamMap = new Map<string, { projectedWar: number; actualWar: number; playerCount: number }>();
+
+      for (const yr of years) {
+          for (const d of yr.details) {
+              if (d.teamName === 'Unknown') continue;
+              const key = `${yr.year}|${d.teamName}`;
+              const entry = teamMap.get(key) || { projectedWar: 0, actualWar: 0, playerCount: 0 };
+              entry.projectedWar += d.projected.war;
+              entry.actualWar += d.actual.war;
+              entry.playerCount++;
+              teamMap.set(key, entry);
+          }
+      }
+
+      const result: { year: number; teamName: string; projectedWar: number; actualWar: number; playerCount: number; actualWins?: number }[] = [];
+      for (const [key, entry] of teamMap) {
+          const [yearStr, teamName] = key.split('|');
+          const year = parseInt(yearStr, 10);
+          const point: typeof result[0] = { year, teamName, ...entry };
+
+          // Enrich with actual wins from standings
+          const standingsMap = standingsService.getStandingsMap(year);
+          if (standingsMap) {
+              const standing = standingsMap.get(teamName);
+              if (standing) point.actualWins = standing.wins;
+          }
+          result.push(point);
+      }
+
+      return result;
+  }
+
+  private computeCompressionMetrics(data: { year: number; teamName: string; projectedWar: number; actualWar: number; playerCount: number; actualWins?: number }[]): {
+      slope: number; r2: number; mae: number; bias: number; n: number;
+      topQBias: number; bottomQBias: number;
+      winsSlope?: number; winsR2?: number; winsMae?: number;
+  } {
+      const xs = data.map(d => d.actualWar);
+      const ys = data.map(d => d.projectedWar);
+      const reg = this.linearRegression(xs, ys);
+
+      const diffs = data.map(d => d.projectedWar - d.actualWar);
+      const mae = diffs.reduce((sum, d) => sum + Math.abs(d), 0) / diffs.length;
+      const bias = diffs.reduce((sum, d) => sum + d, 0) / diffs.length;
+
+      // Quartile bias: sort by actual WAR
+      const sorted = [...data].sort((a, b) => b.actualWar - a.actualWar);
+      const qSize = Math.floor(sorted.length / 4);
+      const topQ = sorted.slice(0, qSize);
+      const bottomQ = sorted.slice(sorted.length - qSize);
+      const topQBias = topQ.length > 0 ? topQ.reduce((sum, d) => sum + (d.projectedWar - d.actualWar), 0) / topQ.length : 0;
+      const bottomQBias = bottomQ.length > 0 ? bottomQ.reduce((sum, d) => sum + (d.projectedWar - d.actualWar), 0) / bottomQ.length : 0;
+
+      const result: ReturnType<typeof this.computeCompressionMetrics> = {
+          slope: reg.slope, r2: reg.r2, mae, bias, n: data.length,
+          topQBias, bottomQBias,
+      };
+
+      // Wins metrics (optional)
+      const withWins = data.filter(d => d.actualWins !== undefined);
+      if (withWins.length >= 4) {
+          const wReg = this.linearRegression(withWins.map(d => d.projectedWar), withWins.map(d => d.actualWins!));
+          const winsDiffs = withWins.map(d => d.projectedWar * wReg.slope + wReg.intercept - d.actualWins!);
+          result.winsSlope = wReg.slope;
+          result.winsR2 = wReg.r2;
+          result.winsMae = winsDiffs.reduce((sum, d) => sum + Math.abs(d), 0) / winsDiffs.length;
+      }
+
+      return result;
+  }
+
+  private renderTeamWarCompressionSection(
+      data: { year: number; teamName: string; projectedWar: number; actualWar: number; playerCount: number; actualWins?: number }[],
+      metrics: ReturnType<typeof ProjectionsView.prototype.computeCompressionMetrics>,
+      label: string
+  ): string {
+      const slopeClass = metrics.slope < 0.85 ? 'text-danger' : (metrics.slope < 0.95 ? 'text-warning' : 'text-success');
+      const compressionPct = ((1 - metrics.slope) * 100).toFixed(0);
+      const hasWins = metrics.winsSlope !== undefined;
+
+      // Team-year table rows sorted by actual WAR desc
+      const sorted = [...data].sort((a, b) => b.actualWar - a.actualWar);
+      const tableRows = sorted.map(d => {
+          const diff = d.projectedWar - d.actualWar;
+          const diffClass = Math.abs(diff) > 5 ? 'text-danger' : (Math.abs(diff) > 2 ? 'text-warning' : 'text-success');
+          return `
+              <tr>
+                  <td>${d.year}</td>
+                  <td>${d.teamName}</td>
+                  <td>${d.actualWar.toFixed(1)}</td>
+                  <td>${d.projectedWar.toFixed(1)}</td>
+                  <td class="${diffClass}">${diff >= 0 ? '+' : ''}${diff.toFixed(1)}</td>
+                  <td>${d.playerCount}</td>
+                  ${hasWins ? `<td>${d.actualWins ?? '—'}</td>` : ''}
+              </tr>`;
+      }).join('');
+
+      return `
+          <div class="analysis-section" style="margin-top: 20px;">
+              <h4>Team ${label} WAR: Compression Diagnostics</h4>
+              <p class="section-subtitle" style="margin-bottom: 10px; font-size: 0.9em;">
+                  Regression of projected WAR (y) vs actual WAR (x) at the team level. Slope &lt; 1 means the projection pipeline compresses team-level WAR spread.
+                  <br><strong>${compressionPct}% compression</strong> (slope = ${metrics.slope.toFixed(3)}).
+                  Top quartile bias: ${metrics.topQBias >= 0 ? '+' : ''}${metrics.topQBias.toFixed(1)} WAR (negative = under-projecting best teams).
+                  Bottom quartile bias: ${metrics.bottomQBias >= 0 ? '+' : ''}${metrics.bottomQBias.toFixed(1)} WAR (positive = over-projecting worst teams).
+              </p>
+              <div class="metrics-grid">
+                  <div class="metric-box">
+                      <span class="metric-label">Slope</span>
+                      <span class="metric-value ${slopeClass}">${metrics.slope.toFixed(3)}</span>
+                  </div>
+                  <div class="metric-box">
+                      <span class="metric-label">R²</span>
+                      <span class="metric-value">${metrics.r2.toFixed(3)}</span>
+                  </div>
+                  <div class="metric-box">
+                      <span class="metric-label">Team WAR MAE</span>
+                      <span class="metric-value">${metrics.mae.toFixed(1)}</span>
+                  </div>
+                  <div class="metric-box">
+                      <span class="metric-label">Top Q Bias</span>
+                      <span class="metric-value ${metrics.topQBias < -2 ? 'text-danger' : ''}">${metrics.topQBias >= 0 ? '+' : ''}${metrics.topQBias.toFixed(1)}</span>
+                  </div>
+                  <div class="metric-box">
+                      <span class="metric-label">Bottom Q Bias</span>
+                      <span class="metric-value ${metrics.bottomQBias > 2 ? 'text-danger' : ''}">${metrics.bottomQBias >= 0 ? '+' : ''}${metrics.bottomQBias.toFixed(1)}</span>
+                  </div>
+                  <div class="metric-box">
+                      <span class="metric-label">N (team-years)</span>
+                      <span class="metric-value">${metrics.n}</span>
+                  </div>
+              </div>
+              ${hasWins ? `
+              <div class="metrics-grid" style="margin-top: 10px;">
+                  <div class="metric-box">
+                      <span class="metric-label">WAR→Wins Slope</span>
+                      <span class="metric-value">${metrics.winsSlope!.toFixed(2)}</span>
+                  </div>
+                  <div class="metric-box">
+                      <span class="metric-label">WAR→Wins R²</span>
+                      <span class="metric-value">${metrics.winsR2!.toFixed(3)}</span>
+                  </div>
+                  <div class="metric-box">
+                      <span class="metric-label">Wins MAE</span>
+                      <span class="metric-value">${metrics.winsMae!.toFixed(1)}</span>
+                  </div>
+              </div>` : ''}
+              <div class="table-wrapper" style="max-height: 400px; overflow-y: auto; margin-top: 10px;">
+                  <table class="stats-table">
+                      <thead>
+                          <tr>
+                              <th>Year</th>
+                              <th>Team</th>
+                              <th>Actual WAR</th>
+                              <th>Proj WAR</th>
+                              <th>Diff</th>
+                              <th>Players</th>
+                              ${hasWins ? '<th>Actual Wins</th>' : ''}
+                          </tr>
+                      </thead>
+                      <tbody>${tableRows}</tbody>
+                  </table>
+              </div>
+          </div>`;
   }
 
   private bindTeamDropdownListeners(): void {

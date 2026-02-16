@@ -9488,3 +9488,57 @@ th .stat-tooltip {
   background: rgba(244, 33, 46, 0.2);
   border-color: rgba(244, 33, 46, 0.5);
 }
+
+/* ── Standings Table ─────────────────────────────── */
+
+.standings-record {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.standings-wins {
+  color: var(--color-success);
+}
+
+.standings-losses {
+  color: var(--color-text-muted);
+}
+
+/* Standings diff column */
+.standings-diff {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.standings-diff.diff-close {
+  color: var(--color-success);
+}
+
+.standings-diff.diff-mid {
+  color: #e6a817;
+}
+
+.standings-diff.diff-far {
+  color: var(--color-error);
+}
+
+/* Standings summary stats bar */
+.standings-summary {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.75rem;
+  background: rgba(29, 155, 240, 0.06);
+  border: 1px solid rgba(29, 155, 240, 0.15);
+  border-radius: var(--border-radius);
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.standings-summary-item {
+  cursor: help;
+}
+
+.standings-summary-item strong {
+  color: var(--color-text);
+}

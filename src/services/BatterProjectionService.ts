@@ -9,14 +9,14 @@
 
 import { playerService } from './PlayerService';
 import { teamService } from './TeamService';
-import { Player } from '../models/Player';
 import { Team } from '../models/Team';
-import { trueRatingsService } from './TrueRatingsService';
+import { trueRatingsService, TruePlayerBattingStats } from './TrueRatingsService';
 import { hitterScoutingDataService } from './HitterScoutingDataService';
 import { hitterTrueRatingsCalculationService, HitterTrueRatingInput } from './HitterTrueRatingsCalculationService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { hitterAgingService } from './HitterAgingService';
+import { dateService } from './DateService';
 
 export interface ProjectedBatter {
   playerId: number;
@@ -80,11 +80,12 @@ const POSITION_LABELS: Record<number, string> = {
 class BatterProjectionService {
   async getProjectionsWithContext(year: number): Promise<BatterProjectionContext> {
     // Get all required data
-    const [allPlayers, allTeams, scoutingList, leagueAvgCurrent] = await Promise.all([
+    const [allPlayers, allTeams, scoutingList, leagueAvgCurrent, currentYear] = await Promise.all([
       playerService.getAllPlayers(),
       teamService.getAllTeams(),
       hitterScoutingDataService.getLatestScoutingRatings('osa'),
       leagueBattingAveragesService.getLeagueAverages(year),
+      dateService.getCurrentYear(),
     ]);
 
     // Fall back to prior year's league averages if current year not available yet
@@ -106,36 +107,69 @@ class BatterProjectionService {
     // Use prior season to avoid contamination from partial current season data
     const multiYearStats = await trueRatingsService.getMultiYearBattingStats(year - 1);
 
-    // Build team lookup
-    const teamMap = new Map<number, Team>(allTeams.map(t => [t.id, t]));
+    // Get current-year batting stats to build stats-driven player pool
+    // This ensures we capture all players who batted, not just current roster
+    let battingStats: TruePlayerBattingStats[] = [];
+    try {
+      battingStats = await trueRatingsService.getTrueBattingStats(year);
+    } catch {
+      // Fall back to prior year if current year stats unavailable
+      try {
+        battingStats = await trueRatingsService.getTrueBattingStats(year - 1);
+      } catch {
+        battingStats = [];
+      }
+    }
 
-    // Filter to MLB batters (not pitchers on MLB rosters, not retired)
-    const mlbBatters = allPlayers.filter((p: Player) => {
-      if (p.retired) return false; // Skip retired players
-      const team = teamMap.get(p.teamId);
-      if (!team || team.parentTeamId !== 0) return false; // Must be on MLB roster
-      if (p.position === 1) return false; // Skip pitchers
-      return true;
-    });
+    // Build lookup maps
+    const teamMap = new Map<number, Team>(allTeams.map(t => [t.id, t]));
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+    const battingStatsMap = new Map<number, TruePlayerBattingStats>();
+    for (const stat of battingStats) {
+      battingStatsMap.set(stat.player_id, stat);
+    }
+
+    // Build stats-driven player pool (like pitcher ProjectionService)
+    // Include anyone who has batting stats OR multi-year history
+    const playerIds = new Set<number>();
+    multiYearStats.forEach((_stats, playerId) => playerIds.add(playerId));
+    battingStats.forEach(stat => playerIds.add(stat.player_id));
 
     // Build True Rating inputs for all batters with stats
     const trInputs: HitterTrueRatingInput[] = [];
-    const playerInfoMap = new Map<number, { player: Player, teamName: string, scouting?: typeof scoutingList[0], fromMyScout: boolean }>();
+    const playerInfoMap = new Map<number, { age: number, teamId: number, teamName: string, position: number, name: string, scouting?: typeof scoutingList[0], fromMyScout: boolean }>();
     let fromMyScout = 0;
     let fromOSA = 0;
 
-    for (const player of mlbBatters) {
-      const playerId = player.id;
+    for (const playerId of playerIds) {
+      const player = playerMap.get(playerId);
+      const stat = battingStatsMap.get(playerId);
       const stats = multiYearStats.get(playerId);
 
-      // Need at least some stats to project
-      if (!stats || stats.length === 0) continue;
+      // Skip if no player record (can't determine age for aging curves)
+      if (!player) continue;
 
-      const team = teamMap.get(player.teamId);
+      // Determine position: prefer player record, fall back to stats
+      const position = player.position || stat?.position || 0;
+      if (position === 1) continue; // Skip pitchers
+
+      // Need at least some stats or scouting to project
+      const scoutingInfo = scoutingMap.get(playerId);
+      if ((!stats || stats.length === 0) && !scoutingInfo) continue;
+
+      // Use stats-year team_id (where they played), not current roster team
+      const teamId = stat?.team_id || player.teamId || 0;
+      const team = teamMap.get(teamId);
       const teamName = team?.nickname || 'Unknown';
 
-      // Get scouting data if available
-      const scoutingInfo = scoutingMap.get(playerId);
+      // Get player name
+      const playerName = stat?.playerName
+        ?? (player ? `${player.firstName} ${player.lastName}` : 'Unknown Player');
+
+      // Calculate age in the stats year
+      const birthYear = currentYear - player.age;
+      const ageInYear = year - birthYear;
+
       if (scoutingInfo) {
         if (scoutingInfo.fromMyScout) fromMyScout++;
         else fromOSA++;
@@ -143,14 +177,17 @@ class BatterProjectionService {
 
       trInputs.push({
         playerId,
-        playerName: `${player.firstName} ${player.lastName}`,
-        yearlyStats: stats,
+        playerName,
+        yearlyStats: stats ?? [],
         scoutingRatings: scoutingInfo?.rating,
       });
 
       playerInfoMap.set(playerId, {
-        player,
+        age: ageInYear,
+        teamId,
         teamName,
+        position,
+        name: playerName,
         scouting: scoutingInfo?.rating,
         fromMyScout: scoutingInfo?.fromMyScout ?? false,
       });
@@ -166,7 +203,7 @@ class BatterProjectionService {
       const info = playerInfoMap.get(trResult.playerId);
       if (!info) continue;
 
-      const { player, teamName, scouting } = info;
+      const { age, teamId, teamName, position, name, scouting } = info;
 
       // Apply aging curve to estimated ratings for next season projection
       const currentRatings = {
@@ -177,7 +214,7 @@ class BatterProjectionService {
       };
 
       // Apply aging to get next season's projected ratings
-      const projectedRatings = hitterAgingService.applyAging(currentRatings, player.age);
+      const projectedRatings = hitterAgingService.applyAging(currentRatings, age);
 
       // Calculate projected rate stats from aged ratings
       const projBbPct = HitterRatingEstimatorService.expectedBbPct(projectedRatings.eye);
@@ -222,7 +259,7 @@ class BatterProjectionService {
 
       const projPa = leagueBattingAveragesService.getProjectedPaWithHistory(
         historicalPaData,
-        player.age,
+        age,
         scouting?.injuryProneness
       );
 
@@ -252,12 +289,12 @@ class BatterProjectionService {
 
       projections.push({
         playerId: trResult.playerId,
-        name: `${player.firstName} ${player.lastName}`,
-        teamId: player.teamId,
+        name,
+        teamId,
         teamName,
-        position: player.position,
-        positionLabel: POSITION_LABELS[player.position] || 'UT',
-        age: player.age,
+        position,
+        positionLabel: POSITION_LABELS[position] || 'UT',
+        age,
         currentTrueRating: trResult.trueRating,
         percentile: trResult.percentile,
         projectedStats: {

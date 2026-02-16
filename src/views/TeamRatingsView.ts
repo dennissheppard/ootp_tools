@@ -8,6 +8,16 @@ import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
+import { standingsService, ActualStanding } from '../services/StandingsService';
+
+// WAR→Wins calibration constants
+// Recalibrated Feb 2026: piecewise projection-based calibration on 236 team-seasons (2005-2020).
+// Uses different slopes above/below median WAR to handle asymmetric compression.
+// (Top teams' WAR under-projected more than bottom teams' over-projected.)
+// Fine-tuned via parameter sweep: upper=0.830, lower=0.780 (MAE 7.52, gap 16.7).
+const STANDINGS_UPPER_SLOPE = 0.830;  // Above-median teams
+const STANDINGS_LOWER_SLOPE = 0.780;  // Below-median teams
+const SEASON_GAMES = 162;
 
 interface TeamColumn {
   key: 'name' | 'trueRating' | 'ip' | 'k9' | 'bb9' | 'hr9' | 'eraOrWar' | 'war';
@@ -26,9 +36,10 @@ export class TeamRatingsView {
   private container: HTMLElement;
   private selectedYear: number = 2020;
   private isAllTime: boolean = false;
-  private viewMode: 'projected' | 'power-rankings' = 'power-rankings';
+  private viewMode: 'projected' | 'power-rankings' | 'standings' = 'power-rankings';
   private results: TeamRatingResult[] = [];
   private powerRankings: TeamPowerRanking[] = [];
+  private actualStandingsMap: Map<string, ActualStanding> | null = null;
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private currentGameYear: number | null = null;
   private batterProfileModal: BatterProfileModal;
@@ -47,6 +58,20 @@ export class TeamRatingsView {
     { key: 'lineup', label: 'Lineup', sortKey: 'lineup' },
     { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen' },
     { key: 'bench', label: 'Bench', sortKey: 'bench' }
+  ];
+  private standingsSortKey: string = 'wins';
+  private standingsSortDirection: 'asc' | 'desc' = 'desc';
+  private standingsColumns: Array<{ key: string; label: string; sortKey?: string; title?: string }> = [
+    { key: 'rank', label: '#' },
+    { key: 'teamName', label: 'Team' },
+    { key: 'wins', label: 'W', sortKey: 'wins', title: 'Projected Wins' },
+    { key: 'losses', label: 'L', sortKey: 'losses', title: 'Projected Losses' },
+    { key: 'winPct', label: 'Win%', sortKey: 'winPct', title: 'Projected Win Percentage' },
+    { key: 'totalWar', label: 'Total WAR', sortKey: 'totalWar', title: 'Raw WAR sum (Rotation + Lineup + Bullpen + Bench)' },
+    { key: 'rotation', label: 'Rotation', sortKey: 'rotation', title: 'Rotation WAR' },
+    { key: 'lineup', label: 'Lineup', sortKey: 'lineup', title: 'Lineup WAR' },
+    { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen', title: 'Bullpen WAR' },
+    { key: 'bench', label: 'Bench', sortKey: 'bench', title: 'Bench WAR' }
   ];
   private powerRankingsSortKey: string = 'teamRating';
   private powerRankingsSortDirection: 'asc' | 'desc' = 'desc';
@@ -111,6 +136,11 @@ export class TeamRatingsView {
                       data-view-mode="projected"
                       aria-pressed="${this.viewMode === 'projected'}">
                 Projections
+              </button>
+              <button class="toggle-btn ${this.viewMode === 'standings' ? 'active' : ''}"
+                      data-view-mode="standings"
+                      aria-pressed="${this.viewMode === 'standings'}">
+                Standings
               </button>
             </div>
           </div>
@@ -204,14 +234,14 @@ export class TeamRatingsView {
     // Mode toggle buttons
     this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
       btn.addEventListener('click', (e) => {
-        const mode = (e.target as HTMLElement).dataset.viewMode as 'projected' | 'power-rankings';
+        const mode = (e.target as HTMLElement).dataset.viewMode as 'projected' | 'power-rankings' | 'standings';
         if (mode === this.viewMode && !this.isAllTime) return;
 
         this.viewMode = mode;
         this.teamSortState.clear();
 
-        // All-Time is only available in power-rankings mode — switch off if going to projections
-        if (this.isAllTime && mode === 'projected') {
+        // All-Time is only available in power-rankings mode — switch off if going to projections/standings
+        if (this.isAllTime && (mode === 'projected' || mode === 'standings')) {
           this.isAllTime = false;
           if (this.currentGameYear !== null) {
             this.selectedYear = this.currentGameYear;
@@ -223,8 +253,8 @@ export class TeamRatingsView {
           });
         }
 
-        // If switching to projections, force current game year
-        if (this.viewMode === 'projected' && this.currentGameYear !== null) {
+        // If switching to projections or standings, force current game year
+        if ((this.viewMode === 'projected' || this.viewMode === 'standings') && this.currentGameYear !== null) {
           this.selectedYear = this.currentGameYear;
           const displaySpan = this.container.querySelector('#selected-year-display');
           if (displaySpan) displaySpan.textContent = String(this.currentGameYear);
@@ -260,9 +290,14 @@ export class TeamRatingsView {
   }
 
   private renderTableLoadingState(): string {
-      const title = this.isAllTime ? 'All-Time Power Rankings' : (this.viewMode === 'power-rankings' ? 'Team Power Rankings' : 'Team Projections');
+      const title = this.isAllTime ? 'All-Time Power Rankings'
+          : this.viewMode === 'power-rankings' ? 'Team Power Rankings'
+          : this.viewMode === 'standings' ? 'Projected Standings'
+          : 'Team Projections';
       const columnCount = this.viewMode === 'power-rankings'
           ? this.powerRankingsColumns.length
+          : this.viewMode === 'standings'
+          ? this.standingsColumns.length
           : this.projectionsColumns.length;
       const loadingNote = this.isAllTime
           ? '<span class="note-text" id="all-time-progress">Loading all historical seasons...</span>'
@@ -308,7 +343,7 @@ export class TeamRatingsView {
         } else if (this.viewMode === 'power-rankings') {
             this.powerRankings = await teamRatingsService.getPowerRankings(this.selectedYear);
             this.results = [];
-        } else if (this.viewMode === 'projected') {
+        } else if (this.viewMode === 'projected' || this.viewMode === 'standings') {
             console.log('Fetching projections...', teamRatingsService);
             if (typeof teamRatingsService.getProjectedTeamRatings !== 'function') {
                 console.error('getProjectedTeamRatings is missing on teamRatingsService!', teamRatingsService);
@@ -323,7 +358,7 @@ export class TeamRatingsView {
             await this.renderNoData();
             return;
         }
-        if (this.viewMode === 'projected' && this.results.length === 0) {
+        if ((this.viewMode === 'projected' || this.viewMode === 'standings') && this.results.length === 0) {
             await this.renderNoData();
             return;
         }
@@ -351,6 +386,13 @@ export class TeamRatingsView {
       // Projections mode - render component-based collapsibles
       if (this.viewMode === 'projected') {
         this.renderProjectionsTable(rotContainer, penContainer);
+        this.bindPlayerNameClicks();
+        return;
+      }
+
+      // Standings mode
+      if (this.viewMode === 'standings') {
+        this.renderStandingsTable(rotContainer, penContainer);
         this.bindPlayerNameClicks();
         return;
       }
@@ -630,6 +672,403 @@ export class TeamRatingsView {
       `;
   }
 
+
+  // ── Standings Mode ──────────────────────────────────────────────
+
+  private calculateRawTeamWar(team: TeamRatingResult): number {
+      return team.rotationWar
+           + (team.lineupWar ?? 0)
+           + team.bullpenWar
+           + (team.benchWar ?? 0);
+  }
+
+  private calculateProjectedWins(rawWar: number, medianWar: number): number {
+      const dev = rawWar - medianWar;
+      const slope = dev > 0 ? STANDINGS_UPPER_SLOPE : STANDINGS_LOWER_SLOPE;
+      return Math.round(81 + dev * slope);
+  }
+
+  private getMedianTeamWar(): number {
+      const wars = this.results.map(t => this.calculateRawTeamWar(t)).sort((a, b) => a - b);
+      if (wars.length === 0) return 0;
+      const mid = Math.floor(wars.length / 2);
+      return wars.length % 2 === 0 ? (wars[mid - 1] + wars[mid]) / 2 : wars[mid];
+  }
+
+  private sortStandingsData(): void {
+      const medianWar = this.getMedianTeamWar();
+      this.results.sort((a, b) => {
+          const aRaw = this.calculateRawTeamWar(a);
+          const bRaw = this.calculateRawTeamWar(b);
+          const aWins = this.calculateProjectedWins(aRaw, medianWar);
+          const bWins = this.calculateProjectedWins(bRaw, medianWar);
+
+          let aVal: number;
+          let bVal: number;
+
+          switch (this.standingsSortKey) {
+              case 'wins':
+                  aVal = aWins; bVal = bWins; break;
+              case 'losses':
+                  aVal = SEASON_GAMES - aWins; bVal = SEASON_GAMES - bWins; break;
+              case 'winPct':
+                  aVal = aWins / SEASON_GAMES; bVal = bWins / SEASON_GAMES; break;
+              case 'totalWar':
+                  aVal = aRaw; bVal = bRaw; break;
+              case 'rotation':
+                  aVal = a.rotationWar; bVal = b.rotationWar; break;
+              case 'lineup':
+                  aVal = a.lineupWar ?? 0; bVal = b.lineupWar ?? 0; break;
+              case 'bullpen':
+                  aVal = a.bullpenWar; bVal = b.bullpenWar; break;
+              case 'bench':
+                  aVal = a.benchWar ?? 0; bVal = b.benchWar ?? 0; break;
+              case 'actualWins':
+                  aVal = this.lookupActualStanding(a.teamName)?.wins ?? 0;
+                  bVal = this.lookupActualStanding(b.teamName)?.wins ?? 0; break;
+              case 'actualLosses':
+                  aVal = this.lookupActualStanding(a.teamName)?.losses ?? 0;
+                  bVal = this.lookupActualStanding(b.teamName)?.losses ?? 0; break;
+              case 'diff':
+                  aVal = aWins - (this.lookupActualStanding(a.teamName)?.wins ?? aWins);
+                  bVal = bWins - (this.lookupActualStanding(b.teamName)?.wins ?? bWins); break;
+              default:
+                  return 0;
+          }
+
+          const compare = aVal - bVal;
+          return this.standingsSortDirection === 'asc' ? compare : -compare;
+      });
+  }
+
+  private getStandingsSortLabel(): string {
+      const labels: Record<string, string> = {
+          wins: 'Projected Wins',
+          losses: 'Projected Losses',
+          winPct: 'Win%',
+          totalWar: 'Total WAR',
+          rotation: 'Rotation WAR',
+          lineup: 'Lineup WAR',
+          bullpen: 'Bullpen WAR',
+          bench: 'Bench WAR',
+          actualWins: 'Actual Wins',
+          actualLosses: 'Actual Losses',
+          diff: 'Projection Diff'
+      };
+      return labels[this.standingsSortKey] || 'Projected Wins';
+  }
+
+  private renderStandingsTable(rotContainer: Element, penContainer: Element): void {
+      this.sortStandingsData();
+
+      // Load actual standings for backtesting (null if no data for this year)
+      this.actualStandingsMap = standingsService.getStandingsMap(this.selectedYear);
+      const hasActuals = this.actualStandingsMap !== null && this.actualStandingsMap.size > 0;
+
+      // Build player lookup for modal access (reuse Projections pattern)
+      this.playerRowLookup = new Map();
+      this.teamResultLookup = new Map();
+      this.results.forEach(team => {
+        const teamKey = this.buildTeamKey(team);
+        this.teamResultLookup.set(teamKey, team);
+        team.rotation.forEach(p => this.playerRowLookup.set(
+          this.buildPlayerKey(teamKey, 'rotation', p.playerId),
+          { player: p, seasonYear: team.seasonYear, teamKey, type: 'rotation' }
+        ));
+        team.bullpen.forEach(p => this.playerRowLookup.set(
+          this.buildPlayerKey(teamKey, 'bullpen', p.playerId),
+          { player: p, seasonYear: team.seasonYear, teamKey, type: 'bullpen' }
+        ));
+        team.lineup?.forEach(p => this.playerRowLookup.set(
+          this.buildPlayerKey(teamKey, 'lineup', p.playerId),
+          { player: p, seasonYear: team.seasonYear, teamKey, type: 'lineup' }
+        ));
+        team.bench?.forEach(p => this.playerRowLookup.set(
+          this.buildPlayerKey(teamKey, 'bench', p.playerId),
+          { player: p, seasonYear: team.seasonYear, teamKey, type: 'bench' }
+        ));
+      });
+
+      // Build dynamic columns: base standings + actuals (if available)
+      const columns = [...this.standingsColumns];
+      if (hasActuals) {
+          // Insert actual columns after winPct
+          const winPctIdx = columns.findIndex(c => c.key === 'winPct');
+          const insertAt = winPctIdx >= 0 ? winPctIdx + 1 : columns.length;
+          columns.splice(insertAt, 0,
+              { key: 'actualWins', label: 'Act W', sortKey: 'actualWins', title: 'Actual Wins' },
+              { key: 'actualLosses', label: 'Act L', sortKey: 'actualLosses', title: 'Actual Losses' },
+              { key: 'diff', label: 'Diff', sortKey: 'diff', title: 'Projected Wins − Actual Wins' }
+          );
+      }
+
+      // Column headers
+      const headerRow = columns.map(col => {
+          const isSorted = this.standingsSortKey === col.sortKey;
+          const sortIcon = isSorted ? (this.standingsSortDirection === 'asc' ? ' ▴' : ' ▾') : '';
+          const activeClass = isSorted ? 'sort-active' : '';
+          const style = col.key === 'rank' ? 'width: 40px;' : (col.key === 'teamName' ? 'text-align: left;' : 'text-align: center;');
+          const sortAttr = col.sortKey ? `data-sort-key="${col.sortKey}"` : '';
+          const titleAttr = col.title ? `title="${col.title}"` : '';
+
+          return `<th ${sortAttr} ${titleAttr} class="${activeClass}" style="${style}" draggable="${col.sortKey ? 'true' : 'false'}" data-col-key="${col.key}">${col.label}${sortIcon}</th>`;
+      }).join('');
+
+      // Pre-compute normalized wins for all teams so league totals are self-consistent
+      // (total wins must equal total losses in a closed league)
+      const medianWar = this.getMedianTeamWar();
+      const teamStandings = this.results.map(team => {
+          const rawWar = this.calculateRawTeamWar(team);
+          const dev = rawWar - medianWar;
+          const slope = dev > 0 ? STANDINGS_UPPER_SLOPE : STANDINGS_LOWER_SLOPE;
+          const rawWins = 81 + dev * slope; // unrounded, piecewise
+          return { team, rawWar, rawWins };
+      });
+
+      const numTeams = teamStandings.length;
+      const expectedTotalWins = numTeams * (SEASON_GAMES / 2); // numTeams × 81
+      const currentTotalWins = teamStandings.reduce((sum, t) => sum + t.rawWins, 0);
+      const winOffset = (expectedTotalWins - currentTotalWins) / numTeams;
+
+      // Track diffs for summary stats
+      const diffs: number[] = [];
+
+      // Team rows
+      const rows = teamStandings.map((entry, idx) => {
+          const { team, rawWar, rawWins } = entry;
+          const teamKey = this.buildTeamKey(team);
+          const projWins = Math.round(rawWins + winOffset);
+          const projLosses = SEASON_GAMES - projWins;
+          const winPct = projWins / SEASON_GAMES;
+
+          // Look up actual standings
+          const actual = hasActuals ? this.lookupActualStanding(team.teamName) : null;
+          const diff = actual ? projWins - actual.wins : null;
+          if (diff !== null) diffs.push(diff);
+
+          const cells = columns.map(col => {
+              switch (col.key) {
+                  case 'rank':
+                      return `<td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
+                  case 'teamName':
+                      return `<td style="font-weight: 600; text-align: left;" data-col-key="${col.key}">${team.teamName}</td>`;
+                  case 'wins':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="standings-record standings-wins">${projWins}</span></td>`;
+                  case 'losses':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="standings-record standings-losses">${projLosses}</span></td>`;
+                  case 'winPct':
+                      return `<td style="text-align: center;" data-col-key="${col.key}">${winPct.toFixed(3).replace(/^0/, '')}</td>`;
+                  case 'actualWins':
+                      return `<td style="text-align: center;" data-col-key="${col.key}">${actual ? `<span class="standings-record">${actual.wins}</span>` : '-'}</td>`;
+                  case 'actualLosses':
+                      return `<td style="text-align: center;" data-col-key="${col.key}">${actual ? `<span class="standings-record">${actual.losses}</span>` : '-'}</td>`;
+                  case 'diff': {
+                      if (diff === null) return `<td style="text-align: center;" data-col-key="${col.key}">-</td>`;
+                      const absDiff = Math.abs(diff);
+                      const diffClass = absDiff <= 5 ? 'diff-close' : absDiff <= 10 ? 'diff-mid' : 'diff-far';
+                      const sign = diff > 0 ? '+' : '';
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="standings-diff ${diffClass}">${sign}${diff}</span></td>`;
+                  }
+                  case 'totalWar':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(rawWar, 'rotation')}" style="font-weight: 600;">${rawWar.toFixed(1)}</span></td>`;
+                  case 'rotation':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(team.rotationWar, 'rotation')}">${team.rotationWar.toFixed(1)}</span></td>`;
+                  case 'lineup':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(team.lineupWar ?? 0, 'rotation')}">${(team.lineupWar ?? 0).toFixed(1)}</span></td>`;
+                  case 'bullpen':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(team.bullpenWar, 'bullpen')}">${team.bullpenWar.toFixed(1)}</span></td>`;
+                  case 'bench':
+                      return `<td style="text-align: center;" data-col-key="${col.key}"><span class="badge ${this.getWarClass(team.benchWar ?? 0, 'bullpen')}">${(team.benchWar ?? 0).toFixed(1)}</span></td>`;
+                  default:
+                      return `<td data-col-key="${col.key}"></td>`;
+              }
+          }).join('');
+
+          return `
+            <tr class="team-row" data-team-key="${teamKey}">
+                ${cells}
+            </tr>
+          `;
+      }).join('');
+
+      // Summary stats for backtesting
+      let summaryHtml = '';
+      if (hasActuals && diffs.length > 0) {
+          const mae = diffs.reduce((sum, d) => sum + Math.abs(d), 0) / diffs.length;
+          const meanActual = diffs.length > 0
+              ? this.results.reduce((sum, t) => sum + (this.lookupActualStanding(t.teamName)?.wins ?? 0), 0) / diffs.length
+              : 0;
+          // R² = 1 - SS_res / SS_tot
+          const ssRes = diffs.reduce((sum, d) => sum + d * d, 0);
+          const ssTot = this.results.reduce((sum, t) => {
+              const actual = this.lookupActualStanding(t.teamName);
+              if (!actual) return sum;
+              return sum + (actual.wins - meanActual) ** 2;
+          }, 0);
+          const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+          const maxDiff = Math.max(...diffs.map(d => Math.abs(d)));
+
+          summaryHtml = `
+            <div class="standings-summary">
+                <span class="standings-summary-item" title="Mean Absolute Error — average miss in wins">MAE: <strong>${mae.toFixed(1)}</strong> wins</span>
+                <span class="standings-summary-item" title="Coefficient of determination — proportion of variance explained">R²: <strong>${r2.toFixed(3)}</strong></span>
+                <span class="standings-summary-item" title="Largest single-team miss">Max miss: <strong>${maxDiff}</strong> wins</span>
+                <span class="standings-summary-item" title="Teams matched with actual data">${diffs.length}/${this.results.length} teams matched</span>
+            </div>
+          `;
+      }
+
+      const descriptionText = hasActuals
+          ? `${this.selectedYear} backtest — projected vs actual results. ${summaryHtml ? '' : 'No matching teams found.'}`
+          : `Wins = 81 + (WAR − median) × slope. Above median: ${STANDINGS_UPPER_SLOPE}, below: ${STANDINGS_LOWER_SLOPE}. Zero-sum normalized.`;
+
+      const tableHtml = `
+        <div class="stats-table-container">
+            <h3 class="section-title">Projected Standings <span class="note-text">(Ranked by ${this.getStandingsSortLabel()})</span></h3>
+            <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">
+              ${descriptionText}
+            </p>
+            ${summaryHtml}
+            <table class="stats-table standings-table" style="width: 100%;">
+                <thead><tr>${headerRow}</tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+      `;
+
+      (rotContainer as HTMLElement).style.gridColumn = '1 / -1';
+      rotContainer.innerHTML = tableHtml;
+      penContainer.innerHTML = '';
+
+      this.bindStandingsTableEvents();
+  }
+
+  private lookupActualStanding(teamName: string): ActualStanding | null {
+      return this.actualStandingsMap?.get(teamName) ?? null;
+  }
+
+  private bindStandingsTableEvents(): void {
+      // Sort headers
+      this.container.querySelectorAll('.standings-table th[data-sort-key]').forEach(header => {
+          header.addEventListener('click', () => {
+              if (this.isDraggingColumn) return;
+
+              const key = (header as HTMLElement).dataset.sortKey;
+              if (!key) return;
+
+              if (this.standingsSortKey === key) {
+                  this.standingsSortDirection = this.standingsSortDirection === 'asc' ? 'desc' : 'asc';
+              } else {
+                  this.standingsSortKey = key;
+                  this.standingsSortDirection = 'desc';
+              }
+
+              this.renderLists();
+          });
+      });
+
+      // Column drag and drop
+      this.bindStandingsColumnDragAndDrop();
+  }
+
+  private bindStandingsColumnDragAndDrop(): void {
+      const headers = this.container.querySelectorAll<HTMLTableCellElement>('.standings-table th[data-col-key]');
+      let draggedKey: string | null = null;
+
+      headers.forEach(header => {
+          header.addEventListener('dragstart', (e) => {
+              draggedKey = header.dataset.colKey ?? null;
+              if (draggedKey === 'rank' || draggedKey === 'teamName') {
+                  e.preventDefault();
+                  return;
+              }
+              this.isDraggingColumn = true;
+              header.classList.add('dragging');
+              this.applyStandingsColumnClass(draggedKey!, 'dragging-col', true);
+              e.dataTransfer?.setData('text/plain', draggedKey!);
+          });
+
+          header.addEventListener('dragover', (e) => {
+              if (!draggedKey) return;
+              const targetKey = header.dataset.colKey;
+              if (targetKey === 'rank' || targetKey === 'teamName') return;
+              if (!targetKey || targetKey === draggedKey) {
+                  this.clearStandingsDropIndicators();
+                  return;
+              }
+              e.preventDefault();
+              const rect = header.getBoundingClientRect();
+              const isBefore = e.clientX < rect.left + rect.width / 2;
+              this.updateStandingsDropIndicator(targetKey, isBefore ? 'before' : 'after');
+          });
+
+          header.addEventListener('drop', (e) => {
+              e.preventDefault();
+              if (!draggedKey) return;
+              const targetKey = header.dataset.colKey;
+              const position = header.dataset.dropPosition as 'before' | 'after' | undefined;
+              if (!targetKey || draggedKey === targetKey) {
+                  draggedKey = null;
+                  this.clearStandingsDropIndicators();
+                  return;
+              }
+              this.reorderStandingsColumns(draggedKey, targetKey, position ?? 'before');
+              draggedKey = null;
+              this.clearStandingsDropIndicators();
+          });
+
+          header.addEventListener('dragend', () => {
+              if (draggedKey) {
+                  this.applyStandingsColumnClass(draggedKey, 'dragging-col', false);
+              }
+              header.classList.remove('dragging');
+              draggedKey = null;
+              this.clearStandingsDropIndicators();
+              setTimeout(() => {
+                  this.isDraggingColumn = false;
+              }, 0);
+          });
+      });
+  }
+
+  private reorderStandingsColumns(draggedKey: string, targetKey: string, position: 'before' | 'after'): void {
+      const currentOrder = [...this.standingsColumns];
+      const fromIndex = currentOrder.findIndex(col => col.key === draggedKey);
+      const toIndex = currentOrder.findIndex(col => col.key === targetKey);
+
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return;
+
+      const [moved] = currentOrder.splice(fromIndex, 1);
+      let insertIndex = position === 'after' ? toIndex + 1 : toIndex;
+      if (fromIndex < insertIndex) {
+          insertIndex -= 1;
+      }
+      currentOrder.splice(insertIndex, 0, moved);
+      this.standingsColumns = currentOrder;
+      this.renderLists();
+  }
+
+  private updateStandingsDropIndicator(targetKey: string, position: 'before' | 'after'): void {
+      this.clearStandingsDropIndicators();
+      const cells = this.container.querySelectorAll<HTMLElement>('.standings-table [data-col-key="' + targetKey + '"]');
+      cells.forEach(cell => {
+          cell.dataset.dropPosition = position;
+          cell.classList.add(position === 'before' ? 'drop-before' : 'drop-after');
+      });
+  }
+
+  private clearStandingsDropIndicators(): void {
+      const cells = this.container.querySelectorAll<HTMLElement>('.standings-table .drop-before, .standings-table .drop-after');
+      cells.forEach(cell => {
+          cell.classList.remove('drop-before', 'drop-after');
+          delete cell.dataset.dropPosition;
+      });
+  }
+
+  private applyStandingsColumnClass(columnKey: string, className: string, add: boolean): void {
+      const cells = this.container.querySelectorAll<HTMLElement>('.standings-table [data-col-key="' + columnKey + '"]');
+      cells.forEach(cell => cell.classList.toggle(className, add));
+  }
 
   private bindProjectionsTableEvents(): void {
       // Bind row toggle events
@@ -1971,7 +2410,7 @@ export class TeamRatingsView {
           ? `No ${year} data yet. Try a previous year or check back once the season starts. For now, check out the team projections!`
           : `No data found for ${year}.`;
 
-      const message = this.viewMode === 'projected'
+      const message = (this.viewMode === 'projected' || this.viewMode === 'standings')
           ? `Unable to load projections for ${year}.`
           : baseMessage;
 

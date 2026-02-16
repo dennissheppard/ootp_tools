@@ -46,7 +46,11 @@
       "Bash(git merge:*)",
       "Bash(git stash:*)",
       "Bash(git add:*)",
-      "Bash(more:*)"
+      "Bash(more:*)",
+      "Bash(sort:*)",
+      "Bash(cat:*)",
+      "Bash(while IFS=',' read rank team w l bwar pwar twar rest)",
+      "Bash(do echo \"$team,$w,$twar\")"
     ]
   }
 }

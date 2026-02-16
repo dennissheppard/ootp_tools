@@ -198,7 +198,7 @@ class ProjectionService {
 
     for (const tr of trResults) {
         const player = playerMap.get(tr.playerId);
-        if (!player || player.retired) continue;
+        if (!player) continue;
 
         const ageInYear = this.calculateAgeAtYear(player, currentYear, statsYear);
         const currentStats = statsMap.get(tr.playerId);
@@ -781,8 +781,9 @@ class ProjectionService {
                 // 85% model, 15% limited history
                 baseIp = (baseIp * 0.85) + (weightedIp * 0.15);
             } else if (weightedIp > 50) {
-                // Established players: trust history more (65% history, 35% model)
-                baseIp = (baseIp * 0.35) + (weightedIp * 0.65);
+                // Established players: 55% history, 45% model
+                // Calibrated Feb 2026: shifted from 35/65 to 45/55 to reduce IP compression
+                baseIp = (baseIp * 0.45) + (weightedIp * 0.55);
             } else {
                 // Low IP players: 50/50 blend
                 baseIp = (baseIp * 0.50) + (weightedIp * 0.50);

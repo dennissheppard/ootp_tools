@@ -122,7 +122,7 @@ HR/9 = 2.18 - 0.024 × HRA          HRA     = (2.18 - HR/9) / 0.024
 1. **Base IP from stamina**: Percentile-based (maps stamina rank to IP distribution) or `10 + (stamina × 3.0)` fallback
 2. **Injury modifier**: Only for prospects without historical data (Ironman +15%, Durable +8%, Fragile -8%, Wrecked -25%)
 3. **Skill modifier**: FIP ≤3.50 → 1.20x, FIP ≤4.00 → 1.10x, FIP 4.0-4.5 → 1.0x, FIP >5.0 → 0.80x
-4. **Historical blending**: Established pitchers use 65% historical IP, 35% model
+4. **Historical blending**: Established pitchers use 55% historical IP, 45% model
 5. **Elite pitcher boost**: FIP <3.0 → 1.08x, sliding to 1.0 at FIP 4.0
 6. **Cap**: 105% of historical max IP from league distribution
 
@@ -138,3 +138,30 @@ HR/9 = 2.18 - 0.024 × HRA          HRA     = (2.18 - HR/9) / 0.024
 | `src/views/ProjectionsView.ts` | Projections UI |
 | `tools/investigate-pitcher-war.ts` | Investigation tool (Steps 1-8 analysis) |
 | `tools/trace-rating.ts` | Debug tool — can trace individual pitcher pipeline |
+| `tools/calibrate_projections.ts` | Full projection pipeline calibration with parameter sweep |
+
+## Later Calibration: Parameter Sweep (Feb 2026)
+
+Following the initial fixes above, a systematic calibration sweep was conducted using `tools/calibrate_projections.ts` to optimize the remaining pipeline parameters against 236 team-seasons (2005-2020).
+
+### Changes Applied
+
+1. **Elite strength multiplier**: `TrueRatingsCalculationService.calculateStrengthMultiplier()` for FIP < 3.5 reduced from 1.30 → **0.80**. This trusts elite pitchers' stats more (less regression), reducing the compounding compression that was most severe for top-of-rotation aces.
+
+2. **IP model weight**: `ProjectionService` established pitcher blend shifted from 35/65 (model/history) to **45/55**. Gives more weight to the model for established pitchers.
+
+3. **Elite WAR multiplier**: `PotentialStatsService.calculateWarMultiplier()` applies a FIP-based WAR boost: 1.20x for FIP < 3.20, tapering linearly to 1.0 at FIP 4.20. Compensates for compounding pipeline compression (regression + ensemble dampening + IP anchoring) on elite pitchers.
+
+### Compression Analysis
+
+The calibration tool includes an **IP decomposition diagnostic** that tests whether IP or FIP is the source of team-level WAR compression. Finding: **FIP regression is the main compressor** (~59%), not IP. Testing projected FIP × actual IP (hybrid) produced identical compression as projected FIP × projected IP.
+
+Individual FIP projection accuracy: MAE 0.584, RMSE 0.767, Bias -0.019 (excellent).
+
+### Piecewise WAR→Wins
+
+The standings formula was changed from linear to **piecewise** to handle asymmetric compression:
+- `Wins = 81 + (WAR − medianWAR) × slope`
+- Above-median teams: slope = 0.830
+- Below-median teams: slope = 0.780
+- MAE: 7.52 (was 7.7 linear, 8.1 original)

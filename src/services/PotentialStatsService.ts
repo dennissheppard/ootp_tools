@@ -164,21 +164,19 @@ export class PotentialStatsService {
       runsPerWin: leagueContext.runsPerWin,
     } : {};
 
-    const { fip, war } = fipWarService.calculate({ ip, k9, bb9, hr9 }, leagueConstants);
+    const { fip, war: baseWar } = fipWarService.calculate({ ip, k9, bb9, hr9 }, leagueConstants);
 
-    // WAR multiplier disabled for peak projections
-    // Peak projections are already ceiling outcomes, so no additional boost needed
-    // Farm Rankings uses simple formula: ((replacementFip - fip) / runsPerWin) * (ip / 9)
+    // Elite WAR multiplier — calibrated Feb 2026 (parameter sweep on 2005-2020 data)
+    // Addresses pitcher projection compression: elite pitchers' WAR was systematically
+    // under-projected because regression + ensemble dampening compound on top end.
+    // Only applies to positive WAR (elite/good pitchers), no effect on bad pitchers.
     //
-    // Previous multiplier logic (now disabled):
-    // - FIP < 3.0:  1.35x (generational talent, possible 8+ WAR)
-    // - FIP 3.0:    1.30x (elite ace, 6-7 WAR range)
-    // - FIP 3.5:    1.20x (top 20 pitcher)
-    // - FIP 4.0:    1.10x (top quartile)
-    // - FIP 4.2+:   1.00x (league average and below)
-    //
-    // const warMultiplier = this.calculateWarMultiplier(fip);
-    // const war = baseWar * warMultiplier;
+    // FIP < 3.20: 1.20x (super-elite)
+    // FIP 3.20-3.50: linear interpolation 1.20x → 1.15x
+    // FIP 3.50-4.20: linear interpolation 1.15x → 1.00x
+    // FIP >= 4.20: 1.00x (no boost)
+    const warMultiplier = this.calculateWarMultiplier(fip);
+    const war = baseWar > 0 ? baseWar * warMultiplier : baseWar;
 
     return {
       k9: Math.round(k9 * 10) / 10,
@@ -193,47 +191,27 @@ export class PotentialStatsService {
     };
   }
 
-  // WAR multiplier disabled - preserved for reference if needed in future
-  //
-  // /**
-  //  * Calculate continuous WAR multiplier based on FIP quality
-  //  *
-  //  * Uses piecewise linear interpolation to prevent bunching:
-  //  * - FIP < 3.0:  1.35x (generational, 8+ WAR potential)
-  //  * - FIP 3.0:    1.30x (elite ace, 6-7 WAR)
-  //  * - FIP 3.5:    1.20x (top 20)
-  //  * - FIP 4.0:    1.10x (good)
-  //  * - FIP 4.2+:   1.00x (average and below)
-  //  *
-  //  * This creates smooth transitions rather than hard tier cutoffs.
-  //  */
-  // private static calculateWarMultiplier(fip: number): number {
-  //   const breakpoints = [
-  //     { fip: 2.5, multiplier: 1.35 },
-  //     { fip: 3.0, multiplier: 1.30 },
-  //     { fip: 3.5, multiplier: 1.20 },
-  //     { fip: 4.0, multiplier: 1.10 },
-  //     { fip: 4.2, multiplier: 1.00 },
-  //     { fip: 6.0, multiplier: 1.00 }  // No boost for poor pitchers
-  //   ];
-  //
-  //   // Clamp at boundaries
-  //   if (fip <= breakpoints[0].fip) return breakpoints[0].multiplier;
-  //   if (fip >= breakpoints[breakpoints.length - 1].fip) return breakpoints[breakpoints.length - 1].multiplier;
-  //
-  //   // Linear interpolation between breakpoints
-  //   for (let i = 0; i < breakpoints.length - 1; i++) {
-  //     const lower = breakpoints[i];
-  //     const upper = breakpoints[i + 1];
-  //
-  //     if (fip >= lower.fip && fip <= upper.fip) {
-  //       const t = (fip - lower.fip) / (upper.fip - lower.fip);
-  //       return lower.multiplier + t * (upper.multiplier - lower.multiplier);
-  //     }
-  //   }
-  //
-  //   return 1.00; // Fallback
-  // }
+  /**
+   * Calculate continuous WAR multiplier based on FIP quality
+   *
+   * Calibrated Feb 2026 via parameter sweep on 16 years of historical data.
+   * Compensates for compounding compression in the projection pipeline
+   * (regression + ensemble dampening + IP anchoring).
+   *
+   * Only boosts elite pitchers; no effect on average or below-average.
+   */
+  private static calculateWarMultiplier(fip: number): number {
+    if (fip < 3.20) return 1.20;
+    if (fip < 3.50) {
+      const t = (fip - 3.20) / (3.50 - 3.20);
+      return 1.20 + t * (1.15 - 1.20);
+    }
+    if (fip < 4.20) {
+      const t = (fip - 3.50) / (4.20 - 3.50);
+      return 1.15 + t * (1.00 - 1.15);
+    }
+    return 1.00;
+  }
 
   /**
    * Get the expected range for a stat at a given rating

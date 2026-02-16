@@ -691,7 +691,9 @@ class TrueRatingsCalculationService {
    * - FIP > 4.5:  2.00 (regress poor pitchers hard)
    */
   private calculateStrengthMultiplier(estimatedFip: number): number {
-    if (estimatedFip < 3.5) return 1.30;
+    // Calibrated Feb 2026: lowered elite multiplier from 1.30 → 0.80
+    // to reduce over-regression of proven elite pitchers (pitcher WAR compression fix)
+    if (estimatedFip < 3.5) return 0.80;
     if (estimatedFip < 4.0) return 1.50;
     if (estimatedFip < 4.5) return 1.80;
     return 2.00;

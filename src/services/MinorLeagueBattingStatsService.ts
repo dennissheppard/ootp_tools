@@ -243,12 +243,14 @@ class MinorLeagueBattingStatsService {
     year: number,
     level: MinorLeagueLevel,
     stats: MinorLeagueBattingStats[],
-    _source: 'api' | 'csv' = 'csv' // Reserved for future metadata tracking
+    source: 'api' | 'csv' = 'csv'
   ): Promise<void> {
     if (typeof window === 'undefined') return;
     try {
       // Save league-level data
+      const gameDate = await dateService.getCurrentDateWithFallback();
       await indexedDBService.saveBattingStats(year, level, stats);
+      await indexedDBService.saveStatsMetadata(year, level, source, stats.length, gameDate, 'batting');
 
       // Save individual player records for fast lookups
       const playerSavePromises = stats.map(playerStat =>
@@ -281,8 +283,17 @@ class MinorLeagueBattingStatsService {
       console.error('Error fetching batting stats from IndexedDB:', err);
     }
 
-    // If found, return it
+    // If found, check if current year data is stale (game date changed)
     if (stats !== null && stats.length > 0) {
+      const currentYear = await dateService.getCurrentYear();
+      if (year === currentYear) {
+        const metadata = await indexedDBService.getStatsMetadata(year, level, 'batting');
+        const currentGameDate = await dateService.getCurrentDate();
+        if (!metadata || metadata.gameDate !== currentGameDate) {
+          console.log(`📅 Batting cache stale for ${level.toUpperCase()} ${year} (game date changed), re-fetching...`);
+          return await this.fetchStatsFromApiWithDedup(year, level);
+        }
+      }
       return stats;
     }
 

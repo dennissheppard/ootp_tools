@@ -504,6 +504,71 @@ Farm Score = (Elite × 10) + (Good × 5) + (Avg × 1) + Depth Bonus
 - 15-24 depth prospects: 4 pts
 - 25+ depth prospects: 5 pts
 
+### Team Ratings & Projected Standings
+
+**File:** `src/views/TeamRatingsView.ts`
+
+Three-mode team-level analysis dashboard with a toggle between Power Rankings, Projections, and Standings.
+
+**Modes:**
+
+| Mode | What it shows | Data source |
+|------|--------------|-------------|
+| Power Rankings | Teams ranked by weighted average TR (40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench) | `getPowerRankings()` |
+| Projections | Teams ranked by weighted WAR total (same 40/40/15/5 split) | `getProjectedTeamRatings()` |
+| Standings | Projected W-L record and Win% from raw team WAR | `getProjectedTeamRatings()` (same data, different lens) |
+
+**Standings Mode — Piecewise WAR→Wins Calibration:**
+
+Projected wins use a **piecewise formula** with different slopes for above-median and below-median teams:
+
+```
+medianWAR = median of all team WARs
+deviation = Team WAR - medianWAR
+slope = 0.830 (if deviation > 0) or 0.780 (if deviation ≤ 0)
+rawWins = 81 + deviation × slope
+```
+
+| Constant | Value | Notes |
+|----------|-------|-------|
+| Upper Slope | 0.830 | Above-median teams — WAR deviations count more toward wins |
+| Lower Slope | 0.780 | Below-median teams — WAR deviations count less toward wins |
+| Season Games | 162 | Standard MLB season |
+
+**Why piecewise?** The projection pipeline compresses team WAR asymmetrically — top teams are under-projected more (~11 wins) than bottom teams are over-projected (~8 wins). A single linear slope can't capture this asymmetry. The piecewise approach was the clear winner in a 4-strategy non-linear sweep (power curve, asymmetric spread, quadratic, piecewise).
+
+**Calibration source:** 236 team-seasons (2005-2020), MAE 7.52. Fine-tuned via two-pass parameter sweep in `tools/calibrate_projections.ts`. The compression is inherent to regression-based projections (FIP regression is the main source, NOT IP projection — tested via hybrid proj-FIP × actual-IP diagnostic). Individual FIP projections are excellent (MAE 0.584, bias -0.019).
+
+**Important:** Standings uses **raw WAR sum** (rotation + bullpen + lineup + bench), NOT the weighted 40/40/15/5 composite. Role-adjusted playing-time caps were removed in Feb 2026 after diagnostic analysis showed they were hurting accuracy (MAE 5.6 raw vs 5.9 adjusted).
+
+**Lineup/Bench Construction (Standings & Projections):**
+
+Batters are sorted by **projected WAR** (descending). The top 9 go to lineup, the next 4 to bench. This simple WAR-based split matches the calibration tool pipeline exactly (`tools/calibrate_projections.ts`). WAR naturally combines quality and playing time, so high-production players land in the lineup regardless of True Rating. Power Rankings mode still uses the position-scarcity algorithm with True Rating sorting (since TR is a rate-based quality measure, not a production measure).
+
+**League Normalization:**
+
+In a closed league, total wins must equal total losses. Since each team's wins are computed independently from the regression, the raw sum can drift slightly. A uniform offset is applied to all teams before rounding so that `sum(W) = sum(L) = numTeams × 81`. The offset is typically ~1 win per team — well within projection noise — and preserves relative ordering.
+
+**Historical Backtesting:**
+
+When viewing a historical year with actual standings data (2005-2020), the Standings table automatically shows three additional columns: **Act W**, **Act L**, and **Diff** (projected − actual). This lets you visually validate how well the projections match reality.
+
+- Diff is color-coded: green (≤5 wins off), yellow (6-10), red (11+)
+- A summary bar shows **MAE** (mean absolute error), **R²**, and **Max miss** for the year
+- All three columns are sortable — sort by Diff to see where the model is best/worst
+- For years without standings data (current year, pre-2005), these columns don't appear
+
+**Data:** Actual standings CSVs live in `data/` (e.g., `data/2020_standings.csv`) and are bundled at build time via `import.meta.glob` with `?raw` — no runtime fetch needed.
+
+**Team matching:** `StandingsService` stores standings under multiple keys (abbreviation, city name, full label) so matching works regardless of whether the team name is stored as a nickname, abbreviation, or city name.
+
+**Shared features across all modes:**
+- Year selector (single year or All-Time for Power Rankings)
+- Expandable rows — click a team to see full roster detail (Power Rankings and Projections modes only; Standings mode shows flat rows without expansion)
+- Sortable columns (click header to sort)
+- Draggable column reordering
+- Player name clicks open profile modals (in expandable detail rows)
+
 ### Player Development Tracker
 Tracks scouting ratings over time to visualize player development trends.
 
@@ -572,7 +637,8 @@ Three-model ensemble for future performance:
 | Service | Purpose |
 |---------|---------|
 | `ContractService` | Contract parsing, salary schedules, years remaining, team control |
-| `TeamRatingsService` | Farm rankings, organizational depth analysis, Farm Score |
+| `TeamRatingsService` | Farm rankings, organizational depth analysis, Farm Score, Power Rankings, team WAR projections |
+| `StandingsService` | Historical standings data loader (bundled CSVs, 2005-2020), team matching for backtesting |
 | `DevTrackerService` | Org development scoring (youth dev, peak WAR, aging curves, trade impact) |
 | `ProjectionService` | Future performance projections, IP projection pipeline |
 | `EnsembleProjectionService` | Three-model ensemble blending (optimistic/neutral/pessimistic) |
@@ -612,6 +678,8 @@ Scripts for optimizing coefficients against historical data:
 
 | Tool | Purpose | Usage |
 |------|---------|-------|
+| `tools/calibrate_projections.ts` | Full projection pipeline calibration: WAR→Wins formula, compression diagnostics, IP decomposition, non-linear sweep | `npx tsx tools/calibrate_projections.ts` or `--sweep` |
+| `tools/calibrate_wins.ts` | Legacy WAR→Wins calibration (actual-stats based) | `npx tsx tools/calibrate_wins.ts` |
 | `tools/calibrate_batter_coefficients.ts` | Optimize rating→stat intercepts | `npx tsx tools/calibrate_batter_coefficients.ts` |
 | `tools/calibrate_sb_coefficients.ts` | Grid-search SR/STE coefficient space | `npx tsx tools/calibrate_sb_coefficients.ts` |
 | `tools/validate_sb_projections.ts` | Validate SB projections against actuals | `npx tsx tools/validate_sb_projections.ts` |
@@ -708,6 +776,21 @@ projSB = attempts × successRate
 projCS = attempts × (1 - successRate)
 ```
 
+**Team WAR→Wins (Projected Standings):**
+```
+Team WAR = rotationWar + bullpenWar + lineupWar + benchWar
+medianWAR = median(all team WARs)
+deviation = Team WAR - medianWAR
+slope = 0.830 (above median) or 0.780 (below median)
+rawWins = 81 + deviation × slope
+
+// League normalization (total wins must equal total losses):
+offset = (numTeams × 81 - sum(rawWins)) / numTeams
+Projected Wins = round(rawWins + offset)
+Projected Losses = 162 - Projected Wins
+```
+> Piecewise calibration (Feb 2026) on 236 team-seasons (2005-2020), MAE 7.52. Different slopes capture asymmetric projection compression (top teams under-projected more than bottom teams over-projected). FIP regression is the main compression source, not IP projection. Uses raw WAR sum without role-adjusted playing-time caps.
+
 **Level-Weighted IP/PA (for TFR scouting weight):**
 ```
 weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
@@ -719,6 +802,7 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - **BatterTrueRatingsView**: MLB batter dashboard with TR/projections
 - **FarmRankingsView**: Top 100 prospects, org rankings with Farm Score, sortable/draggable columns
 - **ProjectionsView**: Future performance projections with 3-model ensemble
+- **TeamRatingsView**: Three-mode team analysis — Power Rankings (avg TR), Projections (weighted WAR), and Standings (projected W-L from WAR→Wins calibration)
 - **TeamPlanningView**: 6-year roster planning grid with age-based rating projections (growth toward TFR, aging decline), contract tracking, prospect ETA with ramping ratings, accordion sections, and Planning Grid / Org Analysis toggle
 - **DevTrackerView**: Org-level development rankings (2015-2021 WAR), expandable rows with player trajectories and trade impact
 - **TradeAnalyzerView**: Multi-asset trade evaluation tool (see below)
@@ -843,7 +927,7 @@ Three-column layout: Team 1 roster (left), analysis panel (center), Team 2 roste
 - SP base: 30 + (stamina × 3.0), clamped 120-260 IP
 - RP base: 50 + (stamina × 0.5), clamped 40-80 IP
 - Injury modifiers only apply to prospects without historical data (established pitchers' history already captures durability)
-- Established pitchers use 65% historical IP + 35% model blend
+- Established pitchers use 55% historical IP + 45% model blend
 - Skill modifier: FIP ≤3.50 → 1.20x, FIP ≤4.00 → 1.10x, FIP >5.0 → 0.80x
 - Elite boost: FIP <3.0 → 1.08x (sliding to 1.0 at FIP 4.0)
 - Cap: 105% of historical max IP

@@ -706,12 +706,15 @@ class TeamRatingsService {
    * - RF can play LF, RF
    * - All other positions: natural position only
    */
-  private constructOptimalLineup(batters: RatedBatter[]): RatedBatter[] {
+  private constructOptimalLineup(
+    batters: RatedBatter[],
+    getValue: (b: RatedBatter) => number = (b) => b.trueRating
+  ): RatedBatter[] {
     const lineup: RatedBatter[] = [];
     const used = new Set<number>();
 
-    // Sort batters by True Rating descending
-    const sorted = [...batters].sort((a, b) => b.trueRating - a.trueRating);
+    // Sort batters by the provided value function (TR for power rankings, WAR for projections)
+    const sorted = [...batters].sort((a, b) => getValue(b) - getValue(a));
 
     // Position slots and which player positions can fill them
     // Based on flexibility rules: SS→1B/2B/3B/SS, CF→LF/CF/RF, LF↔RF
@@ -1657,12 +1660,11 @@ class TeamRatingsService {
       const results: TeamRatingResult[] = teamRunTotals.map(r => {
           const group = r.group;
 
-          // Sort batters by True Rating and construct lineup
-          const sortedBatters = (group as any).batters.sort((a: RatedBatter, b: RatedBatter) => b.trueRating - a.trueRating);
-          const lineup = this.constructOptimalLineup(sortedBatters);
-          const bench = sortedBatters
-              .filter((b: RatedBatter) => !lineup.some(l => l.playerId === b.playerId))
-              .slice(0, 4);
+          // Sort batters by projected WAR — top 9 are lineup, next 4 are bench.
+          // Matches the calibration tool pipeline (simple WAR sort, no position scarcity).
+          const sortedBatters = (group as any).batters.sort((a: RatedBatter, b: RatedBatter) => (b.stats?.war ?? 0) - (a.stats?.war ?? 0));
+          const lineup = sortedBatters.slice(0, 9);
+          const bench = sortedBatters.slice(9, 13);
 
           // Calculate WAR
           const lineupWar = lineup.reduce((sum: number, b: RatedBatter) => sum + (b.stats?.war ?? 0), 0);

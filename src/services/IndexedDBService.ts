@@ -38,12 +38,13 @@ export interface StatsRecord {
 }
 
 export interface StatsMetadataRecord {
-  key: string; // Format: "year_level"
+  key: string; // Format: "year_level" or "batting_year_level"
   year: number;
   level: string;
   source: 'api' | 'csv';
   fetchedAt: number; // timestamp
   recordCount: number;
+  gameDate?: string; // Game date when data was cached (YYYY-MM-DD)
 }
 
 export interface PlayerStatsRecord {
@@ -546,7 +547,9 @@ class IndexedDBService {
     year: number,
     level: string,
     source: 'api' | 'csv',
-    recordCount: number
+    recordCount: number,
+    gameDate?: string,
+    keyPrefix?: string
   ): Promise<void> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
@@ -557,14 +560,15 @@ class IndexedDBService {
       return;
     }
 
-    const key = `${year}_${level}`;
+    const key = keyPrefix ? `${keyPrefix}_${year}_${level}` : `${year}_${level}`;
     const record: StatsMetadataRecord = {
       key,
       year,
       level,
       source,
       fetchedAt: Date.now(),
-      recordCount
+      recordCount,
+      gameDate
     };
 
     return new Promise((resolve, reject) => {
@@ -577,7 +581,7 @@ class IndexedDBService {
     });
   }
 
-  async getStatsMetadata(year: number, level: string): Promise<StatsMetadataRecord | null> {
+  async getStatsMetadata(year: number, level: string, keyPrefix?: string): Promise<StatsMetadataRecord | null> {
     await this.init();
     if (!this.db) return null;
 
@@ -586,7 +590,7 @@ class IndexedDBService {
       return null;
     }
 
-    const key = `${year}_${level}`;
+    const key = keyPrefix ? `${keyPrefix}_${year}_${level}` : `${year}_${level}`;
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([METADATA_STORE], 'readonly');
@@ -619,7 +623,7 @@ class IndexedDBService {
     });
   }
 
-  async deleteStatsMetadata(year: number, level: string): Promise<void> {
+  async deleteStatsMetadata(year: number, level: string, keyPrefix?: string): Promise<void> {
     await this.init();
     if (!this.db) return;
 
@@ -628,7 +632,7 @@ class IndexedDBService {
       return;
     }
 
-    const key = `${year}_${level}`;
+    const key = keyPrefix ? `${keyPrefix}_${year}_${level}` : `${year}_${level}`;
 
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([METADATA_STORE], 'readwrite');

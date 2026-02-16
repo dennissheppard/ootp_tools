@@ -778,13 +778,14 @@ export class DataManagementView {
 
       // While API calls are in flight, load bundled CSV data (fast, local files)
       console.log(`📦 Loading bundled historical data (${startYear}-${currentYear - 1})...`);
-      const [mlbBundleResult, bundleResult, battingBundleResult, gameDate] = await Promise.all([
+      const [mlbBundleResult, mlbBattingBundleResult, bundleResult, battingBundleResult, gameDate] = await Promise.all([
         trueRatingsService.loadDefaultMlbData(),
+        trueRatingsService.loadDefaultMlbBattingData(),
         minorLeagueStatsService.loadDefaultMinorLeagueData(),
         minorLeagueBattingStatsService.loadDefaultMinorLeagueBattingData(),
         dateService.getCurrentDate(),
       ]);
-      console.log(`✅ Loaded ${mlbBundleResult.loaded} MLB + ${bundleResult.loaded} pitching + ${battingBundleResult.loaded} batting bundled datasets`);
+      console.log(`✅ Loaded ${mlbBundleResult.loaded} MLB pitching + ${mlbBattingBundleResult.loaded} MLB batting + ${bundleResult.loaded} MiLB pitching + ${battingBundleResult.loaded} MiLB batting bundled datasets`);
 
       // Load default OSA scouting data (pitchers and hitters)
       console.log('📋 Loading default OSA scouting data...');

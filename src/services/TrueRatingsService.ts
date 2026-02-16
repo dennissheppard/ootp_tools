@@ -345,6 +345,80 @@ class TrueRatingsService {
     return { loaded, errors };
   }
 
+  /**
+   * Load bundled MLB batting data from CSV files
+   * @returns Object with count of files loaded and any errors
+   */
+  async loadDefaultMlbBattingData(): Promise<{ loaded: number; errors: string[] }> {
+    const startYear = LEAGUE_START_YEAR;
+    const currentYear = await dateService.getCurrentYear();
+    const endYear = currentYear - 1;
+
+    let loaded = 0;
+    const errors: string[] = [];
+
+    console.log(`📦 Loading bundled MLB batting data (${startYear}-${endYear})...`);
+
+    for (let year = startYear; year <= endYear; year++) {
+      try {
+        const filename = `${year}_batting.csv`;
+        const url = `/data/mlb_batting/${filename}`;
+
+        // Check if data already exists in cache
+        const existing = await this.loadFromCache<TruePlayerBattingStats[]>(year, 'batting');
+        if (existing && existing.length > 0) {
+          continue;
+        }
+
+        const response = await fetch(url);
+        if (!response.ok) {
+          if (response.status !== 404) {
+            errors.push(`${filename}: HTTP ${response.status}`);
+          }
+          continue;
+        }
+
+        const csvText = await response.text();
+        const rawStats = this.parseStatsCsv(csvText, 'batting') as TrueBattingStats[];
+
+        if (rawStats.length === 0) {
+          console.warn(`⚠️  ${filename} parsed to 0 records, skipping`);
+          continue;
+        }
+
+        // Process stats to add player info (same as fetchAndProcessStats)
+        const players = await playerService.getAllPlayers();
+        const playerMap = new Map<number, Player>();
+        for (const player of players) {
+          playerMap.set(player.id, player);
+        }
+
+        const processedStats = rawStats
+          .map(stat => ({
+            ...stat,
+            playerName: playerMap.get(stat.player_id)
+              ? `${playerMap.get(stat.player_id)!.firstName} ${playerMap.get(stat.player_id)!.lastName}`
+              : 'Unknown Player',
+            position: playerMap.get(stat.player_id)?.position ?? (stat as any).position ?? 0
+          }))
+          .filter(s => s.split_id === 1) as TruePlayerBattingStats[];
+
+        const normalized = this.combineBattingStats(processedStats);
+
+        await this.saveToCache(year, normalized, 'batting', true);
+        loaded++;
+        console.log(`✅ Loaded ${filename} (${normalized.length} players)`);
+
+      } catch (error) {
+        errors.push(`${year}: ${error}`);
+        console.error(`❌ Failed to load batting ${year}:`, error);
+      }
+    }
+
+    console.log(`📦 Bundled MLB batting data load complete: ${loaded} datasets loaded, ${errors.length} errors`);
+    return { loaded, errors };
+  }
+
   private async fetchAndProcessStats(year: number, type: StatsType, apiEndpoint: string): Promise<(TruePlayerStats | TruePlayerBattingStats)[]> {
     if (year < LEAGUE_START_YEAR) return [];
 

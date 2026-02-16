@@ -214,8 +214,9 @@ class MinorLeagueStatsService {
     try {
       if (USE_INDEXEDDB) {
         // Save league-level data (for Farm Rankings, bulk operations)
+        const gameDate = await dateService.getCurrentDateWithFallback();
         await indexedDBService.saveStats(year, level, stats);
-        await indexedDBService.saveStatsMetadata(year, level, source, stats.length);
+        await indexedDBService.saveStatsMetadata(year, level, source, stats.length, gameDate);
 
         // Also save individual player records (for fast player profile lookups)
         // This creates duplicate data but enables O(1) player lookups via index
@@ -290,12 +291,12 @@ class MinorLeagueStatsService {
         return await this.fetchStatsFromApiWithDedup(year, level);
       }
 
-      // Check if current year data is stale (>24 hours old)
+      // Check if current year data is stale (game date changed)
       const currentYear = await dateService.getCurrentYear();
       if (year === currentYear) {
-        const ageHours = (Date.now() - metadata.fetchedAt) / (1000 * 60 * 60);
-        if (ageHours > 24) {
-          console.log(`⏰ Cache expired for ${level.toUpperCase()} ${year}, re-fetching...`);
+        const currentGameDate = await dateService.getCurrentDate();
+        if (metadata.gameDate !== currentGameDate) {
+          console.log(`📅 Cache stale for ${level.toUpperCase()} ${year} (game date changed), re-fetching...`);
           return await this.fetchStatsFromApiWithDedup(year, level);
         }
       }
