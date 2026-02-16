@@ -3,8 +3,8 @@ import { dateService } from '../services/DateService';
 import { playerService } from '../services/PlayerService';
 import { contractService, Contract } from '../services/ContractService';
 import { trueRatingsService, LEAGUE_START_YEAR } from '../services/TrueRatingsService';
-import { teamRatingsService, TeamPowerRanking, RatedPitcher, RatedHitterProspect, RatedProspect } from '../services/TeamRatingsService';
-import { draftValueService, RosterGap, DraftRecommendation } from '../services/DraftValueService';
+import { teamRatingsService, TeamPowerRanking, RatedPitcher, RatedBatter, RatedHitterProspect, RatedProspect } from '../services/TeamRatingsService';
+import { RosterGap } from '../services/DraftValueService';
 import { indexedDBService, TeamPlanningOverrideRecord } from '../services/IndexedDBService';
 import { CellEditModal, CellEditContext, CellEditResult } from './CellEditModal';
 import { MessageModal } from './MessageModal';
@@ -57,6 +57,8 @@ interface PositionAssessment {
   section: 'lineup' | 'rotation' | 'bullpen';
   category: 'strength' | 'need' | 'extension';
   detail: string;
+  targetPosition: string;
+  targetYear: number;
 }
 
 // --- Constants ---
@@ -104,16 +106,22 @@ export class TeamPlanningView {
   private playerMap: Map<number, Player> = new Map();
   private contractMap: Map<number, Contract> = new Map();
   private overrides: Map<string, TeamPlanningOverrideRecord> = new Map();
+  private devOverrides: Set<number> = new Set();
   private playerRatingMap: Map<number, number> = new Map();
   private playerTfrMap: Map<number, number> = new Map();
   private prospectCurrentRatingMap: Map<number, number> = new Map();
   private playerAgeMap: Map<number, number> = new Map();
   private playerServiceYearsMap: Map<number, number> = new Map();
 
+  private lastFinancials: Map<number, YearFinancials> = new Map();
+
   // Cached data for profile modals
   private cachedRanking: TeamPowerRanking | null = null;
+  private cachedAllRankings: TeamPowerRanking[] = [];
   private cachedOrgHitters: RatedHitterProspect[] = [];
+  private cachedAllHitterProspects: RatedHitterProspect[] = [];
   private cachedOrgPitchers: RatedProspect[] = [];
+  private cachedAllPitcherProspects: RatedProspect[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -220,19 +228,46 @@ export class TeamPlanningView {
     const gridWrapper = this.container.querySelector<HTMLElement>('.team-planning-table-wrapper');
     const toolbar = this.container.querySelector<HTMLElement>('.tp-grid-toolbar');
     const summaryContainer = this.container.querySelector<HTMLElement>('#tp-summary-container');
-    const draftContainer = this.container.querySelector<HTMLElement>('#tp-draft-container');
 
     if (this.viewMode === 'grid') {
       if (gridWrapper) gridWrapper.style.display = '';
       if (toolbar) toolbar.style.display = '';
       if (summaryContainer) summaryContainer.style.display = 'none';
-      if (draftContainer) draftContainer.style.display = 'none';
     } else {
       if (gridWrapper) gridWrapper.style.display = 'none';
       if (toolbar) toolbar.style.display = 'none';
       if (summaryContainer) summaryContainer.style.display = '';
-      if (draftContainer) draftContainer.style.display = '';
     }
+  }
+
+  private navigateToGridCell(position: string, year: number): void {
+    // 1. Switch to grid view
+    this.viewMode = 'grid';
+    this.container.querySelectorAll('.toggle-btn[data-view]').forEach(b => b.classList.remove('active'));
+    const gridBtn = this.container.querySelector('.toggle-btn[data-view="grid"]');
+    if (gridBtn) gridBtn.classList.add('active');
+    this.applyViewMode();
+
+    // 2. Uncollapse the section containing this position
+    const targetRow = this.gridRows.find(r => r.position === position);
+    if (targetRow && this.collapsedSections.has(targetRow.section)) {
+      this.collapsedSections.delete(targetRow.section);
+      this.rerenderGridTable(this.lastFinancials);
+    }
+
+    // 3. Find cell, scroll, and flash
+    setTimeout(() => {
+      const cell = this.container.querySelector<HTMLElement>(
+        `.grid-cell[data-position="${position}"][data-year="${year}"]`
+      );
+      if (!cell) return;
+
+      cell.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      cell.classList.add('cell-highlight-flash');
+      cell.addEventListener('animationend', () => {
+        cell.classList.remove('cell-highlight-flash');
+      }, { once: true });
+    }, 50);
   }
 
   private async loadData(): Promise<void> {
@@ -348,8 +383,11 @@ export class TeamPlanningView {
 
       // Cache data for profile modals
       this.cachedRanking = teamRanking;
+      this.cachedAllRankings = rankings;
       this.cachedOrgHitters = allOrgHitters;
+      this.cachedAllHitterProspects = unifiedHitterData.prospects;
       this.cachedOrgPitchers = orgPitchers;
+      this.cachedAllPitcherProspects = pitcherFarmData.prospects;
 
       // Collect roster player IDs (used for TFR fallback and service year computation)
       const rosterPlayerIds = new Set<number>();
@@ -373,13 +411,15 @@ export class TeamPlanningView {
       // Compute actual MLB service years for roster players (for team control calculation)
       await this.computeServiceYears(rosterPlayerIds);
 
-      // Build prospect current rating map
+      // Build prospect current rating map (dev overrides skip the curve — use TFR directly)
       this.prospectCurrentRatingMap.clear();
       for (const h of farmHitters) {
-        this.prospectCurrentRatingMap.set(h.playerId, this.computeProspectCurrentRating(h));
+        this.prospectCurrentRatingMap.set(h.playerId,
+          this.devOverrides.has(h.playerId) ? h.trueFutureRating : this.computeProspectCurrentRating(h));
       }
       for (const p of orgPitchers) {
-        this.prospectCurrentRatingMap.set(p.playerId, this.computeProspectCurrentRating(p));
+        this.prospectCurrentRatingMap.set(p.playerId,
+          this.devOverrides.has(p.playerId) ? p.trueFutureRating : this.computeProspectCurrentRating(p));
       }
 
       // Build player age map for buildRow projections
@@ -389,6 +429,10 @@ export class TeamPlanningView {
 
       this.gridRows = this.buildGridData(teamRanking);
 
+      // Apply user overrides BEFORE prospect fill — overrides act as locked constraints
+      // so the greedy algorithm optimizes around user decisions
+      this.applyOverrides();
+
       // Build player rating map before fillProspects — map has TR for MLB-only players,
       // max(TR, TFR) for players in the unified hitter pool.
       // fillProspects uses this to avoid replacing young MLB players whose TFR exceeds their TR.
@@ -396,29 +440,35 @@ export class TeamPlanningView {
 
       this.fillProspects(farmHitters, orgPitchers);
 
-      // Apply user overrides (in-memory map, loaded on team change)
-      this.applyOverrides();
+      // Re-sort rotation by rating each year so the best pitcher is always SP1
+      this.sortRotationByYear();
 
       // Phase 3: Indicators
       this.computeIndicators();
 
       // Phase 4: Financials
       const financials = this.computeFinancials();
+      this.lastFinancials = financials;
 
       // Render grid with indicators + salary rows
       this.renderGrid(financials);
 
-      // Phase 3: Summary section
+      // Phase 3: Summary section (includes draft strategy)
       const assessments = this.assessPositions();
-      this.renderSummarySection(assessments);
-
-      // Phase 2.5: Draft reference section
       const gaps = this.analyzePositionGaps();
-      const recommendations = draftValueService.analyzeDraftNeeds(gaps, this.gameYear);
-      this.renderDraftReferenceSection(recommendations, gaps);
+      this.renderSummarySection(assessments, gaps);
 
       // Re-apply view mode after summary/draft sections are populated
       this.applyViewMode();
+
+      // Bind clickable summary links (Org Analysis → Grid navigation)
+      this.container.querySelectorAll<HTMLElement>('.summary-link').forEach(el => {
+        el.addEventListener('click', () => {
+          const pos = el.dataset.targetPos;
+          const yr = el.dataset.targetYear ? parseInt(el.dataset.targetYear, 10) : null;
+          if (pos && yr) this.navigateToGridCell(pos, yr);
+        });
+      });
 
     } catch (err) {
       console.error('Failed to build grid:', err);
@@ -545,13 +595,28 @@ export class TeamPlanningView {
     for (let yi = 1; yi < yearRange.length; yi++) {
       const year = yearRange[yi];
 
+      // Collect player IDs locked by user overrides this year (across all sections).
+      // Override cells are treated as immovable constraints — the greedy algorithm
+      // optimizes the remaining open slots around them.
+      const overridePlayerIds = new Set<number>();
+      for (const row of this.gridRows) {
+        const cell = row.cells.get(year);
+        if (cell?.isOverride && cell.playerId) {
+          overridePlayerIds.add(cell.playerId);
+        }
+      }
+
       // Identify positions open for prospect placement:
-      // empty, already a prospect, min contract, or arb-eligible (team control, replaceable)
+      // empty, already a prospect, min contract, arb-eligible, or final-year — but NEVER override cells.
+      // Final-year cells are open because the player is leaving after this year anyway;
+      // the improvement check ensures only genuinely better prospects replace them.
       const openPositions: string[] = [];
       for (const [posLabel, row] of lineupRowMap) {
         const cell = row.cells.get(year);
+        if (cell?.isOverride) continue; // Locked by user edit
         if (!cell || cell.contractStatus === 'empty' || cell.isProspect
-          || cell.isMinContract || cell.contractStatus === 'arb-eligible') {
+          || cell.isMinContract || cell.contractStatus === 'arb-eligible'
+          || cell.contractStatus === 'final-year') {
           openPositions.push(posLabel);
         }
       }
@@ -559,6 +624,7 @@ export class TeamPlanningView {
 
       const available = sortedHitters.filter(h =>
         hitterETA.get(h.playerId)! <= yi && h.age + yi >= MIN_PROSPECT_GRID_AGE
+        && !overridePlayerIds.has(h.playerId) // Already placed by user override
       );
       if (available.length === 0) continue;
 
@@ -635,10 +701,21 @@ export class TeamPlanningView {
       const year = yearRange[yi];
       const usedThisYear = new Set<number>();
 
+      // Collect player IDs locked by user overrides this year (across all sections)
+      const overridePlayerIds = new Set<number>();
+      for (const row of this.gridRows) {
+        const cell = row.cells.get(year);
+        if (cell?.isOverride && cell.playerId) {
+          overridePlayerIds.add(cell.playerId);
+        }
+      }
+
       // Helper: check if a pitcher cell is open for prospect replacement
       const isPitcherCellOpen = (cell: GridCell | undefined): boolean => {
+        if (cell?.isOverride) return false; // Locked by user edit
         if (!cell || cell.contractStatus === 'empty') return true;
-        return cell.isProspect || cell.isMinContract || cell.contractStatus === 'arb-eligible';
+        return cell.isProspect || cell.isMinContract || cell.contractStatus === 'arb-eligible'
+          || cell.contractStatus === 'final-year';
       };
 
       // Rotation: greedy by improvement across all SP slots
@@ -650,6 +727,7 @@ export class TeamPlanningView {
         const incumbentRating = cell?.rating ?? 0;
 
         for (const p of spProspects) {
+          if (overridePlayerIds.has(p.playerId)) continue; // Already placed by user override
           if (pitcherETA.get(p.playerId)! > yi || p.age + yi < MIN_PROSPECT_GRID_AGE) continue;
           const pCurrent = this.prospectCurrentRatingMap.get(p.playerId) ?? p.trueFutureRating;
           const pProjected = this.projectPlanningRating(pCurrent, p.trueFutureRating, p.age, yi);
@@ -682,6 +760,7 @@ export class TeamPlanningView {
         const incumbentRating = cell?.rating ?? 0;
 
         for (const p of bpProspects) {
+          if (overridePlayerIds.has(p.playerId)) continue; // Already placed by user override
           if (usedThisYear.has(p.playerId)) continue;
           if (pitcherETA.get(p.playerId)! > yi || p.age + yi < MIN_PROSPECT_GRID_AGE) continue;
           const pCurrent = this.prospectCurrentRatingMap.get(p.playerId) ?? p.trueFutureRating;
@@ -707,6 +786,29 @@ export class TeamPlanningView {
     }
   }
 
+  /** Re-sort rotation cells by rating each year so the best pitcher is always SP1. */
+  private sortRotationByYear(): void {
+    const yearRange = this.getYearRange();
+    const rotationRows = this.gridRows.filter(r => r.section === 'rotation');
+
+    for (const year of yearRange) {
+      const cells = rotationRows.map(r => r.cells.get(year)!);
+
+      // Sort: occupied cells by rating descending, empty cells to the bottom
+      const sorted = [...cells].sort((a, b) => {
+        const aEmpty = !a || !a.playerId;
+        const bEmpty = !b || !b.playerId;
+        if (aEmpty && bEmpty) return 0;
+        if (aEmpty) return 1;
+        if (bEmpty) return -1;
+        return b.rating - a.rating;
+      });
+
+      for (let i = 0; i < rotationRows.length; i++) {
+        rotationRows[i].cells.set(year, sorted[i]);
+      }
+    }
+  }
 
   private buildRow(
     position: string,
@@ -786,7 +888,9 @@ export class TeamPlanningView {
         // Project rating using TFR for growth, aging for decline
         const tfr = this.playerTfrMap.get(playerId!);
         const peakRating = (tfr !== undefined && tfr > rating) ? tfr : rating;
-        const projectedRating = this.projectPlanningRating(rating, peakRating, baseAge, yearOffset);
+        // Dev override: player is already at peak — skip the growth phase
+        const effectiveCurrentRating = this.devOverrides.has(playerId!) ? peakRating : rating;
+        const projectedRating = this.projectPlanningRating(effectiveCurrentRating, peakRating, baseAge, yearOffset);
 
         cells.set(year, {
           playerId,
@@ -1019,20 +1123,14 @@ export class TeamPlanningView {
       sections[sections.length - 1].rows.push(row);
     }
 
+    const sectionRatings = this.computeSectionRatings();
+
     let bodyHtml = '';
     for (let si = 0; si < sections.length; si++) {
       const section = sections[si];
       const isCollapsed = this.collapsedSections.has(section.name);
-      const sectionLabel = section.name.toUpperCase();
-      const chevron = isCollapsed ? '▸' : '▾';
 
-      bodyHtml += `
-        <tr class="grid-section-row" data-section="${section.name}">
-          <td class="grid-section-header grid-section-toggle" colspan="${yearRange.length + 1}">
-            <span class="section-chevron">${chevron}</span> ${sectionLabel}
-          </td>
-        </tr>
-      `;
+      bodyHtml += this.renderSectionHeaderRow(section.name, yearRange, sectionRatings);
 
       if (!isCollapsed) {
         for (const row of section.rows) {
@@ -1047,9 +1145,10 @@ export class TeamPlanningView {
         bodyHtml += this.renderSalaryRow(section.name, yearRange, financials);
       }
 
-      // Grand total after last section
+      // Grand total + team rating after last section
       if (si === sections.length - 1) {
         bodyHtml += this.renderGrandTotalRow(yearRange, financials);
+        bodyHtml += this.renderTeamRatingRow(yearRange, sectionRatings);
       }
     }
 
@@ -1080,7 +1179,6 @@ export class TeamPlanningView {
         </table>
       </div>
       <div id="tp-summary-container"></div>
-      <div id="tp-draft-container"></div>
     `;
 
     // Bind accordion toggle on section headers
@@ -1149,20 +1247,14 @@ export class TeamPlanningView {
       sections[sections.length - 1].rows.push(row);
     }
 
+    const sectionRatings = this.computeSectionRatings();
+
     let bodyHtml = '';
     for (let si = 0; si < sections.length; si++) {
       const section = sections[si];
       const isCollapsed = this.collapsedSections.has(section.name);
-      const sectionLabel = section.name.toUpperCase();
-      const chevron = isCollapsed ? '▸' : '▾';
 
-      bodyHtml += `
-        <tr class="grid-section-row" data-section="${section.name}">
-          <td class="grid-section-header grid-section-toggle" colspan="${yearRange.length + 1}">
-            <span class="section-chevron">${chevron}</span> ${sectionLabel}
-          </td>
-        </tr>
-      `;
+      bodyHtml += this.renderSectionHeaderRow(section.name, yearRange, sectionRatings);
 
       if (!isCollapsed) {
         for (const row of section.rows) {
@@ -1179,6 +1271,7 @@ export class TeamPlanningView {
 
       if (si === sections.length - 1) {
         bodyHtml += this.renderGrandTotalRow(yearRange, financials);
+        bodyHtml += this.renderTeamRatingRow(yearRange, sectionRatings);
       }
     }
 
@@ -1321,6 +1414,7 @@ export class TeamPlanningView {
 
     for (const row of this.gridRows) {
       let emptyYears = 0;
+      let firstEmptyYear = 0;
       let highRatingYears = 0;
       let currentPlayer = '';
       let currentRating = 0;
@@ -1333,6 +1427,7 @@ export class TeamPlanningView {
       for (let yi = 0; yi < yearRange.length; yi++) {
         const cell = row.cells.get(yearRange[yi]);
         if (!cell || cell.contractStatus === 'empty') {
+          if (emptyYears === 0) firstEmptyYear = yearRange[yi];
           emptyYears++;
         } else {
           if (cell.rating >= 3.5) highRatingYears++;
@@ -1364,6 +1459,8 @@ export class TeamPlanningView {
           section: row.section,
           category: 'strength',
           detail: `${row.position} — ${currentPlayer ? this.abbreviateName(currentPlayer) : '?'}: ${highRatingYears} years of 3.5+ coverage`,
+          targetPosition: row.position,
+          targetYear: yearRange[0],
         });
       }
 
@@ -1386,7 +1483,9 @@ export class TeamPlanningView {
             position: row.position,
             section: row.section,
             category: 'need',
-            detail: `${row.position} — ${this.abbreviateName(name)} at ${info.rating.toFixed(1)} (${info.years.join(', ')})`,
+            detail: `${this.abbreviateName(name)} at ${info.rating.toFixed(1)} (${info.years.join(', ')})`,
+            targetPosition: row.position,
+            targetYear: info.years[0],
           });
         }
       }
@@ -1395,7 +1494,9 @@ export class TeamPlanningView {
           position: row.position,
           section: row.section,
           category: 'need',
-          detail: `${row.position} — ${emptyYears} empty year${emptyYears !== 1 ? 's' : ''}`,
+          detail: `${emptyYears} empty year${emptyYears !== 1 ? 's' : ''}`,
+          targetPosition: row.position,
+          targetYear: firstEmptyYear,
         });
       }
 
@@ -1406,6 +1507,8 @@ export class TeamPlanningView {
           section: row.section,
           category: 'extension',
           detail: `${this.abbreviateName(currentPlayer)}: age ${currentAge}, ${currentRating.toFixed(1)} rating, penultimate year`,
+          targetPosition: row.position,
+          targetYear: yearRange[0],
         });
       }
     }
@@ -1413,7 +1516,7 @@ export class TeamPlanningView {
     return assessments;
   }
 
-  private renderSummarySection(assessments: PositionAssessment[]): void {
+  private renderSummarySection(assessments: PositionAssessment[], gaps: RosterGap[]): void {
     const container = this.container.querySelector<HTMLElement>('#tp-summary-container');
     if (!container) return;
 
@@ -1424,8 +1527,53 @@ export class TeamPlanningView {
     const renderList = (items: PositionAssessment[], emptyMsg: string) => {
       if (items.length === 0) return `<p class="summary-empty">${emptyMsg}</p>`;
       return '<ul class="summary-list">' + items.map(i =>
-        `<li>${i.detail}</li>`
+        `<li class="summary-link" data-target-pos="${i.targetPosition}" data-target-year="${i.targetYear}">${i.detail}</li>`
       ).join('') + '</ul>';
+    };
+
+    const renderGroupedNeeds = (items: PositionAssessment[], emptyMsg: string) => {
+      if (items.length === 0) return `<p class="summary-empty">${emptyMsg}</p>`;
+      // Group by position, preserving order of first appearance
+      const groups: { position: string; items: PositionAssessment[] }[] = [];
+      const groupMap = new Map<string, PositionAssessment[]>();
+      for (const item of items) {
+        let group = groupMap.get(item.position);
+        if (!group) {
+          group = [];
+          groupMap.set(item.position, group);
+          groups.push({ position: item.position, items: group });
+        }
+        group.push(item);
+      }
+      return groups.map(g => `
+        <div class="summary-need-group">
+          <div class="summary-need-pos">${g.position}</div>
+          <ul class="summary-list summary-list-nested">${g.items.map(i =>
+            `<li class="summary-link" data-target-pos="${i.targetPosition}" data-target-year="${i.targetYear}">${i.detail}</li>`
+          ).join('')}</ul>
+        </div>
+      `).join('');
+    };
+
+    const renderDraftStrategy = (draftGaps: RosterGap[]) => {
+      if (draftGaps.length === 0) return `<p class="summary-empty">No significant roster gaps identified.</p>`;
+      const sorted = [...draftGaps].sort((a, b) => {
+        const yearDiff = a.gapStartYear - b.gapStartYear;
+        if (yearDiff !== 0) return yearDiff;
+        return b.emptyYears - a.emptyYears;
+      });
+      return '<ul class="summary-list">' + sorted.map(gap => {
+        const yearsUntilGap = gap.gapStartYear - this.gameYear;
+        let suggestion: string;
+        if (yearsUntilGap <= 1) {
+          suggestion = `${gap.position} needed now, lean college player or trade target`;
+        } else if (yearsUntilGap <= 3) {
+          suggestion = `${gap.position} needed, lean college player for gap in ${yearsUntilGap} year${yearsUntilGap !== 1 ? 's' : ''}`;
+        } else {
+          suggestion = `No long term ${gap.position} depth in the majors, draft now`;
+        }
+        return `<li class="summary-link" data-target-pos="${gap.position}" data-target-year="${gap.gapStartYear}">${suggestion}</li>`;
+      }).join('') + '</ul>';
     };
 
     container.innerHTML = `
@@ -1436,11 +1584,15 @@ export class TeamPlanningView {
         </div>
         <div class="planning-summary-card summary-card-need">
           <div class="summary-card-header summary-header-need">Positions of Need</div>
-          ${renderList(needs, 'No significant gaps identified.')}
+          ${renderGroupedNeeds(needs, 'No significant gaps identified.')}
         </div>
         <div class="planning-summary-card summary-card-extension">
           <div class="summary-card-header summary-header-extension">Extension Priorities</div>
           ${renderList(extensions, 'No extension candidates.')}
+        </div>
+        <div class="planning-summary-card summary-card-draft">
+          <div class="summary-card-header summary-header-draft">Draft Strategy</div>
+          ${renderDraftStrategy(gaps)}
         </div>
       </div>
     `;
@@ -1485,54 +1637,6 @@ export class TeamPlanningView {
     return gaps;
   }
 
-  private renderDraftReferenceSection(_recommendations: DraftRecommendation[], gaps: RosterGap[]): void {
-    const container = this.container.querySelector<HTMLElement>('#tp-draft-container');
-    if (!container) return;
-
-    if (gaps.length === 0) {
-      container.innerHTML = `
-        <div class="draft-reference-section">
-          <div class="draft-section-header">DRAFT STRATEGY</div>
-          <p class="summary-empty">No significant roster gaps identified.</p>
-        </div>
-      `;
-      return;
-    }
-
-    // Sort by urgency: soonest gap first, then most gap years
-    const sorted = [...gaps].sort((a, b) => {
-      const yearDiff = a.gapStartYear - b.gapStartYear;
-      if (yearDiff !== 0) return yearDiff;
-      return b.emptyYears - a.emptyYears;
-    });
-
-    const cards = sorted.map(gap => {
-      const yearsUntilGap = gap.gapStartYear - this.gameYear;
-      let suggestion: string;
-
-      if (yearsUntilGap <= 1) {
-        suggestion = `${gap.position} needed now, lean college player or trade target`;
-      } else if (yearsUntilGap <= 3) {
-        suggestion = `${gap.position} needed, lean college player for gap in ${yearsUntilGap} year${yearsUntilGap !== 1 ? 's' : ''}`;
-      } else {
-        suggestion = `No long term ${gap.position} depth in the majors, draft now`;
-      }
-
-      return `
-        <div class="draft-gap-card">
-          <div class="draft-gap-recommendation">${suggestion}</div>
-        </div>
-      `;
-    }).join('');
-
-    container.innerHTML = `
-      <div class="draft-reference-section">
-        <div class="draft-section-header">DRAFT STRATEGY</div>
-        ${cards}
-      </div>
-    `;
-  }
-
   // =====================================================================
   // Override persistence and cell editing
   // =====================================================================
@@ -1560,11 +1664,15 @@ export class TeamPlanningView {
 
   private async loadOverrides(): Promise<void> {
     if (!this.selectedTeamId) return;
-    const records = await indexedDBService.getTeamPlanningOverrides(this.selectedTeamId);
+    const [records, devPlayerIds] = await Promise.all([
+      indexedDBService.getTeamPlanningOverrides(this.selectedTeamId),
+      indexedDBService.getAllPlayerDevOverrides(),
+    ]);
     this.overrides.clear();
     for (const rec of records) {
       this.overrides.set(rec.key, rec);
     }
+    this.devOverrides = new Set(devPlayerIds);
   }
 
   private applyOverrides(): void {
@@ -1605,8 +1713,9 @@ export class TeamPlanningView {
   }
 
   private async openPitcherProfile(playerId: number, player: Player, teamLabel: string, parentLabel: string): Promise<void> {
-    // Check farm data first (prospect)
-    const prospect = this.cachedOrgPitchers.find(p => p.playerId === playerId);
+    // Check farm data first (prospect) — try org-specific, then all orgs
+    const prospect = this.cachedOrgPitchers.find(p => p.playerId === playerId)
+      ?? this.cachedAllPitcherProspects.find(p => p.playerId === playerId);
     if (prospect) {
       const data: PitcherProfileData = {
         playerId,
@@ -1626,9 +1735,9 @@ export class TeamPlanningView {
         scoutControl: prospect.scoutingRatings?.control,
         scoutHra: prospect.scoutingRatings?.hra,
         scoutStamina: prospect.scoutingRatings?.stamina,
-        estimatedStuff: prospect.developmentTR?.stuff,
-        estimatedControl: prospect.developmentTR?.control,
-        estimatedHra: prospect.developmentTR?.hra,
+        estimatedStuff: prospect.developmentTR?.stuff ?? prospect.trueRatings?.stuff,
+        estimatedControl: prospect.developmentTR?.control ?? prospect.trueRatings?.control,
+        estimatedHra: prospect.developmentTR?.hra ?? prospect.trueRatings?.hra,
         projWar: prospect.peakWar,
         projIp: prospect.peakIp,
         projK9: prospect.projK9,
@@ -1640,11 +1749,17 @@ export class TeamPlanningView {
       return;
     }
 
-    // MLB pitcher from rankings (or external player with basic info)
-    const ranking = this.cachedRanking;
-    const ratedPitcher = ranking
-      ? [...ranking.rotation, ...ranking.bullpen].find(p => p.playerId === playerId)
-      : undefined;
+    // MLB pitcher from rankings — try selected team first, then all teams
+    let ratedPitcher: RatedPitcher | undefined;
+    if (this.cachedRanking) {
+      ratedPitcher = [...this.cachedRanking.rotation, ...this.cachedRanking.bullpen].find(p => p.playerId === playerId);
+    }
+    if (!ratedPitcher) {
+      for (const r of this.cachedAllRankings) {
+        ratedPitcher = [...r.rotation, ...r.bullpen].find(p => p.playerId === playerId);
+        if (ratedPitcher) break;
+      }
+    }
     const data: PitcherProfileData = {
       playerId,
       playerName: ratedPitcher?.name ?? `${player.firstName} ${player.lastName}`,
@@ -1662,8 +1777,9 @@ export class TeamPlanningView {
   }
 
   private async openBatterProfile(playerId: number, player: Player, teamLabel: string, parentLabel: string): Promise<void> {
-    // Check farm data first (prospect)
-    const prospect = this.cachedOrgHitters.find(p => p.playerId === playerId);
+    // Check farm data first (prospect) — try org-specific, then all orgs
+    const prospect = this.cachedOrgHitters.find(p => p.playerId === playerId)
+      ?? this.cachedAllHitterProspects.find(p => p.playerId === playerId);
     if (prospect) {
       const data: BatterProfileData = {
         playerId,
@@ -1691,12 +1807,12 @@ export class TeamPlanningView {
         scoutSpeed: prospect.scoutingRatings?.speed,
         scoutOvr: prospect.scoutingRatings?.ovr,
         scoutPot: prospect.scoutingRatings?.pot,
-        estimatedPower: prospect.developmentTR?.power,
-        estimatedEye: prospect.developmentTR?.eye,
-        estimatedAvoidK: prospect.developmentTR?.avoidK,
-        estimatedContact: prospect.developmentTR?.contact,
-        estimatedGap: prospect.developmentTR?.gap,
-        estimatedSpeed: prospect.developmentTR?.speed,
+        estimatedPower: prospect.developmentTR?.power ?? prospect.trueRatings?.power,
+        estimatedEye: prospect.developmentTR?.eye ?? prospect.trueRatings?.eye,
+        estimatedAvoidK: prospect.developmentTR?.avoidK ?? prospect.trueRatings?.avoidK,
+        estimatedContact: prospect.developmentTR?.contact ?? prospect.trueRatings?.contact,
+        estimatedGap: prospect.developmentTR?.gap ?? prospect.trueRatings?.gap,
+        estimatedSpeed: prospect.developmentTR?.speed ?? prospect.trueRatings?.speed,
         projWoba: prospect.projWoba,
         projWar: prospect.projWar,
         projPa: prospect.projPa,
@@ -1711,11 +1827,17 @@ export class TeamPlanningView {
       return;
     }
 
-    // MLB batter from rankings (or external player with basic info)
-    const ranking = this.cachedRanking;
-    const ratedBatter = ranking
-      ? [...ranking.lineup, ...ranking.bench].find(b => b.playerId === playerId)
-      : undefined;
+    // MLB batter from rankings — try selected team first, then all teams
+    let ratedBatter: RatedBatter | undefined;
+    if (this.cachedRanking) {
+      ratedBatter = [...this.cachedRanking.lineup, ...this.cachedRanking.bench].find(b => b.playerId === playerId);
+    }
+    if (!ratedBatter) {
+      for (const r of this.cachedAllRankings) {
+        ratedBatter = [...r.lineup, ...r.bench].find(b => b.playerId === playerId);
+        if (ratedBatter) break;
+      }
+    }
     const data: BatterProfileData = {
       playerId,
       playerName: ratedBatter?.name ?? `${player.firstName} ${player.lastName}`,
@@ -1729,12 +1851,24 @@ export class TeamPlanningView {
       estimatedEye: ratedBatter?.estimatedEye,
       estimatedAvoidK: ratedBatter?.estimatedAvoidK,
       estimatedContact: ratedBatter?.estimatedContact,
+      estimatedGap: ratedBatter?.estimatedGap,
+      estimatedSpeed: ratedBatter?.estimatedSpeed,
       pa: ratedBatter?.stats?.pa,
       avg: ratedBatter?.stats?.avg,
       obp: ratedBatter?.stats?.obp,
       slg: ratedBatter?.stats?.slg,
       hr: ratedBatter?.stats?.hr,
       war: ratedBatter?.stats?.war,
+      woba: ratedBatter?.woba,
+      percentile: ratedBatter?.percentile,
+      projWar: ratedBatter?.projWar,
+      projBbPct: ratedBatter?.blendedBbPct,
+      projKPct: ratedBatter?.blendedKPct,
+      projHrPct: ratedBatter?.blendedHrPct,
+      projAvg: ratedBatter?.blendedAvg,
+      projDoublesRate: ratedBatter?.blendedDoublesRate,
+      projTriplesRate: ratedBatter?.blendedTriplesRate,
+      projWoba: ratedBatter?.woba,
       isProspect: false,
     };
     await batterProfileModal.show(data, this.gameYear);
@@ -1763,6 +1897,11 @@ export class TeamPlanningView {
       }
     }
 
+    // Look up TFR and dev override state for the current cell's player
+    const currentPlayerId = currentCellData?.playerId;
+    const currentPlayerTfr = currentPlayerId ? this.playerTfrMap.get(currentPlayerId) : undefined;
+    const currentPlayerDevOverride = currentPlayerId ? this.devOverrides.has(currentPlayerId) : false;
+
     const context: CellEditContext = {
       position,
       year,
@@ -1771,6 +1910,8 @@ export class TeamPlanningView {
       incumbentCell,
       teamId: this.selectedTeamId,
       gameYear: this.gameYear,
+      currentPlayerTfr,
+      currentPlayerDevOverride,
     };
 
     // Build org player list sorted by TFR/TR (highest first)
@@ -1779,7 +1920,21 @@ export class TeamPlanningView {
       .sort((a, b) => (this.playerRatingMap.get(b.id) ?? 0) - (this.playerRatingMap.get(a.id) ?? 0));
     const allPlayers = Array.from(this.playerMap.values()).filter(p => !p.retired);
 
-    const result = await this.cellEditModal.show(context, orgPlayers, allPlayers, this.contractMap, this.playerRatingMap);
+    // Build projected age/rating map for the target year
+    const yearOffset = year - this.gameYear;
+    const projectedDataMap = new Map<number, { projectedAge: number; projectedRating: number }>();
+    for (const p of orgPlayers) {
+      const baseAge = this.playerAgeMap.get(p.id) ?? p.age;
+      const currentRating = this.prospectCurrentRatingMap.get(p.id)
+        ?? this.playerRatingMap.get(p.id) ?? 0;
+      const tfr = this.playerTfrMap.get(p.id);
+      const peakRating = (tfr !== undefined && tfr > currentRating) ? tfr : currentRating;
+      const effectiveCurrent = this.devOverrides.has(p.id) ? Math.max(currentRating, peakRating) : currentRating;
+      const projRating = this.projectPlanningRating(effectiveCurrent, peakRating, baseAge, yearOffset);
+      projectedDataMap.set(p.id, { projectedAge: baseAge + yearOffset, projectedRating: projRating });
+    }
+
+    const result = await this.cellEditModal.show(context, orgPlayers, allPlayers, this.contractMap, this.playerRatingMap, projectedDataMap);
     await this.processEditResult(result, position, year);
   }
 
@@ -1787,6 +1942,20 @@ export class TeamPlanningView {
     if (!this.selectedTeamId) return;
 
     if (result.action === 'cancel') return;
+
+    if (result.action === 'dev-override-set' && result.devOverridePlayerId) {
+      await indexedDBService.savePlayerDevOverride(result.devOverridePlayerId);
+      this.devOverrides.add(result.devOverridePlayerId);
+      await this.buildAndRenderGrid();
+      return;
+    }
+
+    if (result.action === 'dev-override-remove' && result.devOverridePlayerId) {
+      await indexedDBService.deletePlayerDevOverride(result.devOverridePlayerId);
+      this.devOverrides.delete(result.devOverridePlayerId);
+      await this.buildAndRenderGrid();
+      return;
+    }
 
     if (result.action === 'clear') {
       const key = `${this.selectedTeamId}_${position}_${year}`;
@@ -2064,5 +2233,88 @@ export class TeamPlanningView {
     if (rating >= 3.0) return 'rating-avg';
     if (rating >= 2.0) return 'rating-fringe';
     return 'rating-poor';
+  }
+
+  /** Compute average star rating per section per year from grid data. */
+  private computeSectionRatings(): Map<string, Map<number, number>> {
+    const yearRange = this.getYearRange();
+    const result = new Map<string, Map<number, number>>();
+
+    for (const section of ['lineup', 'rotation', 'bullpen']) {
+      const sectionRows = this.gridRows.filter(r => r.section === section);
+      const yearRatings = new Map<number, number>();
+
+      for (const year of yearRange) {
+        let total = 0;
+        let count = 0;
+        for (const row of sectionRows) {
+          const cell = row.cells.get(year);
+          if (cell && cell.playerId) {
+            total += cell.rating;
+            count++;
+          }
+        }
+        yearRatings.set(year, count > 0 ? total / count : 0);
+      }
+
+      result.set(section, yearRatings);
+    }
+
+    return result;
+  }
+
+  /** Render the section header row with per-year average ratings. */
+  private renderSectionHeaderRow(
+    sectionName: string,
+    yearRange: number[],
+    sectionRatings: Map<string, Map<number, number>>,
+  ): string {
+    const isCollapsed = this.collapsedSections.has(sectionName);
+    const chevron = isCollapsed ? '▸' : '▾';
+    const sectionLabel = sectionName.toUpperCase();
+    const ratings = sectionRatings.get(sectionName);
+
+    const ratingCells = yearRange.map(year => {
+      const avg = ratings?.get(year) ?? 0;
+      if (avg === 0) return `<td class="grid-section-rating-cell"></td>`;
+      const cls = this.getRatingClass(avg);
+      return `<td class="grid-section-rating-cell"><span class="section-rating-badge ${cls}">${avg.toFixed(1)}</span></td>`;
+    }).join('');
+
+    return `
+      <tr class="grid-section-row" data-section="${sectionName}">
+        <td class="grid-section-header grid-section-toggle">${'<span class="section-chevron">' + chevron + '</span> ' + sectionLabel}</td>
+        ${ratingCells}
+      </tr>
+    `;
+  }
+
+  /** Render the overall team rating row using 40/40/20 weighting. */
+  private renderTeamRatingRow(
+    yearRange: number[],
+    sectionRatings: Map<string, Map<number, number>>,
+  ): string {
+    const lineupRatings = sectionRatings.get('lineup');
+    const rotationRatings = sectionRatings.get('rotation');
+    const bullpenRatings = sectionRatings.get('bullpen');
+
+    const cells = yearRange.map(year => {
+      const lineup = lineupRatings?.get(year) ?? 0;
+      const rotation = rotationRatings?.get(year) ?? 0;
+      const bullpen = bullpenRatings?.get(year) ?? 0;
+      if (lineup === 0 && rotation === 0 && bullpen === 0) {
+        return `<td class="grid-section-rating-cell"></td>`;
+      }
+      const team = (rotation * 0.40) + (lineup * 0.40) + (bullpen * 0.20);
+      const cls = this.getRatingClass(team);
+      return `<td class="grid-section-rating-cell"><span class="section-rating-badge ${cls}">${team.toFixed(1)}</span></td>`;
+    }).join('');
+
+    return `
+      <tr class="grid-team-rating-row">
+        <td class="grid-section-header">TEAM</td>
+        ${cells}
+      </tr>
+    `;
   }
 }

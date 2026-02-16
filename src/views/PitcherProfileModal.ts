@@ -147,6 +147,9 @@ export class PitcherProfileModal {
   private viewMode: 'projections' | 'analysis' = 'analysis';
   private cachedAnalysisHtml: string = '';
 
+  // Guard against async race conditions when re-opened quickly
+  private showGeneration = 0;
+
   constructor() {
     this.ensureOverlayExists();
   }
@@ -238,13 +241,47 @@ export class PitcherProfileModal {
     this.ensureOverlayExists();
     if (!this.overlay) return;
 
+    // Clean up any existing charts from a previous show() (e.g. re-opened without hide())
+    if (this.radarChart) { this.radarChart.destroy(); this.radarChart = null; }
+    if (this.arsenalRadarChart) { this.arsenalRadarChart.destroy(); this.arsenalRadarChart = null; }
+    if (this.developmentChart) { this.developmentChart.destroy(); this.developmentChart = null; }
+
+    // Increment generation to guard against async race conditions
+    const generation = ++this.showGeneration;
+
     this.projectionMode = 'current';
     this.viewMode = 'analysis';
     this.cachedAnalysisHtml = '';
+    // Reset cached development snapshots from previous player
+    this.cachedRatingSnapshots = null;
+    this.cachedStatSnapshots = null;
+    this.savedRatingMetrics = null;
+    this.savedStatMetrics = null;
+    this.hiddenSeries.clear();
     this.currentData = data;
 
     const currentYear = await dateService.getCurrentYear();
+    if (generation !== this.showGeneration) return; // Stale call
     this.projectionYear = currentYear;
+
+    // Override with canonical True Ratings so the modal is consistent regardless of caller
+    if (!data.isProspect) {
+      const canonicalTR = await trueRatingsService.getPitcherTrueRatings(currentYear);
+      if (generation !== this.showGeneration) return;
+      const playerTR = canonicalTR.get(data.playerId);
+      if (playerTR) {
+        data.trueRating = playerTR.trueRating;
+        data.percentile = playerTR.percentile;
+        data.fipLike = playerTR.fipLike;
+        data.estimatedStuff = playerTR.estimatedStuff;
+        data.estimatedControl = playerTR.estimatedControl;
+        data.estimatedHra = playerTR.estimatedHra;
+        // Override blended rates for projection consistency
+        data.projK9 = playerTR.blendedK9;
+        data.projBb9 = playerTR.blendedBb9;
+        data.projHr9 = playerTR.blendedHr9;
+      }
+    }
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -305,6 +342,7 @@ export class PitcherProfileModal {
         contractService.getAllContracts(),
         trueRatingsService.getTruePitchingStats(currentYear - 1).catch(() => [])
       ]);
+      if (generation !== this.showGeneration) return; // Stale call
 
       this.contract = allContracts.get(data.playerId) ?? null;
 
@@ -745,27 +783,27 @@ export class PitcherProfileModal {
       intelligence: s.intelligence,
     });
 
-    const traits: Array<{ key: string; label: string; value?: 'H' | 'N' | 'L' }> = [
+    const traits: Array<{ key: string; label: string; value?: 'H' | 'N' | 'L'; inverted?: boolean }> = [
       { key: 'leadership', label: 'Leadership', value: s.leadership },
       { key: 'loyalty', label: 'Loyalty', value: s.loyalty },
       { key: 'adaptability', label: 'Adaptability', value: s.adaptability },
-      { key: 'greed', label: 'Greedy', value: s.greed },
+      { key: 'greed', label: s.greed === 'L' ? 'Low Greed' : 'Greedy', value: s.greed, inverted: true },
       { key: 'workEthic', label: 'Work Ethic', value: s.workEthic },
       { key: 'intelligence', label: 'Intelligence', value: s.intelligence },
     ];
 
-    const positive = traits.filter(t => t.value === 'H');
-    const negative = traits.filter(t => t.value === 'L');
+    const positive = traits.filter(t => t.inverted ? t.value === 'L' : t.value === 'H');
+    const negative = traits.filter(t => t.inverted ? t.value === 'H' : t.value === 'L');
     if (positive.length === 0 && negative.length === 0) return '';
 
-    const renderTrait = (t: typeof traits[0]) => {
-      const levelClass = t.value === 'H' ? 'trait-high' : 'trait-low';
-      const arrow = t.value === 'H' ? '▲' : '▼';
+    const renderTrait = (t: typeof traits[0], isPositive: boolean) => {
+      const levelClass = isPositive ? 'trait-high' : 'trait-low';
+      const arrow = isPositive ? '▲' : '▼';
       return `<span class="personality-trait ${levelClass}"><span class="trait-arrow">${arrow}</span>${t.label}</span>`;
     };
 
-    const positiveHtml = positive.map(renderTrait).join('');
-    const negativeHtml = negative.map(renderTrait).join('');
+    const positiveHtml = positive.map(t => renderTrait(t, true)).join('');
+    const negativeHtml = negative.map(t => renderTrait(t, false)).join('');
 
     return `
       <div class="vitals-col vitals-personality">

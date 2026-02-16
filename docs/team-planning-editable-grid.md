@@ -27,6 +27,11 @@ All core features are implemented and building cleanly (`npx tsc --noEmit` + `np
 - **Visual differentiation**: Override cells have dashed left border; empty cells have pointer cursor
 - **Override ratings from playerRatingMap**: User-placed players get their actual TR (MLB) or TFR (prospect) from the rating map, not 0. Arb salary estimates also use the real rating instead of defaulting to 3.0 TFR tier.
 - **Player profile modals**: Clicking a player's name opens their profile modal (BatterProfileModal or PitcherProfileModal). Clicking elsewhere in the cell opens the edit modal. Profile data is built from cached ranking/farm data with full scouting ratings, TFR components, development TR, and projections for prospects; TR and estimated ratings for MLB players.
+- **Override-aware auto-fill**: Overrides are applied BEFORE prospect fill so the greedy algorithm treats user edits as locked constraints. Override cells are never replaced, and override-placed players are excluded from the candidate pool for that year. This means editing a cell triggers a full re-optimization of remaining open slots.
+- **Final-year cells open for prospect replacement**: Both contract and arb final-year cells are now considered open for prospect placement. The improvement check naturally prevents replacing good players — only genuinely better prospects will take the slot.
+- **Rotation sorting by year**: After all prospect placement, SP1-SP5 are re-sorted by rating within each year column. If SP2 leaves and SP3 is the next best, SP3 slides up. Empty slots sink to SP4/SP5.
+- **Development curve overrides**: The edit modal shows TFR alongside rating for cell occupants. Players with unrealized upside get a "Set as fully developed" toggle that skips the growth phase — the player projects at TFR immediately (with aging decline). Per-player, persisted in IndexedDB (`player_dev_overrides`, v11). Removable via "Remove development override" on subsequent modal opens.
+- **Section header ratings**: Each section header (LINEUP, ROTATION, BULLPEN) shows per-year average star ratings computed from grid cells. A TEAM row at the bottom shows the overall team rating per year (40% rotation + 40% lineup + 20% bullpen). Color-coded with standard rating classes.
 
 ## Known Issues / TODO
 - **Extend option UX**: The extend section works but uses a generic placeholder. Could show estimated extension cost based on arb tiers.
@@ -36,16 +41,19 @@ All core features are implemented and building cleanly (`npx tsc --noEmit` + `np
 
 ### Override Flow
 1. User clicks cell → `handleCellClick(position, year)`
-2. Modal opens via `cellEditModal.show(context, orgPlayers, allPlayers, contractMap, playerRatingMap)`
+2. Modal opens via `cellEditModal.show(context, orgPlayers, allPlayers, contractMap, playerRatingMap)` — context includes TFR and dev override state
 3. User selects action → modal resolves with `CellEditResult`
-4. `processEditResult()` creates `TeamPlanningOverrideRecord(s)`, saves to IndexedDB, updates in-memory map
-5. `buildAndRenderGrid()` rebuilds grid from scratch, calls `applyOverrides()` using in-memory map
-6. Grid re-renders with overrides applied
+4. `processEditResult()` handles the action:
+   - Cell overrides: creates `TeamPlanningOverrideRecord(s)`, saves to IndexedDB, updates in-memory map
+   - Dev overrides: saves/removes `PlayerDevOverrideRecord` in IndexedDB, updates `devOverrides` set
+5. `buildAndRenderGrid()` rebuilds grid: `buildGridData()` → `applyOverrides()` → `fillProspects()` → `sortRotationByYear()` → indicators/financials/ratings → render
+6. Grid re-renders with overrides applied — prospect auto-fill optimizes around locked cells
 
 ### Override Loading
-- `loadOverrides()` reads from IndexedDB — called ONLY when team changes (dropdown selection)
-- `applyOverrides()` reads from `this.overrides` (in-memory Map) — called on every `buildAndRenderGrid()`
-- `processEditResult()` writes to both IndexedDB AND `this.overrides` in-memory before triggering re-render
+- `loadOverrides()` reads both cell overrides and dev overrides from IndexedDB — called ONLY when team changes (dropdown selection)
+- `applyOverrides()` reads from `this.overrides` (in-memory Map) — called BEFORE `fillProspects()` on every `buildAndRenderGrid()`
+- Dev overrides (`this.devOverrides: Set<number>`) are applied when building `prospectCurrentRatingMap` and in `buildRow()` projections
+- `processEditResult()` writes to both IndexedDB AND in-memory state before triggering re-render
 - This avoids a race condition where the DB write transaction hadn't committed before the re-read
 
 ### Player Rating Map
@@ -89,11 +97,13 @@ Service year for auto-filled prospects is computed from ETA: `serviceYear = yi -
 - Falls back to age-based estimate (`age - 23`) only when no stats data exists AND player is on minimum salary
 
 ### Prospect Placement Algorithm (Greedy Improvement)
+- Overrides are applied first — override cells are locked (never replaced), override-placed players excluded from candidate pool for that year
 - For each future year, builds all (prospect, position) candidates with projected improvement over incumbent
 - Sorts by improvement descending — biggest upgrades assigned first
 - This prevents a high-rated prospect from replacing a decent player at a scarce position while a weak player at a flexible position keeps their spot
-- Cells eligible for replacement: empty, existing prospect, min-contract, or arb-eligible
+- Cells eligible for replacement: empty, existing prospect, min-contract, arb-eligible, or final-year
 - Same greedy approach used for hitter lineup, rotation (SP), and bullpen (RP then overflow SP)
+- After all prospect placement, rotation slots are re-sorted by rating per year (best pitcher = SP1)
 
 ### Future Improvements
 - **Research actual league arbitration salaries**: Current arb estimates are rough tiers. Study real arbitration results for a model based on WAR, position, etc.
@@ -114,7 +124,9 @@ DH: [2-10]        (anyone)
 ```
 Rotation/bullpen slots: pitchers only (position === 1)
 
-## IndexedDB Schema (v10)
+## IndexedDB Schema (v11)
+
+### Cell Overrides (v10)
 ```
 Store: team_planning_overrides
 KeyPath: 'key' (format: "teamId_position_year", e.g., "42_SS_2024")
@@ -131,6 +143,22 @@ CRUD methods on `indexedDBService`:
 - `getTeamPlanningOverrides(teamId)` — get all by teamId index
 - `deleteTeamPlanningOverride(key)` — delete single
 - `deleteAllTeamPlanningOverrides(teamId)` — cursor delete all for team
+
+### Development Curve Overrides (v11)
+```
+Store: player_dev_overrides
+KeyPath: 'key' (playerId as string)
+
+Record fields:
+  key, playerId
+```
+
+CRUD methods on `indexedDBService`:
+- `savePlayerDevOverride(playerId)` — marks player as fully developed
+- `deletePlayerDevOverride(playerId)` — removes the override
+- `getAllPlayerDevOverrides()` — returns all overridden playerIds
+
+Dev overrides are global (per player, not per team). "Reset Edits" only clears cell overrides; dev overrides are removed individually via the edit modal.
 
 ## Key Files
 - `src/views/TeamPlanningView.ts` — Grid logic, override loading/saving, salary estimation, `estimateTeamControlSalary()`, `buildPlayerRatingMap()`
@@ -159,7 +187,7 @@ interface GridCell {
 
 ## CellEditResult (from CellEditModal.ts)
 ```ts
-type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select';
+type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select' | 'dev-override-set' | 'dev-override-remove';
 type OverrideSourceType = 'extend' | 'org' | 'trade-target' | 'fa-target';
 
 interface CellEditResult {
@@ -169,5 +197,21 @@ interface CellEditResult {
   extensionYears?: number;
   rating?: number;
   level?: string;
+  devOverridePlayerId?: number;
+}
+```
+
+## CellEditContext (from CellEditModal.ts)
+```ts
+interface CellEditContext {
+  position: string;
+  year: number;
+  section: 'lineup' | 'rotation' | 'bullpen';
+  currentCell: { playerId, playerName, age, rating } | null;
+  incumbentCell: { playerId, playerName, age, rating } | null;
+  teamId: number;
+  gameYear: number;
+  currentPlayerTfr?: number;        // TFR for the current cell's player (shown in modal)
+  currentPlayerDevOverride?: boolean; // Whether dev override is active for this player
 }
 ```

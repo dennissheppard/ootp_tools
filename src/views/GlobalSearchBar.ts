@@ -7,9 +7,7 @@ import { playerService } from '../services/PlayerService';
 import { dateService } from '../services/DateService';
 import { trueRatingsService, TruePlayerStats, TruePlayerBattingStats } from '../services/TrueRatingsService';
 import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
-import { hitterTrueRatingsCalculationService } from '../services/HitterTrueRatingsCalculationService';
 import { scoutingDataService } from '../services/ScoutingDataService';
-import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { teamService } from '../services/TeamService';
 import { teamRatingsService } from '../services/TeamRatingsService';
 import { analyticsService } from '../services/AnalyticsService';
@@ -536,73 +534,21 @@ export class GlobalSearchBar {
       let isProspect = false;
       let batterResult: any = null;
 
-      // Calculate True Ratings if we have stats
-      if (batterStats && batterStats.pa && batterStats.pa >= 50) {
-        const [multiYearStats] = await Promise.all([
-          trueRatingsService.getMultiYearBattingStats(year),
-        ]);
+      // Use canonical cached True Ratings (shared with TrueRatingsView)
+      const trResultMap = await trueRatingsService.getHitterTrueRatings(year);
+      batterResult = trResultMap.get(playerId) ?? null;
 
-        const batterYearlyStats = multiYearStats.get(playerId) ?? [];
-
-        if (batterYearlyStats.length > 0) {
-          // Get hitter scouting data
-          const [myHitterScoutingRatings, osaHitterScoutingRatings] = await Promise.all([
-            hitterScoutingDataService.getLatestScoutingRatings('my'),
-            hitterScoutingDataService.getLatestScoutingRatings('osa')
-          ]);
-
-          const myHitterLookup = this.buildHitterScoutingLookup(myHitterScoutingRatings);
-          const osaHitterLookup = this.buildHitterScoutingLookup(osaHitterScoutingRatings);
-
-          // Calculate True Rating with all batters for percentile ranking
-          const leagueAverages = hitterTrueRatingsCalculationService.getDefaultLeagueAverages();
-          const allInputs = allBatters
-            .map(b => {
-              const yearlyStats = multiYearStats.get(b.player_id) ?? [];
-              if (yearlyStats.length === 0) return null;
-
-              const totalPa = yearlyStats.reduce((sum, stat) => sum + stat.pa, 0);
-              if (totalPa < 100) return null;
-
-              const scouting = this.resolveHitterScoutingFromLookup(b.player_id, b.playerName, myHitterLookup) ||
-                               this.resolveHitterScoutingFromLookup(b.player_id, b.playerName, osaHitterLookup);
-
-              return {
-                playerId: b.player_id,
-                playerName: b.playerName,
-                yearlyStats,
-                scoutingRatings: scouting ? {
-                  playerId: b.player_id,
-                  playerName: b.playerName,
-                  power: scouting.power,
-                  contact: scouting.contact,
-                  eye: scouting.eye,
-                  avoidK: scouting.avoidK,
-                  gap: scouting.gap,
-                  speed: scouting.speed,
-                  ovr: scouting.ovr ?? 0,
-                  pot: scouting.pot ?? 0,
-                } : undefined,
-              };
-            })
-            .filter((input): input is NonNullable<typeof input> => input !== null);
-
-          const results = hitterTrueRatingsCalculationService.calculateTrueRatings(allInputs, leagueAverages);
-          batterResult = results.find(r => r.playerId === playerId) ?? null;
-
-          if (batterResult) {
-            trueRating = batterResult.trueRating;
-            percentile = batterResult.percentile;
-            woba = batterResult.woba;
-            estimatedPower = batterResult.estimatedPower;
-            estimatedEye = batterResult.estimatedEye;
-            estimatedAvoidK = batterResult.estimatedAvoidK;
-            estimatedContact = batterResult.estimatedContact;
-            estimatedGap = batterResult.estimatedGap;
-            estimatedSpeed = batterResult.estimatedSpeed;
-          }
-        }
-      } else {
+      if (batterResult) {
+        trueRating = batterResult.trueRating;
+        percentile = batterResult.percentile;
+        woba = batterResult.woba;
+        estimatedPower = batterResult.estimatedPower;
+        estimatedEye = batterResult.estimatedEye;
+        estimatedAvoidK = batterResult.estimatedAvoidK;
+        estimatedContact = batterResult.estimatedContact;
+        estimatedGap = batterResult.estimatedGap;
+        estimatedSpeed = batterResult.estimatedSpeed;
+      } else if (!batterStats || !batterStats.pa || batterStats.pa < 50) {
         isProspect = true;
       }
 
@@ -773,52 +719,6 @@ export class GlobalSearchBar {
       console.error('Error fetching batter ratings:', error);
       return null;
     }
-  }
-
-  private buildHitterScoutingLookup(
-    scoutingData: Array<{ playerId: number; playerName?: string; power: number; contact: number; eye: number; avoidK: number; gap: number; speed: number }>
-  ): { byId: Map<number, typeof scoutingData[0]>; byName: Map<string, typeof scoutingData[0][]> } {
-    const byId = new Map<number, typeof scoutingData[0]>();
-    const byName = new Map<string, typeof scoutingData[0][]>();
-
-    for (const rating of scoutingData) {
-      if (rating.playerId > 0) {
-        byId.set(rating.playerId, rating);
-      }
-      if (rating.playerName) {
-        const normalized = this.normalizeName(rating.playerName);
-        if (normalized) {
-          const list = byName.get(normalized) ?? [];
-          list.push(rating);
-          byName.set(normalized, list);
-        }
-      }
-    }
-
-    return { byId, byName };
-  }
-
-  private resolveHitterScoutingFromLookup(
-    playerId: number,
-    playerName: string,
-    lookup: { byId: Map<number, any>; byName: Map<string, any[]> }
-  ): any | null {
-    // Try ID lookup first
-    if (playerId > 0) {
-      const match = lookup.byId.get(playerId);
-      if (match) return match;
-    }
-
-    // Try name lookup
-    const normalized = this.normalizeName(playerName);
-    if (normalized) {
-      const matches = lookup.byName.get(normalized);
-      if (matches && matches.length > 0) {
-        return matches[0];
-      }
-    }
-
-    return null;
   }
 
   private buildScoutingLookup(

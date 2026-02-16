@@ -445,16 +445,19 @@ A year-by-year roster planning grid that shows contract obligations, projected g
 - **ETA estimation** based on current minor league level: MLB=0yr, AAA=1yr, AA=2yr, A=3yr, R=4yr, IC=5yr
   - Elite prospects (TFR ≥ 4.0) get 1 year acceleration; strong prospects (≥ 3.5) get 0.5yr
 - **Greedy improvement-based position assignment**: prospects placed where they provide the biggest rating upgrade over the incumbent, not at the most position-scarce slot. This ensures a 3.0 SS prospect goes to the 1.0-rated 1B slot (+2.0 improvement) rather than the 2.5-rated SS slot (+0.5)
-- Cells open for prospect replacement: empty, existing prospect, min-contract, or arb-eligible
+- Cells open for prospect replacement: empty, existing prospect, min-contract, arb-eligible, or final-year
 - Prospect vs incumbent comparison uses projected ratings for both (not static TFR)
 - Pitcher prospects classified as SP (3+ pitches, stamina ≥ 30) or RP; rotation fills with SP, bullpen with RP then overflow SP
+- **Override-aware auto-fill**: user overrides are applied BEFORE prospect fill, acting as locked constraints. The greedy algorithm optimizes around user decisions — locked players are excluded from the candidate pool, and override cells are never replaced. This means editing a cell triggers a full re-optimization of the remaining open slots.
+- **Rotation sorting**: after all prospect placement, rotation slots (SP1-SP5) are re-sorted by rating within each year column, so the best pitcher is always SP1. Empty slots sink to the bottom.
 
 **Data Flow (key maps):**
 - `playerTfrMap` — playerId → TFR star rating (built from unified hitter data + pitcher farm data + roster fallback scan)
 - `playerServiceYearsMap` — playerId → number of years with MLB stats (from cached league-wide data)
-- `prospectCurrentRatingMap` — playerId → estimated current star rating (from `computeProspectCurrentRating()`)
+- `prospectCurrentRatingMap` — playerId → estimated current star rating (from `computeProspectCurrentRating()`; overridden to TFR for players with dev curve overrides)
 - `playerRatingMap` — playerId → max(TR, TFR) for edit modal sorting
 - `playerAgeMap` — playerId → current age (from TFR data)
+- `devOverrides` — `Set<number>` of playerIds marked as "fully developed" (loaded from IndexedDB on team change)
 
 **View Toggle:**
 - Filter bar toggle: "Planning Grid" shows the grid + color legend; "Org Analysis" shows summary cards + draft strategy
@@ -471,6 +474,13 @@ A year-by-year roster planning grid that shows contract obligations, projected g
 - Any cell is clickable to open `CellEditModal` — assign org players, search all players, extend contracts, or clear
 - Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`), keyed by `{teamId}_{position}_{year}`
 - "Reset Edits" button clears all overrides for the selected team
+- **Development curve overrides**: modal shows TFR alongside current rating for the cell occupant. Players with unrealized upside (TFR > current rating) get a "Set as fully developed" button that skips the growth phase — the player immediately projects at their TFR with only aging decline applied. Per-player, persisted in IndexedDB (`player_dev_overrides` store, v11). Removable via "Remove development override" button on subsequent clicks.
+
+**Section Ratings & Team Rating:**
+- Each section header (LINEUP, ROTATION, BULLPEN) shows a color-coded average star rating per year column, computed from the grid cells
+- A TEAM row at the bottom shows the overall team rating per year using weighted formula: 40% rotation + 40% lineup + 20% bullpen
+- Ratings automatically reflect prospects, overrides, and dev curve overrides — the full planning picture
+- Color-coded using the standard rating classes (elite/plus/avg/fringe/poor)
 
 **Indicators (`computeIndicators()`):**
 - `CLIFF` — age ≥ 33 or ~10yr service (decline risk)

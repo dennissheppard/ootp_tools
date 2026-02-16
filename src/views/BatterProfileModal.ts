@@ -136,6 +136,9 @@ interface BatterSeasonStats {
 }
 
 export class BatterProfileModal {
+  private static nextInstanceId = 0;
+  private instanceId: number;
+
   private overlay: HTMLElement | null = null;
   private modal: HTMLElement | null = null;
   private boundKeyHandler: ((e: KeyboardEvent) => void) | null = null;
@@ -185,7 +188,11 @@ export class BatterProfileModal {
   private viewMode: 'projections' | 'analysis' = 'analysis';
   private cachedAnalysisHtml: string = '';
 
+  // Guard against async race conditions when re-opened quickly
+  private showGeneration = 0;
+
   constructor() {
+    this.instanceId = BatterProfileModal.nextInstanceId++;
     this.ensureOverlayExists();
   }
 
@@ -289,21 +296,66 @@ export class BatterProfileModal {
     this.ensureOverlayExists();
     if (!this.overlay) return;
 
+    // Clean up any existing charts from a previous show() (e.g. re-opened without hide())
+    if (this.radarChart) { this.radarChart.destroy(); this.radarChart = null; }
+    if (this.runningRadarChart) { this.runningRadarChart.destroy(); this.runningRadarChart = null; }
+    if (this.developmentChart) { this.developmentChart.destroy(); this.developmentChart = null; }
+
+    // Increment generation to guard against async race conditions
+    const generation = ++this.showGeneration;
+
     // Reset projection toggle
     this.projectionMode = 'current';
     // Reset analysis view
     this.viewMode = 'analysis';
     this.cachedAnalysisHtml = '';
+    // Reset cached development snapshots from previous player
+    this.cachedRatingSnapshots = null;
+    this.cachedStatSnapshots = null;
+    this.savedRatingMetrics = null;
+    this.savedStatMetrics = null;
+    this.hiddenSeries.clear();
 
     // Store current data for re-rendering on toggle
     this.currentData = data;
 
     // Store projection year (next year)
     const currentYear = await dateService.getCurrentYear();
+    if (generation !== this.showGeneration) return; // Stale call
     this.projectionYear = currentYear;
 
     // Load dynamic league averages (prior year as baseline for projections)
     this.leagueAvg = await leagueBattingAveragesService.getLeagueAverages(currentYear - 1);
+
+    // Override with canonical True Ratings so the modal is consistent regardless of caller
+    if (!data.isProspect) {
+      const canonicalTR = await trueRatingsService.getHitterTrueRatings(currentYear);
+      if (generation !== this.showGeneration) return;
+      const playerTR = canonicalTR.get(data.playerId);
+      if (playerTR) {
+        data.trueRating = playerTR.trueRating;
+        data.percentile = playerTR.percentile;
+        data.woba = playerTR.woba;
+        data.estimatedPower = playerTR.estimatedPower;
+        data.estimatedEye = playerTR.estimatedEye;
+        data.estimatedAvoidK = playerTR.estimatedAvoidK;
+        data.estimatedContact = playerTR.estimatedContact;
+        data.estimatedGap = playerTR.estimatedGap;
+        data.estimatedSpeed = playerTR.estimatedSpeed;
+        // Override blended rates for projection consistency
+        data.projBbPct = playerTR.blendedBbPct;
+        data.projKPct = playerTR.blendedKPct;
+        data.projHrPct = playerTR.blendedHrPct;
+        data.projAvg = playerTR.blendedAvg;
+        data.projWoba = playerTR.woba;
+        data.projDoublesRate = playerTR.blendedDoublesRate;
+        data.projTriplesRate = playerTR.blendedTriplesRate;
+        // Force modal to recompute WAR/PA from canonical blended rates
+        // so the header is consistent regardless of which view opens the modal
+        data.projWar = undefined;
+        data.projPa = undefined;
+      }
+    }
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -366,6 +418,7 @@ export class BatterProfileModal {
         contractService.getAllContracts(),
         trueRatingsService.getTrueBattingStats(currentYear - 1).catch(() => [])
       ]);
+      if (generation !== this.showGeneration) return; // Stale call
 
       this.contract = allContracts.get(data.playerId) ?? null;
 
@@ -485,8 +538,8 @@ export class BatterProfileModal {
       this.currentStats = allStats;
 
       // Compute history-aware projected PA when we have MLB stats but no pre-calculated value.
-      // If the caller already provided projPa (e.g. from BatterProjectionService), trust it
-      // to avoid divergence from the projections table.
+      // For non-prospects, the canonical override above clears projPa so it's always recomputed
+      // here from the player's actual MLB history (consistent regardless of caller).
       // Exclude current year to avoid partial-season contamination (same as BatterProjectionService)
       if (data.projPa === undefined && mlbStats.length > 0) {
         const historicalPaData = mlbStats
@@ -496,6 +549,12 @@ export class BatterProfileModal {
         data.projPa = leagueBattingAveragesService.getProjectedPaWithHistory(
           historicalPaData, data.age, injProne
         );
+      }
+
+      // Re-render WAR emblem now that projPa is computed from actual MLB history
+      // (the initial render at the header pass ran before MLB stats were loaded)
+      if (warSlot) {
+        warSlot.innerHTML = this.renderWarEmblem(data);
       }
 
       // Render full body
@@ -842,27 +901,27 @@ export class BatterProfileModal {
     const s = this.scoutingData;
     if (!s) return '';
 
-    const traits: Array<{ key: string; label: string; value?: 'H' | 'N' | 'L' }> = [
+    const traits: Array<{ key: string; label: string; value?: 'H' | 'N' | 'L'; inverted?: boolean }> = [
       { key: 'leadership', label: 'Leadership', value: s.leadership },
       { key: 'loyalty', label: 'Loyalty', value: s.loyalty },
       { key: 'adaptability', label: 'Adaptability', value: s.adaptability },
-      { key: 'greed', label: 'Greedy', value: s.greed },
+      { key: 'greed', label: s.greed === 'L' ? 'Low Greed' : 'Greedy', value: s.greed, inverted: true },
       { key: 'workEthic', label: 'Work Ethic', value: s.workEthic },
       { key: 'intelligence', label: 'Intelligence', value: s.intelligence },
     ];
 
-    const positive = traits.filter(t => t.value === 'H');
-    const negative = traits.filter(t => t.value === 'L');
+    const positive = traits.filter(t => t.inverted ? t.value === 'L' : t.value === 'H');
+    const negative = traits.filter(t => t.inverted ? t.value === 'H' : t.value === 'L');
     if (positive.length === 0 && negative.length === 0) return '';
 
-    const renderTrait = (t: typeof traits[0]) => {
-      const levelClass = t.value === 'H' ? 'trait-high' : 'trait-low';
-      const arrow = t.value === 'H' ? '▲' : '▼';
+    const renderTrait = (t: typeof traits[0], isPositive: boolean) => {
+      const levelClass = isPositive ? 'trait-high' : 'trait-low';
+      const arrow = isPositive ? '▲' : '▼';
       return `<span class="personality-trait ${levelClass}"><span class="trait-arrow">${arrow}</span>${t.label}</span>`;
     };
 
-    const positiveHtml = positive.map(renderTrait).join('');
-    const negativeHtml = negative.map(renderTrait).join('');
+    const positiveHtml = positive.map(t => renderTrait(t, true)).join('');
+    const negativeHtml = negative.map(t => renderTrait(t, false)).join('');
 
     return `
       <div class="vitals-col vitals-personality">
@@ -1118,7 +1177,7 @@ export class BatterProfileModal {
               ${scoutToggleHtml}
             </div>
             <div class="radar-chart-wrapper">
-              <div id="batter-radar-chart"></div>
+              <div id="batter-radar-chart-${this.instanceId}"></div>
               ${hittingAxisLabelsHtml}
             </div>
           </div>
@@ -1126,7 +1185,7 @@ export class BatterProfileModal {
             <h4 class="chart-section-label">Running Ratings</h4>
             ${hasRunningData ? `
             <div class="radar-chart-wrapper running-radar-wrapper">
-              <div id="batter-running-radar-chart"></div>
+              <div id="batter-running-radar-chart-${this.instanceId}"></div>
               ${runningAxisLabelsHtml}
             </div>
             ` : `
@@ -1320,7 +1379,7 @@ export class BatterProfileModal {
     if (series.length === 0) return;
 
     this.radarChart = new RadarChart({
-      containerId: 'batter-radar-chart',
+      containerId: `batter-radar-chart-${this.instanceId}`,
       categories,
       series,
       height: 300,
@@ -1427,7 +1486,7 @@ export class BatterProfileModal {
     }];
 
     this.runningRadarChart = new RadarChart({
-      containerId: 'batter-running-radar-chart',
+      containerId: `batter-running-radar-chart-${this.instanceId}`,
       categories,
       series,
       height: 204,
@@ -1894,7 +1953,7 @@ export class BatterProfileModal {
         <div class="development-toggles-container">
           ${renderMetricToggles(this.activeDevMetrics, 'hitter', dataMode)}
         </div>
-        <div class="development-chart-container" id="development-chart-${playerId}"></div>
+        <div class="development-chart-container" id="development-chart-${this.instanceId}-${playerId}"></div>
       </div>
     `;
   }
@@ -1927,7 +1986,7 @@ export class BatterProfileModal {
 
     // Create and render chart
     this.developmentChart = new DevelopmentChart({
-      containerId: `development-chart-${playerId}`,
+      containerId: `development-chart-${this.instanceId}-${playerId}`,
       snapshots,
       metrics: this.activeDevMetrics,
       height: 280,
@@ -2018,7 +2077,7 @@ export class BatterProfileModal {
       this.developmentChart = null;
     }
     this.developmentChart = new DevelopmentChart({
-      containerId: `development-chart-${playerId}`,
+      containerId: `development-chart-${this.instanceId}-${playerId}`,
       snapshots,
       metrics: this.activeDevMetrics,
       height: 280,
@@ -2210,6 +2269,38 @@ export class BatterProfileModal {
     const data = this.currentData;
     if (!data) return null;
 
+    // Compute projections from canonical blended rates so the AI prompt
+    // is consistent regardless of which view opened the modal.
+    const projWar = this.calculateProjWar(data);
+    const projPa = data.projPa;
+    let projHr = data.projHr;
+    let projSb = data.projSb;
+    let projObp = data.projObp;
+    let projSlg = data.projSlg;
+
+    // Derive missing projections from canonical blended rates
+    if (projHr === undefined && data.projHrPct !== undefined && projPa !== undefined) {
+      projHr = Math.round(projPa * (data.projHrPct / 100));
+    }
+    if (projSb === undefined) {
+      const s = this.scoutingData;
+      const sr = s?.stealingAggressiveness ?? data.scoutSR;
+      const ste = s?.stealingAbility ?? data.scoutSTE;
+      if (sr !== undefined && ste !== undefined && projPa !== undefined) {
+        projSb = Math.round(HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa).sb);
+      }
+    }
+    if (projObp === undefined && data.projAvg !== undefined && data.projBbPct !== undefined) {
+      projObp = Math.min(0.450, data.projAvg + (data.projBbPct / 100));
+    }
+    if (projSlg === undefined && data.projAvg !== undefined && data.projHrPct !== undefined) {
+      const hrPerAb = (data.projHrPct / 100) / 0.88;
+      const doublesPerAb = data.projDoublesRate ?? 0.04;
+      const triplesPerAb = data.projTriplesRate ?? 0.005;
+      const iso = hrPerAb * 3 + doublesPerAb + triplesPerAb * 2;
+      projSlg = data.projAvg + iso;
+    }
+
     return {
       playerName: data.playerName,
       age: data.age,
@@ -2235,12 +2326,12 @@ export class BatterProfileModal {
       estimatedAvoidK: data.estimatedAvoidK,
       estimatedContact: data.estimatedContact,
       projAvg: data.projAvg,
-      projObp: data.projObp,
-      projSlg: data.projSlg,
-      projHr: data.projHr,
-      projSb: data.projSb,
-      projPa: data.projPa,
-      projWar: data.projWar,
+      projObp,
+      projSlg,
+      projHr,
+      projSb,
+      projPa,
+      projWar,
       projBbPct: data.projBbPct,
       projKPct: data.projKPct,
       // Personality

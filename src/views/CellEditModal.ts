@@ -17,7 +17,7 @@ const POSITION_ELIGIBILITY: Record<string, number[]> = {
 
 // --- Types ---
 
-export type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select';
+export type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select' | 'dev-override-set' | 'dev-override-remove';
 export type OverrideSourceType = 'extend' | 'org' | 'trade-target' | 'fa-target';
 
 export interface CellEditResult {
@@ -27,6 +27,7 @@ export interface CellEditResult {
   extensionYears?: number;
   rating?: number;
   level?: string;
+  devOverridePlayerId?: number;
 }
 
 export interface CellEditContext {
@@ -37,6 +38,8 @@ export interface CellEditContext {
   incumbentCell: { playerId: number | null; playerName: string; age: number; rating: number } | null;
   teamId: number;
   gameYear: number;
+  currentPlayerTfr?: number;
+  currentPlayerDevOverride?: boolean;
 }
 
 export class CellEditModal {
@@ -61,6 +64,7 @@ export class CellEditModal {
     allPlayers: Player[],
     contractMap: Map<number, Contract>,
     playerRatingMap?: Map<number, number>,
+    projectedDataMap?: Map<number, { projectedAge: number; projectedRating: number }>,
   ): Promise<CellEditResult> {
     return new Promise((resolve) => {
       this.resolvePromise = resolve;
@@ -71,11 +75,24 @@ export class CellEditModal {
 
       let currentInfo = '';
       if (context.currentCell && context.currentCell.playerId) {
+        const tfrStr = context.currentPlayerTfr !== undefined
+          ? ` | ${context.currentPlayerTfr.toFixed(1)} TFR` : '';
+
+        let devBtn = '';
+        if (context.currentPlayerDevOverride) {
+          // Override is active — show remove option
+          devBtn = `<button class="cell-edit-dev-btn cell-edit-dev-remove" data-player-id="${context.currentCell.playerId}">Remove development override</button>`;
+        } else if (context.currentPlayerTfr !== undefined && context.currentPlayerTfr > context.currentCell.rating) {
+          // Player has unrealized upside — show set option
+          devBtn = `<button class="cell-edit-dev-btn" data-player-id="${context.currentCell.playerId}">Set as fully developed</button>`;
+        }
+
         currentInfo = `
           <div class="cell-edit-current">
             <div class="cell-edit-current-label">Current occupant</div>
             <div class="cell-edit-current-name">${context.currentCell.playerName}</div>
-            <div class="cell-edit-current-meta">Age ${context.currentCell.age} | ${context.currentCell.rating.toFixed(1)} rating</div>
+            <div class="cell-edit-current-meta">Age ${context.currentCell.age} | ${context.currentCell.rating.toFixed(1)} rating${tfrStr}</div>
+            ${devBtn}
           </div>
         `;
       }
@@ -139,6 +156,19 @@ export class CellEditModal {
         this.resolve({ action: 'clear' });
       });
 
+      // Dev override toggle
+      const devBtn = modal.querySelector<HTMLButtonElement>('.cell-edit-dev-btn');
+      if (devBtn) {
+        const playerId = parseInt(devBtn.dataset.playerId!, 10);
+        const isRemove = devBtn.classList.contains('cell-edit-dev-remove');
+        devBtn.addEventListener('click', () => {
+          this.resolve({
+            action: isRemove ? 'dev-override-remove' : 'dev-override-set',
+            devOverridePlayerId: playerId,
+          });
+        });
+      }
+
       // Extend toggle
       modal.querySelector('[data-action="extend-toggle"]')?.addEventListener('click', () => {
         const opts = modal.querySelector<HTMLElement>('.cell-edit-extend-options');
@@ -165,7 +195,7 @@ export class CellEditModal {
         if (!list) return;
         if (list.style.display === 'none') {
           list.style.display = 'block';
-          this.populateOrgList(list, orgPlayers, context, playerRatingMap);
+          this.populateOrgList(list, orgPlayers, context, playerRatingMap, projectedDataMap);
         } else {
           list.style.display = 'none';
         }
@@ -205,7 +235,13 @@ export class CellEditModal {
     });
   }
 
-  private populateOrgList(container: HTMLElement, orgPlayers: Player[], context: CellEditContext, ratingMap?: Map<number, number>): void {
+  private populateOrgList(
+    container: HTMLElement,
+    orgPlayers: Player[],
+    context: CellEditContext,
+    ratingMap?: Map<number, number>,
+    projectedDataMap?: Map<number, { projectedAge: number; projectedRating: number }>,
+  ): void {
     const isPitcherSlot = context.section === 'rotation' || context.section === 'bullpen';
     const eligible = POSITION_ELIGIBILITY[context.position];
     const filtered = orgPlayers.filter(p => {
@@ -219,13 +255,19 @@ export class CellEditModal {
       return;
     }
 
-    container.innerHTML = filtered.map(p => {
-      const rating = ratingMap?.get(p.id);
+    const noteHtml = context.year > context.gameYear
+      ? `<div class="cell-edit-projection-note">Projected age &amp; rating for ${context.year}</div>`
+      : '';
+
+    container.innerHTML = noteHtml + filtered.map(p => {
+      const proj = projectedDataMap?.get(p.id);
+      const displayAge = proj ? proj.projectedAge : p.age;
+      const rating = proj ? proj.projectedRating : ratingMap?.get(p.id);
       const ratingStr = rating ? `<span class="player-item-rating">${rating.toFixed(1)}</span>` : '';
       return `
         <div class="cell-edit-player-item" data-player-id="${p.id}">
           <span class="player-item-name">${p.firstName} ${p.lastName}</span>
-          <span class="player-item-meta">${getPositionLabel(p.position)} | Age ${p.age} ${ratingStr}</span>
+          <span class="player-item-meta">${getPositionLabel(p.position)} | Age ${displayAge} ${ratingStr}</span>
         </div>
       `;
     }).join('');

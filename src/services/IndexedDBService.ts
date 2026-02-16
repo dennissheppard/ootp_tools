@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'wbl_database';
-const DB_VERSION = 10;
+const DB_VERSION = 11;
 const SCOUTING_STORE = 'scouting_ratings';
 const STATS_STORE = 'minor_league_stats';
 const METADATA_STORE = 'minor_league_metadata';
@@ -22,6 +22,7 @@ const MLB_PLAYER_BATTING_STATS_STORE = 'mlb_player_batting_stats'; // MLB player
 const HITTER_SCOUTING_STORE = 'hitter_scouting_ratings'; // Hitter scouting data (future)
 const AI_SCOUTING_BLURB_STORE = 'ai_scouting_blurbs'; // v9: AI-generated scouting reports
 const TEAM_PLANNING_OVERRIDES_STORE = 'team_planning_overrides'; // v10: User cell overrides in team planning grid
+const PLAYER_DEV_OVERRIDES_STORE = 'player_dev_overrides'; // v11: Per-player development curve overrides
 
 export interface ScoutingRecord {
   key: string; // Format: "YYYY-MM-DD_source"
@@ -194,6 +195,11 @@ export interface TeamPlanningOverrideRecord {
   createdAt: number;
 }
 
+export interface PlayerDevOverrideRecord {
+  key: string;             // playerId as string
+  playerId: number;
+}
+
 class IndexedDBService {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
@@ -341,6 +347,12 @@ class IndexedDBService {
           const overridesStore = db.createObjectStore(TEAM_PLANNING_OVERRIDES_STORE, { keyPath: 'key' });
           overridesStore.createIndex('teamId', 'teamId', { unique: false });
           console.log(`✅ Created team planning overrides store`);
+        }
+
+        // Create player development overrides store (v11)
+        if (!db.objectStoreNames.contains(PLAYER_DEV_OVERRIDES_STORE)) {
+          db.createObjectStore(PLAYER_DEV_OVERRIDES_STORE, { keyPath: 'key' });
+          console.log(`✅ Created player development overrides store`);
         }
 
         console.log(`✅ IndexedDB upgrade complete (now v${newVersion})`);
@@ -1570,6 +1582,59 @@ class IndexedDBService {
         } else {
           resolve();
         }
+      };
+      request.onerror = () => reject(request.error);
+    });
+  }
+  // Player development override methods (v11)
+
+  async savePlayerDevOverride(playerId: number): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(PLAYER_DEV_OVERRIDES_STORE)) {
+      console.warn(`⚠️ Cannot save dev override - IndexedDB needs upgrade to v11. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    const record: PlayerDevOverrideRecord = { key: String(playerId), playerId };
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([PLAYER_DEV_OVERRIDES_STORE], 'readwrite');
+      const store = transaction.objectStore(PLAYER_DEV_OVERRIDES_STORE);
+      const request = store.put(record);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deletePlayerDevOverride(playerId: number): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(PLAYER_DEV_OVERRIDES_STORE)) return;
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([PLAYER_DEV_OVERRIDES_STORE], 'readwrite');
+      const store = transaction.objectStore(PLAYER_DEV_OVERRIDES_STORE);
+      const request = store.delete(String(playerId));
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getAllPlayerDevOverrides(): Promise<number[]> {
+    await this.init();
+    if (!this.db) return [];
+
+    if (!this.db.objectStoreNames.contains(PLAYER_DEV_OVERRIDES_STORE)) return [];
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([PLAYER_DEV_OVERRIDES_STORE], 'readonly');
+      const store = transaction.objectStore(PLAYER_DEV_OVERRIDES_STORE);
+      const request = store.getAll();
+      request.onsuccess = () => {
+        const records = request.result as PlayerDevOverrideRecord[];
+        resolve(records.map(r => r.playerId));
       };
       request.onerror = () => reject(request.error);
     });
