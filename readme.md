@@ -1011,6 +1011,38 @@ Note: True Ratings now use percentile-based component ratings instead of these f
 These coefficients are still used for TFR (prospect projections) and scouting conversions.
 ```
 
+## Testing
+
+Jest with ts-jest (ESM mode). Run all tests:
+
+```bash
+npx jest
+```
+
+Run a specific test file:
+
+```bash
+npx jest src/services/RatingConsistency.test.ts
+```
+
+### Test Files
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `src/services/RatingConsistency.test.ts` | 29 | TR/TFR determinism, cross-service consistency, rating estimator round-trips, data contracts, projection formula verification |
+| `src/services/RatingEstimatorService.test.ts` | 14 | Pitcher rating estimation (Stuff, Control, HRA) with confidence intervals |
+| `src/services/ProjectionService.test.ts` | 6 | IP projection pipeline (stamina, injury, role detection, ramp-up) |
+
+### Rating Consistency Tests
+
+The rating consistency suite (`RatingConsistency.test.ts`) guards against the most common bug class in the app: the same player showing different TR, TFR, or projection values depending on which view you're looking at. It tests the pure calculation services directly (no DB, no mocks needed):
+
+- **Determinism** — Same inputs to `calculateTrueRatings()` always produce identical outputs (pitchers and batters)
+- **Cross-service consistency** — FIP ordering matches percentile ordering, WAR ordering matches percentile ordering, component ratings are consistent with blended stats
+- **Round-trip integrity** — Rating → stat → rating conversions preserve the original value (hitter estimators round-trip exactly; pitcher estimators within tolerance due to different calibration data)
+- **Data contracts** — All fields that profile modals depend on are present and non-NaN, all values fall in realistic baseball ranges
+- **Formula verification** — FIP from blended rates matches the manual formula, wOBA recalculation is consistent
+
 ## Development Notes
 
 **True Ratings Component Rating System:**
