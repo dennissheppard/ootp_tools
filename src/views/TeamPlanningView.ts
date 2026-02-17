@@ -2620,7 +2620,7 @@ export class TeamPlanningView {
     const yearLabel = this.tradeMarketYear === 0 ? 'current' : `${targetYear} projected`;
     const needsHtml = myProfile.needs.length > 0
       ? '<ul class="summary-list">' + myProfile.needs.map(n =>
-        `<li><span class="market-severity-${n.severity}">${n.severity.toUpperCase()}</span> ${n.position} — ${yearLabel}: ${n.bestCurrentRating > 0 ? n.bestCurrentRating.toFixed(1) : 'empty'}</li>`
+        `<li class="summary-link" data-target-pos="${n.position}" data-target-year="${targetYear}"><span class="market-severity-${n.severity}">${n.severity.toUpperCase()}</span> ${n.position} — ${yearLabel}: ${n.bestCurrentRating > 0 ? n.bestCurrentRating.toFixed(1) : 'empty'}</li>`
       ).join('') + '</ul>'
       : '<p class="summary-empty">No significant needs identified.</p>';
 
@@ -2700,6 +2700,15 @@ export class TeamPlanningView {
         // Rebuild profiles at the new year offset and re-render
         this.cachedTradeProfiles = this.buildAllTeamProfiles();
         this.renderTradeMarket();
+      });
+    });
+
+    // Bind need rows to navigate to grid cell
+    container.querySelectorAll<HTMLElement>('.summary-link').forEach(el => {
+      el.addEventListener('click', () => {
+        const pos = el.dataset.targetPos;
+        const yr = el.dataset.targetYear ? parseInt(el.dataset.targetYear, 10) : null;
+        if (pos && yr) this.navigateToGridCell(pos, yr);
       });
     });
 

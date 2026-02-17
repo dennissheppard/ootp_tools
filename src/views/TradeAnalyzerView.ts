@@ -1881,11 +1881,11 @@ export class TradeAnalyzerView {
     bench.sort((a, b) => b.trueRating - a.trueRating);
     bench = bench.slice(0, 4);
 
-    // Recalculate ratings
-    const afterRotation = rotation.length > 0 ? rotation.reduce((s, p) => s + p.trueRating, 0) / rotation.length : 0;
-    const afterBullpen = bullpen.length > 0 ? bullpen.reduce((s, p) => s + p.trueRating, 0) / bullpen.length : 0;
-    const afterLineup = lineup.length > 0 ? lineup.reduce((s, b) => s + b.trueRating, 0) / lineup.length : 0;
-    const afterBench = bench.length > 0 ? bench.reduce((s, b) => s + b.trueRating, 0) / bench.length : 0;
+    // Recalculate ratings — use fixed slot counts so losing a player without replacement correctly lowers the average
+    const afterRotation = rotation.reduce((s, p) => s + p.trueRating, 0) / Math.max(rotation.length, 5);
+    const afterBullpen = bullpen.reduce((s, p) => s + p.trueRating, 0) / Math.max(bullpen.length, 8);
+    const afterLineup = lineup.reduce((s, b) => s + b.trueRating, 0) / Math.max(lineup.length, 9);
+    const afterBench = bench.reduce((s, b) => s + b.trueRating, 0) / Math.max(bench.length, 4);
     const afterOverall = (afterRotation * 0.40) + (afterLineup * 0.40) + (afterBullpen * 0.15) + (afterBench * 0.05);
 
     return {
