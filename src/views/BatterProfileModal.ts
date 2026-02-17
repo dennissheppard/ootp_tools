@@ -17,6 +17,7 @@ import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricTog
 import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
+import { hasComponentUpside } from '../utils/tfrUpside';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -382,8 +383,14 @@ export class BatterProfileModal {
       data.tfrBySource = tfrEntry.tfrBySource;
 
       if (playerTR) {
-        // MLB player with upside: TFR > TR
-        data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating;
+        // MLB player with upside: overall TFR > TR, or any component TFR >= TR + 5
+        data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating
+          || hasComponentUpside(
+            [data.estimatedPower, data.estimatedEye, data.estimatedAvoidK,
+             data.estimatedContact, data.estimatedGap, data.estimatedSpeed],
+            [tfrEntry.trueRatings.power, tfrEntry.trueRatings.eye, tfrEntry.trueRatings.avoidK,
+             tfrEntry.trueRatings.contact, tfrEntry.trueRatings.gap, tfrEntry.trueRatings.speed]
+          );
       } else {
         // Pure prospect: always show TFR
         data.hasTfrUpside = true;

@@ -18,6 +18,7 @@ import { fipWarService } from '../services/FipWarService';
 import { projectionService } from '../services/ProjectionService';
 import { PitcherTfrSourceData, teamRatingsService } from '../services/TeamRatingsService';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
+import { hasComponentUpside } from '../utils/tfrUpside';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -302,8 +303,12 @@ export class PitcherProfileModal {
       data.tfrBySource = tfrEntry.tfrBySource;
 
       if (playerTR) {
-        // MLB pitcher with upside: TFR > TR
-        data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating;
+        // MLB pitcher with upside: overall TFR > TR, or any component TFR >= TR + 5
+        data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating
+          || hasComponentUpside(
+            [data.estimatedStuff, data.estimatedControl, data.estimatedHra],
+            [tfrEntry.trueRatings?.stuff, tfrEntry.trueRatings?.control, tfrEntry.trueRatings?.hra]
+          );
       } else {
         // Pure prospect: always show TFR
         data.hasTfrUpside = true;
