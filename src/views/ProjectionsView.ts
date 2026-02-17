@@ -2157,11 +2157,18 @@ export class ProjectionsView {
               const val = col.accessor ? col.accessor(p) : (p as any)[col.key];
               const columnKey = String(col.key);
 
-              // Add percentile bars for Proj FIP and Proj WAR
-              if (columnKey === 'projFIP' || columnKey === 'projWAR') {
-                const statValue = columnKey === 'projFIP' ? p.projectedStats.fip : p.projectedStats.war;
+              // Add percentile bars for pitcher rate/outcome stats
+              if (columnKey === 'projK9' || columnKey === 'projBB9' || columnKey === 'projHR9' || columnKey === 'projFIP' || columnKey === 'projWAR') {
+                const statValueMap: Record<string, number> = {
+                  'projK9': p.projectedStats.k9,
+                  'projBB9': p.projectedStats.bb9,
+                  'projHR9': p.projectedStats.hr9,
+                  'projFIP': p.projectedStats.fip,
+                  'projWAR': p.projectedStats.war
+                };
+                const statValue = statValueMap[columnKey];
                 const percentile = this.calculatePercentile(statValue, columnKey, p.isSp);
-                const barHtml = this.renderPercentileBar(val, percentile, columnKey, p.isSp);
+                const barHtml = this.renderPercentileBar(val, percentile, columnKey, p.isSp, true);
                 return `<td data-col-key="${columnKey}">${barHtml}</td>`;
               }
 
@@ -2210,19 +2217,31 @@ export class ProjectionsView {
           return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
       }).join('');
 
+      const batterBarColumns = new Set(['projWoba', 'projWrcPlus', 'projWAR', 'projHrPct', 'bbPct', 'kPct', 'projAvg', 'projObp', 'projSlg']);
       const rowsHtml = pageData.map(b => {
           const cells = this.batterColumns.map(col => {
               const val = col.accessor ? col.accessor(b) : (b as any)[col.key];
               const columnKey = String(col.key);
 
-              // Add percentile bars for key batter stats
-              if (columnKey === 'projWoba' || columnKey === 'projWrcPlus' || columnKey === 'projWAR') {
-                  const statValue = columnKey === 'projWoba' ? b.projectedStats.woba
-                      : columnKey === 'projWrcPlus' ? b.projectedStats.wrcPlus
-                      : b.projectedStats.war;
-                  const percentile = this.calculateBatterPercentile(statValue, columnKey);
-                  const barHtml = this.renderBatterPercentileBar(val, percentile, columnKey);
-                  return `<td data-col-key="${columnKey}">${barHtml}</td>`;
+              // Add percentile bars for batter rate/outcome stats
+              if (batterBarColumns.has(columnKey)) {
+                  const statValueMap: Record<string, number | undefined> = {
+                      'projWoba': b.projectedStats.woba,
+                      'projWrcPlus': b.projectedStats.wrcPlus,
+                      'projWAR': b.projectedStats.war,
+                      'projHrPct': b.projectedStats.hrPct,
+                      'bbPct': b.projectedStats.bbPct,
+                      'kPct': b.projectedStats.kPct,
+                      'projAvg': b.projectedStats.avg,
+                      'projObp': b.projectedStats.obp,
+                      'projSlg': b.projectedStats.slg
+                  };
+                  const statValue = statValueMap[columnKey];
+                  if (statValue != null && !isNaN(statValue)) {
+                      const percentile = this.calculateBatterPercentile(statValue, columnKey);
+                      const barHtml = this.renderBatterPercentileBar(val, percentile, columnKey, true);
+                      return `<td data-col-key="${columnKey}">${barHtml}</td>`;
+                  }
               }
 
               return `<td data-col-key="${columnKey}">${val ?? ''}</td>`;
@@ -2383,35 +2402,48 @@ export class ProjectionsView {
   private calculateBatterPercentile(value: number, statType: string): number {
       if (this.allBatterStats.length === 0) return 50;
 
-      const values = this.allBatterStats.map(b => {
-          if (statType === 'projWoba') return b.projectedStats.woba;
-          if (statType === 'projWrcPlus') return b.projectedStats.wrcPlus;
-          return b.projectedStats.war;
-      }).filter(v => v != null && !isNaN(v));
+      const statExtractors: Record<string, (b: ProjectedBatterWithActuals) => number | undefined> = {
+          'projWoba': b => b.projectedStats.woba,
+          'projWrcPlus': b => b.projectedStats.wrcPlus,
+          'projWAR': b => b.projectedStats.war,
+          'projHrPct': b => b.projectedStats.hrPct,
+          'bbPct': b => b.projectedStats.bbPct,
+          'kPct': b => b.projectedStats.kPct,
+          'projAvg': b => b.projectedStats.avg,
+          'projObp': b => b.projectedStats.obp,
+          'projSlg': b => b.projectedStats.slg
+      };
+      const extractor = statExtractors[statType] || (b => b.projectedStats.war);
+      const values = this.allBatterStats.map(extractor).filter((v): v is number => v != null && !isNaN(v));
 
       if (values.length === 0) return 50;
 
-      // Higher is better for all batter stats
+      // K% is lower-is-better; everything else is higher-is-better
+      const isBetterLower = statType === 'kPct';
       const sorted = [...values].sort((a, b) => a - b);
-      const rank = sorted.filter(v => v < value).length;
+      const rank = sorted.filter(v => isBetterLower ? v > value : v < value).length;
       return Math.round((rank / values.length) * 100);
   }
 
-  private renderBatterPercentileBar(displayValue: string, percentile: number, statType: string): string {
+  private renderBatterPercentileBar(displayValue: string, percentile: number, statType: string, stacked = false): string {
       let barClass = 'percentile-poor';
       if (percentile >= 80) barClass = 'percentile-elite';
       else if (percentile >= 60) barClass = 'percentile-plus';
       else if (percentile >= 40) barClass = 'percentile-avg';
       else if (percentile >= 20) barClass = 'percentile-fringe';
 
-      const statLabel = statType === 'projWoba' ? 'wOBA'
-          : statType === 'projWrcPlus' ? 'wRC+'
-          : 'WAR';
+      const statLabels: Record<string, string> = {
+          'projWoba': 'wOBA', 'projWrcPlus': 'wRC+', 'projWAR': 'WAR',
+          'projHrPct': 'HR%', 'bbPct': 'BB%', 'kPct': 'K%',
+          'projAvg': 'AVG', 'projObp': 'OBP', 'projSlg': 'SLG'
+      };
+      const statLabel = statLabels[statType] || statType;
       const tooltip = `${percentile}th percentile (${statLabel})`;
+      const containerClass = stacked ? 'rating-with-bar stacked' : 'rating-with-bar';
 
       return `
-        <div class="rating-with-bar">
-          <span class="rating-value">${displayValue}</span>
+        <div class="${containerClass}">
+          <div class="rating-value">${displayValue}</div>
           <div class="rating-bar">
             <div class="rating-bar-fill percentile-bar ${barClass}" style="--bar-width: ${percentile}%"></div>
           </div>
@@ -2725,28 +2757,29 @@ export class ProjectionsView {
     // Filter all stats by role (SP or RP)
     const roleStats = this.allStats.filter(p => p.isSp === isSp);
 
-    if (roleStats.length === 0) return 50; // Default to 50th percentile if no data
+    if (roleStats.length === 0) return 50;
 
-    // Get the array of values for this stat
-    const values = roleStats.map(p =>
-      statType === 'projFIP' ? p.projectedStats.fip : p.projectedStats.war
-    ).filter(v => v != null && !isNaN(v));
+    const statExtractors: Record<string, (p: ProjectedPlayerWithActuals) => number> = {
+      'projK9': p => p.projectedStats.k9,
+      'projBB9': p => p.projectedStats.bb9,
+      'projHR9': p => p.projectedStats.hr9,
+      'projFIP': p => p.projectedStats.fip,
+      'projWAR': p => p.projectedStats.war
+    };
+    const extractor = statExtractors[statType] || (p => p.projectedStats.war);
+    const values = roleStats.map(extractor).filter(v => v != null && !isNaN(v));
 
     if (values.length === 0) return 50;
 
-    // For FIP, lower is better, so we reverse the percentile calculation
-    // For WAR, higher is better
-    const isBetterLower = statType === 'projFIP';
+    // FIP, BB/9, HR/9: lower is better. K/9, WAR: higher is better
+    const isBetterLower = statType === 'projFIP' || statType === 'projBB9' || statType === 'projHR9';
 
     const sorted = [...values].sort((a, b) => a - b);
     const rank = sorted.filter(v => isBetterLower ? v > value : v < value).length;
-    const percentile = (rank / values.length) * 100;
-
-    return Math.round(percentile);
+    return Math.round((rank / values.length) * 100);
   }
 
-  private renderPercentileBar(displayValue: string, percentile: number, statType: string, isSp: boolean): string {
-    // Determine bar type based on percentile ranges
+  private renderPercentileBar(displayValue: string, percentile: number, statType: string, isSp: boolean, stacked = false): string {
     let barClass = 'percentile-poor';
     if (percentile >= 80) barClass = 'percentile-elite';
     else if (percentile >= 60) barClass = 'percentile-plus';
@@ -2754,12 +2787,17 @@ export class ProjectionsView {
     else if (percentile >= 20) barClass = 'percentile-fringe';
 
     const roleLabel = isSp ? 'SP' : 'RP';
-    const statLabel = statType === 'projFIP' ? 'FIP' : 'WAR';
+    const statLabels: Record<string, string> = {
+      'projK9': 'K/9', 'projBB9': 'BB/9', 'projHR9': 'HR/9',
+      'projFIP': 'FIP', 'projWAR': 'WAR'
+    };
+    const statLabel = statLabels[statType] || statType;
     const tooltip = `${percentile}th percentile among ${roleLabel} (${statLabel})`;
+    const containerClass = stacked ? 'rating-with-bar stacked' : 'rating-with-bar';
 
     return `
-      <div class="rating-with-bar">
-        <span class="rating-value">${displayValue}</span>
+      <div class="${containerClass}">
+        <div class="rating-value">${displayValue}</div>
         <div class="rating-bar">
           <div class="rating-bar-fill percentile-bar ${barClass}" style="--bar-width: ${percentile}%"></div>
         </div>
@@ -2788,7 +2826,7 @@ export class ProjectionsView {
 
   private bindBarHoverAnimations(): void {
     const ratingCells = this.container.querySelectorAll<HTMLElement>(
-      'td[data-col-key="projFIP"], td[data-col-key="projWAR"]'
+      'td[data-col-key="projK9"], td[data-col-key="projBB9"], td[data-col-key="projHR9"], td[data-col-key="projFIP"], td[data-col-key="projWAR"], td[data-col-key="projWoba"], td[data-col-key="projWrcPlus"], td[data-col-key="projHrPct"], td[data-col-key="bbPct"], td[data-col-key="kPct"], td[data-col-key="projAvg"], td[data-col-key="projObp"], td[data-col-key="projSlg"]'
     );
 
     ratingCells.forEach(cell => {

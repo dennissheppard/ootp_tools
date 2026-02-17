@@ -251,6 +251,8 @@ rawWins = 81 + deviation × slope
 - Scoring: `rating×10` + complementary bonus + proximity bonus
 
 **Cell Editing:** Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`). Dev curve overrides: skip growth phase, project at TFR with only aging decline.
+- **Canonical rating resolution:** Org picker and manual insert both use a shared best-known rating resolver (grid value, canonical TR, prospect current/TFR maps) to avoid stale `0.5` fallbacks.
+- **Single-slot invariant:** Manual player insert clears that player from any other slot in the same team/year before saving, preventing duplicate placements (e.g. `MR1` + `MR5` in one season).
 
 **Section/Team Ratings:** Lineup/Rotation/Bullpen averages per year. Team row = 40% rotation + 40% lineup + 20% bullpen.
 

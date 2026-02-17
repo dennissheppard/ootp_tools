@@ -2085,8 +2085,24 @@ td.player-cell.player-name {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   position: relative;
+}
+
+.rating-with-bar > .rating-value {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+/* Stacked variant: bar underneath the value (for flip-cell columns) */
+.rating-with-bar.stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 1px;
+}
+
+.rating-with-bar.stacked > .rating-bar {
+  width: 100%;
 }
 
 .stat-tooltip {
@@ -2137,7 +2153,7 @@ th .stat-tooltip {
 }
 
 .rating-bar {
-  width: 50px;
+  width: 35px;
   height: 4px;
   background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
@@ -7504,6 +7520,8 @@ th .stat-tooltip {
   display: flex;
   justify-content: flex-start;
   margin: 0 0 0.5rem 0;
+  position: relative;
+  z-index: 1;
 }
 .analysis-toggle {
   display: inline-flex;

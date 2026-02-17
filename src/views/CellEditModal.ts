@@ -264,7 +264,9 @@ export class CellEditModal {
     const displayData = filtered.map(p => {
       const proj = projectedDataMap?.get(p.id);
       const displayAge = proj ? proj.projectedAge : p.age;
-      const rating = proj ? proj.projectedRating : ratingMap?.get(p.id) ?? 0;
+      const canonicalRating = ratingMap?.get(p.id) ?? 0;
+      // Manual insertion uses canonical rating; never display a lower projected value in the picker.
+      const rating = proj ? Math.max(proj.projectedRating, canonicalRating) : canonicalRating;
       return { player: p, displayAge, rating };
     });
 

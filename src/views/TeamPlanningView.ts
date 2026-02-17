@@ -188,6 +188,8 @@ export class TeamPlanningView {
   private playerRatingMap: Map<number, number> = new Map();
   private playerTfrMap: Map<number, number> = new Map();
   private prospectCurrentRatingMap: Map<number, number> = new Map();
+  private canonicalPitcherTrMap: Map<number, number> = new Map();
+  private canonicalBatterTrMap: Map<number, number> = new Map();
   private playerAgeMap: Map<number, number> = new Map();
   private playerServiceYearsMap: Map<number, number> = new Map();
 
@@ -518,23 +520,28 @@ export class TeamPlanningView {
       await this.computeServiceYears(rosterPlayerIds);
 
       // Build prospect current rating map (dev overrides skip the curve — use TFR directly)
-      // Also build a canonical TR lookup from power rankings so that prospects
-      // with actual MLB stats use their proven ability as a floor.
-      const rosterTrMap = new Map<number, number>();
-      for (const r of rankings) {
-        for (const p of [...r.rotation, ...r.bullpen]) rosterTrMap.set(p.playerId, p.trueRating);
-        for (const b of [...r.lineup, ...r.bench]) rosterTrMap.set(b.playerId, b.trueRating);
-      }
+      // Fetch canonical TR maps so prospects with actual MLB stats use their proven ability as a floor.
+      // Power rankings only include top 13 pitchers/13 batters per team — canonical maps cover everyone.
+      const [canonicalPitcherTr, canonicalBatterTr] = await Promise.all([
+        trueRatingsService.getPitcherTrueRatings(this.gameYear),
+        trueRatingsService.getHitterTrueRatings(this.gameYear),
+      ]);
+      this.canonicalPitcherTrMap = new Map(
+        Array.from(canonicalPitcherTr.entries()).map(([id, rec]) => [id, rec.trueRating])
+      );
+      this.canonicalBatterTrMap = new Map(
+        Array.from(canonicalBatterTr.entries()).map(([id, rec]) => [id, rec.trueRating])
+      );
 
       this.prospectCurrentRatingMap.clear();
       for (const h of farmHitters) {
         const devRating = this.devOverrides.has(h.playerId) ? h.trueFutureRating : this.computeProspectCurrentRating(h);
-        const canonicalTr = rosterTrMap.get(h.playerId);
+        const canonicalTr = canonicalBatterTr.get(h.playerId)?.trueRating;
         this.prospectCurrentRatingMap.set(h.playerId, canonicalTr ? Math.max(devRating, canonicalTr) : devRating);
       }
       for (const p of orgPitchers) {
         const devRating = this.devOverrides.has(p.playerId) ? p.trueFutureRating : this.computeProspectCurrentRating(p);
-        const canonicalTr = rosterTrMap.get(p.playerId);
+        const canonicalTr = canonicalPitcherTr.get(p.playerId)?.trueRating;
         this.prospectCurrentRatingMap.set(p.playerId, canonicalTr ? Math.max(devRating, canonicalTr) : devRating);
       }
 
@@ -553,6 +560,22 @@ export class TeamPlanningView {
       // max(TR, TFR) for players in the unified hitter pool.
       // fillProspects uses this to avoid replacing young MLB players whose TFR exceeds their TR.
       this.buildPlayerRatingMap(teamRanking, allOrgHitters, orgPitchers);
+
+      // Fill rating map gaps: recently-promoted MLB players (e.g. AA→MLB) are excluded from
+      // both the power ranking top 13 and getFarmData (which skips MLB teams), so they have
+      // no entry in playerRatingMap. Use canonical TR as fallback so the cell edit modal
+      // and grid show their actual ability instead of 0.5.
+      for (const [pid, player] of this.playerMap) {
+        if (this.playerRatingMap.has(pid)) continue;
+        if (player.parentTeamId !== this.selectedTeamId && player.teamId !== this.selectedTeamId) continue;
+        if (player.position === 1) {
+          const tr = canonicalPitcherTr.get(pid);
+          if (tr) this.playerRatingMap.set(pid, tr.trueRating);
+        } else {
+          const tr = canonicalBatterTr.get(pid);
+          if (tr) this.playerRatingMap.set(pid, tr.trueRating);
+        }
+      }
 
       this.fillProspects(farmHitters, orgPitchers);
 
@@ -1761,15 +1784,17 @@ export class TeamPlanningView {
     // MLB pitching
     for (const p of ranking.rotation) this.playerRatingMap.set(p.playerId, p.trueRating);
     for (const p of ranking.bullpen) this.playerRatingMap.set(p.playerId, p.trueRating);
-    // Unified hitter pool: store max(TR, TFR) for edit modal sorting
+    // Unified hitter pool: store max(TR, TFR, canonical current) for edit modal sorting
     for (const h of orgHitters) {
       const existing = this.playerRatingMap.get(h.playerId) ?? 0;
-      this.playerRatingMap.set(h.playerId, Math.max(existing, h.trueFutureRating));
+      const prospectCurrent = this.prospectCurrentRatingMap.get(h.playerId) ?? 0;
+      this.playerRatingMap.set(h.playerId, Math.max(existing, h.trueFutureRating, prospectCurrent));
     }
-    // Pitcher prospects: store max(TR, TFR) — matches hitter logic
+    // Pitcher prospects: store max(TR, TFR, canonical current) — matches hitter logic
     for (const p of orgPitchers) {
       const existing = this.playerRatingMap.get(p.playerId) ?? 0;
-      this.playerRatingMap.set(p.playerId, Math.max(existing, p.trueFutureRating));
+      const prospectCurrent = this.prospectCurrentRatingMap.get(p.playerId) ?? 0;
+      this.playerRatingMap.set(p.playerId, Math.max(existing, p.trueFutureRating, prospectCurrent));
     }
   }
 
@@ -1791,11 +1816,17 @@ export class TeamPlanningView {
       const row = this.gridRows.find(r => r.position === override.position);
       if (!row) continue;
 
+      // Fix stale overrides saved with rating 0 (bug: player had no entry in rating maps)
+      let effectiveRating = override.rating;
+      if (effectiveRating <= 0 && override.playerId) {
+        effectiveRating = this.playerRatingMap.get(override.playerId) ?? 0;
+      }
+
       row.cells.set(override.year, {
         playerId: override.playerId,
         playerName: override.playerName,
         age: override.age,
-        rating: override.rating,
+        rating: effectiveRating,
         salary: override.salary,
         contractStatus: override.contractStatus as GridCell['contractStatus'],
         level: override.level,
@@ -2032,22 +2063,29 @@ export class TeamPlanningView {
       .filter(p => p.parentTeamId === this.selectedTeamId || p.teamId === this.selectedTeamId)
       .sort((a, b) => (this.playerRatingMap.get(b.id) ?? 0) - (this.playerRatingMap.get(a.id) ?? 0));
     const allPlayers = Array.from(this.playerMap.values()).filter(p => !p.retired);
-
-    // Build projected age/rating map for the target year
-    const yearOffset = year - this.gameYear;
-    const projectedDataMap = new Map<number, { projectedAge: number; projectedRating: number }>();
+    const displayRatingMap = new Map<number, number>();
     for (const p of orgPlayers) {
-      const baseAge = this.playerAgeMap.get(p.id) ?? p.age;
-      const currentRating = this.prospectCurrentRatingMap.get(p.id)
-        ?? this.playerRatingMap.get(p.id) ?? 0;
-      const tfr = this.playerTfrMap.get(p.id);
-      const peakRating = (tfr !== undefined && tfr > currentRating) ? tfr : currentRating;
-      const effectiveCurrent = this.devOverrides.has(p.id) ? Math.max(currentRating, peakRating) : currentRating;
-      const projRating = this.projectPlanningRating(effectiveCurrent, peakRating, baseAge, yearOffset);
-      projectedDataMap.set(p.id, { projectedAge: baseAge + yearOffset, projectedRating: projRating });
+      displayRatingMap.set(p.id, this.resolveBestKnownRating(p.id, year));
     }
 
-    const result = await this.cellEditModal.show(context, orgPlayers, allPlayers, this.contractMap, this.playerRatingMap, projectedDataMap);
+    // Build projected age/rating map only for future years.
+    // For current year edits, use canonical rating map values directly.
+    const yearOffset = year - this.gameYear;
+    let projectedDataMap: Map<number, { projectedAge: number; projectedRating: number }> | undefined;
+    if (yearOffset > 0) {
+      projectedDataMap = new Map<number, { projectedAge: number; projectedRating: number }>();
+      for (const p of orgPlayers) {
+        const baseAge = this.playerAgeMap.get(p.id) ?? p.age;
+        const currentRating = this.resolveBestKnownRating(p.id, this.gameYear);
+        const tfr = this.playerTfrMap.get(p.id);
+        const peakRating = (tfr !== undefined && tfr > currentRating) ? tfr : currentRating;
+        const effectiveCurrent = this.devOverrides.has(p.id) ? Math.max(currentRating, peakRating) : currentRating;
+        const projRating = this.projectPlanningRating(effectiveCurrent, peakRating, baseAge, yearOffset);
+        projectedDataMap.set(p.id, { projectedAge: baseAge + yearOffset, projectedRating: projRating });
+      }
+    }
+
+    const result = await this.cellEditModal.show(context, orgPlayers, allPlayers, this.contractMap, displayRatingMap, projectedDataMap);
     await this.processEditResult(result, position, year);
   }
 
@@ -2118,11 +2156,12 @@ export class TeamPlanningView {
 
     if ((result.action === 'org-select' || result.action === 'search-select') && result.player) {
       const player = result.player;
+      const sourceType = result.sourceType ?? 'org';
       const contract = this.contractMap.get(player.id);
       const isMinorLeaguer = player.level !== undefined && player.level > 1;
 
-      // Look up actual rating from playerRatingMap (TR for MLB, TFR for prospects)
-      const playerRating = this.playerRatingMap.get(player.id) ?? 0;
+      // Resolve rating from all known sources (grid/TR/TFR) to avoid stale 0.5 fallbacks.
+      const playerRating = this.resolveBestKnownRating(player.id, year);
 
       // Determine how many years of control we have
       let controlYears: number;
@@ -2153,6 +2192,8 @@ export class TeamPlanningView {
       const yearRange = this.getYearRange();
       const startIndex = yearRange.indexOf(year);
       const records: TeamPlanningOverrideRecord[] = [];
+      const clearRecords: TeamPlanningOverrideRecord[] = [];
+      const targetYears: number[] = [];
 
       // Determine service year offset for salary estimation
       let serviceYearStart = serviceYears > 0 ? serviceYears : 1;
@@ -2161,6 +2202,40 @@ export class TeamPlanningView {
         if (currentSalary <= MIN_SALARY_THRESHOLD) {
           // On minimum deal — estimate how many service years they already have
           serviceYearStart = Math.max(1, Math.max(0, player.age - TYPICAL_DEBUT_AGE) + 1);
+        }
+      }
+
+      for (let i = 0; i < controlYears && startIndex + i < yearRange.length; i++) {
+        targetYears.push(yearRange[startIndex + i]);
+      }
+
+      // Ensure one slot per player per year: if this player already occupies
+      // another row in any target year, clear that original slot.
+      for (const targetYear of targetYears) {
+        for (const row of this.gridRows) {
+          if (row.position === position) continue;
+          const cell = row.cells.get(targetYear);
+          if (!cell || cell.playerId !== player.id) continue;
+
+          const key = `${this.selectedTeamId}_${row.position}_${targetYear}`;
+          if (records.some(r => r.key === key) || clearRecords.some(r => r.key === key)) continue;
+
+          const clearRecord: TeamPlanningOverrideRecord = {
+            key,
+            teamId: this.selectedTeamId,
+            position: row.position,
+            year: targetYear,
+            playerId: null,
+            playerName: '',
+            age: 0,
+            rating: 0,
+            salary: 0,
+            contractStatus: 'empty',
+            sourceType,
+            createdAt: Date.now(),
+          };
+          clearRecords.push(clearRecord);
+          this.overrides.set(key, clearRecord);
         }
       }
 
@@ -2199,14 +2274,14 @@ export class TeamPlanningView {
           salary: cellSalary,
           contractStatus: isLastYear ? 'final-year' : 'under-contract',
           isProspect: isMinorLeaguer,
-          sourceType: result.sourceType!,
+          sourceType,
           createdAt: Date.now(),
         };
         records.push(record);
         this.overrides.set(key, record);
       }
 
-      await indexedDBService.saveTeamPlanningOverrides(records);
+      await indexedDBService.saveTeamPlanningOverrides([...clearRecords, ...records]);
       await this.buildAndRenderGrid();
       return;
     }
@@ -2782,6 +2857,35 @@ export class TeamPlanningView {
     const parts = fullName.trim().split(/\s+/);
     if (parts.length === 1) return parts[0];
     return `${parts[0][0]}. ${parts[parts.length - 1]}`;
+  }
+
+  /** Get the player's best known rating from all loaded Team Planning sources. */
+  private resolveBestKnownRating(playerId: number, year?: number): number {
+    let rating = 0;
+
+    rating = Math.max(rating, this.playerRatingMap.get(playerId) ?? 0);
+    rating = Math.max(rating, this.prospectCurrentRatingMap.get(playerId) ?? 0);
+    rating = Math.max(rating, this.playerTfrMap.get(playerId) ?? 0);
+    rating = Math.max(rating, this.canonicalPitcherTrMap.get(playerId) ?? 0);
+    rating = Math.max(rating, this.canonicalBatterTrMap.get(playerId) ?? 0);
+
+    if (year !== undefined) {
+      rating = Math.max(rating, this.getGridRatingForPlayerYear(playerId, year));
+    }
+
+    return rating;
+  }
+
+  /** Find the highest rating this player currently has in the planning grid for a given year. */
+  private getGridRatingForPlayerYear(playerId: number, year: number): number {
+    let best = 0;
+    for (const row of this.gridRows) {
+      const cell = row.cells.get(year);
+      if (cell?.playerId === playerId) {
+        best = Math.max(best, cell.rating);
+      }
+    }
+    return best;
   }
 
   /**
