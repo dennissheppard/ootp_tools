@@ -90,6 +90,8 @@ interface SurplusMlbPlayer {
   orgId: number;
   orgName: string;
   isPitcher: boolean;
+  replacementName: string;
+  replacementTfr: number;
 }
 
 interface TeamNeed {
@@ -97,6 +99,7 @@ interface TeamNeed {
   section: 'lineup' | 'rotation' | 'bullpen';
   severity: 'critical' | 'moderate';
   bestCurrentRating: number;
+  playerName: string;
 }
 
 interface TeamTradeProfile {
@@ -107,12 +110,20 @@ interface TeamTradeProfile {
   surplusMlbPlayers: SurplusMlbPlayer[];
 }
 
+interface TradeMatchDetail {
+  name: string;
+  positionLabel: string;
+  rating: number;
+  isProspect: boolean;
+}
+
 interface TradeTarget {
   player: SurplusProspect | SurplusMlbPlayer;
   isProspect: boolean;
   matchScore: number;
   sourceTeamNeeds: TeamNeed[];
   complementary: boolean;
+  matchDetails: TradeMatchDetail[];
 }
 
 interface TradeMarketMatch {
@@ -204,6 +215,7 @@ export class TeamPlanningView {
   private cachedAllPitcherProspects: RatedProspect[] = [];
   private cachedTradeProfiles: Map<number, TeamTradeProfile> = new Map();
   private tradeMarketYear: number = parseInt(localStorage.getItem('wbl-tp-marketYear') ?? '0', 10); // offset from gameYear (0 = current season)
+  private analysisYear: number = parseInt(localStorage.getItem('wbl-tp-analysisYear') ?? '-1', 10); // -1 = all years, 0+ = offset from gameYear
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -593,9 +605,8 @@ export class TeamPlanningView {
       this.renderGrid(financials);
 
       // Phase 3: Summary section (includes draft strategy)
-      const assessments = this.assessPositions();
-      const gaps = this.analyzePositionGaps();
-      this.renderSummarySection(assessments, gaps);
+      this.renderSummarySection();
+      this.bindSummaryLinks();
 
       // Build trade market profiles for all teams
       this.cachedTradeProfiles = this.buildAllTeamProfiles();
@@ -603,15 +614,6 @@ export class TeamPlanningView {
 
       // Re-apply view mode after summary/draft/market sections are populated
       this.applyViewMode();
-
-      // Bind clickable summary links (Org Analysis → Grid navigation)
-      this.container.querySelectorAll<HTMLElement>('.summary-link').forEach(el => {
-        el.addEventListener('click', () => {
-          const pos = el.dataset.targetPos;
-          const yr = el.dataset.targetYear ? parseInt(el.dataset.targetYear, 10) : null;
-          if (pos && yr) this.navigateToGridCell(pos, yr);
-        });
-      });
 
     } catch (err) {
       console.error('Failed to build grid:', err);
@@ -1539,8 +1541,10 @@ export class TeamPlanningView {
   // Phase 3: Position Assessments + Summary Section
   // =====================================================================
 
-  private assessPositions(): PositionAssessment[] {
-    const yearRange = this.getYearRange();
+  private assessPositions(filterYear?: number): PositionAssessment[] {
+    const fullRange = this.getYearRange();
+    const yearRange = filterYear !== undefined ? [filterYear] : fullRange;
+    const isSingleYear = filterYear !== undefined;
     const assessments: PositionAssessment[] = [];
 
     for (const row of this.gridRows) {
@@ -1573,23 +1577,29 @@ export class TeamPlanningView {
         }
       }
 
-      // Check extension candidate: current cell is non-prospect non-min, next year is final-year, rating >= 3.0, age <= 31
-      const currentCell = row.cells.get(yearRange[0]);
-      const nextCell = yearRange.length > 1 ? row.cells.get(yearRange[1]) : undefined;
-      if (currentCell && !currentCell.isProspect && !currentCell.isMinContract
-        && currentCell.contractStatus === 'under-contract'
-        && nextCell?.contractStatus === 'final-year'
-        && currentCell.rating >= 3.0 && currentCell.age <= 31) {
-        isExtCandidate = true;
+      // Check extension candidate: only when viewing all years or the current/next year
+      if (!isSingleYear || filterYear === fullRange[0] || filterYear === fullRange[1]) {
+        const currentCell = row.cells.get(fullRange[0]);
+        const nextCell = fullRange.length > 1 ? row.cells.get(fullRange[1]) : undefined;
+        if (currentCell && !currentCell.isProspect && !currentCell.isMinContract
+          && currentCell.contractStatus === 'under-contract'
+          && nextCell?.contractStatus === 'final-year'
+          && currentCell.rating >= 3.0 && currentCell.age <= 31) {
+          isExtCandidate = true;
+        }
       }
 
-      // Strength: 5+ years filled with high rating — include position label
-      if (highRatingYears >= 5) {
+      // Strength: single year = any 3.5+ player; all years = 5+ years of 3.5+ coverage
+      const strengthThreshold = isSingleYear ? 1 : 5;
+      if (highRatingYears >= strengthThreshold) {
+        const detail = isSingleYear
+          ? `${row.position} — ${currentPlayer ? this.abbreviateName(currentPlayer) : '?'}: ${currentRating.toFixed(1)} rating`
+          : `${row.position} — ${currentPlayer ? this.abbreviateName(currentPlayer) : '?'}: ${highRatingYears} years of 3.5+ coverage`;
         assessments.push({
           position: row.position,
           section: row.section,
           category: 'strength',
-          detail: `${row.position} — ${currentPlayer ? this.abbreviateName(currentPlayer) : '?'}: ${highRatingYears} years of 3.5+ coverage`,
+          detail,
           targetPosition: row.position,
           targetYear: yearRange[0],
         });
@@ -1610,11 +1620,14 @@ export class TeamPlanningView {
           }
         }
         for (const [name, info] of uniquePlayers) {
+          const detail = isSingleYear
+            ? `${this.abbreviateName(name)} at ${info.rating.toFixed(1)}`
+            : `${this.abbreviateName(name)} at ${info.rating.toFixed(1)} (${info.years.join(', ')})`;
           assessments.push({
             position: row.position,
             section: row.section,
             category: 'need',
-            detail: `${this.abbreviateName(name)} at ${info.rating.toFixed(1)} (${info.years.join(', ')})`,
+            detail,
             targetPosition: row.position,
             targetYear: info.years[0],
           });
@@ -1625,7 +1638,7 @@ export class TeamPlanningView {
           position: row.position,
           section: row.section,
           category: 'need',
-          detail: `${emptyYears} empty year${emptyYears !== 1 ? 's' : ''}`,
+          detail: isSingleYear ? 'empty' : `${emptyYears} empty year${emptyYears !== 1 ? 's' : ''}`,
           targetPosition: row.position,
           targetYear: firstEmptyYear,
         });
@@ -1639,7 +1652,7 @@ export class TeamPlanningView {
           category: 'extension',
           detail: `${this.abbreviateName(currentPlayer)}: age ${currentAge}, ${currentRating.toFixed(1)} rating, penultimate year`,
           targetPosition: row.position,
-          targetYear: yearRange[0],
+          targetYear: fullRange[0],
         });
       }
     }
@@ -1647,9 +1660,17 @@ export class TeamPlanningView {
     return assessments;
   }
 
-  private renderSummarySection(assessments: PositionAssessment[], gaps: RosterGap[]): void {
+  private renderSummarySection(): void {
     const container = this.container.querySelector<HTMLElement>('#tp-summary-container');
     if (!container) return;
+
+    const filterYear = this.analysisYear >= 0 ? this.gameYear + this.analysisYear : undefined;
+    const assessments = this.assessPositions(filterYear);
+    const allGaps = this.analyzePositionGaps();
+    // Filter gaps by selected year: only show gaps relevant to that year
+    const gaps = filterYear !== undefined
+      ? allGaps.filter(g => g.gapStartYear <= filterYear && g.gapStartYear + g.emptyYears > filterYear)
+      : allGaps;
 
     const strengths = assessments.filter(a => a.category === 'strength');
     const needs = assessments.filter(a => a.category === 'need');
@@ -1707,26 +1728,72 @@ export class TeamPlanningView {
       }).join('') + '</ul>';
     };
 
+    // Year selector buttons
+    const yearRange = this.getYearRange();
+    const allActive = this.analysisYear === -1 ? ' active' : '';
+    const yearSelectorHtml = `<button class="toggle-btn analysis-year-btn${allActive}" data-year-offset="-1">All</button>` +
+      yearRange.map(y => {
+        const offset = y - this.gameYear;
+        const active = offset === this.analysisYear ? ' active' : '';
+        return `<button class="toggle-btn analysis-year-btn${active}" data-year-offset="${offset}">${y}</button>`;
+      }).join('');
+
     container.innerHTML = `
+      <div class="analysis-year-selector">
+        <span class="market-year-label">Target Season:</span>
+        ${yearSelectorHtml}
+      </div>
       <div class="planning-summary-section">
         <div class="planning-summary-card summary-card-strength">
           <div class="summary-card-header summary-header-strength">Positions of Strength</div>
-          ${renderList(strengths, 'No long-term strengths identified.')}
+          <div class="summary-card-body">
+            ${renderList(strengths, 'No long-term strengths identified.')}
+          </div>
         </div>
         <div class="planning-summary-card summary-card-need">
           <div class="summary-card-header summary-header-need">Positions of Need</div>
-          ${renderGroupedNeeds(needs, 'No significant gaps identified.')}
+          <div class="summary-card-body">
+            ${renderGroupedNeeds(needs, 'No significant gaps identified.')}
+          </div>
         </div>
         <div class="planning-summary-card summary-card-extension">
           <div class="summary-card-header summary-header-extension">Extension Priorities</div>
-          ${renderList(extensions, 'No extension candidates.')}
+          <div class="summary-card-body">
+            ${renderList(extensions, 'No extension candidates.')}
+          </div>
         </div>
         <div class="planning-summary-card summary-card-draft">
           <div class="summary-card-header summary-header-draft">Draft Strategy</div>
-          ${renderDraftStrategy(gaps)}
+          <div class="summary-card-body">
+            ${renderDraftStrategy(gaps)}
+          </div>
         </div>
       </div>
     `;
+
+    // Bind year selector
+    container.querySelectorAll<HTMLElement>('.analysis-year-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const offset = parseInt(btn.dataset.yearOffset ?? '-1', 10);
+        if (offset === this.analysisYear) return;
+        this.analysisYear = offset;
+        try { localStorage.setItem('wbl-tp-analysisYear', String(offset)); } catch { /* ignore */ }
+        this.renderSummarySection();
+        this.bindSummaryLinks();
+      });
+    });
+  }
+
+  private bindSummaryLinks(): void {
+    const summaryContainer = this.container.querySelector<HTMLElement>('#tp-summary-container');
+    if (!summaryContainer) return;
+    summaryContainer.querySelectorAll<HTMLElement>('.summary-link').forEach(el => {
+      el.addEventListener('click', () => {
+        const pos = el.dataset.targetPos;
+        const yr = el.dataset.targetYear ? parseInt(el.dataset.targetYear, 10) : null;
+        if (pos && yr) this.navigateToGridCell(pos, yr);
+      });
+    });
   }
 
   // =====================================================================
@@ -2110,8 +2177,24 @@ export class TeamPlanningView {
 
     if (result.action === 'clear') {
       const key = `${this.selectedTeamId}_${position}_${year}`;
-      await indexedDBService.deleteTeamPlanningOverride(key);
-      this.overrides.delete(key);
+      // Save an explicit empty override so the cell becomes vacant,
+      // even if there was a default player auto-assigned to this slot
+      const emptyOverride: TeamPlanningOverrideRecord = {
+        key,
+        teamId: this.selectedTeamId,
+        position,
+        year,
+        playerId: null,
+        playerName: '',
+        age: 0,
+        rating: 0,
+        salary: 0,
+        contractStatus: 'empty',
+        sourceType: 'clear',
+        createdAt: Date.now(),
+      };
+      await indexedDBService.saveTeamPlanningOverride(emptyOverride);
+      this.overrides.set(key, emptyOverride);
       await this.buildAndRenderGrid();
       return;
     }
@@ -2346,6 +2429,7 @@ export class TeamPlanningView {
             section: row.section,
             severity: rating < 2.0 || isEmpty ? 'critical' : 'moderate',
             bestCurrentRating: rating,
+            playerName: cell?.playerName ?? '',
           });
         }
       }
@@ -2369,6 +2453,7 @@ export class TeamPlanningView {
             section: 'lineup',
             severity: rating < 2.0 || rating === 0 ? 'critical' : 'moderate',
             bestCurrentRating: rating,
+            playerName: rating > 0 ? (batter?.name ?? '') : '',
           });
         }
       }
@@ -2387,6 +2472,7 @@ export class TeamPlanningView {
             section: 'rotation',
             severity: rating < 2.0 || rating === 0 ? 'critical' : 'moderate',
             bestCurrentRating: rating,
+            playerName: rating > 0 ? (sp?.name ?? '') : '',
           });
         }
       }
@@ -2405,6 +2491,7 @@ export class TeamPlanningView {
             section: 'bullpen',
             severity: rating < 2.0 || rating === 0 ? 'critical' : 'moderate',
             bestCurrentRating: rating,
+            playerName: rating > 0 ? (rp?.name ?? '') : '',
           });
         }
       }
@@ -2530,17 +2617,21 @@ export class TeamPlanningView {
       const effectiveYearsLeft = yearsLeft - yearOffset;
       if (effectiveYearsLeft > 2) continue; // not expiring at target year
 
-      let hasReplacement = false;
+      let bestReplacement: { name: string; tfr: number } | null = null;
       if (mlb.isPitcher) {
-        hasReplacement = orgPitchers.some(p => p.trueFutureRating >= 3.0 && this.estimateETA(p) <= 2 + yearOffset);
+        const candidates = orgPitchers
+          .filter(p => p.trueFutureRating >= 3.0 && this.estimateETA(p) <= 2 + yearOffset)
+          .sort((a, b) => b.trueFutureRating - a.trueFutureRating);
+        if (candidates.length > 0) bestReplacement = { name: candidates[0].name, tfr: candidates[0].trueFutureRating };
       } else {
         const posCode = 'position' in mlb ? (mlb.position as number) : 0;
-        hasReplacement = orgHitters.some(h =>
-          h.trueFutureRating >= 3.0 && h.position === posCode && this.estimateETA(h) <= 2 + yearOffset
-        );
+        const candidates = orgHitters
+          .filter(h => h.trueFutureRating >= 3.0 && h.position === posCode && this.estimateETA(h) <= 2 + yearOffset)
+          .sort((a, b) => b.trueFutureRating - a.trueFutureRating);
+        if (candidates.length > 0) bestReplacement = { name: candidates[0].name, tfr: candidates[0].trueFutureRating };
       }
 
-      if (hasReplacement) {
+      if (bestReplacement) {
         const player = this.playerMap.get(mlb.playerId);
         surplusMlbPlayers.push({
           playerId: mlb.playerId,
@@ -2553,6 +2644,8 @@ export class TeamPlanningView {
           orgId: teamId,
           orgName: teamName,
           isPitcher: mlb.isPitcher,
+          replacementName: bestReplacement.name,
+          replacementTfr: bestReplacement.tfr,
         });
       }
     }
@@ -2604,21 +2697,48 @@ export class TeamPlanningView {
     for (const need of myProfile.needs) {
       const targets: TradeTarget[] = [];
 
+      const yearOffset = this.tradeMarketYear;
+
       for (const [otherTeamId, otherProfile] of this.cachedTradeProfiles) {
         if (otherTeamId === this.selectedTeamId) continue;
+
+        // Collect specific two-way match details for this team pair (deduplicated)
+        const collectMatchDetails = (): TradeMatchDetail[] => {
+          const seen = new Set<string>();
+          const details: TradeMatchDetail[] = [];
+          for (const theirNeed of otherProfile.needs) {
+            for (const ourSurplus of myProfile.surplusProspects) {
+              if (positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)) {
+                const key = `${ourSurplus.playerId}`;
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  details.push({ name: ourSurplus.name, positionLabel: ourSurplus.positionLabel, rating: ourSurplus.tfr, isProspect: true });
+                }
+              }
+            }
+            for (const ourSurplus of myProfile.surplusMlbPlayers) {
+              if (positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)) {
+                const key = `${ourSurplus.playerId}`;
+                if (!seen.has(key)) {
+                  seen.add(key);
+                  details.push({ name: ourSurplus.name, positionLabel: ourSurplus.positionLabel, rating: ourSurplus.trueRating, isProspect: false });
+                }
+              }
+            }
+          }
+          return details;
+        };
 
         // Check their surplus prospects
         for (const prospect of otherProfile.surplusProspects) {
           if (!positionFitsNeed(prospect.positionLabel, need.position, prospect.isPitcher)) continue;
 
-          // Check complementary: do we have surplus at a position they need?
-          const complementary = otherProfile.needs.some(theirNeed =>
-            myProfile.surplusProspects.some(ourSurplus =>
-              positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)
-            ) || myProfile.surplusMlbPlayers.some(ourSurplus =>
-              positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)
-            )
-          );
+          // ETA filter: prospect must be able to help within a year of the target season
+          const eta = this.estimateETA({ level: prospect.level, trueFutureRating: prospect.tfr });
+          if (eta > yearOffset + 1) continue;
+
+          const matchDetails = collectMatchDetails();
+          const complementary = matchDetails.length > 0;
 
           const matchScore = prospect.tfr * 10
             + (complementary ? 20 : 0)
@@ -2630,6 +2750,7 @@ export class TeamPlanningView {
             matchScore,
             sourceTeamNeeds: otherProfile.needs,
             complementary,
+            matchDetails,
           });
         }
 
@@ -2637,13 +2758,8 @@ export class TeamPlanningView {
         for (const mlbPlayer of otherProfile.surplusMlbPlayers) {
           if (!positionFitsNeed(mlbPlayer.positionLabel, need.position, mlbPlayer.isPitcher)) continue;
 
-          const complementary = otherProfile.needs.some(theirNeed =>
-            myProfile.surplusProspects.some(ourSurplus =>
-              positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)
-            ) || myProfile.surplusMlbPlayers.some(ourSurplus =>
-              positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)
-            )
-          );
+          const matchDetails = collectMatchDetails();
+          const complementary = matchDetails.length > 0;
 
           const matchScore = mlbPlayer.trueRating * 10
             + (complementary ? 20 : 0)
@@ -2655,6 +2771,7 @@ export class TeamPlanningView {
             matchScore,
             sourceTeamNeeds: otherProfile.needs,
             complementary,
+            matchDetails,
           });
         }
       }
@@ -2711,9 +2828,11 @@ export class TeamPlanningView {
     // Section 1: Your Situation
     const yearLabel = this.tradeMarketYear === 0 ? 'current' : `${targetYear} projected`;
     const needsHtml = myProfile.needs.length > 0
-      ? '<ul class="summary-list">' + myProfile.needs.map(n =>
-        `<li class="summary-link" data-target-pos="${n.position}" data-target-year="${targetYear}"><span class="market-severity-${n.severity}">${n.severity.toUpperCase()}</span> ${n.position} — ${yearLabel}: ${n.bestCurrentRating > 0 ? n.bestCurrentRating.toFixed(1) : 'empty'}</li>`
-      ).join('') + '</ul>'
+      ? '<ul class="summary-list">' + myProfile.needs.map(n => {
+        const nameStr = n.playerName ? ` (${this.abbreviateName(n.playerName)})` : '';
+        const ratingStr = n.bestCurrentRating > 0 ? `${n.bestCurrentRating.toFixed(1)}${nameStr}` : 'empty';
+        return `<li class="summary-link" data-target-pos="${n.position}" data-target-year="${targetYear}"><span class="market-severity-${n.severity}">${n.severity.toUpperCase()}</span> ${n.position} — ${yearLabel}: ${ratingStr}</li>`;
+      }).join('') + '</ul>'
       : '<p class="summary-empty">No significant needs identified.</p>';
 
     const surplusProspectsHtml = myProfile.surplusProspects.length > 0
@@ -2735,6 +2854,7 @@ export class TeamPlanningView {
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)}</span>
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
+          <span class="market-block-info">${p.contractYearsRemaining <= 1 ? 'expiring' : `${p.contractYearsRemaining}yr left`}, replaced by ${this.abbreviateName(p.replacementName)} (${p.replacementTfr.toFixed(1)} TFR)</span>
         </div>`
       ).join('')
       : '';
@@ -2764,14 +2884,18 @@ export class TeamPlanningView {
         <div class="trade-market-overview">
           <div class="planning-summary-card summary-card-need">
             <div class="summary-card-header summary-header-need">Positions of Need</div>
-            ${needsHtml}
+            <div class="summary-card-body">
+              ${needsHtml}
+            </div>
           </div>
           <div class="planning-summary-card summary-card-strength">
             <div class="summary-card-header summary-header-strength">Trade Chips</div>
-            ${myProfile.surplusProspects.length > 0 ? '<div class="market-surplus-label">Blocked Prospects</div>' : ''}
-            ${surplusProspectsHtml}
-            ${myProfile.surplusMlbPlayers.length > 0 ? '<div class="market-surplus-label">Tradeable Players</div>' : ''}
-            ${surplusMlbHtml}
+            <div class="summary-card-body">
+              ${myProfile.surplusProspects.length > 0 ? '<div class="market-surplus-label">Blocked Prospects</div>' : ''}
+              ${surplusProspectsHtml}
+              ${myProfile.surplusMlbPlayers.length > 0 ? '<div class="market-surplus-label">Tradeable Players</div>' : ''}
+              ${surplusMlbHtml}
+            </div>
           </div>
         </div>
 
@@ -2815,27 +2939,32 @@ export class TeamPlanningView {
   }
 
   private renderTradeTargetCard(target: TradeTarget): string {
+    const twoWayClass = target.complementary ? ' market-two-way' : '';
+    const matchBadge = target.complementary && target.matchDetails.length > 0
+      ? `<span class="market-match-badge" title="${target.matchDetails.map(d => `${d.positionLabel} ${this.abbreviateName(d.name)} (${d.rating.toFixed(1)})`).join(', ')}">2-Way: send ${this.abbreviateName(target.matchDetails[0].name)} (${target.matchDetails[0].rating.toFixed(1)})</span>`
+      : '';
+
     if (target.isProspect) {
       const p = target.player as SurplusProspect;
       return `
-        <div class="market-player-card market-prospect-card">
+        <div class="market-player-card market-prospect-card${twoWayClass}">
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)} TFR</span>
           <span class="market-org-label">${p.orgName}</span>
           <span class="market-detail">${p.level}, Age ${p.age}</span>
-          ${target.complementary ? '<span class="market-match-badge" title="This team needs something you have">Match</span>' : ''}
+          ${matchBadge}
         </div>`;
     } else {
       const p = target.player as SurplusMlbPlayer;
       return `
-        <div class="market-player-card market-mlb-card">
+        <div class="market-player-card market-mlb-card${twoWayClass}">
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)} TR</span>
           <span class="market-org-label">${p.orgName}</span>
           <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
-          ${target.complementary ? '<span class="market-match-badge" title="This team needs something you have">Match</span>' : ''}
+          ${matchBadge}
         </div>`;
     }
   }
