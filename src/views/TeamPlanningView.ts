@@ -1430,10 +1430,11 @@ export class TeamPlanningView {
       const indicatorHtml = this.renderIndicators(cell.indicators ?? []);
       const nameClickable = cell.playerId ? ` cell-name-link` : '';
       const nameDataAttr = cell.playerId ? ` data-profile-id="${cell.playerId}"` : '';
+      const nameTitle = cell.playerId ? ` title="ID: ${cell.playerId}"` : '';
 
       return `
         <td class="grid-cell cell-minor-league${overrideClass}" ${dataAttrs}>
-          <div class="cell-name${nameClickable}"${nameDataAttr}>${abbrevName}</div>
+          <div class="cell-name${nameClickable}"${nameDataAttr}${nameTitle}>${abbrevName}</div>
           <div class="cell-meta">
             <span class="cell-age">Age: ${cell.age}</span>
             <span class="badge ${ratingClass} cell-rating">${cell.rating.toFixed(1)}</span>
@@ -1451,10 +1452,11 @@ export class TeamPlanningView {
     const indicatorHtml = this.renderIndicators(cell.indicators ?? []);
     const nameClickable = cell.playerId ? ` cell-name-link` : '';
     const nameDataAttr = cell.playerId ? ` data-profile-id="${cell.playerId}"` : '';
+    const nameTitle = cell.playerId ? ` title="ID: ${cell.playerId}"` : '';
 
     return `
       <td class="grid-cell ${statusClass}${overrideClass}" ${dataAttrs}>
-        <div class="cell-name${nameClickable}"${nameDataAttr}>${abbrevName}</div>
+        <div class="cell-name${nameClickable}"${nameDataAttr}${nameTitle}>${abbrevName}</div>
         <div class="cell-meta">
           <span class="cell-age">Age: ${cell.age}</span>
           <span class="badge ${ratingClass} cell-rating">${cell.rating.toFixed(1)}</span>
@@ -2629,7 +2631,7 @@ export class TeamPlanningView {
     const surplusProspectsHtml = myProfile.surplusProspects.length > 0
       ? myProfile.surplusProspects.map(p =>
         `<div class="market-player-card market-prospect-card">
-          <span class="cell-name-link" data-profile-id="${p.playerId}">${this.abbreviateName(p.name)}</span>
+          <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)}</span>
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="market-detail">${p.level}, Age ${p.age}</span>
@@ -2641,7 +2643,7 @@ export class TeamPlanningView {
     const surplusMlbHtml = myProfile.surplusMlbPlayers.length > 0
       ? myProfile.surplusMlbPlayers.map(p =>
         `<div class="market-player-card market-mlb-card">
-          <span class="cell-name-link" data-profile-id="${p.playerId}">${this.abbreviateName(p.name)}</span>
+          <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)}</span>
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
@@ -2730,7 +2732,7 @@ export class TeamPlanningView {
       return `
         <div class="market-player-card market-prospect-card">
           <span class="market-pos-badge">${p.positionLabel}</span>
-          <span class="cell-name-link" data-profile-id="${p.playerId}">${this.abbreviateName(p.name)}</span>
+          <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)} TFR</span>
           <span class="market-org-label">${p.orgName}</span>
           <span class="market-detail">${p.level}, Age ${p.age}</span>
@@ -2741,7 +2743,7 @@ export class TeamPlanningView {
       return `
         <div class="market-player-card market-mlb-card">
           <span class="market-pos-badge">${p.positionLabel}</span>
-          <span class="cell-name-link" data-profile-id="${p.playerId}">${this.abbreviateName(p.name)}</span>
+          <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)} TR</span>
           <span class="market-org-label">${p.orgName}</span>
           <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
