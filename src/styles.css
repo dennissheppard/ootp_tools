@@ -8138,11 +8138,19 @@ th .stat-tooltip {
 
 /* ===== Planning Summary Section (Phase 3) ===== */
 
+.analysis-year-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 0.5rem 0;
+}
+
 .planning-summary-section {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 1rem;
-  margin-top: 1.5rem;
+  margin-top: 0.75rem;
 }
 
 .planning-summary-card {
@@ -8150,6 +8158,14 @@ th .stat-tooltip {
   border-radius: var(--border-radius);
   border: 1px solid var(--color-border);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.planning-summary-card > .summary-card-body {
+  max-height: 500px;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .summary-card-header {
@@ -9280,12 +9296,19 @@ th .stat-tooltip {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
+.cell-edit-modal.cell-edit-modal-dragged {
+  position: fixed;
+  transform: none;
+  margin: 0;
+}
+
 .cell-edit-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--color-border);
+  user-select: none;
 }
 
 .cell-edit-header h3 {
@@ -9773,6 +9796,20 @@ th .stat-tooltip {
   margin-bottom: 1.5rem;
 }
 
+.trade-market-overview .planning-summary-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.trade-market-overview .summary-card-header {
+  flex-shrink: 0;
+}
+
+.trade-market-overview .summary-card-body {
+  max-height: 250px;
+  overflow-y: auto;
+}
+
 .trade-market-targets {
   margin-top: 1rem;
 }
@@ -9888,6 +9925,11 @@ th .stat-tooltip {
   letter-spacing: 0.3px;
 }
 
+.market-player-card.market-two-way {
+  border-left: 3px solid rgba(0, 186, 124, 0.6);
+  background: rgba(0, 186, 124, 0.04);
+}
+
 .market-match-badge {
   display: inline-block;
   font-size: 0.65rem;
@@ -9898,6 +9940,10 @@ th .stat-tooltip {
   color: #00ba7c;
   cursor: help;
   flex-shrink: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
 }
 
 .market-surplus-label {

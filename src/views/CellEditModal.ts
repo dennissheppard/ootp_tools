@@ -52,6 +52,13 @@ export class CellEditModal {
   private orgSortColumn: OrgSortColumn = 'rating';
   private orgSortDirection: OrgSortDirection = 'desc';
 
+  // Drag state
+  private isDragging = false;
+  private dragOffsetX = 0;
+  private dragOffsetY = 0;
+  private boundDragMove: ((e: MouseEvent) => void) | null = null;
+  private boundDragEnd: ((e: MouseEvent) => void) | null = null;
+
   constructor() {
     this.overlay = document.createElement('div');
     this.overlay.className = 'cell-edit-modal-overlay';
@@ -230,6 +237,15 @@ export class CellEditModal {
         });
       }
 
+      // Reset modal position for each show (center it)
+      modal.style.left = '';
+      modal.style.top = '';
+      modal.style.transform = '';
+      modal.classList.remove('cell-edit-modal-dragged');
+
+      // Make modal draggable by its header
+      this.initDrag(modal);
+
       // Show overlay
       this.overlay.style.display = 'flex';
 
@@ -237,6 +253,51 @@ export class CellEditModal {
         if (e.key === 'Escape') this.dismiss();
       };
       document.addEventListener('keydown', this.boundKeyHandler);
+    });
+  }
+
+  private initDrag(modal: HTMLElement): void {
+    const header = modal.querySelector<HTMLElement>('.cell-edit-header');
+    if (!header) return;
+
+    header.style.cursor = 'move';
+
+    header.addEventListener('mousedown', (e: MouseEvent) => {
+      // Don't drag if clicking the close button
+      if ((e.target as HTMLElement).closest('.cell-edit-close')) return;
+
+      e.preventDefault();
+      this.isDragging = true;
+
+      const rect = modal.getBoundingClientRect();
+      this.dragOffsetX = e.clientX - rect.left;
+      this.dragOffsetY = e.clientY - rect.top;
+
+      // Switch from centered to absolute positioning on first drag
+      if (!modal.classList.contains('cell-edit-modal-dragged')) {
+        modal.style.left = `${rect.left}px`;
+        modal.style.top = `${rect.top}px`;
+        modal.classList.add('cell-edit-modal-dragged');
+      }
+
+      this.boundDragMove = (ev: MouseEvent) => {
+        if (!this.isDragging) return;
+        const x = Math.max(0, Math.min(ev.clientX - this.dragOffsetX, window.innerWidth - rect.width));
+        const y = Math.max(0, Math.min(ev.clientY - this.dragOffsetY, window.innerHeight - 40));
+        modal.style.left = `${x}px`;
+        modal.style.top = `${y}px`;
+      };
+
+      this.boundDragEnd = () => {
+        this.isDragging = false;
+        if (this.boundDragMove) document.removeEventListener('mousemove', this.boundDragMove);
+        if (this.boundDragEnd) document.removeEventListener('mouseup', this.boundDragEnd);
+        this.boundDragMove = null;
+        this.boundDragEnd = null;
+      };
+
+      document.addEventListener('mousemove', this.boundDragMove);
+      document.addEventListener('mouseup', this.boundDragEnd);
     });
   }
 
@@ -436,5 +497,15 @@ export class CellEditModal {
       document.removeEventListener('keydown', this.boundKeyHandler);
       this.boundKeyHandler = null;
     }
+    // Clean up any in-progress drag
+    if (this.boundDragMove) {
+      document.removeEventListener('mousemove', this.boundDragMove);
+      this.boundDragMove = null;
+    }
+    if (this.boundDragEnd) {
+      document.removeEventListener('mouseup', this.boundDragEnd);
+      this.boundDragEnd = null;
+    }
+    this.isDragging = false;
   }
 }
