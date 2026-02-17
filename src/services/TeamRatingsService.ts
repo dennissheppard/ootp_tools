@@ -387,6 +387,9 @@ export interface TeamRatingResult {
 }
 
 class TeamRatingsService {
+  private _unifiedHitterCache = new Map<number, HitterFarmData>();
+  private _pitcherFarmCache = new Map<number, FarmData>();
+
   /**
    * Get Power Rankings for all MLB teams
    * Ranks teams by weighted Team Rating = 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench
@@ -809,6 +812,9 @@ class TeamRatingsService {
   }
 
   async getFarmData(year: number): Promise<FarmData> {
+      const cached = this._pitcherFarmCache.get(year);
+      if (cached) return cached;
+
       // Fetch scouting data first to handle fallback logic
       let scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
       if (scoutingData.ratings.length === 0) {
@@ -1078,11 +1084,13 @@ class TeamRatingsService {
           });
       });
 
-      return {
+      const result: FarmData = {
           reports,
           systems: systems.sort((a, b) => b.totalWar - a.totalWar),
           prospects: sortedProspects
       };
+      this._pitcherFarmCache.set(year, result);
+      return result;
   }
 
   /**
@@ -1091,6 +1099,9 @@ class TeamRatingsService {
    * Each result includes isFarmEligible for backward compat with Farm Rankings.
    */
   async getUnifiedHitterTfrData(year: number): Promise<HitterFarmData> {
+      const cached = this._unifiedHitterCache.get(year);
+      if (cached) return cached;
+
       // Fetch hitter scouting data and league averages in parallel
       const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerAbMap, contracts] = await Promise.all([
           hitterScoutingDataService.getLatestScoutingRatings('my'),
@@ -1419,11 +1430,13 @@ class TeamRatingsService {
       });
 
       // allProspects already sorted and ranked above
-      return {
+      const result: HitterFarmData = {
           reports: reports.sort((a, b) => b.totalScore - a.totalScore),
           systems: systems.sort((a, b) => b.totalScore - a.totalScore),
           prospects: allProspects,
       };
+      this._unifiedHitterCache.set(year, result);
+      return result;
   }
 
   /**

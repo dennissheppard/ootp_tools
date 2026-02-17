@@ -458,9 +458,10 @@ A year-by-year roster planning grid that shows contract obligations, projected g
 - `playerRatingMap` — playerId → max(TR, TFR) for edit modal sorting
 - `playerAgeMap` — playerId → current age (from TFR data)
 - `devOverrides` — `Set<number>` of playerIds marked as "fully developed" (loaded from IndexedDB on team change)
+- `cachedTradeProfiles` — `Map<number, TeamTradeProfile>` of all 20 teams' needs/surplus (rebuilt when year offset changes)
 
 **View Toggle:**
-- Filter bar toggle: "Planning Grid" shows the grid + color legend; "Org Analysis" shows summary cards + draft strategy
+- Filter bar toggle: "Planning Grid" shows the grid + color legend; "Org Analysis" shows summary cards + draft strategy; "Trade Market" shows cross-team trade target analysis
 - **Positions of Strength**: positions with 5+ years of 3.5+ rated coverage, shows position label and player name (e.g., "CF — J. Jones: 6 years of 3.5+ coverage")
 - **Positions of Need**: any cell across the grid with a player rated under 3.0, grouped by player with years listed (e.g., "SS — J. Smith at 2.5 (2022, 2023)"), plus empty year counts
 - **Extension Priorities**: players in penultimate contract year, rated 3.0+, age ≤ 31
@@ -469,6 +470,28 @@ A year-by-year roster planning grid that shows contract obligations, projected g
   - Gap in 2-3 years: "2B needed, lean college player for gap in 3 years"
   - Gap in 4+ years: "No long term 2B depth in the majors, draft now"
   - Gaps include both empty cells and cells with sub-3.0 players
+
+**Trade Market (`analyzeTeamTradeProfile()`, `findTradeMatches()`, `renderTradeMarket()`):**
+
+Surfaces actionable trade targets by analyzing all 20 teams' rosters and farm systems. No additional data fetches — uses the already-cached `cachedAllRankings`, `cachedAllHitterProspects`, `cachedAllPitcherProspects`, and `contractMap`.
+
+- **Year selector**: Toggle buttons for each of the 6 planning years (current through +5). Rebuilds all team profiles at the selected year offset. For rebuilding teams, shift the target season forward to focus on future needs rather than the current roster's gaps.
+  - **Selected team needs (future years)**: Uses the planning grid data at the target year — includes prospect fill-ins, user overrides, and projected ratings already baked in
+  - **Other teams' needs (future years)**: Uses current roster adjusted for contract expiration — if an incumbent's contract expires before the target year, that position becomes a need
+  - **Surplus adjustments**: Blocking years reduced by year offset; surplus MLB players must still be under contract at the target year
+
+- **Section 1 — "Your Situation"** (two side-by-side cards):
+  - *Positions of Need*: Lists positions with TR < 3.0 (or empty) at the target year, with severity badges (Critical: < 2.0 or empty; Moderate: 2.0-2.9). Deep bullpen (MR1-MR5) excluded.
+  - *Trade Chips*: Two sub-groups:
+    - **Blocked Prospects**: Org prospects with TFR >= 3.0 whose natural position is blocked by an incumbent with TR >= 3.5 and 3+ years of contract remaining (adjusted for year offset). Shows blocking player, their rating, and remaining years.
+    - **Tradeable Players**: MLB players with TR >= 3.0 on expiring contracts (1-2 years remaining at target year) AND a prospect replacement ready within 2 years (TFR >= 3.0 at the same position).
+
+- **Section 2 — "Trade Targets by Position"**: One expandable group per position of need:
+  - Scans other 19 teams' surplus prospects and surplus MLB players
+  - **Position matching**: Uses `POSITION_SLOTS` — a surplus SS prospect matches needs at SS, 2B, 3B (positions SS can play). SP prospects match any SP1-5 need; RP prospects match CL/SU needs.
+  - **Complementary matching**: If the target's team needs a position where we have surplus, marked with a green "Match" badge. Bilateral matches are scored higher and sorted first.
+  - **Scoring**: `rating × 10` (quality) + `20` (complementary bonus) + proximity bonus (AAA=5, AA=3 for prospects; expiring=3 for MLB). Capped at 8 targets per position.
+  - Player names are clickable → open profile modals
 
 **Cell Editing & Overrides:**
 - Any cell is clickable to open `CellEditModal` — assign org players, search all players, extend contracts, or clear
@@ -813,7 +836,7 @@ weightedIp = (AAA_IP × 1.0) + (AA_IP × 0.7) + (A_IP × 0.4) + (R_IP × 0.2)
 - **FarmRankingsView**: Top 100 prospects, org rankings with Farm Score, sortable/draggable columns
 - **ProjectionsView**: Future performance projections with 3-model ensemble
 - **TeamRatingsView**: Three-mode team analysis — Power Rankings (avg TR), Projections (weighted WAR), and Standings (projected W-L from WAR→Wins calibration)
-- **TeamPlanningView**: 6-year roster planning grid with age-based rating projections (growth toward TFR, aging decline), contract tracking, prospect ETA with ramping ratings, accordion sections, and Planning Grid / Org Analysis toggle
+- **TeamPlanningView**: 6-year roster planning grid with age-based rating projections (growth toward TFR, aging decline), contract tracking, prospect ETA with ramping ratings, accordion sections, and Planning Grid / Org Analysis / Trade Market toggle
 - **DevTrackerView**: Org-level development rankings (2015-2021 WAR), expandable rows with player trajectories and trade impact
 - **TradeAnalyzerView**: Multi-asset trade evaluation tool (see below)
 - **DataManagementView**: File uploads with header validation, filename mismatch detection, data refresh

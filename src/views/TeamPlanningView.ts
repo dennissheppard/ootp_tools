@@ -61,11 +61,89 @@ interface PositionAssessment {
   targetYear: number;
 }
 
+// --- Trade Market Types ---
+
+interface SurplusProspect {
+  playerId: number;
+  name: string;
+  position: number;
+  positionLabel: string;
+  tfr: number;
+  age: number;
+  level: string;
+  orgId: number;
+  orgName: string;
+  blockingPlayer: string;
+  blockingRating: number;
+  blockingYears: number;
+  isPitcher: boolean;
+}
+
+interface SurplusMlbPlayer {
+  playerId: number;
+  name: string;
+  positionLabel: string;
+  trueRating: number;
+  age: number;
+  contractYearsRemaining: number;
+  isExpiring: boolean;
+  orgId: number;
+  orgName: string;
+  isPitcher: boolean;
+}
+
+interface TeamNeed {
+  position: string;
+  section: 'lineup' | 'rotation' | 'bullpen';
+  severity: 'critical' | 'moderate';
+  bestCurrentRating: number;
+}
+
+interface TeamTradeProfile {
+  teamId: number;
+  teamName: string;
+  needs: TeamNeed[];
+  surplusProspects: SurplusProspect[];
+  surplusMlbPlayers: SurplusMlbPlayer[];
+}
+
+interface TradeTarget {
+  player: SurplusProspect | SurplusMlbPlayer;
+  isProspect: boolean;
+  matchScore: number;
+  sourceTeamNeeds: TeamNeed[];
+  complementary: boolean;
+}
+
+interface TradeMarketMatch {
+  position: string;
+  section: 'lineup' | 'rotation' | 'bullpen';
+  severity: 'critical' | 'moderate';
+  targets: TradeTarget[];
+}
+
 // --- Constants ---
 
 const LINEUP_POSITIONS = ['C', '1B', '2B', 'SS', '3B', 'LF', 'CF', 'RF', 'DH'];
 const ROTATION_POSITIONS = ['SP1', 'SP2', 'SP3', 'SP4', 'SP5'];
 const BULLPEN_POSITIONS = ['CL', 'SU1', 'SU2', 'MR1', 'MR2', 'MR3', 'MR4', 'MR5'];
+
+const POSITION_SLOTS = [
+  { label: 'C', canPlay: [2] },
+  { label: '1B', canPlay: [3, 6] },
+  { label: '2B', canPlay: [4, 6] },
+  { label: 'SS', canPlay: [6] },
+  { label: '3B', canPlay: [5, 6] },
+  { label: 'LF', canPlay: [7, 8, 9] },
+  { label: 'CF', canPlay: [8] },
+  { label: 'RF', canPlay: [9, 7, 8] },
+  { label: 'DH', canPlay: [2, 3, 4, 5, 6, 7, 8, 9, 10] },
+];
+
+/** Map a numeric position code to the primary grid label. */
+const POSITION_CODE_TO_LABEL: Record<number, string> = {
+  2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH',
+};
 
 const MIN_SALARY = 228_000;
 const MIN_SALARY_THRESHOLD = MIN_SALARY;
@@ -95,7 +173,7 @@ export class TeamPlanningView {
   private cellEditModal: CellEditModal;
   private messageModal: MessageModal;
   private hasLoadedData = false;
-  private viewMode: 'grid' | 'analysis' = 'grid';
+  private viewMode: 'grid' | 'analysis' | 'market' = 'grid';
   private collapsedSections: Set<string> = new Set();
 
   private allTeams: Team[] = [];
@@ -122,6 +200,8 @@ export class TeamPlanningView {
   private cachedAllHitterProspects: RatedHitterProspect[] = [];
   private cachedOrgPitchers: RatedProspect[] = [];
   private cachedAllPitcherProspects: RatedProspect[] = [];
+  private cachedTradeProfiles: Map<number, TeamTradeProfile> = new Map();
+  private tradeMarketYear: number = 0; // offset from gameYear (0 = current season)
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -179,6 +259,7 @@ export class TeamPlanningView {
               </div>
               <button class="toggle-btn active" data-view="grid">Planning Grid</button>
               <button class="toggle-btn" data-view="analysis">Org Analysis</button>
+              <button class="toggle-btn" data-view="market">Trade Market</button>
             </div>
           </div>
         </div>
@@ -214,7 +295,7 @@ export class TeamPlanningView {
     // View toggle: Planning Grid vs Org Analysis
     this.container.querySelectorAll<HTMLElement>('.toggle-btn[data-view]').forEach(btn => {
       btn.addEventListener('click', () => {
-        const mode = btn.dataset.view as 'grid' | 'analysis';
+        const mode = btn.dataset.view as 'grid' | 'analysis' | 'market';
         if (!mode || mode === this.viewMode) return;
         this.viewMode = mode;
         this.container.querySelectorAll('.toggle-btn[data-view]').forEach(b => b.classList.remove('active'));
@@ -228,15 +309,24 @@ export class TeamPlanningView {
     const gridWrapper = this.container.querySelector<HTMLElement>('.team-planning-table-wrapper');
     const toolbar = this.container.querySelector<HTMLElement>('.tp-grid-toolbar');
     const summaryContainer = this.container.querySelector<HTMLElement>('#tp-summary-container');
+    const marketContainer = this.container.querySelector<HTMLElement>('#tp-market-container');
 
     if (this.viewMode === 'grid') {
       if (gridWrapper) gridWrapper.style.display = '';
       if (toolbar) toolbar.style.display = '';
       if (summaryContainer) summaryContainer.style.display = 'none';
-    } else {
+      if (marketContainer) marketContainer.style.display = 'none';
+    } else if (this.viewMode === 'analysis') {
       if (gridWrapper) gridWrapper.style.display = 'none';
       if (toolbar) toolbar.style.display = 'none';
       if (summaryContainer) summaryContainer.style.display = '';
+      if (marketContainer) marketContainer.style.display = 'none';
+    } else {
+      // market
+      if (gridWrapper) gridWrapper.style.display = 'none';
+      if (toolbar) toolbar.style.display = 'none';
+      if (summaryContainer) summaryContainer.style.display = 'none';
+      if (marketContainer) marketContainer.style.display = '';
     }
   }
 
@@ -458,7 +548,11 @@ export class TeamPlanningView {
       const gaps = this.analyzePositionGaps();
       this.renderSummarySection(assessments, gaps);
 
-      // Re-apply view mode after summary/draft sections are populated
+      // Build trade market profiles for all teams
+      this.cachedTradeProfiles = this.buildAllTeamProfiles();
+      this.renderTradeMarket();
+
+      // Re-apply view mode after summary/draft/market sections are populated
       this.applyViewMode();
 
       // Bind clickable summary links (Org Analysis → Grid navigation)
@@ -574,18 +668,6 @@ export class TeamPlanningView {
     const pitcherETA = new Map<number, number>();
     for (const p of sortedPitchers) pitcherETA.set(p.playerId, this.estimateETA(p));
 
-    const positionSlots = [
-      { label: 'C', canPlay: [2] },
-      { label: '1B', canPlay: [3, 6] },
-      { label: '2B', canPlay: [4, 6] },
-      { label: 'SS', canPlay: [6] },
-      { label: '3B', canPlay: [5, 6] },
-      { label: 'LF', canPlay: [7, 8, 9] },
-      { label: 'CF', canPlay: [8] },
-      { label: 'RF', canPlay: [9, 7, 8] },
-      { label: 'DH', canPlay: [2, 3, 4, 5, 6, 7, 8, 9, 10] },
-    ];
-
     const lineupRowMap = new Map<string, GridRow>();
     for (const row of this.gridRows) {
       if (row.section === 'lineup') lineupRowMap.set(row.position, row);
@@ -628,14 +710,14 @@ export class TeamPlanningView {
       );
       if (available.length === 0) continue;
 
-      const slotsToFill = positionSlots.filter(s => openPositions.includes(s.label));
+      const slotsToFill = POSITION_SLOTS.filter(s => openPositions.includes(s.label));
 
       // Greedy assignment: place each prospect where it provides the biggest upgrade
       const usedThisYear = new Set<number>();
       const filledSlots = new Set<string>();
 
       // Build all (prospect, slot, improvement) candidates
-      type Candidate = { prospect: RatedHitterProspect; slot: typeof positionSlots[0]; projected: number; improvement: number };
+      type Candidate = { prospect: RatedHitterProspect; slot: typeof POSITION_SLOTS[0]; projected: number; improvement: number };
       let candidates: Candidate[] = [];
 
       for (const prospect of available) {
@@ -1052,11 +1134,8 @@ export class TeamPlanningView {
     }
 
     // Hitter: check position eligibility
-    const positionSlots: Record<string, number[]> = {
-      'C': [2], '1B': [3, 6], '2B': [4, 6], 'SS': [6], '3B': [5, 6],
-      'LF': [7, 8, 9], 'CF': [8], 'RF': [9, 7, 8], 'DH': [2, 3, 4, 5, 6, 7, 8, 9, 10],
-    };
-    const eligible = positionSlots[row.position];
+    const slot = POSITION_SLOTS.find(s => s.label === row.position);
+    const eligible = slot?.canPlay;
     if (!eligible) return null;
 
     const best = this.cachedOrgHitters
@@ -1179,6 +1258,7 @@ export class TeamPlanningView {
         </table>
       </div>
       <div id="tp-summary-container"></div>
+      <div id="tp-market-container"></div>
     `;
 
     // Bind accordion toggle on section headers
@@ -2112,6 +2192,533 @@ export class TeamPlanningView {
       await indexedDBService.deleteAllTeamPlanningOverrides(this.selectedTeamId);
       this.overrides.clear();
       await this.buildAndRenderGrid();
+    }
+  }
+
+  // =====================================================================
+  // Trade Market — Analysis
+  // =====================================================================
+
+  /**
+   * Analyze a team's needs, surplus prospects, and surplus MLB players.
+   * @param yearOffset — how many years into the future (0 = current). For the selected
+   *   team we use the planning grid; for other teams we project from current roster + contracts.
+   */
+  private analyzeTeamTradeProfile(
+    teamId: number,
+    ranking: TeamPowerRanking,
+    allHitterProspects: RatedHitterProspect[],
+    allPitcherProspects: RatedProspect[],
+    yearOffset: number = 0,
+  ): TeamTradeProfile {
+    const teamName = ranking.teamName;
+    const needs: TeamNeed[] = [];
+    const surplusProspects: SurplusProspect[] = [];
+    const surplusMlbPlayers: SurplusMlbPlayer[] = [];
+    const targetYear = this.gameYear + yearOffset;
+
+    // --- Detect needs ---
+    // For the selected team, use grid data (includes prospect fill + overrides).
+    // For other teams, use current roster adjusted for contract coverage.
+    const isSelectedTeam = teamId === this.selectedTeamId;
+
+    if (isSelectedTeam && yearOffset > 0 && this.gridRows.length > 0) {
+      // Use the planning grid for the selected team — it already has projected
+      // ratings, prospect fill-ins, and user overrides baked in.
+      for (const row of this.gridRows) {
+        const cell = row.cells.get(targetYear);
+        const rating = cell?.rating ?? 0;
+        const isEmpty = !cell || cell.contractStatus === 'empty';
+        // Skip deep bullpen (MR1-MR5)
+        if (row.section === 'bullpen' && !['CL', 'SU1', 'SU2'].includes(row.position)) continue;
+
+        if (isEmpty || rating < 3.0) {
+          needs.push({
+            position: row.position,
+            section: row.section,
+            severity: rating < 2.0 || isEmpty ? 'critical' : 'moderate',
+            bestCurrentRating: rating,
+          });
+        }
+      }
+    } else {
+      // Use current roster, adjusted for contract expiration at yearOffset
+      const lineupByPos = new Map<string, RatedBatter>();
+      for (const b of ranking.lineup) lineupByPos.set(b.positionLabel, b);
+
+      for (const posLabel of LINEUP_POSITIONS) {
+        const batter = lineupByPos.get(posLabel);
+        let rating = batter?.trueRating ?? 0;
+        // If we're looking into the future, check if the incumbent's contract covers the target year
+        if (batter && yearOffset > 0) {
+          const contract = this.contractMap.get(batter.playerId);
+          const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
+          if (yearsLeft <= yearOffset) rating = 0; // gone by then
+        }
+        if (rating < 3.0) {
+          needs.push({
+            position: posLabel,
+            section: 'lineup',
+            severity: rating < 2.0 || rating === 0 ? 'critical' : 'moderate',
+            bestCurrentRating: rating,
+          });
+        }
+      }
+
+      for (let i = 0; i < ROTATION_POSITIONS.length; i++) {
+        const sp = ranking.rotation[i];
+        let rating = sp?.trueRating ?? 0;
+        if (sp && yearOffset > 0) {
+          const contract = this.contractMap.get(sp.playerId);
+          const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
+          if (yearsLeft <= yearOffset) rating = 0;
+        }
+        if (rating < 3.0) {
+          needs.push({
+            position: ROTATION_POSITIONS[i],
+            section: 'rotation',
+            severity: rating < 2.0 || rating === 0 ? 'critical' : 'moderate',
+            bestCurrentRating: rating,
+          });
+        }
+      }
+
+      for (let i = 0; i < Math.min(3, BULLPEN_POSITIONS.length); i++) {
+        const rp = ranking.bullpen[i];
+        let rating = rp?.trueRating ?? 0;
+        if (rp && yearOffset > 0) {
+          const contract = this.contractMap.get(rp.playerId);
+          const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
+          if (yearsLeft <= yearOffset) rating = 0;
+        }
+        if (rating < 3.0) {
+          needs.push({
+            position: BULLPEN_POSITIONS[i],
+            section: 'bullpen',
+            severity: rating < 2.0 || rating === 0 ? 'critical' : 'moderate',
+            bestCurrentRating: rating,
+          });
+        }
+      }
+    }
+
+    // --- Detect surplus prospects (TFR >= 3.0, blocked at natural position) ---
+    // Build lineup map from current roster for blocking check (always uses current roster)
+    const lineupByPosForSurplus = new Map<string, RatedBatter>();
+    for (const b of ranking.lineup) lineupByPosForSurplus.set(b.positionLabel, b);
+
+    const orgHitters = allHitterProspects.filter(p => p.orgId === teamId && p.trueFutureRating >= 3.0);
+    const orgPitchers = allPitcherProspects.filter(p => p.orgId === teamId && p.trueFutureRating >= 3.0);
+
+    for (const prospect of orgHitters) {
+      const posLabel = POSITION_CODE_TO_LABEL[prospect.position] ?? 'DH';
+      const incumbent = lineupByPosForSurplus.get(posLabel);
+      if (!incumbent) continue;
+
+      const incumbentContract = this.contractMap.get(incumbent.playerId);
+      const incumbentYears = incumbentContract ? contractService.getYearsRemaining(incumbentContract) : 0;
+      // Blocked: incumbent is strong AND still covers the position past yearOffset
+      const effectiveBlockingYears = Math.max(0, incumbentYears - yearOffset);
+      if (incumbent.trueRating >= 3.5 && effectiveBlockingYears >= 3) {
+        surplusProspects.push({
+          playerId: prospect.playerId,
+          name: prospect.name,
+          position: prospect.position,
+          positionLabel: posLabel,
+          tfr: prospect.trueFutureRating,
+          age: prospect.age,
+          level: prospect.level,
+          orgId: teamId,
+          orgName: teamName,
+          blockingPlayer: incumbent.name,
+          blockingRating: incumbent.trueRating,
+          blockingYears: effectiveBlockingYears,
+          isPitcher: false,
+        });
+      }
+    }
+
+    for (const prospect of orgPitchers) {
+      const pitches = prospect.scoutingRatings?.pitches ?? 0;
+      const stamina = prospect.scoutingRatings?.stamina ?? 0;
+      const isSP = pitches >= 3 && stamina >= 30;
+
+      if (isSP) {
+        const weakSP = ranking.rotation.find(sp => {
+          if (sp.trueRating < 3.5) return true;
+          // If we're in the future, check if this SP's contract covers the target year
+          if (yearOffset > 0) {
+            const c = this.contractMap.get(sp.playerId);
+            if (c && contractService.getYearsRemaining(c) <= yearOffset) return true;
+          }
+          return false;
+        });
+        if (!weakSP) {
+          const bestSP = ranking.rotation[0];
+          const bestContract = bestSP ? this.contractMap.get(bestSP.playerId) : undefined;
+          const blockYears = bestContract ? Math.max(0, contractService.getYearsRemaining(bestContract) - yearOffset) : 3;
+          surplusProspects.push({
+            playerId: prospect.playerId,
+            name: prospect.name,
+            position: 1,
+            positionLabel: 'SP',
+            tfr: prospect.trueFutureRating,
+            age: prospect.age,
+            level: prospect.level,
+            orgId: teamId,
+            orgName: teamName,
+            blockingPlayer: bestSP?.name ?? 'Rotation',
+            blockingRating: ranking.rotationRating,
+            blockingYears: blockYears,
+            isPitcher: true,
+          });
+        }
+      } else {
+        const weakRP = ranking.bullpen.slice(0, 3).find(rp => {
+          if (rp.trueRating < 3.5) return true;
+          if (yearOffset > 0) {
+            const c = this.contractMap.get(rp.playerId);
+            if (c && contractService.getYearsRemaining(c) <= yearOffset) return true;
+          }
+          return false;
+        });
+        if (!weakRP) {
+          const bestRP = ranking.bullpen[0];
+          const bestContract = bestRP ? this.contractMap.get(bestRP.playerId) : undefined;
+          const blockYears = bestContract ? Math.max(0, contractService.getYearsRemaining(bestContract) - yearOffset) : 3;
+          surplusProspects.push({
+            playerId: prospect.playerId,
+            name: prospect.name,
+            position: 1,
+            positionLabel: 'RP',
+            tfr: prospect.trueFutureRating,
+            age: prospect.age,
+            level: prospect.level,
+            orgId: teamId,
+            orgName: teamName,
+            blockingPlayer: bestRP?.name ?? 'Bullpen',
+            blockingRating: ranking.bullpenRating,
+            blockingYears: blockYears,
+            isPitcher: true,
+          });
+        }
+      }
+    }
+
+    // --- Detect surplus MLB players (expiring + prospect replacement ready) ---
+    const allRosterPlayers = [
+      ...ranking.lineup.map(b => ({ ...b, isPitcher: false, posLabel: b.positionLabel })),
+      ...ranking.rotation.map((p, i) => ({ ...p, isPitcher: true, posLabel: ROTATION_POSITIONS[i], position: 1 })),
+      ...ranking.bullpen.slice(0, 3).map((p, i) => ({ ...p, isPitcher: true, posLabel: BULLPEN_POSITIONS[i], position: 1 })),
+    ];
+
+    for (const mlb of allRosterPlayers) {
+      if (mlb.trueRating < 3.0) continue;
+      const contract = this.contractMap.get(mlb.playerId);
+      if (!contract) continue;
+      const yearsLeft = contractService.getYearsRemaining(contract);
+      // Adjust for year offset: player must still be under contract at that point
+      if (yearsLeft <= yearOffset) continue; // already gone by target year
+      const effectiveYearsLeft = yearsLeft - yearOffset;
+      if (effectiveYearsLeft > 2) continue; // not expiring at target year
+
+      let hasReplacement = false;
+      if (mlb.isPitcher) {
+        hasReplacement = orgPitchers.some(p => p.trueFutureRating >= 3.0 && this.estimateETA(p) <= 2 + yearOffset);
+      } else {
+        const posCode = 'position' in mlb ? (mlb.position as number) : 0;
+        hasReplacement = orgHitters.some(h =>
+          h.trueFutureRating >= 3.0 && h.position === posCode && this.estimateETA(h) <= 2 + yearOffset
+        );
+      }
+
+      if (hasReplacement) {
+        const player = this.playerMap.get(mlb.playerId);
+        surplusMlbPlayers.push({
+          playerId: mlb.playerId,
+          name: mlb.name,
+          positionLabel: mlb.posLabel,
+          trueRating: mlb.trueRating,
+          age: (player?.age ?? 0) + yearOffset,
+          contractYearsRemaining: effectiveYearsLeft,
+          isExpiring: effectiveYearsLeft === 1,
+          orgId: teamId,
+          orgName: teamName,
+          isPitcher: mlb.isPitcher,
+        });
+      }
+    }
+
+    return { teamId, teamName, needs, surplusProspects, surplusMlbPlayers };
+  }
+
+  private buildAllTeamProfiles(): Map<number, TeamTradeProfile> {
+    const yearOffset = this.tradeMarketYear;
+    const profiles = new Map<number, TeamTradeProfile>();
+    for (const ranking of this.cachedAllRankings) {
+      const profile = this.analyzeTeamTradeProfile(
+        ranking.teamId,
+        ranking,
+        this.cachedAllHitterProspects,
+        this.cachedAllPitcherProspects,
+        yearOffset,
+      );
+      profiles.set(ranking.teamId, profile);
+    }
+    return profiles;
+  }
+
+  private findTradeMatches(): TradeMarketMatch[] {
+    if (!this.selectedTeamId) return [];
+    const myProfile = this.cachedTradeProfiles.get(this.selectedTeamId);
+    if (!myProfile) return [];
+
+    const matches: TradeMarketMatch[] = [];
+
+    /** Check if a player's position can fill a need position. */
+    const positionFitsNeed = (playerPosLabel: string, needPos: string, isPitcher: boolean): boolean => {
+      if (isPitcher) {
+        if (playerPosLabel === 'SP') return needPos.startsWith('SP');
+        if (playerPosLabel === 'RP') return ['CL', 'SU1', 'SU2'].includes(needPos);
+        return false;
+      }
+      // Hitter: check if the player's natural position can play the need position
+      const playerSlot = POSITION_SLOTS.find(s => s.label === playerPosLabel);
+      const needSlot = POSITION_SLOTS.find(s => s.label === needPos);
+      if (!playerSlot || !needSlot) return playerPosLabel === needPos;
+      // Player's position code must be in the need slot's canPlay list
+      const playerPosCode = Object.entries(POSITION_CODE_TO_LABEL)
+        .find(([, label]) => label === playerPosLabel)?.[0];
+      if (!playerPosCode) return false;
+      return needSlot.canPlay.includes(parseInt(playerPosCode, 10));
+    };
+
+    for (const need of myProfile.needs) {
+      const targets: TradeTarget[] = [];
+
+      for (const [otherTeamId, otherProfile] of this.cachedTradeProfiles) {
+        if (otherTeamId === this.selectedTeamId) continue;
+
+        // Check their surplus prospects
+        for (const prospect of otherProfile.surplusProspects) {
+          if (!positionFitsNeed(prospect.positionLabel, need.position, prospect.isPitcher)) continue;
+
+          // Check complementary: do we have surplus at a position they need?
+          const complementary = otherProfile.needs.some(theirNeed =>
+            myProfile.surplusProspects.some(ourSurplus =>
+              positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)
+            ) || myProfile.surplusMlbPlayers.some(ourSurplus =>
+              positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)
+            )
+          );
+
+          const matchScore = prospect.tfr * 10
+            + (complementary ? 20 : 0)
+            + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0);
+
+          targets.push({
+            player: prospect,
+            isProspect: true,
+            matchScore,
+            sourceTeamNeeds: otherProfile.needs,
+            complementary,
+          });
+        }
+
+        // Check their surplus MLB players
+        for (const mlbPlayer of otherProfile.surplusMlbPlayers) {
+          if (!positionFitsNeed(mlbPlayer.positionLabel, need.position, mlbPlayer.isPitcher)) continue;
+
+          const complementary = otherProfile.needs.some(theirNeed =>
+            myProfile.surplusProspects.some(ourSurplus =>
+              positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)
+            ) || myProfile.surplusMlbPlayers.some(ourSurplus =>
+              positionFitsNeed(ourSurplus.positionLabel, theirNeed.position, ourSurplus.isPitcher)
+            )
+          );
+
+          const matchScore = mlbPlayer.trueRating * 10
+            + (complementary ? 20 : 0)
+            + (mlbPlayer.isExpiring ? 3 : 0);
+
+          targets.push({
+            player: mlbPlayer,
+            isProspect: false,
+            matchScore,
+            sourceTeamNeeds: otherProfile.needs,
+            complementary,
+          });
+        }
+      }
+
+      // Sort: complementary first, then by score
+      targets.sort((a, b) => {
+        if (a.complementary !== b.complementary) return a.complementary ? -1 : 1;
+        return b.matchScore - a.matchScore;
+      });
+
+      if (targets.length > 0) {
+        matches.push({
+          position: need.position,
+          section: need.section,
+          severity: need.severity,
+          targets: targets.slice(0, 8),
+        });
+      }
+    }
+
+    return matches;
+  }
+
+  // =====================================================================
+  // Trade Market — Rendering
+  // =====================================================================
+
+  private renderTradeMarket(): void {
+    const container = this.container.querySelector<HTMLElement>('#tp-market-container');
+    if (!container) return;
+
+    if (!this.selectedTeamId) {
+      container.innerHTML = '<p class="empty-text">Select a team to view trade market.</p>';
+      return;
+    }
+
+    const myProfile = this.cachedTradeProfiles.get(this.selectedTeamId);
+    if (!myProfile) {
+      container.innerHTML = '<p class="empty-text">No trade data available.</p>';
+      return;
+    }
+
+    const matches = this.findTradeMatches();
+    const targetYear = this.gameYear + this.tradeMarketYear;
+
+    // Year selector buttons
+    const yearRange = this.getYearRange();
+    const yearSelectorHtml = yearRange.map(y => {
+      const offset = y - this.gameYear;
+      const active = offset === this.tradeMarketYear ? ' active' : '';
+      return `<button class="toggle-btn market-year-btn${active}" data-year-offset="${offset}">${y}</button>`;
+    }).join('');
+
+    // Section 1: Your Situation
+    const yearLabel = this.tradeMarketYear === 0 ? 'current' : `${targetYear} projected`;
+    const needsHtml = myProfile.needs.length > 0
+      ? '<ul class="summary-list">' + myProfile.needs.map(n =>
+        `<li><span class="market-severity-${n.severity}">${n.severity.toUpperCase()}</span> ${n.position} — ${yearLabel}: ${n.bestCurrentRating > 0 ? n.bestCurrentRating.toFixed(1) : 'empty'}</li>`
+      ).join('') + '</ul>'
+      : '<p class="summary-empty">No significant needs identified.</p>';
+
+    const surplusProspectsHtml = myProfile.surplusProspects.length > 0
+      ? myProfile.surplusProspects.map(p =>
+        `<div class="market-player-card market-prospect-card">
+          <span class="cell-name-link" data-profile-id="${p.playerId}">${this.abbreviateName(p.name)}</span>
+          <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)}</span>
+          <span class="market-pos-badge">${p.positionLabel}</span>
+          <span class="market-detail">${p.level}, Age ${p.age}</span>
+          <span class="market-block-info">blocked by ${this.abbreviateName(p.blockingPlayer)} (${p.blockingRating.toFixed(1)}, ${p.blockingYears}yr)</span>
+        </div>`
+      ).join('')
+      : '<p class="summary-empty">No blocked prospects.</p>';
+
+    const surplusMlbHtml = myProfile.surplusMlbPlayers.length > 0
+      ? myProfile.surplusMlbPlayers.map(p =>
+        `<div class="market-player-card market-mlb-card">
+          <span class="cell-name-link" data-profile-id="${p.playerId}">${this.abbreviateName(p.name)}</span>
+          <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)}</span>
+          <span class="market-pos-badge">${p.positionLabel}</span>
+          <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
+        </div>`
+      ).join('')
+      : '';
+
+    // Section 2: Trade Targets by Position
+    const targetsHtml = matches.length > 0
+      ? matches.map(m => `
+        <div class="market-target-group">
+          <div class="market-target-header">
+            <span class="market-pos-label">${m.position}</span>
+            <span class="market-severity-${m.severity}">${m.severity.toUpperCase()}</span>
+          </div>
+          <div class="market-target-list">
+            ${m.targets.map(t => this.renderTradeTargetCard(t)).join('')}
+          </div>
+        </div>
+      `).join('')
+      : '<p class="summary-empty">No matching trade targets found.</p>';
+
+    container.innerHTML = `
+      <div class="trade-market-section">
+        <div class="market-year-selector">
+          <span class="market-year-label">Target Season:</span>
+          ${yearSelectorHtml}
+        </div>
+
+        <div class="trade-market-overview">
+          <div class="planning-summary-card summary-card-need">
+            <div class="summary-card-header summary-header-need">Positions of Need</div>
+            ${needsHtml}
+          </div>
+          <div class="planning-summary-card summary-card-strength">
+            <div class="summary-card-header summary-header-strength">Trade Chips</div>
+            ${myProfile.surplusProspects.length > 0 ? '<div class="market-surplus-label">Blocked Prospects</div>' : ''}
+            ${surplusProspectsHtml}
+            ${myProfile.surplusMlbPlayers.length > 0 ? '<div class="market-surplus-label">Tradeable Players</div>' : ''}
+            ${surplusMlbHtml}
+          </div>
+        </div>
+
+        <div class="trade-market-targets">
+          <h3 class="market-section-title">Trade Targets by Position</h3>
+          ${targetsHtml}
+        </div>
+      </div>
+    `;
+
+    // Bind year selector
+    container.querySelectorAll<HTMLElement>('.market-year-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const offset = parseInt(btn.dataset.yearOffset ?? '0', 10);
+        if (offset === this.tradeMarketYear) return;
+        this.tradeMarketYear = offset;
+        // Rebuild profiles at the new year offset and re-render
+        this.cachedTradeProfiles = this.buildAllTeamProfiles();
+        this.renderTradeMarket();
+      });
+    });
+
+    // Bind profile clicks in market container
+    container.querySelectorAll<HTMLElement>('.cell-name-link').forEach(nameEl => {
+      nameEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const playerId = nameEl.dataset.profileId ? parseInt(nameEl.dataset.profileId, 10) : null;
+        if (playerId) this.openPlayerProfile(playerId);
+      });
+    });
+  }
+
+  private renderTradeTargetCard(target: TradeTarget): string {
+    if (target.isProspect) {
+      const p = target.player as SurplusProspect;
+      return `
+        <div class="market-player-card market-prospect-card">
+          <span class="market-pos-badge">${p.positionLabel}</span>
+          <span class="cell-name-link" data-profile-id="${p.playerId}">${this.abbreviateName(p.name)}</span>
+          <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)} TFR</span>
+          <span class="market-org-label">${p.orgName}</span>
+          <span class="market-detail">${p.level}, Age ${p.age}</span>
+          ${target.complementary ? '<span class="market-match-badge" title="This team needs something you have">Match</span>' : ''}
+        </div>`;
+    } else {
+      const p = target.player as SurplusMlbPlayer;
+      return `
+        <div class="market-player-card market-mlb-card">
+          <span class="market-pos-badge">${p.positionLabel}</span>
+          <span class="cell-name-link" data-profile-id="${p.playerId}">${this.abbreviateName(p.name)}</span>
+          <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)} TR</span>
+          <span class="market-org-label">${p.orgName}</span>
+          <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
+          ${target.complementary ? '<span class="market-match-badge" title="This team needs something you have">Match</span>' : ''}
+        </div>`;
     }
   }
 

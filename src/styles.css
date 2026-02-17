@@ -9673,3 +9673,182 @@ th .stat-tooltip {
 .standings-summary-item strong {
   color: var(--color-text);
 }
+
+/* ===== Trade Market ===== */
+
+.trade-market-section {
+  margin-top: 0.5rem;
+}
+
+.market-year-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 1rem;
+}
+
+.market-year-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  margin-right: 0.25rem;
+}
+
+.market-year-btn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.6rem;
+}
+
+.trade-market-overview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.trade-market-targets {
+  margin-top: 1rem;
+}
+
+.market-section-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-text-muted);
+  margin: 0 0 0.75rem 0;
+}
+
+.market-target-group {
+  margin-bottom: 1rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+}
+
+.market-target-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: rgba(29, 155, 240, 0.06);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.market-pos-label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.market-target-list {
+  padding: 0.25rem 0;
+}
+
+.market-player-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.75rem;
+  font-size: 0.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+
+.market-player-card:last-child {
+  border-bottom: none;
+}
+
+.market-prospect-card {
+  background: rgba(29, 155, 240, 0.03);
+}
+
+.market-mlb-card {
+  background: transparent;
+}
+
+.market-pos-badge {
+  display: inline-block;
+  min-width: 2rem;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.06);
+  padding: 0.1rem 0.3rem;
+  border-radius: 3px;
+}
+
+.market-org-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  margin-left: auto;
+}
+
+.market-detail {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.market-block-info {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  font-style: italic;
+  margin-left: auto;
+}
+
+.market-severity-critical {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(244, 33, 46, 0.15);
+  color: #f4212e;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.market-severity-moderate {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(255, 193, 7, 0.15);
+  color: #ffc107;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.market-match-badge {
+  display: inline-block;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 0.1rem 0.4rem;
+  border-radius: 3px;
+  background: rgba(0, 186, 124, 0.15);
+  color: #00ba7c;
+  cursor: help;
+  flex-shrink: 0;
+}
+
+.market-surplus-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 0.5rem 0.75rem 0.2rem;
+}
+
+.market-player-card .cell-name-link {
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .trade-market-overview {
+    grid-template-columns: 1fr;
+  }
+}
