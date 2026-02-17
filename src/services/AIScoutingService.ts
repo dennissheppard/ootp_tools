@@ -137,16 +137,22 @@ class AIScoutingService {
    * Internally enriches the data with league leaders and org context.
    */
   async getAnalysis(playerId: number, playerType: 'pitcher' | 'hitter', data: AIScoutingPlayerData): Promise<string> {
-    // Enrich with league context (league leaders, org roster, team ranking)
-    const enriched = await this.enrichWithContext(data, playerType);
-
-    const dataHash = this.hashData(playerType, enriched);
-    const key = `${playerId}_${playerType}`;
+    // Hash BEFORE enrichment — hash only depends on player-specific data,
+    // not enriched context (league leaders, org roster) which can vary between calls
+    const dataHash = this.hashData(playerType, data);
 
     // Check cache
     const cached = await indexedDBService.getAIBlurb(playerId, playerType);
     if (cached && cached.dataHash === dataHash) {
+      console.log(`%c[True Analysis] Cache hit for ${data.playerName}`, 'color: #6c6; font-weight: bold');
       return cached.blurbText;
+    }
+
+    // Enrich with league context (league leaders, org roster, team ranking)
+    const enriched = await this.enrichWithContext(data, playerType);
+
+    if (cached) {
+      console.log(`%c[True Analysis] Cache miss for ${data.playerName} (hash changed: ${cached.dataHash} → ${dataHash})`, 'color: #f96; font-weight: bold');
     }
 
     // Build prompt and call API
@@ -157,7 +163,7 @@ class AIScoutingService {
 
     // Cache result
     const record: AIScoutingBlurbRecord = {
-      key,
+      key: `${playerId}_${playerType}`,
       playerId,
       playerType,
       blurbText: blurb,
@@ -557,12 +563,16 @@ class AIScoutingService {
   private hashData(playerType: string, data: AIScoutingPlayerData): string {
     const hashInput: Record<string, any> = { playerType };
 
-    // Hash on ratings + metadata + context only — NOT derived projections.
-    // Projections are computed from the ratings, so if ratings match the cached
-    // analysis is still valid. This prevents cache misses when different views
-    // pass slightly different derived stats for the same player.
+    // Hash on player-specific ratings + metadata only.
+    // Excludes: derived projections (computed from ratings, so redundant),
+    // enriched context strings (teamContext, leagueLeaders, orgRoster) which are
+    // environmental context that can vary between calls due to getPowerRankings()
+    // recomputation, and caller-provided fields that different views format
+    // inconsistently (position label, parentOrg).
+    // This ensures the cache is keyed on the player's actual ratings, which are
+    // canonicalized in the modal regardless of which view opened it.
     const fields: (keyof AIScoutingPlayerData)[] = [
-      'age', 'position', 'injuryProneness', 'parentOrg',
+      'age', 'injuryProneness',
       'scoutStuff', 'scoutControl', 'scoutHra', 'scoutStamina',
       'scoutPower', 'scoutEye', 'scoutAvoidK', 'scoutContact', 'scoutGap', 'scoutSpeed',
       'scoutStealAbility', 'scoutStealAggression',
@@ -572,7 +582,6 @@ class AIScoutingService {
       'estimatedPower', 'estimatedEye', 'estimatedAvoidK', 'estimatedContact',
       'leadership', 'loyalty', 'adaptability', 'greed', 'workEthic', 'intelligence',
       'contractSalary', 'contractYears', 'contractClauses',
-      'teamContext', 'leagueLeaders', 'orgRoster'
     ];
 
     for (const f of fields) {

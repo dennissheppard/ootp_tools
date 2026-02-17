@@ -1046,7 +1046,7 @@ class TrueRatingsService {
    * All views should use this instead of computing TR independently.
    *
    * Uses the same parameters as TrueRatingsView:
-   * - Pool: ALL batters from getMultiYearBattingStats with totalPa >= 100
+   * - Pool: ALL batters from getMultiYearBattingStats with totalPa >= 30
    * - Scouting: both my and osa (my overrides osa)
    * - Year weights: dynamic via getSeasonProgress() when year === currentYear
    * - League averages: getDefaultLeagueAverages()
@@ -1111,11 +1111,11 @@ class TrueRatingsService {
       extraNames.forEach((name, pid) => nameMap.set(pid, name));
     }
 
-    // Build inputs: ALL batters with totalPa >= 100
+    // Build inputs: ALL batters with totalPa >= 30
     const inputs: HitterTrueRatingInput[] = [];
     multiYearStats.forEach((stats, pid) => {
       const totalPa = stats.reduce((sum, s) => sum + s.pa, 0);
-      if (totalPa < 100) return;
+      if (totalPa < 30) return;
 
       inputs.push({
         playerId: pid,
@@ -1193,11 +1193,11 @@ class TrueRatingsService {
       extraNames.forEach((name, pid) => nameMap.set(pid, name));
     }
 
-    // Build inputs: ALL pitchers with totalIp >= 50
+    // Build inputs: ALL pitchers with totalIp >= 10
     const inputs: TrueRatingInput[] = [];
     multiYearStats.forEach((stats, pid) => {
       const totalIp = stats.reduce((sum, s) => sum + s.ip, 0);
-      if (totalIp < 50) return;
+      if (totalIp < 10) return;
 
       const scouting = scoutingMap.get(pid);
       const player = playerMap.get(pid);

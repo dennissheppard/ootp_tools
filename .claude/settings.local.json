@@ -52,7 +52,12 @@
       "Bash(while IFS=',' read rank team w l bwar pwar twar rest)",
       "Bash(do echo \"$team,$w,$twar\")",
       "Bash(npx jest:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" log --oneline --all -20)",
+      "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" diff HEAD~5 src/views/PitcherProfileModal.ts)",
+      "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" show c61f471:src/views/PitcherProfileModal.ts)",
+      "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" status)",
+      "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" diff src/services/AIScoutingService.ts)"
     ]
   }
 }

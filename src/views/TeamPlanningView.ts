@@ -518,14 +518,24 @@ export class TeamPlanningView {
       await this.computeServiceYears(rosterPlayerIds);
 
       // Build prospect current rating map (dev overrides skip the curve — use TFR directly)
+      // Also build a canonical TR lookup from power rankings so that prospects
+      // with actual MLB stats use their proven ability as a floor.
+      const rosterTrMap = new Map<number, number>();
+      for (const r of rankings) {
+        for (const p of [...r.rotation, ...r.bullpen]) rosterTrMap.set(p.playerId, p.trueRating);
+        for (const b of [...r.lineup, ...r.bench]) rosterTrMap.set(b.playerId, b.trueRating);
+      }
+
       this.prospectCurrentRatingMap.clear();
       for (const h of farmHitters) {
-        this.prospectCurrentRatingMap.set(h.playerId,
-          this.devOverrides.has(h.playerId) ? h.trueFutureRating : this.computeProspectCurrentRating(h));
+        const devRating = this.devOverrides.has(h.playerId) ? h.trueFutureRating : this.computeProspectCurrentRating(h);
+        const canonicalTr = rosterTrMap.get(h.playerId);
+        this.prospectCurrentRatingMap.set(h.playerId, canonicalTr ? Math.max(devRating, canonicalTr) : devRating);
       }
       for (const p of orgPitchers) {
-        this.prospectCurrentRatingMap.set(p.playerId,
-          this.devOverrides.has(p.playerId) ? p.trueFutureRating : this.computeProspectCurrentRating(p));
+        const devRating = this.devOverrides.has(p.playerId) ? p.trueFutureRating : this.computeProspectCurrentRating(p);
+        const canonicalTr = rosterTrMap.get(p.playerId);
+        this.prospectCurrentRatingMap.set(p.playerId, canonicalTr ? Math.max(devRating, canonicalTr) : devRating);
       }
 
       // Build player age map for buildRow projections
@@ -1754,8 +1764,11 @@ export class TeamPlanningView {
       const existing = this.playerRatingMap.get(h.playerId) ?? 0;
       this.playerRatingMap.set(h.playerId, Math.max(existing, h.trueFutureRating));
     }
-    // Pitcher prospects (TFR)
-    for (const p of orgPitchers) this.playerRatingMap.set(p.playerId, p.trueFutureRating);
+    // Pitcher prospects: store max(TR, TFR) — matches hitter logic
+    for (const p of orgPitchers) {
+      const existing = this.playerRatingMap.get(p.playerId) ?? 0;
+      this.playerRatingMap.set(p.playerId, Math.max(existing, p.trueFutureRating));
+    }
   }
 
   private async loadOverrides(): Promise<void> {
