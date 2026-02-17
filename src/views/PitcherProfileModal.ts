@@ -16,7 +16,7 @@ import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { determinePitcherRole, PitcherRoleInput } from '../models/Player';
 import { fipWarService } from '../services/FipWarService';
 import { projectionService } from '../services/ProjectionService';
-import { PitcherTfrSourceData } from '../services/TeamRatingsService';
+import { PitcherTfrSourceData, teamRatingsService } from '../services/TeamRatingsService';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
 
 // Eagerly resolve all team logo URLs via Vite glob
@@ -264,23 +264,67 @@ export class PitcherProfileModal {
     if (generation !== this.showGeneration) return; // Stale call
     this.projectionYear = currentYear;
 
-    // Override with canonical True Ratings so the modal is consistent regardless of caller
-    if (!data.isProspect) {
-      const canonicalTR = await trueRatingsService.getPitcherTrueRatings(currentYear);
+    // === Canonical data override — ensures consistency regardless of caller ===
+    // 1. Always fetch canonical TR (for MLB players)
+    const canonicalTR = await trueRatingsService.getPitcherTrueRatings(currentYear);
+    if (generation !== this.showGeneration) return;
+    const playerTR = canonicalTR.get(data.playerId);
+
+    // 2. Always fetch canonical TFR (for pitching prospects)
+    let tfrEntry: import('../services/TeamRatingsService').RatedProspect | undefined;
+    try {
+      const farmData = await teamRatingsService.getFarmData(currentYear);
       if (generation !== this.showGeneration) return;
-      const playerTR = canonicalTR.get(data.playerId);
+      tfrEntry = farmData.prospects.find(p => p.playerId === data.playerId);
+    } catch { /* TFR data not available */ }
+
+    // 3. Override TR fields from canonical source
+    if (playerTR) {
+      data.trueRating = playerTR.trueRating;
+      data.percentile = playerTR.percentile;
+      data.fipLike = playerTR.fipLike;
+      data.estimatedStuff = playerTR.estimatedStuff;
+      data.estimatedControl = playerTR.estimatedControl;
+      data.estimatedHra = playerTR.estimatedHra;
+      data.projK9 = playerTR.blendedK9;
+      data.projBb9 = playerTR.blendedBb9;
+      data.projHr9 = playerTR.blendedHr9;
+      data.isProspect = false; // Has MLB stats → not a prospect for display purposes
+    }
+
+    // 4. Override TFR fields from canonical source
+    if (tfrEntry) {
+      data.trueFutureRating = tfrEntry.trueFutureRating;
+      data.tfrPercentile = tfrEntry.percentile;
+      data.tfrStuff = tfrEntry.trueRatings?.stuff;
+      data.tfrControl = tfrEntry.trueRatings?.control;
+      data.tfrHra = tfrEntry.trueRatings?.hra;
+      data.tfrBySource = tfrEntry.tfrBySource;
+
       if (playerTR) {
-        data.trueRating = playerTR.trueRating;
-        data.percentile = playerTR.percentile;
-        data.fipLike = playerTR.fipLike;
-        data.estimatedStuff = playerTR.estimatedStuff;
-        data.estimatedControl = playerTR.estimatedControl;
-        data.estimatedHra = playerTR.estimatedHra;
-        // Override blended rates for projection consistency
-        data.projK9 = playerTR.blendedK9;
-        data.projBb9 = playerTR.blendedBb9;
-        data.projHr9 = playerTR.blendedHr9;
+        // MLB pitcher with upside: TFR > TR
+        data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating;
+      } else {
+        // Pure prospect: always show TFR
+        data.hasTfrUpside = true;
+        data.isProspect = true;
+        // Use development curve TR for estimated ratings (current ability)
+        const devTR = tfrEntry.developmentTR;
+        data.estimatedStuff = devTR?.stuff ?? tfrEntry.trueRatings?.stuff;
+        data.estimatedControl = devTR?.control ?? tfrEntry.trueRatings?.control;
+        data.estimatedHra = devTR?.hra ?? tfrEntry.trueRatings?.hra;
+        // Peak projection stats
+        data.projK9 = tfrEntry.projK9;
+        data.projBb9 = tfrEntry.projBb9;
+        data.projHr9 = tfrEntry.projHr9;
       }
+    }
+
+    // 5. Force recompute of derived projections from canonical data
+    if (playerTR || tfrEntry) {
+      data.projFip = undefined;
+      data.projWar = undefined;
+      data.projIp = undefined;
     }
 
     // Update header
@@ -474,6 +518,12 @@ export class PitcherProfileModal {
         } catch (e) {
           console.warn('ProjectionService IP calculation failed, will use fallback', e);
         }
+      }
+
+      // Re-render WAR emblem now that projectedIp is computed from the projection service
+      // (the initial render at the header pass ran before stats/IP were loaded)
+      if (warSlot) {
+        warSlot.innerHTML = this.renderWarEmblem(data);
       }
 
       // Render full body
@@ -2064,12 +2114,21 @@ export class PitcherProfileModal {
       estimatedStuff: data.estimatedStuff,
       estimatedControl: data.estimatedControl,
       estimatedHra: data.estimatedHra,
-      projFip: data.projFip,
-      projK9: data.projK9,
-      projBb9: data.projBb9,
-      projHr9: data.projHr9,
-      projWar: data.projWar,
-      projIp: data.projIp,
+      // Compute projections from canonical blended rates for consistency
+      ...(() => {
+        const stats = this.computeProjectedStats(data);
+        const projWar = stats.projFip !== undefined && stats.projIp !== undefined
+          ? fipWarService.calculateWar(stats.projFip, stats.projIp)
+          : data.projWar;
+        return {
+          projFip: stats.projFip,
+          projK9: stats.projK9,
+          projBb9: stats.projBb9,
+          projHr9: stats.projHr9,
+          projWar,
+          projIp: stats.projIp,
+        };
+      })(),
       projectedRole,
       pitchArsenal,
       // Personality

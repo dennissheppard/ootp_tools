@@ -11,7 +11,7 @@ import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingSt
 import { dateService } from '../services/DateService';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
 import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
-import { BatterTfrSourceData } from '../services/TeamRatingsService';
+import { BatterTfrSourceData, teamRatingsService } from '../services/TeamRatingsService';
 import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
 import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricToggleHandlers, applyExclusiveMetricToggle } from '../components/DevelopmentChart';
 import { contractService, Contract } from '../services/ContractService';
@@ -327,34 +327,88 @@ export class BatterProfileModal {
     // Load dynamic league averages (prior year as baseline for projections)
     this.leagueAvg = await leagueBattingAveragesService.getLeagueAverages(currentYear - 1);
 
-    // Override with canonical True Ratings so the modal is consistent regardless of caller
-    if (!data.isProspect) {
-      const canonicalTR = await trueRatingsService.getHitterTrueRatings(currentYear);
+    // === Canonical data override — ensures consistency regardless of caller ===
+    // 1. Always fetch canonical TR (for MLB players)
+    const canonicalTR = await trueRatingsService.getHitterTrueRatings(currentYear);
+    if (generation !== this.showGeneration) return;
+    const playerTR = canonicalTR.get(data.playerId);
+
+    // 2. Always fetch canonical TFR (for players with upside)
+    let tfrEntry: import('../services/TeamRatingsService').RatedHitterProspect | undefined;
+    try {
+      const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(currentYear);
       if (generation !== this.showGeneration) return;
-      const playerTR = canonicalTR.get(data.playerId);
+      tfrEntry = unifiedData.prospects.find(p => p.playerId === data.playerId);
+    } catch { /* TFR data not available */ }
+
+    // 3. Override TR fields from canonical source
+    if (playerTR) {
+      data.trueRating = playerTR.trueRating;
+      data.percentile = playerTR.percentile;
+      data.woba = playerTR.woba;
+      data.estimatedPower = playerTR.estimatedPower;
+      data.estimatedEye = playerTR.estimatedEye;
+      data.estimatedAvoidK = playerTR.estimatedAvoidK;
+      data.estimatedContact = playerTR.estimatedContact;
+      data.estimatedGap = playerTR.estimatedGap;
+      data.estimatedSpeed = playerTR.estimatedSpeed;
+      data.projBbPct = playerTR.blendedBbPct;
+      data.projKPct = playerTR.blendedKPct;
+      data.projHrPct = playerTR.blendedHrPct;
+      data.projAvg = playerTR.blendedAvg;
+      data.projWoba = playerTR.woba;
+      data.projDoublesRate = playerTR.blendedDoublesRate;
+      data.projTriplesRate = playerTR.blendedTriplesRate;
+      data.isProspect = false; // Has MLB stats → not a prospect for display purposes
+    }
+
+    // 4. Override TFR fields from canonical source
+    if (tfrEntry) {
+      data.trueFutureRating = tfrEntry.trueFutureRating;
+      data.tfrPercentile = tfrEntry.percentile;
+      data.tfrPower = tfrEntry.trueRatings.power;
+      data.tfrEye = tfrEntry.trueRatings.eye;
+      data.tfrAvoidK = tfrEntry.trueRatings.avoidK;
+      data.tfrContact = tfrEntry.trueRatings.contact;
+      data.tfrGap = tfrEntry.trueRatings.gap;
+      data.tfrSpeed = tfrEntry.trueRatings.speed;
+      data.tfrBbPct = tfrEntry.projBbPct;
+      data.tfrKPct = tfrEntry.projKPct;
+      data.tfrHrPct = tfrEntry.projHrPct;
+      data.tfrAvg = tfrEntry.projAvg;
+      data.tfrObp = tfrEntry.projObp;
+      data.tfrSlg = tfrEntry.projSlg;
+      data.tfrPa = tfrEntry.projPa;
+      data.tfrBySource = tfrEntry.tfrBySource;
+
       if (playerTR) {
-        data.trueRating = playerTR.trueRating;
-        data.percentile = playerTR.percentile;
-        data.woba = playerTR.woba;
-        data.estimatedPower = playerTR.estimatedPower;
-        data.estimatedEye = playerTR.estimatedEye;
-        data.estimatedAvoidK = playerTR.estimatedAvoidK;
-        data.estimatedContact = playerTR.estimatedContact;
-        data.estimatedGap = playerTR.estimatedGap;
-        data.estimatedSpeed = playerTR.estimatedSpeed;
-        // Override blended rates for projection consistency
-        data.projBbPct = playerTR.blendedBbPct;
-        data.projKPct = playerTR.blendedKPct;
-        data.projHrPct = playerTR.blendedHrPct;
-        data.projAvg = playerTR.blendedAvg;
-        data.projWoba = playerTR.woba;
-        data.projDoublesRate = playerTR.blendedDoublesRate;
-        data.projTriplesRate = playerTR.blendedTriplesRate;
-        // Force modal to recompute WAR/PA from canonical blended rates
-        // so the header is consistent regardless of which view opens the modal
-        data.projWar = undefined;
-        data.projPa = undefined;
+        // MLB player with upside: TFR > TR
+        data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating;
+      } else {
+        // Pure prospect: always show TFR
+        data.hasTfrUpside = true;
+        data.isProspect = true;
+        // Use development curve TR for estimated ratings (current ability)
+        const devTR = tfrEntry.developmentTR;
+        data.estimatedPower = devTR?.power ?? tfrEntry.trueRatings.power;
+        data.estimatedEye = devTR?.eye ?? tfrEntry.trueRatings.eye;
+        data.estimatedAvoidK = devTR?.avoidK ?? tfrEntry.trueRatings.avoidK;
+        data.estimatedContact = devTR?.contact ?? tfrEntry.trueRatings.contact;
+        data.estimatedGap = devTR?.gap ?? tfrEntry.trueRatings.gap;
+        data.estimatedSpeed = devTR?.speed ?? tfrEntry.trueRatings.speed;
+        // Peak projection stats
+        data.projWoba = tfrEntry.projWoba;
+        data.projAvg = tfrEntry.projAvg;
+        data.projBbPct = tfrEntry.projBbPct;
+        data.projKPct = tfrEntry.projKPct;
+        data.projHrPct = tfrEntry.projHrPct;
       }
+    }
+
+    // 5. Force recompute of WAR/PA from canonical data
+    if (playerTR || tfrEntry) {
+      data.projWar = undefined;
+      data.projPa = undefined;
     }
 
     // Update header
