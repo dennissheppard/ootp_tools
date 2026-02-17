@@ -1,7 +1,12 @@
 import { apiFetch } from './ApiClient';
 
-/** Represents how much of the baseball season has completed */
+/** @deprecated Use getSeasonProgress() instead — kept for backward compat */
 export type SeasonStage = 'early' | 'q1_done' | 'q2_done' | 'q3_done' | 'complete';
+
+/** Season runs roughly Apr 1 – Oct 1 (183 days) */
+const SEASON_START_MONTH = 4;
+const SEASON_START_DAY = 1;
+const SEASON_DAYS = 183;
 
 class DateService {
   private cachedDate: string | null = null;
@@ -71,6 +76,30 @@ class DateService {
     } catch {
       // Fallback to early season if API fails
       return 'early';
+    }
+  }
+
+  /**
+   * Get a continuous 0–1 progress value for how far along the season is.
+   * 0.0 = Opening Day (Apr 1), 1.0 = season complete (Oct 1+).
+   * Pre-season dates return 0; post-season dates return 1.
+   */
+  async getSeasonProgress(): Promise<number> {
+    try {
+      const date = await this.getCurrentDate();
+      const [yearStr, monthStr, dayStr] = date.split('-');
+      const year = parseInt(yearStr, 10);
+      const month = parseInt(monthStr, 10);
+      const day = parseInt(dayStr, 10);
+
+      // Days elapsed since Apr 1 of the game year
+      const seasonStart = new Date(year, SEASON_START_MONTH - 1, SEASON_START_DAY);
+      const current = new Date(year, month - 1, day);
+      const elapsed = (current.getTime() - seasonStart.getTime()) / (1000 * 60 * 60 * 24);
+
+      return Math.max(0, Math.min(1, elapsed / SEASON_DAYS));
+    } catch {
+      return 0;
     }
   }
 

@@ -326,9 +326,9 @@ export class TrueRatingsView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
-        <div class="draft-header">
-            <h2 class="view-title">True Player Ratings</h2>
-        </div>
+        
+          <p class="section-subtitle">A blend of historical stats and scouting ratings produces True Ratings. This blend varies based on player experience, age, position, moon phase, etc.</p>
+        
         <div class="true-ratings-controls">
           <div class="filter-bar" id="ratings-view-toggle">
             <label>Filters:</label>
@@ -1357,8 +1357,8 @@ export class TrueRatingsView {
     // Get dynamic year weights if viewing current year, otherwise use standard weights
     let yearWeights: number[] | undefined;
     if (isCurrentYear) {
-      const stage = await dateService.getSeasonStage();
-      yearWeights = getYearWeights(stage);
+      const progress = await dateService.getSeasonProgress();
+      yearWeights = getYearWeights(progress);
     }
 
     const [multiYearStats, leagueAverages] = await Promise.all([

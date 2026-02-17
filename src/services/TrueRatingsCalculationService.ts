@@ -18,7 +18,7 @@
  */
 
 import { PotentialStatsService } from './PotentialStatsService';
-import { SeasonStage } from './DateService';
+import type { SeasonStage } from './DateService';
 import { PitcherRole } from '../models/Player';
 
 // ============================================================================
@@ -116,21 +116,31 @@ interface WeightedRates {
 const YEAR_WEIGHTS = [5, 3, 2];
 
 /**
- * Get dynamic year weights based on the current stage of the season.
- * During the season, current year stats are gradually weighted in,
- * stealing weight from older years as the season progresses.
+ * Get dynamic year weights based on continuous season progress (0–1).
+ * Linearly interpolates between Opening Day weights [0,5,3,2] and
+ * end-of-season weights [5,3,2,0]. Weights always sum to 10.
  *
- * Returns weights for [current year, N-1, N-2, N-3].
- * Weights always sum to 10.
+ * @param progress 0.0 = Opening Day, 1.0 = season complete
  */
-export function getYearWeights(stage: SeasonStage): number[] {
+export function getYearWeights(progress: number): number[] {
+  const t = Math.max(0, Math.min(1, progress));
+  return [
+    5 * t,           // current year:  0 → 5
+    5 - 2 * t,       // year N-1:      5 → 3
+    3 - t,           // year N-2:      3 → 2
+    2 - 2 * t,       // year N-3:      2 → 0
+  ];
+}
+
+/** @deprecated Use getYearWeights(progress: number) instead */
+export function getYearWeightsLegacy(stage: SeasonStage): number[] {
   switch (stage) {
-    case 'early':    return [0, 5, 3, 2];           // Q1 in progress - no current season yet
-    case 'q1_done':  return [1.0, 5.0, 2.5, 1.5];   // May 15 - Jun 30
-    case 'q2_done':  return [2.5, 4.5, 2.0, 1.0];   // Jul 1 - Aug 14
-    case 'q3_done':  return [4.0, 4.0, 1.5, 0.5];   // Aug 15 - Sep 30
-    case 'complete': return [5, 3, 2, 0];           // Oct 1+ - standard 3-year weights
-    default:         return [0, 5, 3, 2];           // Fallback to no current season
+    case 'early':    return [0, 5, 3, 2];
+    case 'q1_done':  return [1.0, 5.0, 2.5, 1.5];
+    case 'q2_done':  return [2.5, 4.5, 2.0, 1.0];
+    case 'q3_done':  return [4.0, 4.0, 1.5, 0.5];
+    case 'complete': return [5, 3, 2, 0];
+    default:         return [0, 5, 3, 2];
   }
 }
 

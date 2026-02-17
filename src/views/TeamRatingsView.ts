@@ -113,7 +113,7 @@ export class TeamRatingsView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
-        <h2 class="view-title">Team Ratings</h2>
+        <p class="section-subtitle">UPDATE: Rankings update but projections and standings are from the beginning of the seaso</p>
 
         <div class="true-ratings-controls">
           <div class="filter-bar">

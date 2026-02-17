@@ -141,7 +141,7 @@ export class FarmRankingsView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
-        <h2 class="view-title">Farm System Rankings</h2>
+        <p class="section-subtitle">Prospects have a True Future Rating. This rating relies much more on scouting because minor league stats in OOTP are very noisy</p>
         
         <div class="true-ratings-controls">
           <div class="filter-bar">
@@ -567,7 +567,7 @@ export class FarmRankingsView {
 
   private renderSingleSystem(isPitchers: boolean): string {
       const systems = isPitchers ? this.data!.systems : this.hitterData!.systems;
-      const title = isPitchers ? 'Pitching Farm Rankings' : 'Hitting Farm Rankings';
+      //const title = isPitchers ? 'Pitching Farm Rankings' : 'Hitting Farm Rankings';
       
       // Calculate dynamic thresholds based on current dataset
       const eliteCounts = systems.map(s => s.tierCounts.elite);
@@ -643,8 +643,7 @@ export class FarmRankingsView {
       }).join('');
 
       return `
-        <div class="stats-table-container">
-            <h3 class="section-title">${title} <span class="note-text">(Score based on weighted prospect quality)</span></h3>
+        <div class="stats-table-container">            
             <table class="stats-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>
@@ -985,7 +984,7 @@ export class FarmRankingsView {
 
       return `
         <div class="stats-table-container">
-            <h3 class="section-title">Organizational Rankings <span class="note-text">(Pitching + Hitting)</span></h3>
+            
             <table class="stats-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>

@@ -1990,6 +1990,13 @@ td.player-cell.player-name {
   margin: 0;
 }
 
+/* When the last filter-group child is hidden, treat the preceding button as visually last */
+.filter-group .toggle-btn:has(+ .toggle-btn[style*="display: none"]:last-child) {
+  border-right: none;
+  border-top-right-radius: var(--border-radius);
+  border-bottom-right-radius: var(--border-radius);
+}
+
 .filter-group > *:last-child,
 .filter-group > *:last-child .filter-dropdown-btn,
 .filter-group > *:last-child .toggle-btn {

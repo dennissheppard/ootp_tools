@@ -192,11 +192,11 @@ class App {
         </section>
 
         <section id="tab-farm-rankings" class="tab-panel ${this.activeTabId === 'tab-farm-rankings' ? 'active' : ''}">
-          <div id="farm-rankings-container">Farm Rankings Content Here</div>
+          <div id="farm-rankings-container">Loading...</div>
         </section>
 
         <section id="tab-team-ratings" class="tab-panel ${this.activeTabId === 'tab-team-ratings' ? 'active' : ''}">
-          <div id="team-ratings-container">Team Ratings Content Here</div>
+          <div id="team-ratings-container">Loading...</div>
         </section>
 
         <section id="tab-team-planning" class="tab-panel ${this.activeTabId === 'tab-team-planning' ? 'active' : ''}">

@@ -22,7 +22,7 @@
 
 import { HitterScoutingRatings } from '../models/ScoutingData';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
-import { SeasonStage } from './DateService';
+import type { SeasonStage } from './DateService';
 import { LeagueBattingAverages } from './LeagueBattingAveragesService';
 
 // ============================================================================
@@ -124,9 +124,24 @@ interface WeightedRates {
 const YEAR_WEIGHTS = [5, 3, 2];
 
 /**
- * Get dynamic year weights based on the current stage of the season.
+ * Get dynamic year weights based on continuous season progress (0–1).
+ * Linearly interpolates between Opening Day weights [0,5,3,2] and
+ * end-of-season weights [5,3,2,0]. Weights always sum to 10.
+ *
+ * @param progress 0.0 = Opening Day, 1.0 = season complete
  */
-export function getYearWeights(stage: SeasonStage): number[] {
+export function getYearWeights(progress: number): number[] {
+  const t = Math.max(0, Math.min(1, progress));
+  return [
+    5 * t,           // current year:  0 → 5
+    5 - 2 * t,       // year N-1:      5 → 3
+    3 - t,           // year N-2:      3 → 2
+    2 - 2 * t,       // year N-3:      2 → 0
+  ];
+}
+
+/** @deprecated Use getYearWeights(progress: number) instead */
+export function getYearWeightsLegacy(stage: SeasonStage): number[] {
   switch (stage) {
     case 'early':    return [0, 5, 3, 2];
     case 'q1_done':  return [1.0, 5.0, 2.5, 1.5];

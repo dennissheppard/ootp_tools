@@ -1048,7 +1048,7 @@ class TrueRatingsService {
    * Uses the same parameters as TrueRatingsView:
    * - Pool: ALL batters from getMultiYearBattingStats with totalPa >= 100
    * - Scouting: both my and osa (my overrides osa)
-   * - Year weights: dynamic via getSeasonStage() when year === currentYear
+   * - Year weights: dynamic via getSeasonProgress() when year === currentYear
    * - League averages: getDefaultLeagueAverages()
    * - League batting averages: year-specific from leagueBattingAveragesService
    */
@@ -1071,11 +1071,11 @@ class TrueRatingsService {
   private async computeHitterTrueRatings(year: number): Promise<Map<number, HitterTrueRatingResult>> {
     const currentYear = await dateService.getCurrentYear();
 
-    // Dynamic year weights for current season (matches TrueRatingsView)
+    // Dynamic year weights for current season — rolling progress-based
     let yearWeights: number[] | undefined;
     if (year === currentYear) {
-      const stage = await dateService.getSeasonStage();
-      yearWeights = getHitterYearWeights(stage);
+      const progress = await dateService.getSeasonProgress();
+      yearWeights = getHitterYearWeights(progress);
     }
 
     // Fetch multi-year stats and scouting data in parallel
@@ -1160,11 +1160,11 @@ class TrueRatingsService {
   private async computePitcherTrueRatings(year: number): Promise<Map<number, TrueRatingResult>> {
     const currentYear = await dateService.getCurrentYear();
 
-    // Dynamic year weights for current season (matches TrueRatingsView)
+    // Dynamic year weights for current season — rolling progress-based
     let yearWeights: number[] | undefined;
     if (year === currentYear) {
-      const stage = await dateService.getSeasonStage();
-      yearWeights = getPitcherYearWeights(stage);
+      const progress = await dateService.getSeasonProgress();
+      yearWeights = getPitcherYearWeights(progress);
     }
 
     const [multiYearStats, leagueAverages, scoutingFallback, allPlayers] = await Promise.all([

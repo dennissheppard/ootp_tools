@@ -262,8 +262,7 @@ export class ProjectionsView {
 
   private renderLayout(): void {
     this.container.innerHTML = `
-      <div class="true-ratings-content">
-        <h2 class="view-title">Stat Projections</h2>
+      <div class="true-ratings-content">        
         <p class="section-subtitle" id="projections-subtitle"></p>
         
         <div class="true-ratings-controls">
