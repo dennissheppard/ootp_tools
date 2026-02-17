@@ -9424,12 +9424,57 @@ th .stat-tooltip {
 }
 
 .cell-edit-player-list {
-  max-height: 200px;
+  max-height: 260px;
   overflow-y: auto;
   border-top: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.cell-edit-player-item {
+/* Org list header row */
+.cell-edit-org-header {
+  display: grid;
+  grid-template-columns: 1fr 50px 40px 55px;
+  gap: 0.25rem;
+  padding: 0.35rem 1.25rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  position: sticky;
+  top: 0;
+  background: var(--color-bg-elevated, #1a1a2e);
+  z-index: 1;
+}
+
+.org-header-col {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.org-header-col:hover {
+  color: var(--color-primary);
+}
+
+.org-header-age,
+.org-header-rating {
+  text-align: right;
+}
+
+/* Org list player items: 4-column grid */
+.cell-edit-org-list .cell-edit-player-item {
+  display: grid;
+  grid-template-columns: 1fr 50px 40px 55px;
+  gap: 0.25rem;
+  align-items: center;
+  padding: 0.4rem 1.25rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+/* Search list player items: original flex layout */
+.cell-edit-search-list .cell-edit-player-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -9446,6 +9491,20 @@ th .stat-tooltip {
   font-size: 0.85rem;
   font-weight: 500;
   color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.player-item-pos {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.player-item-age {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-align: right;
 }
 
 .player-item-meta {
@@ -9460,6 +9519,7 @@ th .stat-tooltip {
   font-weight: 700;
   color: var(--color-primary);
   font-size: 0.75rem;
+  text-align: right;
 }
 
 .cell-edit-search-section {

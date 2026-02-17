@@ -42,10 +42,15 @@ export interface CellEditContext {
   currentPlayerDevOverride?: boolean;
 }
 
+type OrgSortColumn = 'name' | 'position' | 'age' | 'rating';
+type OrgSortDirection = 'asc' | 'desc';
+
 export class CellEditModal {
   private overlay: HTMLElement;
   private resolvePromise: ((result: CellEditResult) => void) | null = null;
   private boundKeyHandler: ((e: KeyboardEvent) => void) | null = null;
+  private orgSortColumn: OrgSortColumn = 'rating';
+  private orgSortDirection: OrgSortDirection = 'desc';
 
   constructor() {
     this.overlay = document.createElement('div');
@@ -255,36 +260,93 @@ export class CellEditModal {
       return;
     }
 
-    const noteHtml = context.year > context.gameYear
-      ? `<div class="cell-edit-projection-note">Projected age &amp; rating for ${context.year}</div>`
-      : '';
-
-    container.innerHTML = noteHtml + filtered.map(p => {
+    // Build display data for sorting
+    const displayData = filtered.map(p => {
       const proj = projectedDataMap?.get(p.id);
       const displayAge = proj ? proj.projectedAge : p.age;
-      const rating = proj ? proj.projectedRating : ratingMap?.get(p.id);
-      const ratingStr = rating ? `<span class="player-item-rating">${rating.toFixed(1)}</span>` : '';
-      return `
-        <div class="cell-edit-player-item" data-player-id="${p.id}">
-          <span class="player-item-name">${p.firstName} ${p.lastName}</span>
-          <span class="player-item-meta">${getPositionLabel(p.position)} | Age ${displayAge} ${ratingStr}</span>
-        </div>
-      `;
-    }).join('');
+      const rating = proj ? proj.projectedRating : ratingMap?.get(p.id) ?? 0;
+      return { player: p, displayAge, rating };
+    });
 
-    container.querySelectorAll<HTMLElement>('.cell-edit-player-item').forEach(el => {
-      el.addEventListener('click', () => {
-        const id = parseInt(el.dataset.playerId!, 10);
-        const player = orgPlayers.find(p => p.id === id);
-        if (player) {
-          this.resolve({
-            action: 'org-select',
-            player,
-            sourceType: 'org',
-          });
+    const renderList = () => {
+      // Sort
+      displayData.sort((a, b) => {
+        const dir = this.orgSortDirection === 'asc' ? 1 : -1;
+        switch (this.orgSortColumn) {
+          case 'name':
+            return dir * (`${a.player.firstName} ${a.player.lastName}`).localeCompare(`${b.player.firstName} ${b.player.lastName}`);
+          case 'position':
+            return dir * (getPositionLabel(a.player.position).localeCompare(getPositionLabel(b.player.position)));
+          case 'age':
+            return dir * (a.displayAge - b.displayAge);
+          case 'rating':
+            return dir * (a.rating - b.rating);
+          default:
+            return 0;
         }
       });
-    });
+
+      const noteHtml = context.year > context.gameYear
+        ? `<div class="cell-edit-projection-note">Projected age &amp; rating for ${context.year}</div>`
+        : '';
+
+      const arrow = (col: OrgSortColumn) =>
+        this.orgSortColumn === col ? (this.orgSortDirection === 'asc' ? ' \u25B2' : ' \u25BC') : '';
+
+      const headerHtml = `
+        <div class="cell-edit-org-header">
+          <span class="org-header-col org-header-name" data-sort="name">Name${arrow('name')}</span>
+          <span class="org-header-col org-header-pos" data-sort="position">Pos${arrow('position')}</span>
+          <span class="org-header-col org-header-age" data-sort="age">Age${arrow('age')}</span>
+          <span class="org-header-col org-header-rating" data-sort="rating">Rating${arrow('rating')}</span>
+        </div>
+      `;
+
+      const rowsHtml = displayData.map(d => {
+        const ratingStr = d.rating ? `<span class="player-item-rating">${d.rating.toFixed(1)}</span>` : '';
+        return `
+          <div class="cell-edit-player-item" data-player-id="${d.player.id}">
+            <span class="player-item-name">${d.player.firstName} ${d.player.lastName}</span>
+            <span class="player-item-pos">${getPositionLabel(d.player.position)}</span>
+            <span class="player-item-age">${d.displayAge}</span>
+            ${ratingStr}
+          </div>
+        `;
+      }).join('');
+
+      container.innerHTML = noteHtml + headerHtml + rowsHtml;
+
+      // Bind sort headers
+      container.querySelectorAll<HTMLElement>('.org-header-col').forEach(hdr => {
+        hdr.addEventListener('click', () => {
+          const col = hdr.dataset.sort as OrgSortColumn;
+          if (this.orgSortColumn === col) {
+            this.orgSortDirection = this.orgSortDirection === 'asc' ? 'desc' : 'asc';
+          } else {
+            this.orgSortColumn = col;
+            this.orgSortDirection = col === 'name' || col === 'position' ? 'asc' : 'desc';
+          }
+          renderList();
+        });
+      });
+
+      // Bind player selection
+      container.querySelectorAll<HTMLElement>('.cell-edit-player-item').forEach(el => {
+        el.addEventListener('click', () => {
+          const id = parseInt(el.dataset.playerId!, 10);
+          const player = orgPlayers.find(p => p.id === id);
+          if (player) {
+            this.resolve({
+              action: 'org-select',
+              player,
+              sourceType: 'org',
+            });
+          }
+        });
+      });
+    };
+
+    renderList();
   }
 
   private populateSearchList(
