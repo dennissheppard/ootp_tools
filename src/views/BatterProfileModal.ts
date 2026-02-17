@@ -2052,6 +2052,7 @@ export class BatterProfileModal {
       snapshots,
       metrics: this.activeDevMetrics,
       height: 280,
+      yearOnly: !isProspect,
     });
     this.developmentChart.render();
 
@@ -2143,6 +2144,7 @@ export class BatterProfileModal {
       snapshots,
       metrics: this.activeDevMetrics,
       height: 280,
+      yearOnly: true,
     });
     this.developmentChart.render();
   }

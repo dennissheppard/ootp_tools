@@ -1828,6 +1828,7 @@ export class PitcherProfileModal {
       snapshots,
       metrics: this.activeDevMetrics,
       height: 280,
+      yearOnly: !isProspect,
     });
     this.developmentChart.render();
 
@@ -1918,6 +1919,7 @@ export class PitcherProfileModal {
       snapshots,
       metrics: this.activeDevMetrics,
       height: 280,
+      yearOnly: true,
     });
     this.developmentChart.render();
   }

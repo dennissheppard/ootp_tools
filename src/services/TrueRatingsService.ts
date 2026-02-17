@@ -1263,23 +1263,32 @@ class TrueRatingsService {
     if (playerYears.length === 0) return [];
 
     // For each year with data, calculate TRs for ALL pitchers to get percentiles
+    // For the current year, use canonical TR to ensure consistency with other views
+    const canonicalCurrentTR = await this.getPitcherTrueRatings(endYear);
     const results: DevelopmentSnapshotRecord[] = [];
     for (const year of playerYears) {
-      const multiYearStats = await this.getMultiYearPitchingStats(year, 4);
-      const leagueAvg = await this.getLeagueAverages(year);
+      let playerResult: TrueRatingResult | undefined;
 
-      // Build inputs for all pitchers (no scouting blend for historical)
-      const inputs: TrueRatingInput[] = [];
-      multiYearStats.forEach((stats, pid) => {
-        inputs.push({
-          playerId: pid,
-          playerName: '',
-          yearlyStats: stats,
+      if (year === endYear) {
+        // Current year: use canonical TR (consistent with TrueRatingsView)
+        playerResult = canonicalCurrentTR.get(playerId);
+      } else {
+        // Historical years: recalculate (no canonical cache for past years)
+        const multiYearStats = await this.getMultiYearPitchingStats(year, 4);
+        const leagueAvg = await this.getLeagueAverages(year);
+
+        const inputs: TrueRatingInput[] = [];
+        multiYearStats.forEach((stats, pid) => {
+          inputs.push({
+            playerId: pid,
+            playerName: '',
+            yearlyStats: stats,
+          });
         });
-      });
 
-      const trResults = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAvg);
-      const playerResult = trResults.find(r => r.playerId === playerId);
+        const trResults = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAvg);
+        playerResult = trResults.find(r => r.playerId === playerId);
+      }
 
       if (playerResult) {
         results.push({
@@ -1331,22 +1340,31 @@ class TrueRatingsService {
     if (playerYears.length === 0) return [];
 
     // For each year with data, calculate TRs for ALL batters to get percentiles
+    // For the current year, use canonical TR to ensure consistency with other views
+    const canonicalCurrentTR = await this.getHitterTrueRatings(endYear);
     const results: DevelopmentSnapshotRecord[] = [];
     for (const year of playerYears) {
-      const multiYearStats = await this.getMultiYearBattingStats(year, 4);
+      let playerResult: HitterTrueRatingResult | undefined;
 
-      // Build inputs for all batters (no scouting blend for historical)
-      const inputs: HitterTrueRatingInput[] = [];
-      multiYearStats.forEach((stats, pid) => {
-        inputs.push({
-          playerId: pid,
-          playerName: '',
-          yearlyStats: stats,
+      if (year === endYear) {
+        // Current year: use canonical TR (consistent with TrueRatingsView)
+        playerResult = canonicalCurrentTR.get(playerId);
+      } else {
+        // Historical years: recalculate (no canonical cache for past years)
+        const multiYearStats = await this.getMultiYearBattingStats(year, 4);
+
+        const inputs: HitterTrueRatingInput[] = [];
+        multiYearStats.forEach((stats, pid) => {
+          inputs.push({
+            playerId: pid,
+            playerName: '',
+            yearlyStats: stats,
+          });
         });
-      });
 
-      const trResults = hitterTrueRatingsCalculationService.calculateTrueRatings(inputs);
-      const playerResult = trResults.find(r => r.playerId === playerId);
+        const trResults = hitterTrueRatingsCalculationService.calculateTrueRatings(inputs);
+        playerResult = trResults.find(r => r.playerId === playerId);
+      }
 
       if (playerResult) {
         results.push({
@@ -1359,8 +1377,8 @@ class TrueRatingsService {
           trueEye: playerResult.estimatedEye,
           trueAvoidK: playerResult.estimatedAvoidK,
           trueContact: playerResult.estimatedContact,
-          trueGap: playerResult.estimatedGap,
-          trueSpeed: playerResult.estimatedSpeed,
+          trueGap: playerResult.estimatedGap ?? 50,
+          trueSpeed: playerResult.estimatedSpeed ?? 50,
           trueRating: playerResult.trueRating,
           source: 'calculated',
         });

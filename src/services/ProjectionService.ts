@@ -375,6 +375,19 @@ class ProjectionService {
       };
     });
 
+    // 7. Overlay canonical True Ratings for display consistency
+    // The projection pipeline uses its own TR calculation for aging/ensemble inputs,
+    // but the displayed currentTrueRating must match canonical TR from TrueRatingsView.
+    // Use currentYear (not `year` which is statsBaseYear = currentYear - 1)
+    const canonicalTR = await trueRatingsService.getPitcherTrueRatings(currentYear);
+    for (const p of projections) {
+      const canonical = canonicalTR.get(p.playerId);
+      if (canonical) {
+        p.currentTrueRating = canonical.trueRating;
+        p.currentPercentile = canonical.percentile;
+      }
+    }
+
     return {
       projections: projections.sort((a, b) => a.projectedStats.fip - b.projectedStats.fip),
       statsYear,

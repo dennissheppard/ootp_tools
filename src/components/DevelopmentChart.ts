@@ -39,6 +39,7 @@ interface DevelopmentChartConfig {
   metrics?: DevelopmentMetric[];
   height?: number;
   playerType?: 'pitcher' | 'hitter'; // Used for metric toggles
+  yearOnly?: boolean; // Show only year on x-axis/tooltip (for full-season data)
 }
 
 // Metric display configuration
@@ -127,12 +128,14 @@ export class DevelopmentChart {
   private snapshots: DevelopmentSnapshotRecord[];
   private metrics: DevelopmentMetric[];
   private height: number;
+  private yearOnly: boolean;
 
   constructor(config: DevelopmentChartConfig) {
     this.containerId = config.containerId;
     this.snapshots = config.snapshots;
     this.metrics = config.metrics || ['scoutStuff', 'scoutControl', 'scoutHra'];
     this.height = config.height || 300;
+    this.yearOnly = config.yearOnly || false;
   }
 
   /**
@@ -364,7 +367,6 @@ export class DevelopmentChart {
   private buildChartOptions(): ApexCharts.ApexOptions {
     const series = this.buildSeries();
     const colors = this.metrics.map(m => METRIC_CONFIG[m].color);
-
     return {
       chart: {
         type: 'line',
@@ -418,7 +420,7 @@ export class DevelopmentChart {
       tooltip: {
         theme: 'dark',
         x: {
-          format: 'MMM dd, yyyy',
+          format: this.yearOnly ? 'yyyy' : 'MMM dd, yyyy',
         },
         y: {
           formatter: (val, opts) => {
@@ -455,11 +457,9 @@ export class DevelopmentChart {
             colors: '#8b98a5',
             fontSize: '11px',
           },
-          datetimeFormatter: {
-            year: 'yyyy',
-            month: "MMM 'yy",
-            day: 'MMM dd',
-          },
+          datetimeFormatter: this.yearOnly
+            ? { year: 'yyyy', month: 'yyyy', day: 'yyyy' }
+            : { year: 'yyyy', month: "MMM 'yy", day: 'MMM dd' },
         },
         axisBorder: {
           show: false,

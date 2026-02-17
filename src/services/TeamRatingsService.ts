@@ -398,36 +398,23 @@ class TeamRatingsService {
    */
   async getPowerRankings(year: number): Promise<TeamPowerRanking[]> {
     // 1. Fetch all required data
-    const [allTeams, pitchingStats, leagueAverages] = await Promise.all([
+    const [allTeams, pitchingStats, battingStats, myScoutingRatings, osaScoutingRatings, pitcherTrMap, multiYearPitchingStats, pitcherScoutingFallback] = await Promise.all([
       teamService.getAllTeams(),
       trueRatingsService.getTruePitchingStats(year),
-      trueRatingsService.getLeagueAverages(year)
-    ]);
-
-    // Fetch batting stats and scouting
-    const [battingStats, myScoutingRatings, osaScoutingRatings] = await Promise.all([
       trueRatingsService.getTrueBattingStats(year),
       hitterScoutingDataService.getLatestScoutingRatings('my'),
       hitterScoutingDataService.getLatestScoutingRatings('osa'),
+      // 2. Use canonical pitcher True Ratings (shared cache with TrueRatingsView)
+      trueRatingsService.getPitcherTrueRatings(year),
+      // Multi-year stats needed for role determination (SP vs RP from historical GS)
+      trueRatingsService.getMultiYearPitchingStats(year, 3),
+      // Pitcher scouting needed for role determination (stamina, pitch count)
+      scoutingDataFallbackService.getScoutingRatingsWithFallback(year),
     ]);
-
-    // 2. Get multi-year stats for pitcher True Ratings
-    const multiYearPitchingStats = await trueRatingsService.getMultiYearPitchingStats(year, 3);
-
-    // 3. Calculate True Ratings for all pitchers (only those with stats in this year)
-    const scoutingMap = new Map(await scoutingDataFallbackService.getScoutingRatingsWithFallback(year).then(s => s.ratings.map(r => [r.playerId, r])));
+    const scoutingMap = new Map(pitcherScoutingFallback.ratings.map(r => [r.playerId, r]));
 
     // Filter to MLB pitchers only (level_id === 1)
     const mlbPitchingStats = pitchingStats.filter(stat => stat.level_id === 1);
-
-    const pitcherTrInputs = mlbPitchingStats.map(stat => ({
-      playerId: stat.player_id,
-      playerName: stat.playerName,
-      yearlyStats: multiYearPitchingStats.get(stat.player_id) ?? [],
-      scoutingRatings: scoutingMap.get(stat.player_id)
-    }));
-    const pitcherTrResults = trueRatingsCalculationService.calculateTrueRatings(pitcherTrInputs, leagueAverages);
-    const pitcherTrMap = new Map(pitcherTrResults.map(tr => [tr.playerId, tr]));
 
     // 4. Calculate True Ratings for all batters
     const hitterScoutingMap = new Map<number, any>();
@@ -1789,25 +1776,19 @@ class TeamRatingsService {
     const pitchingStatsPromise = isHistoricalYear
       ? trueRatingsService.getTruePitchingStatsByTeam(year)
       : trueRatingsService.getTruePitchingStats(year);
-    const combinedPitchingStatsPromise = isHistoricalYear
-      ? trueRatingsService.getTruePitchingStats(year)
-      : pitchingStatsPromise;
 
     // 1. Fetch Data
-    const [pitchingStats, leagueStats, scoutingFallback, multiYearStats, allTeams, combinedPitchingStats] = await Promise.all([
+    const [pitchingStats, leagueStats, scoutingFallback, multiYearStats, allTeams] = await Promise.all([
       pitchingStatsPromise,
       leagueStatsService.getLeagueStats(year),
       scoutingDataFallbackService.getScoutingRatingsWithFallback(year),
       trueRatingsService.getMultiYearPitchingStats(year, 3),
       teamService.getAllTeams(),
-      combinedPitchingStatsPromise
     ]);
     const scoutingRatings = scoutingFallback.ratings;
 
-    // Note: getLeagueAverages removed from promise all since it wasn't being used directly in inputs anymore?
-    // Wait, TrueRatingsCalculationService needs leagueAverages.
-    // Let's re-add it to be safe and match original logic.
-    const leagueAverages = await trueRatingsService.getLeagueAverages(year);
+    // Use canonical pitcher True Ratings (shared cache with TrueRatingsView)
+    const trMap = await trueRatingsService.getPitcherTrueRatings(year);
 
     // 2. Maps for lookup
     const teamMap = new Map(allTeams.map(t => [t.id, t]));
@@ -1825,39 +1806,6 @@ class TeamRatingsService {
         }
       }
     });
-
-    // 3. Prepare Input for TR Calculation
-    const inputs = combinedPitchingStats.map(stat => {
-        let scouting = scoutingMap.get(stat.player_id);
-        if (!scouting && stat.playerName) {
-            const norm = this.normalizeName(stat.playerName);
-            const matches = scoutingByName.get(norm);
-            if (matches && matches.length === 1) scouting = matches[0];
-        }
-
-        return {
-            playerId: stat.player_id,
-            playerName: stat.playerName,
-            yearlyStats: multiYearStats.get(stat.player_id) ?? [],
-            scoutingRatings: scouting
-        };
-    });
-
-    // 4. Calculate True Ratings
-    const trResults = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages);
-    const trMap = new Map(trResults.map(tr => [tr.playerId, tr]));
-    const fipLikeValues = trResults.map(tr => tr.fipLike).sort((a, b) => a - b);
-
-    const percentileForFipLike = (fipLike: number): number => {
-        if (fipLikeValues.length === 0) return 50;
-        let lower = 0;
-        while (lower < fipLikeValues.length && fipLikeValues[lower] < fipLike) lower++;
-        let upper = lower;
-        while (upper < fipLikeValues.length && fipLikeValues[upper] === fipLike) upper++;
-        const avgRank = (lower + upper + 2) / 2;
-        const n = fipLikeValues.length + 1;
-        return Math.round(((n - avgRank + 0.5) / n) * 1000) / 10;
-    };
 
     // 5. Process Players & Classify
     const teamGroups = new Map<number, { rotation: RatedPlayer[], bullpen: RatedPlayer[] }>();
@@ -1879,11 +1827,21 @@ class TeamRatingsService {
         const era = ip > 0 ? (stat.er / ip) * 9 : 0;
         const fip = fipWarService.calculateFip({ ip, k9, bb9, hr9 }, leagueStats.fipConstant);
 
+        // For historical years, fall back to FIP-based estimation if canonical TR is missing
+        // (canonical TR requires 50+ IP across multi-year window; fallback covers low-IP pitchers)
         const fallback =
-            !trData && isHistoricalYear
+            !trData && isHistoricalYear && ip > 0
                 ? (() => {
                       const fipLike = trueRatingsCalculationService.calculateFipLike(k9, bb9, hr9);
-                      const percentile = percentileForFipLike(fipLike);
+                      // Use canonical TR pool to find percentile
+                      const canonicalFips = Array.from(trMap.values()).map(tr => tr.fipLike).sort((a, b) => a - b);
+                      let lower = 0;
+                      while (lower < canonicalFips.length && canonicalFips[lower] < fipLike) lower++;
+                      let upper = lower;
+                      while (upper < canonicalFips.length && canonicalFips[upper] === fipLike) upper++;
+                      const avgRank = (lower + upper + 2) / 2;
+                      const n = canonicalFips.length + 1;
+                      const percentile = Math.round(((n - avgRank + 0.5) / n) * 1000) / 10;
                       return {
                           trueRating: trueRatingsCalculationService.percentileToRating(percentile),
                           estimatedStuff: RatingEstimatorService.estimateStuff(k9, ip).rating,

@@ -331,6 +331,17 @@ class BatterProjectionService {
     // Sort by WAR descending
     projections.sort((a, b) => b.projectedStats.war - a.projectedStats.war);
 
+    // Overlay canonical True Ratings for display consistency
+    // Use currentYear (not `year` which is statsBaseYear = currentYear - 1)
+    const canonicalBatterTR = await trueRatingsService.getHitterTrueRatings(currentYear);
+    for (const p of projections) {
+      const canonical = canonicalBatterTR.get(p.playerId);
+      if (canonical) {
+        p.currentTrueRating = canonical.trueRating;
+        p.percentile = canonical.percentile;
+      }
+    }
+
     return {
       projections,
       statsYear: year,

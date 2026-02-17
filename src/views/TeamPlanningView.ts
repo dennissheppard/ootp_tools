@@ -1994,8 +1994,10 @@ export class TeamPlanningView {
     }
 
     // Look up TFR and dev override state for the current cell's player
+    // Only show TFR when there's unrealized upside (TFR > current rating)
     const currentPlayerId = currentCellData?.playerId;
-    const currentPlayerTfr = currentPlayerId ? this.playerTfrMap.get(currentPlayerId) : undefined;
+    const rawTfr = currentPlayerId ? this.playerTfrMap.get(currentPlayerId) : undefined;
+    const currentPlayerTfr = (rawTfr !== undefined && currentCellData && rawTfr > currentCellData.rating) ? rawTfr : undefined;
     const currentPlayerDevOverride = currentPlayerId ? this.devOverrides.has(currentPlayerId) : false;
 
     const context: CellEditContext = {
