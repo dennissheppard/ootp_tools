@@ -259,7 +259,7 @@ export class TeamPlanningView {
     this.container.innerHTML = `
       <div class="true-ratings-content">
         <div class="draft-header">
-          <h2 class="view-title">Team Planning</h2>
+          <p class="section-subtitle">Rosters are auto-filled assuming players fully develop. Edit the grid, look at team needs, draft strategy, and see what trades might make sense for your org</p>
         </div>
         <div class="true-ratings-controls">
           <div class="filter-bar">

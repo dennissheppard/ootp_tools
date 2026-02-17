@@ -608,7 +608,7 @@ export class TradeAnalyzerView {
   private render(): void {
     this.container.innerHTML = `
       <div class="view-header">
-        <h2 class="view-title">Trade Analyzer</h2>        
+        <p class="section-subtitle">Fill in potential trades to view projected war swappage</p>
       </div>
 
       <div class="trade-analyzer-container">
