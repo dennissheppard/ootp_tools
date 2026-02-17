@@ -1831,69 +1831,32 @@ function traceBatterTFR(
   console.log(`\n  Total Raw PA: ${totalRawPa}`);
   console.log(`  Total Weighted PA: ${totalWeightedPa.toFixed(0)}`);
 
-  console.log('\n--- STEP 4: Component-Specific Scouting Weights ---\n');
-  console.log(`  Based on MiLB->MLB predictive validity:`);
-  console.log(`    Eye (BB%):   r=0.05 -> Always 100% scouting (MiLB BB% is noise)`);
-  console.log(`    Contact (AVG): r=0.18 -> Always 100% scouting (MiLB AVG is noise)`);
-  console.log(`    AvoidK (K%): r=0.68 -> ${totalWeightedPa < 150 ? '100%' : totalWeightedPa <= 300 ? '65%' : totalWeightedPa <= 500 ? '50%' : '40%'} scouting`);
-  console.log(`    Power (HR%): r=0.44 -> ${totalWeightedPa < 150 ? '100%' : totalWeightedPa <= 300 ? '85%' : totalWeightedPa <= 500 ? '80%' : '75%'} scouting`);
+  console.log('\n--- STEP 4: Ceiling Boost (100% Scouting) ---\n');
+  console.log(`  TFR uses 100% scouting potential ratings with ceiling boost.`);
+  console.log(`  MiLB stats affect TR (development curves), not TFR (ceiling projection).`);
 
-  console.log('\n--- STEP 5: Level-Adjusted Minor League Stats ---\n');
-  let adjustedKPctSum = 0, adjustedHrPctSum = 0;
-  let totalPaWeight = 0;
+  const CEILING_BOOST_FACTOR = 0.35;
+  const avgRates = scoutingToExpectedRates({ eye: 50, avoidK: 50, power: 50, contact: 50, gap: 50, speed: 50 } as BatterScouting);
 
-  for (const s of allMinorStats) {
-    const levelAdj = BATTER_LEVEL_ADJUSTMENTS[s.level as keyof typeof BATTER_LEVEL_ADJUSTMENTS];
-    if (!levelAdj) continue;
+  console.log(`\n  Anchor rates (rating 50 average):`);
+  console.log(`    BB%: ${avgRates.bbPct.toFixed(2)}%, K%: ${avgRates.kPct.toFixed(2)}%, HR%: ${avgRates.hrPct.toFixed(3)}%, AVG: ${avgRates.avg.toFixed(3)}`);
 
-    const rawKPct = (s.k / s.pa) * 100;
-    const rawHrPct = (s.hr / s.pa) * 100;
+  const blendedBbPct = scoutBbPct + (scoutBbPct - avgRates.bbPct) * CEILING_BOOST_FACTOR;
+  const blendedKPct = scoutKPct + (scoutKPct - avgRates.kPct) * CEILING_BOOST_FACTOR;
+  const blendedHrPct = scoutHrPct + (scoutHrPct - avgRates.hrPct) * CEILING_BOOST_FACTOR;
+  const blendedAvg = scoutAvg + (scoutAvg - avgRates.avg) * CEILING_BOOST_FACTOR;
 
-    const adjKPct = rawKPct + levelAdj.kPct;
-    const adjHrPct = rawHrPct + levelAdj.hrPct;
+  console.log(`\n  Ceiling boost (factor = ${CEILING_BOOST_FACTOR}):`);
+  console.log(`    Eye (BB%):     ${scoutBbPct.toFixed(2)}% + (${scoutBbPct.toFixed(2)} - ${avgRates.bbPct.toFixed(2)}) × ${CEILING_BOOST_FACTOR} = ${blendedBbPct.toFixed(2)}%`);
+  console.log(`    AvoidK (K%):   ${scoutKPct.toFixed(2)}% + (${scoutKPct.toFixed(2)} - ${avgRates.kPct.toFixed(2)}) × ${CEILING_BOOST_FACTOR} = ${blendedKPct.toFixed(2)}%`);
+  console.log(`    Power (HR%):   ${scoutHrPct.toFixed(3)}% + (${scoutHrPct.toFixed(3)} - ${avgRates.hrPct.toFixed(3)}) × ${CEILING_BOOST_FACTOR} = ${blendedHrPct.toFixed(3)}%`);
+  console.log(`    Contact (AVG): ${scoutAvg.toFixed(3)} + (${scoutAvg.toFixed(3)} - ${avgRates.avg.toFixed(3)}) × ${CEILING_BOOST_FACTOR} = ${blendedAvg.toFixed(3)}`);
+  console.log(`    Gap (2B): 100% scouting = ${scoutDoublesRate.toFixed(4)}/AB (${(scoutDoublesRate * 600).toFixed(1)} per 600 AB)`);
+  console.log(`    Speed (3B): 100% scouting = ${scoutTriplesRate.toFixed(4)}/AB (${(scoutTriplesRate * 600).toFixed(1)} per 600 AB)`);
 
-    console.log(`  ${s.level.toUpperCase()} (${s.pa} PA):`);
-    console.log(`    K%: ${rawKPct.toFixed(1)} + ${levelAdj.kPct} = ${adjKPct.toFixed(1)}`);
-    console.log(`    HR%: ${rawHrPct.toFixed(2)} + ${levelAdj.hrPct} = ${adjHrPct.toFixed(2)}`);
-
-    adjustedKPctSum += adjKPct * s.pa;
-    adjustedHrPctSum += adjHrPct * s.pa;
-    totalPaWeight += s.pa;
-  }
-
-  let adjustedKPct = scoutKPct;
-  let adjustedHrPct = scoutHrPct;
-
-  if (totalPaWeight > 0) {
-    adjustedKPct = adjustedKPctSum / totalPaWeight;
-    adjustedHrPct = adjustedHrPctSum / totalPaWeight;
-    console.log(`\n  Weighted Adjusted Stats (MLB-equivalent):`);
-    console.log(`    K%: ${adjustedKPct.toFixed(1)}%`);
-    console.log(`    HR%: ${adjustedHrPct.toFixed(2)}%`);
-  }
-
-  console.log('\n--- STEP 6: Blend Scouting and Stats (Component-Specific) ---\n');
-
-  const blendedBbPct = scoutBbPct;
-  const blendedAvg = scoutAvg;
-  console.log(`  Eye (BB%): 100% scouting = ${blendedBbPct.toFixed(2)}%`);
-  console.log(`  Contact (AVG): 100% scouting = ${blendedAvg.toFixed(3)}`);
-
-  const avoidKScoutWeight = totalWeightedPa < 150 ? 1.0 : totalWeightedPa <= 300 ? 0.65 : totalWeightedPa <= 500 ? 0.50 : 0.40;
-  const blendedKPct = avoidKScoutWeight * scoutKPct + (1 - avoidKScoutWeight) * adjustedKPct;
-  console.log(`  AvoidK (K%): ${(avoidKScoutWeight * 100).toFixed(0)}% scout × ${scoutKPct.toFixed(1)} + ${((1 - avoidKScoutWeight) * 100).toFixed(0)}% stats × ${adjustedKPct.toFixed(1)} = ${blendedKPct.toFixed(1)}%`);
-
-  const powerScoutWeight = totalWeightedPa < 150 ? 1.0 : totalWeightedPa <= 300 ? 0.85 : totalWeightedPa <= 500 ? 0.80 : 0.75;
-  const blendedHrPct = powerScoutWeight * scoutHrPct + (1 - powerScoutWeight) * adjustedHrPct;
-  console.log(`  Power (HR%): ${(powerScoutWeight * 100).toFixed(0)}% scout × ${scoutHrPct.toFixed(2)} + ${((1 - powerScoutWeight) * 100).toFixed(0)}% stats × ${adjustedHrPct.toFixed(2)} = ${blendedHrPct.toFixed(2)}%`);
-
-  // Gap and Speed use 100% scouting (no MiLB predictive validity research)
-  console.log(`  Gap (2B): 100% scouting = ${scoutDoublesRate.toFixed(4)}/AB (${(scoutDoublesRate * 600).toFixed(1)} per 600 AB)`);
-  console.log(`  Speed (3B): 100% scouting = ${scoutTriplesRate.toFixed(4)}/AB (${(scoutTriplesRate * 600).toFixed(1)} per 600 AB)`);
-
-  console.log('\n--- STEP 7: Calculate Projected wOBA ---\n');
+  console.log('\n--- STEP 5: Calculate Projected wOBA ---\n');
   console.log(`  Using Gap=${scouting.gap} and Speed=${scouting.speed} for doubles/triples rates`);
-  const projWoba = calculateWobaFromRates(blendedBbPct, blendedKPct, blendedHrPct, blendedAvg, scouting.gap, scouting.speed);
+  const projWoba = calculateWobaFromRatesService(blendedBbPct, blendedKPct, blendedHrPct, blendedAvg, scouting.gap, scouting.speed);
   console.log(`  Projected Peak wOBA = ${projWoba.toFixed(3)}`);
 
   console.log('\n--- SUMMARY ---\n');
@@ -1901,8 +1864,7 @@ function traceBatterTFR(
   console.log(`\n  Scouting Ratings:`);
   console.log(`    Power: ${scouting.power}, Eye: ${scouting.eye}, AvoidK: ${scouting.avoidK}, Contact: ${scouting.contact}`);
   console.log(`    Gap: ${scouting.gap}, Speed: ${scouting.speed}`);
-  console.log(`\n  Minor League Stats: ${totalRawPa} PA (${totalWeightedPa.toFixed(0)} weighted)`);
-  console.log(`\n  Projected Peak Rates:`);
+  console.log(`\n  Projected Peak Rates (ceiling-boosted):`);
   console.log(`    BB%: ${blendedBbPct.toFixed(2)}%`);
   console.log(`    K%: ${blendedKPct.toFixed(1)}%`);
   console.log(`    HR%: ${blendedHrPct.toFixed(2)}%`);
@@ -1912,7 +1874,7 @@ function traceBatterTFR(
   console.log(`\n  Projected Peak wOBA: ${projWoba.toFixed(3)}`);
 
   // --- Stats-Based Current TR (simplified) ---
-  console.log('\n--- STEP 8: Current True Rating (TR) — Stats-Based Estimate ---\n');
+  console.log('\n--- STEP 6: Current True Rating (TR) — Stats-Based Estimate ---\n');
   console.log('  TR (radar chart blue line) derived from adjusted MiLB stats → 20-80 scale.');
   console.log('  Capped by age-based development factor to ensure TR ≤ TFR.\n');
 
@@ -2486,22 +2448,6 @@ function buildMLBPitcherDistributions(dobMap: Map<number, Date>): MLBPitcherDist
 /** Minor league year weights: [current year, previous year, older] */
 const MINOR_YEAR_WEIGHTS = [5, 3];
 
-/** Component-specific scouting weight thresholds */
-const COMPONENT_SCOUTING_WEIGHTS = {
-  avoidK: { minPa: 150, lowPa: 300, highPa: 500, weights: { belowMin: 1.0, lowRange: 0.65, midRange: 0.50, highRange: 0.40 } },
-  power:  { minPa: 150, lowPa: 300, highPa: 500, weights: { belowMin: 1.0, lowRange: 0.85, midRange: 0.80, highRange: 0.75 } },
-  eye:    { minPa: 150, lowPa: 300, highPa: 500, weights: { belowMin: 1.0, lowRange: 1.0,  midRange: 1.0,  highRange: 1.0  } },
-  contact:{ minPa: 150, lowPa: 300, highPa: 500, weights: { belowMin: 1.0, lowRange: 1.0,  midRange: 1.0,  highRange: 1.0  } },
-};
-
-function getComponentScoutingWeight(component: 'eye' | 'avoidK' | 'power' | 'contact', weightedPa: number): number {
-  const config = COMPONENT_SCOUTING_WEIGHTS[component];
-  if (weightedPa < config.minPa) return config.weights.belowMin;
-  if (weightedPa <= config.lowPa) return config.weights.lowRange;
-  if (weightedPa <= config.highPa) return config.weights.midRange;
-  return config.weights.highRange;
-}
-
 /**
  * Calculate scouting-expected rates from scouting ratings.
  */
@@ -2627,13 +2573,21 @@ function calculateComponentBlendLocal(
   const totalPa = weightedStats?.totalPa ?? 0;
   const weightedPa = weightedStats?.weightedPa ?? 0;
 
-  const eyeScoutWeight = getComponentScoutingWeight('eye', weightedPa);
-  const avoidKScoutWeight = getComponentScoutingWeight('avoidK', weightedPa);
-  const powerScoutWeight = getComponentScoutingWeight('power', weightedPa);
-  const contactScoutWeight = getComponentScoutingWeight('contact', weightedPa);
-
+  // 100% scouting for TFR — MiLB stats only stored for display, not blended
   const scoutRates = scoutingToExpectedRates(scouting);
 
+  // Ceiling boost: project peak outcomes above league average (rating 50)
+  const CEILING_BOOST_FACTOR = 0.35;
+  const avgRates = scoutingToExpectedRates({ eye: 50, avoidK: 50, power: 50, contact: 50, gap: 50, speed: 50 } as BatterScouting);
+
+  const eyeValue = scoutRates.bbPct + (scoutRates.bbPct - avgRates.bbPct) * CEILING_BOOST_FACTOR;
+  const avoidKValue = scoutRates.kPct + (scoutRates.kPct - avgRates.kPct) * CEILING_BOOST_FACTOR;
+  const powerValue = scoutRates.hrPct + (scoutRates.hrPct - avgRates.hrPct) * CEILING_BOOST_FACTOR;
+  const contactValue = scoutRates.avg + (scoutRates.avg - avgRates.avg) * CEILING_BOOST_FACTOR;
+  const gapValue = scouting.gap;
+  const speedValue = scouting.speed;
+
+  // MiLB adjusted stats (for display only — used by development curves for TR, not TFR)
   let adjustedBbPct = scoutRates.bbPct;
   let adjustedKPct = scoutRates.kPct;
   let adjustedHrPct = scoutRates.hrPct;
@@ -2645,13 +2599,6 @@ function calculateComponentBlendLocal(
     adjustedHrPct = weightedStats.hrPct;
     adjustedAvg = weightedStats.avg;
   }
-
-  const eyeValue = eyeScoutWeight * scoutRates.bbPct + (1 - eyeScoutWeight) * adjustedBbPct;
-  const avoidKValue = avoidKScoutWeight * scoutRates.kPct + (1 - avoidKScoutWeight) * adjustedKPct;
-  const powerValue = powerScoutWeight * scoutRates.hrPct + (1 - powerScoutWeight) * adjustedHrPct;
-  const contactValue = contactScoutWeight * scoutRates.avg + (1 - contactScoutWeight) * adjustedAvg;
-  const gapValue = scouting.gap;
-  const speedValue = scouting.speed;
 
   return {
     playerId,
@@ -3225,18 +3172,18 @@ function traceBatterTFRFull(
   // Show target player's blend details
   const targetBlend = blendedResults.find(r => r.playerId === playerId);
   if (targetBlend) {
-    const eyeSW = getComponentScoutingWeight('eye', targetBlend.weightedPa);
-    const avoidKSW = getComponentScoutingWeight('avoidK', targetBlend.weightedPa);
-    const powerSW = getComponentScoutingWeight('power', targetBlend.weightedPa);
-    const contactSW = getComponentScoutingWeight('contact', targetBlend.weightedPa);
-
-    console.log(`\n  Target Player Component Blends (weightedPA=${targetBlend.weightedPa.toFixed(0)}):`);
-    console.log(`    Eye (BB%):     scout=${targetBlend.scoutBbPct.toFixed(2)}%, adjusted=${targetBlend.adjustedBbPct.toFixed(2)}%, blended=${targetBlend.eyeValue.toFixed(2)}% (${(eyeSW * 100).toFixed(0)}% scout)`);
-    console.log(`    AvoidK (K%):   scout=${targetBlend.scoutKPct.toFixed(2)}%, adjusted=${targetBlend.adjustedKPct.toFixed(2)}%, blended=${targetBlend.avoidKValue.toFixed(2)}% (${(avoidKSW * 100).toFixed(0)}% scout)`);
-    console.log(`    Power (HR%):   scout=${targetBlend.scoutHrPct.toFixed(3)}%, adjusted=${targetBlend.adjustedHrPct.toFixed(3)}%, blended=${targetBlend.powerValue.toFixed(3)}% (${(powerSW * 100).toFixed(0)}% scout)`);
-    console.log(`    Contact (AVG): scout=${targetBlend.scoutAvg.toFixed(3)}, adjusted=${targetBlend.adjustedAvg.toFixed(3)}, blended=${targetBlend.contactValue.toFixed(3)} (${(contactSW * 100).toFixed(0)}% scout)`);
+    const CEILING_BOOST_FACTOR = 0.35;
+    console.log(`\n  Target Player Component Blends (ceiling boost = ${CEILING_BOOST_FACTOR}, 100% scouting):`);
+    console.log(`    Eye (BB%):     scout=${targetBlend.scoutBbPct.toFixed(2)}%, ceiling-boosted=${targetBlend.eyeValue.toFixed(2)}%`);
+    console.log(`    AvoidK (K%):   scout=${targetBlend.scoutKPct.toFixed(2)}%, ceiling-boosted=${targetBlend.avoidKValue.toFixed(2)}%`);
+    console.log(`    Power (HR%):   scout=${targetBlend.scoutHrPct.toFixed(3)}%, ceiling-boosted=${targetBlend.powerValue.toFixed(3)}%`);
+    console.log(`    Contact (AVG): scout=${targetBlend.scoutAvg.toFixed(3)}, ceiling-boosted=${targetBlend.contactValue.toFixed(3)}`);
     console.log(`    Gap:           ${targetBlend.gapValue} (100% scout)`);
     console.log(`    Speed:         ${targetBlend.speedValue} (100% scout)`);
+    if (targetBlend.adjustedBbPct !== targetBlend.scoutBbPct) {
+      console.log(`\n    MiLB adjusted rates (for TR development curves, NOT used in TFR):`);
+      console.log(`      BB%: ${targetBlend.adjustedBbPct.toFixed(2)}%, K%: ${targetBlend.adjustedKPct.toFixed(2)}%, HR%: ${targetBlend.adjustedHrPct.toFixed(3)}%, AVG: ${targetBlend.adjustedAvg.toFixed(3)}`);
+    }
   }
 
   // --- STEP 5: MLB Percentile Rankings (Direct Comparison) ---
@@ -3285,18 +3232,18 @@ function traceBatterTFRFull(
     console.log(`  True Gap:     ${trueGap}  (${gapPercentile.toFixed(1)}th prospect pctl)`);
     console.log(`  True Speed:   ${trueSpeed}  (${speedPercentile.toFixed(1)}th prospect pctl)`);
 
-    // --- STEP 7: Projected Rates (Blended Rates Direct) ---
-    console.log('\n--- STEP 7: Projected Peak Rates ---\n');
+    // --- STEP 7: Projected Rates (Ceiling-Boosted Rates) ---
+    console.log('\n--- STEP 7: Projected Peak Rates (ceiling-boosted) ---\n');
     let projBbPct = Math.max(3.0, Math.min(20.0, targetBlend.eyeValue));
     let projKPct = Math.max(5.0, Math.min(35.0, targetBlend.avoidKValue));
     let projHrPct = Math.max(0.5, Math.min(8.0, targetBlend.powerValue));
     let projAvg = Math.max(0.200, Math.min(0.350, targetBlend.contactValue));
 
-    console.log(`  Projected rates = blended rates (already MLB-calibrated):`);
-    console.log(`    BB%:  ${projBbPct.toFixed(2)}%  (blended Eye value)`);
-    console.log(`    K%:   ${projKPct.toFixed(2)}%  (blended AvoidK value)`);
-    console.log(`    HR%:  ${projHrPct.toFixed(3)}%  (blended Power value)`);
-    console.log(`    AVG:  ${projAvg.toFixed(3)}  (blended Contact value)`);
+    console.log(`  Projected rates = ceiling-boosted scouting rates:`);
+    console.log(`    BB%:  ${projBbPct.toFixed(2)}%  (ceiling-boosted Eye)`);
+    console.log(`    K%:   ${projKPct.toFixed(2)}%  (ceiling-boosted AvoidK)`);
+    console.log(`    HR%:  ${projHrPct.toFixed(3)}%  (ceiling-boosted Power)`);
+    console.log(`    AVG:  ${projAvg.toFixed(3)}  (ceiling-boosted Contact)`);
 
     // --- STEP 8: Projected wOBA ---
     console.log('\n--- STEP 8: Projected Peak wOBA ---\n');

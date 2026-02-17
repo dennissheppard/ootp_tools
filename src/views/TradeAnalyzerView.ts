@@ -19,6 +19,7 @@ import { teamRatingsService, RatedProspect, RatedHitterProspect, TeamPowerRankin
 import { contractService, Contract } from '../services/ContractService';
 import { aiTradeAnalysisService, TradeContext, TradePlayerContext, TradePickContext } from '../services/AITradeAnalysisService';
 import { markdownToHtml } from '../services/AIScoutingService';
+import { hasComponentUpside } from '../utils/tfrUpside';
 
 interface DraftPick {
   id: string;
@@ -182,7 +183,25 @@ export class TradeAnalyzerView {
         projK9 = projection.projectedStats.k9;
         projBb9 = projection.projectedStats.bb9;
         projHr9 = projection.projectedStats.hr9;
+
+        // MLB player may still have TFR data from farm system
+        if (prospect) {
+          trueFutureRating = prospect.trueFutureRating;
+          tfrPercentile = prospect.percentile;
+          tfrStuff = prospect.trueRatings?.stuff;
+          tfrControl = prospect.trueRatings?.control;
+          tfrHra = prospect.trueRatings?.hra;
+          tfrBySource = prospect.tfrBySource;
+        }
       }
+
+      const hasTfrUpside = isProspect ? true
+        : (prospect ? ((trueFutureRating !== undefined && trueFutureRating > (projection?.currentTrueRating ?? 0))
+            || hasComponentUpside(
+              [estimatedStuff, estimatedControl, estimatedHra],
+              [tfrStuff, tfrControl, tfrHra]
+            ))
+          : false);
 
       const profileData = {
         playerId: player.id,
@@ -208,10 +227,10 @@ export class TradeAnalyzerView {
         isProspect: Boolean(isProspect),
         trueFutureRating,
         tfrPercentile,
-        hasTfrUpside: isProspect ? true : undefined,
-        tfrStuff: isProspect ? (tfrStuff ?? estimatedStuff) : undefined,
-        tfrControl: isProspect ? (tfrControl ?? estimatedControl) : undefined,
-        tfrHra: isProspect ? (tfrHra ?? estimatedHra) : undefined,
+        hasTfrUpside,
+        tfrStuff: tfrStuff ?? (isProspect ? estimatedStuff : undefined),
+        tfrControl: tfrControl ?? (isProspect ? estimatedControl : undefined),
+        tfrHra: tfrHra ?? (isProspect ? estimatedHra : undefined),
         tfrBySource,
         projWar,
         projIp,
@@ -342,6 +361,31 @@ export class TradeAnalyzerView {
         slg = batterProjection.projectedStats.slg;
         hr = batterProjection.projectedStats.hr;
         war = batterProjection.projectedStats.war;
+
+        // MLB player may still have TFR data from farm system
+        if (prospect) {
+          trueFutureRating = prospect.trueFutureRating;
+          tfrPercentile = prospect.percentile;
+          tfrPower = prospect.trueRatings.power;
+          tfrEye = prospect.trueRatings.eye;
+          tfrAvoidK = prospect.trueRatings.avoidK;
+          tfrContact = prospect.trueRatings.contact;
+          tfrGap = prospect.trueRatings.gap;
+          tfrSpeed = prospect.trueRatings.speed;
+          tfrBbPct = prospect.projBbPct;
+          tfrKPct = prospect.projKPct;
+          tfrHrPct = prospect.projHrPct;
+          tfrAvg = prospect.projAvg;
+          tfrObp = prospect.projObp;
+          tfrSlg = prospect.projSlg;
+          tfrPa = prospect.projPa;
+          batterTfrBySource = prospect.tfrBySource;
+          hasTfrUpside = (trueFutureRating > (batterProjection.currentTrueRating ?? 0))
+            || hasComponentUpside(
+              [estimatedPower, estimatedEye, estimatedAvoidK, estimatedContact, estimatedGap, estimatedSpeed],
+              [tfrPower, tfrEye, tfrAvoidK, tfrContact, tfrGap, tfrSpeed]
+            );
+        }
       }
 
       const profileData: BatterProfileData = {

@@ -526,7 +526,7 @@ Three-mode team-level analysis dashboard with a toggle between Power Rankings, P
 |------|--------------|-------------|
 | Power Rankings | Teams ranked by weighted average TR (40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench) | `getPowerRankings()` |
 | Projections | Teams ranked by weighted WAR total (same 40/40/15/5 split) | `getProjectedTeamRatings()` |
-| Standings | Projected W-L record and Win% from raw team WAR | `getProjectedTeamRatings()` (same data, different lens) |
+| Standings | Projected W-L, RS/RA, Pythagorean record from team WAR and runs projections | `getProjectedTeamRatings()` (same data, different lens) |
 
 **Standings Mode — Piecewise WAR→Wins Calibration:**
 
@@ -550,6 +550,22 @@ rawWins = 81 + deviation × slope
 **Calibration source:** 236 team-seasons (2005-2020), MAE 7.52. Fine-tuned via two-pass parameter sweep in `tools/calibrate_projections.ts`. The compression is inherent to regression-based projections (FIP regression is the main source, NOT IP projection — tested via hybrid proj-FIP × actual-IP diagnostic). Individual FIP projections are excellent (MAE 0.584, bias -0.019).
 
 **Important:** Standings uses **raw WAR sum** (rotation + bullpen + lineup + bench), NOT the weighted 40/40/15/5 composite. Role-adjusted playing-time caps were removed in Feb 2026 after diagnostic analysis showed they were hurting accuracy (MAE 5.6 raw vs 5.9 adjusted).
+
+**Runs Scored / Runs Allowed / Pythagorean Record:**
+
+The Standings table shows runs-based projections alongside the WAR-based W-L:
+
+| Column | Source | Notes |
+|--------|--------|-------|
+| RS (Runs Scored) | wRC from projected wOBA × PA (lineup + bench) | Normalized so league-total RS = league-total RA |
+| RA (Runs Allowed) | FIP × IP / 9 (rotation + bullpen) | IP-normalized to targets (950 rot + 500 bp), replacement-filled |
+| RD (Run Differential) | RS − RA | Color-coded: green positive, red negative |
+| Pyth (Pythagorean W-L) | Pythagenpat formula (exponent 1.83) | `pythPct = RS^1.83 / (RS^1.83 + RA^1.83)` |
+| Pyth Diff | Pythagorean wins − WAR-projected wins | Sanity check on WAR→Wins conversion |
+
+**RS normalization:** Raw wRC systematically exceeds FIP-based RA because (a) FIP estimates earned runs only (~8% below total runs), and (b) projected rosters exclude below-replacement players that drag down league R/PA. A multiplicative scale factor `(totalRA / totalRawRS)` is applied so the league is zero-sum. This preserves relative RS differences between teams.
+
+**Backtesting result (2015-2020):** WAR-based wins outperform Pythagorean (MAE 7.64 vs 10.33). The Pythagorean column serves as a sanity check, not a replacement. See `tools/backtest_pythagorean.ts` for full comparison.
 
 **Lineup/Bench Construction (Standings & Projections):**
 
@@ -669,7 +685,7 @@ Primary tools for inspecting and validating ratings:
 | `tools/validate-ratings.ts` | Automated TR validation: formula WAR vs game WAR correlation, distribution shape, year-over-year stability, extreme value detection | `npx tsx tools/validate-ratings.ts --year=2020` |
 | `tools/investigate-pitcher-war.ts` | Investigate pitcher WAR projection gaps — compares formula WAR vs game WAR, isolates FIP vs IP contributions, identifies pipeline bottlenecks | `npx tsx tools/investigate-pitcher-war.ts` |
 
-**trace-rating.ts** is the source of truth for debugging. If something looks wrong in the UI, trace the player to see the real pipeline output. Key flags:
+**trace-rating.ts** is a diagnostic tool that mirrors the service-layer pipeline. If the trace output disagrees with the UI, the **service** (`HitterTrueFutureRatingService`, `TrueFutureRatingService`) is authoritative — update the trace tool to match. Key flags:
 - `--type=batter|pitcher` — player type (auto-detected if omitted)
 - `--full` — full TFR mode with MLB distribution ranking
 - `--scouting=my|osa` — scouting data source
@@ -689,6 +705,7 @@ Scripts for optimizing coefficients against historical data:
 | Tool | Purpose | Usage |
 |------|---------|-------|
 | `tools/calibrate_projections.ts` | Full projection pipeline calibration: WAR→Wins formula, compression diagnostics, IP decomposition, non-linear sweep | `npx tsx tools/calibrate_projections.ts` or `--sweep` |
+| `tools/backtest_pythagorean.ts` | Compare WAR-based vs Pythagorean win projections against actual standings (2015-2020) | `npx tsx tools/backtest_pythagorean.ts` |
 | `tools/calibrate_wins.ts` | Legacy WAR→Wins calibration (actual-stats based) | `npx tsx tools/calibrate_wins.ts` |
 | `tools/calibrate_batter_coefficients.ts` | Optimize rating→stat intercepts | `npx tsx tools/calibrate_batter_coefficients.ts` |
 | `tools/calibrate_sb_coefficients.ts` | Grid-search SR/STE coefficient space | `npx tsx tools/calibrate_sb_coefficients.ts` |
@@ -994,7 +1011,7 @@ These coefficients are still used for TFR (prospect projections) and scouting co
 - **Percentile-based component ratings** for True Ratings (ensures fair cross-era comparison)
 - HR%-based power (not ISO) prevents gap hitter inflation
 - Contact rating (not Hit Tool) for AVG predictions
-- Component-specific scouting weights based on MiLB→MLB correlations
+- Component-specific stabilization weights for prospect TR based on MiLB→MLB correlations (TFR uses 100% scouting with ceiling boost)
 - Tier-aware regression prevents over-regressing elite talent
 - **TFR/TR unification** — TFR shown alongside TR when TFR > TR; hidden when fully realized (see below)
 - **Elite stealer uncapping** — SB projections for SR > 70 deliberately overshoot calibration data to project capability rather than strategy-constrained outcomes
@@ -1005,14 +1022,15 @@ These coefficients are still used for TFR (prospect projections) and scouting co
 
 TFR and TR are unified across all views. Instead of proxy thresholds (`isProspect`, `careerAb <= 130`, etc.), the actual ratings comparison determines display:
 
-- **TFR > TR** → Show both: TR as primary + TFR ceiling bars, Peak badge, Current/Peak projection toggle
+- **TFR > TR or component upside** → Show both: TR as primary + TFR ceiling bars, Peak badge, Current/Peak projection toggle
   - Rating bars show TR value inside the colored bar, TFR value at the bar's end
   - Diff column compares TFR vs Scout (both are peak projections), not current TR vs Scout
-- **TFR <= TR** → TFR disappears entirely, player is "fully realized"
+  - Component upside: if any TFR component exceeds its TR counterpart by >= 5 points (on 20-80 scale), the player has unrealized ceiling even if overall TFR == TR
+- **TFR <= TR and no component upside** → TFR disappears entirely, player is "fully realized"
 - **No TR** (pure prospect) → Show development-curve TR as current ability + TFR as ceiling (see *Prospect True Rating* section)
 
 **Gate check** (skip TFR calculation entirely if): age >= 26 AND star gap < 0.5
 
-**Projection toggle**: MLB players with unrealized upside (`hasTfrUpside`) get a Current/Peak toggle on their projection table. Current uses TR blended rates at current age; Peak uses TFR blended rates directly (from the same pipeline that produces the TFR star rating) at peak age with empirical PA projections. Pitcher peak projections are pre-computed async; batter peak projections re-render inline.
+**Projection toggle**: MLB players with unrealized upside (`hasTfrUpside` — overall TFR > TR, or any component TFR >= TR + 5) get a Current/Peak toggle on their projection table. Current uses TR blended rates at current age; Peak uses TFR blended rates directly (from the same pipeline that produces the TFR star rating) at peak age with empirical PA projections. Pitcher peak projections are pre-computed async; batter peak projections re-render inline.
 
 **Important**: Peak projections use the TFR pipeline's blended rates directly (`tfrBbPct`, `tfrAvg`, `tfrSlg`, etc.), NOT rates derived from converting 20-80 TFR ratings back through regression formulas. The round-trip (rate → percentile → 20-80 → formula → rate) is lossy and produces inconsistent projections.

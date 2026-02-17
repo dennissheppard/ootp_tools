@@ -11,6 +11,7 @@ import { scoutingDataService } from '../services/ScoutingDataService';
 import { teamService } from '../services/TeamService';
 import { teamRatingsService } from '../services/TeamRatingsService';
 import { analyticsService } from '../services/AnalyticsService';
+import { hasComponentUpside } from '../utils/tfrUpside';
 
 export interface GlobalSearchBarOptions {
   onSearch: (query: string) => void;
@@ -403,8 +404,12 @@ export class GlobalSearchBar {
             };
           } else {
             // MLB player with TFR data — check for upside
-            hasTfrUpside = playerResult.trueRating !== undefined
-              && farmProspect.trueFutureRating > playerResult.trueRating;
+            hasTfrUpside = (playerResult.trueRating !== undefined
+              && farmProspect.trueFutureRating > playerResult.trueRating)
+              || hasComponentUpside(
+                [playerResult.estimatedStuff, playerResult.estimatedControl, playerResult.estimatedHra],
+                [tfrStuff, tfrControl, tfrHra]
+              );
           }
 
           // Top-level projection stats from farm data
@@ -649,8 +654,12 @@ export class GlobalSearchBar {
             estimatedSpeed = tfrEntry.developmentTR?.speed ?? tfrEntry.trueRatings.speed;
             hasTfrUpside = true;
           } else {
-            // MLB player: check if TFR > TR
-            hasTfrUpside = trueRating !== undefined && trueFutureRating > trueRating;
+            // MLB player: check if TFR > TR or any component has significant upside
+            hasTfrUpside = (trueRating !== undefined && trueFutureRating > trueRating)
+              || hasComponentUpside(
+                [estimatedPower, estimatedEye, estimatedAvoidK, estimatedContact, estimatedGap, estimatedSpeed],
+                [tfrPower, tfrEye, tfrAvoidK, tfrContact, tfrGap, tfrSpeed]
+              );
           }
         }
       } catch (e) {

@@ -384,6 +384,8 @@ export interface TeamRatingResult {
   lineupWar?: number;
   benchWar?: number;
   totalWar?: number;  // rotationWar + bullpenWar + lineupWar
+  runsScored?: number;     // Team wRC total (lineup + bench)
+  totalRunsAllowed?: number; // rotationRunsAllowed + bullpenRunsAllowed
 }
 
 class TeamRatingsService {
@@ -1477,10 +1479,11 @@ class TeamRatingsService {
   }
 
   async getProjectedTeamRatings(baseYear: number): Promise<TeamRatingResult[]> {
-      const [pitcherProjections, leagueStats, batterProjectionsCtx] = await Promise.all([
+      const [pitcherProjections, leagueStats, batterProjectionsCtx, leagueBattingAvg] = await Promise.all([
         projectionService.getProjections(baseYear, { forceRosterRefresh: false }),
         leagueStatsService.getLeagueStats(baseYear),
-        batterProjectionService.getProjectionsWithContext(baseYear)
+        batterProjectionService.getProjectionsWithContext(baseYear),
+        leagueBattingAveragesService.getLeagueAverages(baseYear)
       ]);
 
       const teamGroups = new Map<number, {
@@ -1686,6 +1689,23 @@ class TeamRatingsService {
           const benchWar = bench.reduce((sum: number, b: RatedBatter) => sum + (b.stats?.war ?? 0), 0);
           const totalWar = r.rotationWar + r.bullpenWar + lineupWar;
 
+          // Calculate Runs Scored from wRC (lineup + bench)
+          const allBatters = [...lineup, ...bench];
+          let runsScored = 0;
+          if (leagueBattingAvg) {
+              runsScored = allBatters.reduce((sum: number, b: RatedBatter) => {
+                  return sum + leagueBattingAveragesService.calculateWrc(b.woba ?? 0, b.stats?.pa ?? 0, leagueBattingAvg);
+              }, 0);
+          } else {
+              // Fallback: lgRpa ≈ 0.115, lgWoba ≈ 0.315, wobaScale ≈ 1.15
+              runsScored = allBatters.reduce((sum: number, b: RatedBatter) => {
+                  const wRAA = (((b.woba ?? 0) - 0.315) / 1.15) * (b.stats?.pa ?? 0);
+                  return sum + wRAA + (0.115 * (b.stats?.pa ?? 0));
+              }, 0);
+          }
+
+          const totalRunsAllowed = r.rotationRuns + r.bullpenRuns;
+
           return {
               teamId: r.teamId,
               teamName: r.teamName,
@@ -1704,7 +1724,9 @@ class TeamRatingsService {
               bench,
               lineupWar,
               benchWar,
-              totalWar
+              totalWar,
+              runsScored,
+              totalRunsAllowed
           };
       });
 

@@ -1655,7 +1655,8 @@ export class BatterProfileModal {
     const projHrPerAb = projPa > 0 ? projHr / (projPa * abPerPa) : 0;
     const projDoublesPerAb = projAb > 0 ? proj2b / projAb : 0.04;
     const projTriplesPerAb = projAb > 0 ? proj3b / projAb : 0.005;
-    const projWoba = data.projWoba ?? this.computeWoba(projBbPct / 100, projAvg, projDoublesPerAb, projTriplesPerAb, projHrPerAb);
+    const peakWobaFromRates = this.computeWoba(projBbPct / 100, projAvg, projDoublesPerAb, projTriplesPerAb, projHrPerAb);
+    const projWoba = (isPeakMode || isProspectPeak) ? peakWobaFromRates : (data.projWoba ?? peakWobaFromRates);
 
     // SB runs for WAR (use projected SB and CS)
     let projSbRuns = 0;

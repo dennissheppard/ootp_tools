@@ -20,6 +20,7 @@ import { leagueStatsService } from '../services/LeagueStatsService';
 import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
 import { teamRatingsService, HitterFarmData, FarmData } from '../services/TeamRatingsService';
 import { analyticsService } from '../services/AnalyticsService';
+import { hasComponentUpside } from '../utils/tfrUpside';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -3447,7 +3448,11 @@ export class TrueRatingsView {
           hasTfrUpside = true; // Pure prospects always show TFR
         } else {
           // MLB player: check if TFR > TR
-          hasTfrUpside = row.trueRating !== undefined && trueFutureRating > row.trueRating;
+          hasTfrUpside = (row.trueRating !== undefined && trueFutureRating > row.trueRating)
+            || hasComponentUpside(
+              [estimatedPower, estimatedEye, estimatedAvoidK, estimatedContact, estimatedGap, estimatedSpeed],
+              [tfrPower, tfrEye, tfrAvoidK, tfrContact, tfrGap, tfrSpeed]
+            );
         }
       }
     } catch (e) {
