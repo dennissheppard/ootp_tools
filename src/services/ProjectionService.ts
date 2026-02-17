@@ -708,9 +708,9 @@ class ProjectionService {
         let injuryMod = 1.0;
         switch (proneness) {
             case 'iron man': injuryMod = 1.15; break;
-            case 'durable': injuryMod = 1.08; break;
+            case 'durable': injuryMod = 1.10; break;
             case 'normal': injuryMod = 1.0; break;
-            case 'fragile': injuryMod = 0.92; break;
+            case 'fragile': injuryMod = 0.90; break;
             case 'wrecked': injuryMod = 0.75; break;
         }
         baseIp *= injuryMod;

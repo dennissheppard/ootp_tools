@@ -1235,9 +1235,9 @@ function tracePitcherTFR(
   let injuryFactor = 1.0;
   switch (injury) {
     case 'Iron Man': case 'Ironman': injuryFactor = 1.15; break;
-    case 'Durable': injuryFactor = 1.08; break;
+    case 'Durable': injuryFactor = 1.10; break;
     case 'Normal': injuryFactor = 1.0; break;
-    case 'Fragile': injuryFactor = 0.92; break;
+    case 'Fragile': injuryFactor = 0.90; break;
     case 'Wrecked': injuryFactor = 0.75; break;
   }
   baseIp *= injuryFactor;
@@ -1549,10 +1549,29 @@ function tracePitcherTFRFull(
   console.log(`    BB/9 = ${scoutingWeight.toFixed(2)} × ${scoutBb9.toFixed(2)} + ${statsWeight.toFixed(2)} × ${adjustedBb9.toFixed(2)} = ${blendedBb9.toFixed(2)}`);
   console.log(`    HR/9 = ${scoutingWeight.toFixed(2)} × ${scoutHr9.toFixed(2)} + ${statsWeight.toFixed(2)} × ${adjustedHr9.toFixed(2)} = ${blendedHr9.toFixed(2)}`);
 
+  // --- STEP 6b: Ceiling Boost ---
+  console.log('\n--- STEP 6b: Ceiling Boost ---\n');
+  const CEILING_BOOST = 0.30;
+  const avgK9 = PITCHER_FORMULAS.k9.intercept + PITCHER_FORMULAS.k9.slope * 50;
+  const avgBb9 = PITCHER_FORMULAS.bb9.intercept + PITCHER_FORMULAS.bb9.slope * 50;
+  const avgHr9 = PITCHER_FORMULAS.hr9.intercept + PITCHER_FORMULAS.hr9.slope * 50;
+
+  console.log(`  Average rates (rating 50): K/9=${avgK9.toFixed(2)}, BB/9=${avgBb9.toFixed(2)}, HR/9=${avgHr9.toFixed(2)}`);
+  console.log(`  Ceiling boost factor: ${CEILING_BOOST}`);
+
+  const ceilingK9 = blendedK9 + (blendedK9 - avgK9) * CEILING_BOOST;
+  const ceilingBb9 = blendedBb9 + (blendedBb9 - avgBb9) * CEILING_BOOST;
+  const ceilingHr9 = blendedHr9 + (blendedHr9 - avgHr9) * CEILING_BOOST;
+
+  console.log(`\n  Ceiling-boosted rates:`);
+  console.log(`    K/9:  ${blendedK9.toFixed(2)} + (${blendedK9.toFixed(2)} - ${avgK9.toFixed(2)}) × ${CEILING_BOOST} = ${ceilingK9.toFixed(2)}`);
+  console.log(`    BB/9: ${blendedBb9.toFixed(2)} + (${blendedBb9.toFixed(2)} - ${avgBb9.toFixed(2)}) × ${CEILING_BOOST} = ${ceilingBb9.toFixed(2)}`);
+  console.log(`    HR/9: ${blendedHr9.toFixed(2)} + (${blendedHr9.toFixed(2)} - ${avgHr9.toFixed(2)}) × ${CEILING_BOOST} = ${ceilingHr9.toFixed(2)}`);
+
   // --- STEP 7: Projected FIP ---
   console.log('\n--- STEP 7: Calculate Projected FIP ---\n');
-  const projFip = calculateFip(blendedK9, blendedBb9, blendedHr9);
-  console.log(`  Projected FIP = ${projFip.toFixed(2)}`);
+  const projFip = calculateFip(ceilingK9, ceilingBb9, ceilingHr9);
+  console.log(`  Projected FIP (ceiling-boosted) = ${projFip.toFixed(2)}`);
 
   // --- STEP 8: MLB FIP Distribution & TFR ---
   console.log('\n--- STEP 8: Final TFR (MLB FIP Distribution) ---\n');
@@ -1595,9 +1614,9 @@ function tracePitcherTFRFull(
   let injuryFactor = 1.0;
   switch (injury) {
     case 'Iron Man': case 'Ironman': injuryFactor = 1.15; break;
-    case 'Durable': injuryFactor = 1.08; break;
+    case 'Durable': injuryFactor = 1.10; break;
     case 'Normal': injuryFactor = 1.0; break;
-    case 'Fragile': injuryFactor = 0.92; break;
+    case 'Fragile': injuryFactor = 0.90; break;
     case 'Wrecked': injuryFactor = 0.75; break;
   }
   baseIp *= injuryFactor;
@@ -1705,16 +1724,16 @@ function tracePitcherTFRFull(
     console.log(`  Raw IP-weighted stats: K/9=${rawK9.toFixed(2)}, BB/9=${rawBb9.toFixed(2)}, HR/9=${rawHr9.toFixed(2)}`);
   }
 
-  const tfrStuff = Math.round(20 + ((Math.max(3.0, Math.min(11.0, blendedK9)) - 3.0) / 8.0) * 60);
-  const tfrControl = Math.round(20 + ((7.0 - Math.max(0.85, Math.min(7.0, blendedBb9))) / 6.15) * 60);
-  const tfrHra = Math.round(20 + ((2.5 - Math.max(0.20, Math.min(2.5, blendedHr9))) / 2.30) * 60);
+  const tfrStuff = Math.round(20 + ((Math.max(3.0, Math.min(11.0, ceilingK9)) - 3.0) / 8.0) * 60);
+  const tfrControl = Math.round(20 + ((7.0 - Math.max(0.85, Math.min(7.0, ceilingBb9))) / 6.15) * 60);
+  const tfrHra = Math.round(20 + ((2.5 - Math.max(0.20, Math.min(2.5, ceilingHr9))) / 2.30) * 60);
 
-  console.log(`\n  TFR Ratings (derived from blended rates): Stuff=${tfrStuff}, Control=${tfrControl}, HRA=${tfrHra}\n`);
+  console.log(`\n  TFR Ratings (derived from ceiling-boosted rates): Stuff=${tfrStuff}, Control=${tfrControl}, HRA=${tfrHra}\n`);
 
   const pitcherComponents = [
-    { name: 'Stuff',   key: 'stuff',   tfrVal: tfrStuff,   peakStat: blendedK9,  rawStat: totalRawIp > 0 ? rawK9 : undefined,  lower: false },
-    { name: 'Control', key: 'control', tfrVal: tfrControl, peakStat: blendedBb9, rawStat: totalRawIp > 0 ? rawBb9 : undefined, lower: true },
-    { name: 'HRA',     key: 'hra',     tfrVal: tfrHra,     peakStat: blendedHr9, rawStat: totalRawIp > 0 ? rawHr9 : undefined, lower: true },
+    { name: 'Stuff',   key: 'stuff',   tfrVal: tfrStuff,   peakStat: ceilingK9,  rawStat: totalRawIp > 0 ? rawK9 : undefined,  lower: false },
+    { name: 'Control', key: 'control', tfrVal: tfrControl, peakStat: ceilingBb9, rawStat: totalRawIp > 0 ? rawBb9 : undefined, lower: true },
+    { name: 'HRA',     key: 'hra',     tfrVal: tfrHra,     peakStat: ceilingHr9, rawStat: totalRawIp > 0 ? rawHr9 : undefined, lower: true },
   ];
 
   console.log(`  ${'Component'.padEnd(10)} ${'Cohort'.padEnd(12)} ${'Expected'.padEnd(10)} ${'Actual Raw'.padEnd(12)} ${'DevFrac'.padEnd(8)} ${'Base'.padEnd(6)} ${'Adj'.padEnd(8)} ${'TFR'.padEnd(6)} Final TR  Gap`);
@@ -1745,16 +1764,16 @@ function tracePitcherTFRFull(
   }
   console.log(`\n  Minor League Stats: ${totalRawIp.toFixed(1)} IP (${totalWeightedIp.toFixed(1)} weighted)`);
   console.log(`  Scouting Weight: ${(scoutingWeight * 100).toFixed(0)}%`);
-  console.log(`\n  Projected Peak Rates (TFR):`);
-  console.log(`    K/9: ${blendedK9.toFixed(2)} (TFR Stuff: ${tfrStuff})`);
-  console.log(`    BB/9: ${blendedBb9.toFixed(2)} (TFR Control: ${tfrControl})`);
-  console.log(`    HR/9: ${blendedHr9.toFixed(2)} (TFR HRA: ${tfrHra})`);
+  console.log(`\n  Projected Peak Rates (TFR, ceiling-boosted):`);
+  console.log(`    K/9: ${ceilingK9.toFixed(2)} (TFR Stuff: ${tfrStuff})`);
+  console.log(`    BB/9: ${ceilingBb9.toFixed(2)} (TFR Control: ${tfrControl})`);
+  console.log(`    HR/9: ${ceilingHr9.toFixed(2)} (TFR HRA: ${tfrHra})`);
   console.log(`\n  Current TR (Development Curves):`);
   for (const c of pitcherComponents) {
     const diag = pitcherDevCurveDiag(c.key, c.tfrVal, c.peakStat, c.rawStat, c.lower);
     console.log(`    ${c.name}: ${diag.finalTR} (TFR: ${c.tfrVal}, gap: +${c.tfrVal - diag.finalTR})`);
   }
-  console.log(`\n  Projected Peak FIP: ${projFip.toFixed(2)}`);
+  console.log(`\n  Projected Peak FIP: ${projFip.toFixed(2)} (ceiling-boosted)`);
   console.log(`  Role: ${isSp ? 'SP' : 'RP'}`);
   console.log(`  Projected Peak IP: ${projectedIp}`);
   console.log(`  Projected Peak WAR: ${peakWar.toFixed(1)}`);

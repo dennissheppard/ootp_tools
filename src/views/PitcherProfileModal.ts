@@ -329,7 +329,10 @@ export class PitcherProfileModal {
     if (playerTR || tfrEntry) {
       data.projFip = undefined;
       data.projWar = undefined;
-      data.projIp = undefined;
+      // Only clear projIp for MLB players; prospects use peak IP from TFR pipeline
+      if (!data.isProspect) {
+        data.projIp = undefined;
+      }
     }
 
     // Update header
@@ -1309,8 +1312,8 @@ export class PitcherProfileModal {
 
     // Injury discount
     const injuryMultiplier: Record<string, number> = {
-      'Ironman': 1.05, 'Durable': 1.0, 'Normal': 0.95,
-      'Wary': 0.88, 'Fragile': 0.80, 'Prone': 0.72, 'Wrecked': 0.65,
+      'Ironman': 1.15, 'Durable': 1.10, 'Normal': 1.0,
+      'Wary': 0.95, 'Fragile': 0.90, 'Prone': 0.80, 'Wrecked': 0.75,
     };
     const mult = injuryMultiplier[injury ?? 'Normal'] ?? 0.95;
     return Math.round(baseIp * mult);

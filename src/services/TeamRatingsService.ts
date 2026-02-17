@@ -894,7 +894,25 @@ class TeamRatingsService {
               else if (injury === 'Wrecked') injuryFactor = 0.75; // Significantly limits ceiling
               else if (injury === 'Ironman') injuryFactor = 1.15;
 
-              projectedIp = Math.round(Math.max(120, Math.min(260, baseIp * injuryFactor)));
+              projectedIp = Math.round(baseIp * injuryFactor);
+
+              // Skill modifier (managers give more IP to better pitchers)
+              let skillMod = 1.0;
+              if (tfr.projFip <= 3.50) skillMod = 1.20;
+              else if (tfr.projFip <= 4.00) skillMod = 1.10;
+              else if (tfr.projFip <= 4.50) skillMod = 1.0;
+              else if (tfr.projFip <= 5.00) skillMod = 0.90;
+              else skillMod = 0.80;
+              projectedIp = Math.round(projectedIp * skillMod);
+
+              // Elite FIP boost
+              let ipBoost = 1.0;
+              if (tfr.projFip < 3.0) ipBoost = 1.08;
+              else if (tfr.projFip < 3.5) ipBoost = 1.08 - ((tfr.projFip - 3.0) / 0.5) * 0.05;
+              else if (tfr.projFip < 4.0) ipBoost = 1.03 - ((tfr.projFip - 3.5) / 0.5) * 0.03;
+              if (ipBoost > 1.0) projectedIp = Math.round(projectedIp * ipBoost);
+
+              projectedIp = Math.max(120, Math.min(260, projectedIp));
           } else {
               // RP: 50-75 IP typical range
               const baseIp = 50 + (stamina * 0.5); // stamina 30 → 65, 50 → 75
@@ -906,7 +924,25 @@ class TeamRatingsService {
               else if (injury === 'Wrecked') injuryFactor = 0.75;
               else if (injury === 'Ironman') injuryFactor = 1.15;
 
-              projectedIp = Math.round(Math.max(40, Math.min(80, baseIp * injuryFactor)));
+              projectedIp = Math.round(baseIp * injuryFactor);
+
+              // Skill modifier for RP too
+              let skillMod = 1.0;
+              if (tfr.projFip <= 3.50) skillMod = 1.20;
+              else if (tfr.projFip <= 4.00) skillMod = 1.10;
+              else if (tfr.projFip <= 4.50) skillMod = 1.0;
+              else if (tfr.projFip <= 5.00) skillMod = 0.90;
+              else skillMod = 0.80;
+              projectedIp = Math.round(projectedIp * skillMod);
+
+              // Elite FIP boost
+              let ipBoost = 1.0;
+              if (tfr.projFip < 3.0) ipBoost = 1.08;
+              else if (tfr.projFip < 3.5) ipBoost = 1.08 - ((tfr.projFip - 3.0) / 0.5) * 0.05;
+              else if (tfr.projFip < 4.0) ipBoost = 1.03 - ((tfr.projFip - 3.5) / 0.5) * 0.03;
+              if (ipBoost > 1.0) projectedIp = Math.round(projectedIp * ipBoost);
+
+              projectedIp = Math.max(40, Math.min(80, projectedIp));
           }
 
           const peakWar = fipWarService.calculateWar(tfr.projFip, projectedIp);
