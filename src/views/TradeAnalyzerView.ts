@@ -702,7 +702,28 @@ export class TradeAnalyzerView {
         select.appendChild(option);
       });
 
-      select.addEventListener('change', () => this.onTeamChange(teamNum));
+      select.addEventListener('change', () => {
+        // Save team 1 selection globally
+        if (teamNum === 1) {
+          const selectedOption = select.options[select.selectedIndex];
+          if (selectedOption?.textContent) {
+            try { localStorage.setItem('wbl-selected-team', selectedOption.textContent); } catch { /* ignore */ }
+          }
+        }
+        this.onTeamChange(teamNum);
+      });
+
+      // Restore saved team for Team 1
+      if (teamNum === 1) {
+        const savedTeam = localStorage.getItem('wbl-selected-team');
+        if (savedTeam) {
+          const match = mainTeams.find(t => t.nickname === savedTeam);
+          if (match) {
+            select.value = match.id.toString();
+            this.onTeamChange(1);
+          }
+        }
+      }
     });
   }
 

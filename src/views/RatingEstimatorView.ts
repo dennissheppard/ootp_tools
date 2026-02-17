@@ -15,6 +15,9 @@ type BatterComparisonInputs = {
     contact: { scout?: number; osa?: number };
     power: { scout?: number; osa?: number };
     eye: { scout?: number; osa?: number };
+    avoidK: { scout?: number; osa?: number };
+    gap: { scout?: number; osa?: number };
+    speed: { scout?: number; osa?: number };
 };
 
 const AVAILABLE_YEARS = [2021, 2020, 2019, 2018, 2017, 2016, 2015, 2014, 2013, 2012, 2011, 2010];
@@ -54,8 +57,7 @@ export class RatingEstimatorView {
 
         this.container.innerHTML = `
             <div class="rating-estimator-section">
-                <h2 class="section-title">Rating Estimator</h2>
-                <p class="section-subtitle">"How Accurate Is Your Scout?"</p>
+                <h2 class="section-title">Rating Estimator</h2>                
 
                 ${isPitcher ? this.renderLeagueContextInfo() : ''}
 
@@ -217,6 +219,21 @@ export class RatingEstimatorView {
                         <input type="number" id="comp-eye-scout" min="20" max="80" placeholder="--" />
                         <input type="number" id="comp-eye-osa" min="20" max="80" placeholder="--" />
                     </div>
+                    <div class="comparison-field">
+                        <label for="comp-avoidk">AvoidK</label>
+                        <input type="number" id="comp-avoidk-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-avoidk-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-gap">Gap</label>
+                        <input type="number" id="comp-gap-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-gap-osa" min="20" max="80" placeholder="--" />
+                    </div>
+                    <div class="comparison-field">
+                        <label for="comp-speed">Speed</label>
+                        <input type="number" id="comp-speed-scout" min="20" max="80" placeholder="--" />
+                        <input type="number" id="comp-speed-osa" min="20" max="80" placeholder="--" />
+                    </div>
                 </div>
             </div>
         `;
@@ -306,6 +323,9 @@ export class RatingEstimatorView {
             contact: { scout: getCompValue('comp-contact-scout'), osa: getCompValue('comp-contact-osa') },
             power: { scout: getCompValue('comp-power-scout'), osa: getCompValue('comp-power-osa') },
             eye: { scout: getCompValue('comp-eye-scout'), osa: getCompValue('comp-eye-osa') },
+            avoidK: { scout: getCompValue('comp-avoidk-scout'), osa: getCompValue('comp-avoidk-osa') },
+            gap: { scout: getCompValue('comp-gap-scout'), osa: getCompValue('comp-gap-osa') },
+            speed: { scout: getCompValue('comp-speed-scout'), osa: getCompValue('comp-speed-osa') },
         };
 
         this.lastBatterStats = stats;
@@ -337,7 +357,7 @@ export class RatingEstimatorView {
                 <thead>
                     <tr>
                         <th>Rating</th>
-                        <th>Rating</th>
+                        <th>Estimated</th>
                         <th>Scout</th>
                         <th>OSA</th>
                         <th>Verdict</th>
@@ -373,7 +393,7 @@ export class RatingEstimatorView {
         const resultsContainer = this.container.querySelector<HTMLDivElement>('#estimator-results');
         if (!resultsContainer) return;
 
-        const renderComparison = (stat: 'contact' | 'power' | 'eye') => {
+        const renderComparison = (stat: 'contact' | 'power' | 'eye' | 'avoidK' | 'gap' | 'speed') => {
             const scout = comparison[stat].scout;
             const osa = comparison[stat].osa;
             const estimated = ratings[stat];
@@ -391,7 +411,7 @@ export class RatingEstimatorView {
                 <thead>
                     <tr>
                         <th>Rating</th>
-                        <th>Rating</th>
+                        <th>Estimated</th>
                         <th>Scout</th>
                         <th>OSA</th>
                         <th>Verdict</th>
@@ -412,6 +432,21 @@ export class RatingEstimatorView {
                         <td>Eye</td>
                         <td>${ratings.eye.rating}</td>
                         ${renderComparison('eye')}
+                    </tr>
+                    <tr>
+                        <td>AvoidK</td>
+                        <td>${ratings.avoidK.rating}</td>
+                        ${renderComparison('avoidK')}
+                    </tr>
+                    <tr>
+                        <td>Gap</td>
+                        <td>${ratings.gap.rating}</td>
+                        ${renderComparison('gap')}
+                    </tr>
+                    <tr>
+                        <td>Speed</td>
+                        <td>${ratings.speed.rating}</td>
+                        ${renderComparison('speed')}
                     </tr>
                 </tbody>
             </table>

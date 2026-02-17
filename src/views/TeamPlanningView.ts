@@ -173,7 +173,7 @@ export class TeamPlanningView {
   private cellEditModal: CellEditModal;
   private messageModal: MessageModal;
   private hasLoadedData = false;
-  private viewMode: 'grid' | 'analysis' | 'market' = 'grid';
+  private viewMode: 'grid' | 'analysis' | 'market' = (localStorage.getItem('wbl-tp-viewMode') as 'grid' | 'analysis' | 'market') || 'grid';
   private collapsedSections: Set<string> = new Set();
 
   private allTeams: Team[] = [];
@@ -201,7 +201,7 @@ export class TeamPlanningView {
   private cachedOrgPitchers: RatedProspect[] = [];
   private cachedAllPitcherProspects: RatedProspect[] = [];
   private cachedTradeProfiles: Map<number, TeamTradeProfile> = new Map();
-  private tradeMarketYear: number = 0; // offset from gameYear (0 = current season)
+  private tradeMarketYear: number = parseInt(localStorage.getItem('wbl-tp-marketYear') ?? '0', 10); // offset from gameYear (0 = current season)
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -257,9 +257,9 @@ export class TeamPlanningView {
                 </button>
                 <div class="filter-dropdown-menu" id="tp-team-menu"></div>
               </div>
-              <button class="toggle-btn active" data-view="grid">Planning Grid</button>
-              <button class="toggle-btn" data-view="analysis">Org Analysis</button>
-              <button class="toggle-btn" data-view="market">Trade Market</button>
+              <button class="toggle-btn ${this.viewMode === 'grid' ? 'active' : ''}" data-view="grid">Planning Grid</button>
+              <button class="toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-view="analysis">Org Analysis</button>
+              <button class="toggle-btn ${this.viewMode === 'market' ? 'active' : ''}" data-view="market">Trade Market</button>
             </div>
           </div>
         </div>
@@ -298,6 +298,7 @@ export class TeamPlanningView {
         const mode = btn.dataset.view as 'grid' | 'analysis' | 'market';
         if (!mode || mode === this.viewMode) return;
         this.viewMode = mode;
+        try { localStorage.setItem('wbl-tp-viewMode', mode); } catch { /* ignore */ }
         this.container.querySelectorAll('.toggle-btn[data-view]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this.applyViewMode();
@@ -333,6 +334,7 @@ export class TeamPlanningView {
   private navigateToGridCell(position: string, year: number): void {
     // 1. Switch to grid view
     this.viewMode = 'grid';
+    try { localStorage.setItem('wbl-tp-viewMode', 'grid'); } catch { /* ignore */ }
     this.container.querySelectorAll('.toggle-btn[data-view]').forEach(b => b.classList.remove('active'));
     const gridBtn = this.container.querySelector('.toggle-btn[data-view="grid"]');
     if (gridBtn) gridBtn.classList.add('active');
@@ -422,6 +424,7 @@ export class TeamPlanningView {
         if (!value) return;
 
         this.selectedTeamId = parseInt(value, 10);
+        try { localStorage.setItem('wbl-selected-team', el.textContent?.trim() || value); } catch { /* ignore */ }
 
         const display = this.container.querySelector('#tp-team-display');
         if (display) display.textContent = el.textContent || '';
@@ -435,6 +438,19 @@ export class TeamPlanningView {
         this.loadOverrides().then(() => this.buildAndRenderGrid());
       });
     });
+
+    // Restore saved team selection
+    const savedTeam = localStorage.getItem('wbl-selected-team');
+    if (savedTeam) {
+      const match = mainTeams.find(t => t.nickname === savedTeam);
+      if (match) {
+        this.selectedTeamId = match.id;
+        const display = this.container.querySelector('#tp-team-display');
+        if (display) display.textContent = match.nickname;
+        menu.querySelector(`.filter-dropdown-item[data-value="${match.id}"]`)?.classList.add('selected');
+        this.loadOverrides().then(() => this.buildAndRenderGrid());
+      }
+    }
   }
 
   // =====================================================================
@@ -2680,6 +2696,7 @@ export class TeamPlanningView {
         const offset = parseInt(btn.dataset.yearOffset ?? '0', 10);
         if (offset === this.tradeMarketYear) return;
         this.tradeMarketYear = offset;
+        try { localStorage.setItem('wbl-tp-marketYear', String(offset)); } catch { /* ignore */ }
         // Rebuild profiles at the new year offset and re-render
         this.cachedTradeProfiles = this.buildAllTeamProfiles();
         this.renderTradeMarket();

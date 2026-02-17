@@ -44,7 +44,7 @@ export class TeamRatingsView {
   private container: HTMLElement;
   private selectedYear: number = 2020;
   private isAllTime: boolean = false;
-  private viewMode: 'projected' | 'power-rankings' | 'standings' = 'power-rankings';
+  private viewMode: 'projected' | 'power-rankings' | 'standings' = (localStorage.getItem('wbl-teamratings-viewMode') as 'projected' | 'power-rankings' | 'standings') || 'power-rankings';
   private showByDivision: boolean = false;
   private results: TeamRatingResult[] = [];
   private powerRankings: TeamPowerRanking[] = [];
@@ -213,6 +213,7 @@ export class TeamRatingsView {
           // Force power-rankings mode for All-Time
           if (this.viewMode !== 'power-rankings') {
             this.viewMode = 'power-rankings';
+            try { localStorage.setItem('wbl-teamratings-viewMode', 'power-rankings'); } catch { /* ignore */ }
             this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
               const b = btn as HTMLElement;
               const isActive = b.dataset.viewMode === 'power-rankings';
@@ -253,6 +254,7 @@ export class TeamRatingsView {
         if (mode === this.viewMode && !this.isAllTime) return;
 
         this.viewMode = mode;
+        try { localStorage.setItem('wbl-teamratings-viewMode', mode); } catch { /* ignore */ }
         this.teamSortState.clear();
 
         // Reset division toggle when leaving standings

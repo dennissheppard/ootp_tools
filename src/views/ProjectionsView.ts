@@ -65,10 +65,14 @@ export class ProjectionsView {
   private currentPage = 1;
   private itemsPerPage = 50;
   private itemsPerPageSelection: '10' | '50' | '200' | 'all' = '50';
-  private selectedYear = 2020;
-  private selectedTeam = 'all';
-  private selectedPosition = 'all-pitchers';
-  private mode: 'pitchers' | 'batters' = 'pitchers';
+  private selectedYear = parseInt(localStorage.getItem('wbl-proj-year') ?? '2020', 10);
+  private selectedTeam = localStorage.getItem('wbl-selected-team') || 'all';
+  private selectedPosition = localStorage.getItem('wbl-proj-position') || 'all-pitchers';
+  private mode: 'pitchers' | 'batters' = (() => {
+    const pos = localStorage.getItem('wbl-proj-position') || 'all-pitchers';
+    const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+    return batterPositions.includes(pos) ? 'batters' as const : 'pitchers' as const;
+  })();
   private teamOptions: string[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i);
   private isOffseason = false;
@@ -76,8 +80,8 @@ export class ProjectionsView {
   private usedFallbackStats = false;
   private scoutingMetadata?: { fromMyScout: number; fromOSA: number };
   private viewMode: 'projections' | 'backcasting' | 'analysis' = 'projections';
-  private sortKey: string = 'projectedStats.fip';
-  private sortDirection: 'asc' | 'desc' = 'asc';
+  private sortKey: string = this.mode === 'batters' ? 'projectedStats.war' : 'projectedStats.fip';
+  private sortDirection: 'asc' | 'desc' = this.mode === 'batters' ? 'desc' : 'asc';
   private columns: ColumnConfig[] = [];
   private isDraggingColumn = false;
   private prefKey = 'wbl-projections-prefs';
@@ -1845,6 +1849,7 @@ export class ProjectionsView {
 
               this.selectedTeam = value;
               this.currentPage = 1;
+              try { localStorage.setItem('wbl-selected-team', value); } catch { /* ignore */ }
 
               // Update display text
               const displaySpan = this.container.querySelector('#selected-team-display');
@@ -1872,6 +1877,7 @@ export class ProjectionsView {
 
               this.selectedPosition = value;
               this.currentPage = 1;
+              try { localStorage.setItem('wbl-proj-position', value); } catch { /* ignore */ }
 
               // Determine mode based on position selection
               const pitcherPositions = ['all-pitchers', 'SP', 'RP'];
@@ -1955,6 +1961,7 @@ export class ProjectionsView {
 
               this.selectedYear = parseInt(value, 10);
               this.currentPage = 1;
+              try { localStorage.setItem('wbl-proj-year', value); } catch { /* ignore */ }
 
               // Update display text
               const displaySpan = this.container.querySelector('#selected-year-display');
@@ -1978,7 +1985,12 @@ export class ProjectionsView {
   private updateTeamFilter(): void {
       const menu = this.container.querySelector<HTMLElement>('#team-dropdown-menu');
       if (!menu) return;
-      
+
+      // Validate saved team exists in options
+      if (this.selectedTeam !== 'all' && !this.teamOptions.includes(this.selectedTeam)) {
+          this.selectedTeam = 'all';
+      }
+
       const items = ['all', ...this.teamOptions].map(t => {
           const label = t === 'all' ? 'All' : t;
           const selectedClass = t === this.selectedTeam ? 'selected' : '';
@@ -3186,7 +3198,9 @@ export class ProjectionsView {
 
     if (parsed) {
       const { year, month } = parsed;
-      this.selectedYear = year;
+      // Use saved year if it exists in valid range, otherwise game year
+      const savedYear = parseInt(localStorage.getItem('wbl-proj-year') ?? '', 10);
+      this.selectedYear = (savedYear >= 2000 && savedYear <= year + 1) ? savedYear : year;
       // Offseason if Oct-Dec or Jan-Mar
       this.isOffseason = month >= 10 || month < 4;
 
