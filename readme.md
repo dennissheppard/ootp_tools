@@ -73,10 +73,10 @@ A **pure peak/ceiling projection system** — projects what a prospect's age-27 
 |-----------|--------|------|-------------|
 | Eye | Eye (20-80) | BB% | 1.6246 + 0.114789 × eye |
 | AvoidK | AvoidK (20-80) | K% | 25.10 - 0.200303 × avoidK |
-| Power | Power (20-80) | HR% | -0.5906 + 0.058434 × power |
-| Contact | Contact (20-80) | AVG | 0.035156 + 0.00395741 × contact |
-| Gap | Gap (20-80) | 2B rate | 0.01 + 0.0008 × (gap - 20) |
-| Speed | Speed (20-80) | 3B rate | Converted to 20-200 internally |
+| Power | Power (20-80) | HR% | Piecewise: ≤50: -1.034 + 0.0637 × power, >50: -2.75 + 0.098 × power |
+| Contact | Contact (20-80) | AVG | 0.035156 + 0.003873 × contact |
+| Gap | Gap (20-80) | 2B rate | -0.012627 + 0.001086 × gap |
+| Speed | Speed (20-80) | 3B rate | -0.001657 + 0.000083 × speed (20-200 internally) |
 
 **Important:** Uses **Contact rating** (not Hit Tool) for AVG — Contact correlates at r=0.97 vs Hit Tool's r=0.82. CSVs map `CON P`, not `HT P`.
 

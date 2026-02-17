@@ -41,7 +41,8 @@ class RatingEstimatorService {
     }
 
     static estimateControl(bb9: number, ip: number): RatingEstimate {
-        const rawRating = 100.4 - 19.2 * bb9;
+        // Exact inverse of forward: BB/9 = 5.30 - 0.052 × Control
+        const rawRating = (5.30 - bb9) / 0.052;
         const rating = this.capRating(Math.round(rawRating));
         const { confidence, multiplier } = this.getConfidence(ip, 200);
         const uncertainty = 5 * multiplier;
@@ -54,7 +55,8 @@ class RatingEstimatorService {
     }
 
     static estimateStuff(k9: number, ip: number): RatingEstimate {
-        const rawRating = -28.0 + 13.5 * k9;
+        // Exact inverse of forward: K/9 = 2.10 + 0.074 × Stuff
+        const rawRating = (k9 - 2.10) / 0.074;
         const rating = this.capRating(Math.round(rawRating));
         const { confidence, multiplier } = this.getConfidence(ip, 150);
         const uncertainty = 8 * multiplier;
@@ -67,7 +69,8 @@ class RatingEstimatorService {
     }
 
     static estimateHRA(hr9: number, ip: number): RatingEstimate {
-        const rawRating = 86.7 - 41.7 * hr9;
+        // Exact inverse of forward: HR/9 = 2.18 - 0.024 × HRA
+        const rawRating = (2.18 - hr9) / 0.024;
         const rating = this.capRating(Math.round(rawRating));
         const { confidence, multiplier } = this.getConfidence(ip, 300);
         const uncertainty = 11 * multiplier;

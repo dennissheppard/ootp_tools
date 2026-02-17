@@ -13,6 +13,11 @@ interface BatterRatings {
   contact: number;
   power: number;
   eye: number;
+  avoidK: number;
+  gap: number;
+  speed: number;
+  sr: number;
+  ste: number;
 }
 
 interface PotentialBattingStats {
@@ -23,13 +28,18 @@ interface PotentialBattingStats {
   t: number;
   hr: number;
   bb: number;
+  k: number;
+  sb: number;
+  cs: number;
   avg: number;
   obp: number;
   slg: number;
   ops: number;
   woba: number;
   bbPct: number;
+  kPct: number;
   hrPct: number;
+  war: number;
 }
 
 type PitcherResultRow = { name: string } & PotentialPitchingStats & PitcherRatings;
@@ -114,25 +124,30 @@ export class PotentialStatsView {
   }
 
   private calculateBatterStats(ratings: BatterRatings, pa: number): PotentialBattingStats {
-    // Get expected rate stats from ratings using HitterRatingEstimatorService
+    // Get expected rate stats from ratings using calibrated coefficients
     const bbPct = HitterRatingEstimatorService.expectedBbPct(ratings.eye);
+    const kPct = HitterRatingEstimatorService.expectedKPct(ratings.avoidK);
     const hrPct = HitterRatingEstimatorService.expectedHrPct(ratings.power);
     const avg = HitterRatingEstimatorService.expectedAvg(ratings.contact);
+    const doublesRate = HitterRatingEstimatorService.expectedDoublesRate(ratings.gap);
+    const triplesRate = HitterRatingEstimatorService.expectedTriplesRate(ratings.speed);
 
     // Calculate counting stats from rates
     const bb = Math.round((bbPct / 100) * pa);
-    const hr = Math.max(0, Math.round((hrPct / 100) * pa)); // HR% can be negative for low power
+    const k = Math.round((kPct / 100) * pa);
+    const hr = Math.max(0, Math.round((hrPct / 100) * pa));
 
-    // AB = PA - BB - HBP - SF - SH (we'll approximate as PA - BB for simplicity)
+    // AB = PA - BB (simplified, excludes HBP/SF/SH)
     const ab = pa - bb;
     const h = Math.round(avg * ab);
 
-    // Estimate doubles and triples (simplified - could use Gap/Speed if available)
-    // Rough approximation: 20% of non-HR hits are doubles, 2% are triples
-    const nonHrHits = Math.max(0, h - hr);
-    const d = Math.round(nonHrHits * 0.20);
-    const t = Math.round(nonHrHits * 0.02);
+    // Doubles and triples from Gap/Speed coefficients (per AB rates)
+    const d = Math.max(0, Math.round(doublesRate * ab));
+    const t = Math.max(0, Math.round(triplesRate * ab));
     const singles = Math.max(0, h - d - t - hr);
+
+    // Stolen bases from SR/STE
+    const { sb, cs } = HitterRatingEstimatorService.projectStolenBases(ratings.sr, ratings.ste, pa);
 
     // Calculate slashline stats
     const obp = ab > 0 ? (h + bb) / pa : 0;
@@ -140,8 +155,7 @@ export class PotentialStatsView {
     const slg = ab > 0 ? totalBases / ab : 0;
     const ops = obp + slg;
 
-    // Calculate wOBA (weighted on-base average)
-    // wOBA = (0.69×BB + 0.89×1B + 1.27×2B + 1.62×3B + 2.10×HR) / PA
+    // Calculate wOBA
     const woba = pa > 0 ? (
       0.69 * bb +
       0.89 * singles +
@@ -149,6 +163,15 @@ export class PotentialStatsView {
       1.62 * t +
       2.10 * hr
     ) / pa : 0;
+
+    // Calculate WAR
+    const lgWoba = 0.315;
+    const wobaScale = 1.15;
+    const runsPerWin = 10;
+    const sbRuns = sb * 0.2 - cs * 0.4;
+    const wRAA = ((woba - lgWoba) / wobaScale) * pa;
+    const replacementRuns = (pa / 600) * 20;
+    const war = Math.round(((wRAA + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
 
     return {
       pa,
@@ -158,13 +181,18 @@ export class PotentialStatsView {
       t,
       hr,
       bb,
+      k,
+      sb,
+      cs,
       avg,
       obp,
       slg,
       ops,
       woba,
       bbPct,
-      hrPct: Math.max(0, hrPct), // Display as 0 if negative
+      kPct,
+      hrPct: Math.max(0, hrPct),
+      war,
     };
   }
 
@@ -198,6 +226,26 @@ export class PotentialStatsView {
           <label for="rating-eye">Eye</label>
           <input type="number" id="rating-eye" min="20" max="80" value="50" required>
         </div>
+        <div class="rating-field">
+          <label for="rating-avoidk">AvoidK</label>
+          <input type="number" id="rating-avoidk" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-gap">Gap</label>
+          <input type="number" id="rating-gap" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-speed">Speed</label>
+          <input type="number" id="rating-speed" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-sr">SR</label>
+          <input type="number" id="rating-sr" min="20" max="80" value="50" required>
+        </div>
+        <div class="rating-field">
+          <label for="rating-ste">STE</label>
+          <input type="number" id="rating-ste" min="20" max="80" value="50" required>
+        </div>
       `;
     }
   }
@@ -205,7 +253,7 @@ export class PotentialStatsView {
   private getCSVFormat(): string {
     return this.playerType === 'pitchers'
       ? 'Format: name, stuff, control, hra [, ip]'
-      : 'Format: name, contact, power, eye [, pa]';
+      : 'Format: name, contact, power, eye, avoidK, gap, speed [, sr, ste, pa]';
   }
 
   private renderFormulas(): string {
@@ -222,10 +270,13 @@ export class PotentialStatsView {
       return `
         <div class="formula-note">
           <strong>Batter Rating Formulas:</strong><br>
-          BB% = 1.62 + 0.115 × Eye<br>
-          HR% = -0.59 + 0.058 × Power<br>
-          AVG = 0.035 + 0.0039 × Contact<br>
-          <em style="font-size: 0.9em; color: var(--color-text-muted);">Note: Coefficients calibrated from OOTP engine data</em>
+          BB% = 1.625 + 0.1148 × Eye<br>
+          K% = 25.10 - 0.2003 × AvoidK<br>
+          HR% = piecewise (Power ≤50: -1.034 + 0.064 × Power, >50: -2.75 + 0.098 × Power)<br>
+          AVG = 0.0352 + 0.00387 × Contact<br>
+          2B/AB = -0.0126 + 0.00109 × Gap<br>
+          3B/AB = from Speed (20-80 → 20-200 internally)<br>
+          <em style="font-size: 0.9em; color: var(--color-text-muted);">Coefficients calibrated from OOTP engine data</em>
         </div>
       `;
     }
@@ -394,6 +445,11 @@ export class PotentialStatsView {
         contact: getValue('rating-contact'),
         power: getValue('rating-power'),
         eye: getValue('rating-eye'),
+        avoidK: getValue('rating-avoidk'),
+        gap: getValue('rating-gap'),
+        speed: getValue('rating-speed'),
+        sr: getValue('rating-sr'),
+        ste: getValue('rating-ste'),
       };
 
       const pa = getValue('rating-volume');
@@ -539,19 +595,24 @@ export class PotentialStatsView {
         <td>${r.contact}</td>
         <td>${r.power}</td>
         <td>${r.eye}</td>
+        <td>${r.avoidK}</td>
+        <td>${r.gap}</td>
+        <td>${r.speed}</td>
         <td class="divider"></td>
         <td>${r.pa}</td>
         <td>${r.h}</td>
-        <td>${r.bb}</td>
+        <td>${r.d}</td>
+        <td>${r.t}</td>
         <td>${r.hr}</td>
+        <td>${r.bb}</td>
+        <td>${r.k}</td>
+        <td>${r.sb}</td>
         <td class="divider"></td>
         <td>${r.avg.toFixed(3)}</td>
         <td>${r.obp.toFixed(3)}</td>
         <td>${r.slg.toFixed(3)}</td>
-        <td>${r.ops.toFixed(3)}</td>
-        <td class="divider"></td>
         <td>${r.woba.toFixed(3)}</td>
-        <td>${r.bbPct.toFixed(1)}%</td>
+        <td class="${r.war >= 0 ? 'war-positive' : 'war-negative'}">${r.war.toFixed(1)}</td>
       </tr>
     `).join('');
 
@@ -564,19 +625,24 @@ export class PotentialStatsView {
               <th title="Contact">CON</th>
               <th title="Power">PWR</th>
               <th title="Eye">EYE</th>
+              <th title="Avoid K">AVK</th>
+              <th title="Gap">GAP</th>
+              <th title="Speed">SPD</th>
               <th class="divider"></th>
               <th>PA</th>
               <th>H</th>
-              <th>BB</th>
+              <th>2B</th>
+              <th>3B</th>
               <th>HR</th>
+              <th>BB</th>
+              <th>K</th>
+              <th>SB</th>
               <th class="divider"></th>
               <th>AVG</th>
               <th>OBP</th>
               <th>SLG</th>
-              <th>OPS</th>
-              <th class="divider"></th>
               <th>wOBA</th>
-              <th>BB%</th>
+              <th>WAR</th>
             </tr>
           </thead>
           <tbody>

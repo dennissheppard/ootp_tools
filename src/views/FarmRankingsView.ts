@@ -36,7 +36,7 @@ export class FarmRankingsView {
   private yearOptions = Array.from({ length: 6 }, (_, i) => 2021 - i); // 2021 down to 2016
   private top100Prospects: RatedProspect[] = [];
   private top100HitterProspects: RatedHitterProspect[] = [];
-  private selectedTeam: string = 'all';
+  private selectedTeam: string = localStorage.getItem('wbl-selected-team') || 'all';
   private selectedPosition: string = 'all';
 
   // Sorting and Dragging state
@@ -399,6 +399,11 @@ export class FarmRankingsView {
 
       const sortedTeams = Array.from(teams).sort();
 
+      // Validate saved team exists in options
+      if (this.selectedTeam !== 'all' && !sortedTeams.includes(this.selectedTeam)) {
+          this.selectedTeam = 'all';
+      }
+
       const items = ['all', ...sortedTeams].map(t => {
           const label = t === 'all' ? 'All' : t;
           const selectedClass = t === this.selectedTeam ? 'selected' : '';
@@ -406,6 +411,13 @@ export class FarmRankingsView {
       }).join('');
 
       menu.innerHTML = items;
+
+      // Update display text
+      const displaySpan = this.container.querySelector('#selected-team-display');
+      if (displaySpan) {
+          displaySpan.textContent = this.selectedTeam === 'all' ? 'All' : this.selectedTeam;
+      }
+
       this.bindTeamDropdownListeners();
       this.bindPositionDropdownListeners();
   }
@@ -417,6 +429,7 @@ export class FarmRankingsView {
               if (!value) return;
 
               this.selectedTeam = value;
+              try { localStorage.setItem('wbl-selected-team', value); } catch { /* ignore */ }
 
               // Update display text
               const displaySpan = this.container.querySelector('#selected-team-display');

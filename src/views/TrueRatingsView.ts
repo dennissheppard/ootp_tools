@@ -254,7 +254,11 @@ export class TrueRatingsView {
     if (typeof this.preferences.selectedYear === 'number') {
       this.selectedYear = this.preferences.selectedYear;
     }
-    if (typeof this.preferences.selectedTeam === 'string') {
+    // Team selection uses the global sticky key
+    const globalTeam = localStorage.getItem('wbl-selected-team');
+    if (globalTeam) {
+      this.selectedTeam = globalTeam;
+    } else if (typeof this.preferences.selectedTeam === 'string') {
       this.selectedTeam = this.preferences.selectedTeam;
     }
     if (typeof this.preferences.selectedPosition === 'string') {
@@ -3542,6 +3546,7 @@ export class TrueRatingsView {
         this.selectedTeam = value;
         this.currentPage = 1;
         this.saveFilterPreferences();
+        try { localStorage.setItem('wbl-selected-team', value); } catch { /* ignore */ }
 
         analyticsService.trackTeamSelected(value, 'true-ratings');
 
