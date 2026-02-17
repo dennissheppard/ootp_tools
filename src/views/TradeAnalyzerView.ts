@@ -840,17 +840,21 @@ export class TradeAnalyzerView {
 
     let filtered = this.allPlayers.filter(p => {
       if (level === 'mlb') {
-        // MLB: teamId matches, level is 1, and age > 18 (to exclude International Complex)
-        // IC players have the same teamId and level but are 18 or younger
-        return p.teamId === teamId && p.level === 1 && p.age > 18;
+        // MLB: teamId matches, level is 1, and NOT an IC player
+        // IC players have level 1 (same as MLB) but contract.leagueId === -200
+        if (p.teamId !== teamId || p.level !== 1) return false;
+        const contract = this.allContracts.get(p.id);
+        return !contract || contract.leagueId !== -200;
       } else if (level === 'all-prospects') {
         // All minor league levels (AAA through Rookie) + IC players
         const isMinorLeaguer = p.parentTeamId === teamId && p.level >= 2 && p.level <= 5;
-        const isIcPlayer = p.teamId === teamId && p.level === 1 && p.age <= 18;
+        const isIcPlayer = p.teamId === teamId && p.level === 1 &&
+          this.allContracts.get(p.id)?.leagueId === -200;
         return isMinorLeaguer || isIcPlayer;
       } else if (level === 'ic') {
-        // International Complex: teamId matches, level is 1, and age <= 18
-        return p.teamId === teamId && p.level === 1 && p.age <= 18;
+        // International Complex: teamId matches, level is 1, contract.leagueId === -200
+        return p.teamId === teamId && p.level === 1 &&
+          this.allContracts.get(p.id)?.leagueId === -200;
       } else if (level === 'aaa') {
         return p.parentTeamId === teamId && p.level === 2;
       } else if (level === 'aa') {

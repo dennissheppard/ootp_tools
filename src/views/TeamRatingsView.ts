@@ -113,7 +113,7 @@ export class TeamRatingsView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
-        <p class="section-subtitle">UPDATE: Rankings update but projections and standings are from the beginning of the seaso</p>
+        
 
         <div class="true-ratings-controls">
           <div class="filter-bar">
@@ -144,12 +144,12 @@ export class TeamRatingsView {
               <button class="toggle-btn ${this.viewMode === 'projected' ? 'active' : ''}"
                       data-view-mode="projected"
                       aria-pressed="${this.viewMode === 'projected'}">
-                Projections
+                Team WAR Projections
               </button>
               <button class="toggle-btn ${this.viewMode === 'standings' ? 'active' : ''}"
                       data-view-mode="standings"
                       aria-pressed="${this.viewMode === 'standings'}">
-                Standings
+                Win Projections
               </button>
               <button class="toggle-btn ${this.showByDivision ? 'active' : ''}"
                       id="by-division-toggle"
@@ -524,7 +524,7 @@ export class TeamRatingsView {
       // Render full table spanning both grid columns
       const tableHtml = `
         <div class="stats-table-container">
-            <h3 class="section-title">Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3>
+            <h3 class="section-title">Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3><span class="note-text">This uses a blend of past seasons to project, so even at the end of this season it won't be 100% correct.</span>
             <table class="stats-table projections-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>
@@ -1000,11 +1000,11 @@ export class TeamRatingsView {
 
       const descriptionText = hasActuals
           ? `${this.selectedYear} backtest — projected vs actual results. ${summaryHtml ? '' : 'No matching teams found.'}`
-          : `Wins = 81 + (WAR − median) × slope. Above median: ${STANDINGS_UPPER_SLOPE}, below: ${STANDINGS_LOWER_SLOPE}. Zero-sum normalized.`;
+          : ``;
 
       const tableHtml = `
         <div class="stats-table-container">
-            <h3 class="section-title">Projected Standings <span class="note-text">(Ranked by ${this.getStandingsSortLabel()})</span></h3>
+            <h3 class="section-title">Projected Standings <span class="note-text">(Ranked by ${this.getStandingsSortLabel()})</span></h3><p class="note-text">Uses projected WAR, not actual season wins. So even at the end of the season, this won't be 100% right</p>
             <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">
               ${descriptionText}
             </p>
