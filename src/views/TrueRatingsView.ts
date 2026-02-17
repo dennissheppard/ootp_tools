@@ -1,8 +1,7 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
-import { Player, getFullName, getPositionLabel, isPitcher, PitcherRole, determinePitcherRole, PitcherRoleInput } from '../models/Player';
+import { Player, getFullName, getPositionLabel, isPitcher, PitcherRole, determinePitcherRole } from '../models/Player';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
-import { trueRatingsCalculationService, YearlyPitchingStats, getYearWeights } from '../services/TrueRatingsCalculationService';
 import { TruePlayerStats, TruePlayerBattingStats, trueRatingsService } from '../services/TrueRatingsService';
 import { pitcherProfileModal } from './PitcherProfileModal';
 import type { PlayerProfileData } from './PlayerRatingsCard';
@@ -51,6 +50,8 @@ interface TrueRatingFields {
   tfrHra?: number;
   /** Flag indicating this is a prospect without MLB stats */
   isProspect?: boolean;
+  /** Pitcher role (SP/SW/RP) */
+  role?: PitcherRole;
   /** Star gap (POT - OVR) for prospects */
   starGap?: number;
   prospectHasStats?: boolean;
@@ -1354,78 +1355,27 @@ export class TrueRatingsView {
   }
 
   private async buildTrueRatingsStats(pitchers: PitcherRow[]): Promise<PitcherRow[]> {
-    // Determine if we should use dynamic season weighting
-    const currentYear = await dateService.getCurrentYear();
-    const isCurrentYear = this.selectedYear === currentYear;
+    // Use canonical TR service (same source as profile modal) for consistency
+    const canonicalTR = await trueRatingsService.getPitcherTrueRatings(this.selectedYear);
 
-    // Get dynamic year weights if viewing current year, otherwise use standard weights
-    let yearWeights: number[] | undefined;
-    if (isCurrentYear) {
-      const progress = await dateService.getSeasonProgress();
-      yearWeights = getYearWeights(progress);
-    }
-
-    const [multiYearStats, leagueAverages] = await Promise.all([
-      trueRatingsService.getMultiYearPitchingStats(this.selectedYear),
-      trueRatingsService.getLeagueAverages(this.selectedYear),
-    ]);
-    // Store league averages for passing to modal (ensures consistent recalculation)
-    // leagueAverages used by TR calculation above
+    // Build scouting lookup for scoutOverall/scoutDiff display
     const scoutingLookup = this.buildScoutingLookup(this.scoutingRatings);
-    const scoutingMatchMap = new Map<number, PitcherScoutingRatings>();
 
-    const inputs: Array<{ playerId: number; playerName: string; yearlyStats: YearlyPitchingStats[]; scoutingRatings?: PitcherScoutingRatings; role?: PitcherRole }> = [];
-    const pitchersWithStats: PitcherRow[] = [];
-
-    // Get all players for role determination
-    const allPlayers = await playerService.getAllPlayers();
-    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+    const enrichedPitchers: PitcherRow[] = [];
+    const mlbPlayerIds = new Set<number>();
 
     pitchers.forEach((pitcher) => {
+      const result = canonicalTR.get(pitcher.player_id);
+      if (!result) return;
+
+      mlbPlayerIds.add(pitcher.player_id);
       const scouting = this.resolveScoutingRating(pitcher, scoutingLookup);
-      if (scouting) {
-        scoutingMatchMap.set(pitcher.player_id, scouting);
-      }
-      const yearlyStats = multiYearStats.get(pitcher.player_id) ?? [];
-      if (yearlyStats.length === 0) {
-        return;
-      }
-
-      // Minimum IP threshold: Don't calculate TR for pitchers with <50 total IP
-      // These players should appear as prospects with TFR, not in MLB table with TR
-      // 50 IP aligns with the TFR calculation threshold for young players
-      const totalIp = yearlyStats.reduce((sum, stat) => sum + stat.ip, 0);
-      if (totalIp < 50) {
-        return;
-      }
-
-      // Determine pitcher role from scouting data and player attributes
-      const player = playerMap.get(pitcher.player_id);
-      const role = this.determinePitcherRoleFromAttributes(scouting, player, pitcher);
-
-      inputs.push({
-        playerId: pitcher.player_id,
-        playerName: pitcher.playerName,
-        yearlyStats,
-        scoutingRatings: scouting,
-        role,
-      });
-      pitchersWithStats.push(pitcher);
-    });
-
-    const results = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages, yearWeights);
-    const resultMap = new Map(results.map(result => [result.playerId, result]));
-
-    const enrichedPitchers: PitcherRow[] = pitchersWithStats.map((pitcher) => {
-      const result = resultMap.get(pitcher.player_id);
-      if (!result) return pitcher;
-      const scouting = scoutingMatchMap.get(pitcher.player_id);
       const estimatedOverall = this.averageRating(result.estimatedStuff, result.estimatedControl, result.estimatedHra);
       const scoutOverall = scouting ? this.averageRating(scouting.stuff, scouting.control, scouting.hra) : undefined;
       const scoutDiff =
         scoutOverall !== undefined ? Math.round(scoutOverall - estimatedOverall) : undefined;
 
-      return {
+      enrichedPitchers.push({
         ...pitcher,
         trueRating: result.trueRating,
         percentile: result.percentile,
@@ -1438,11 +1388,10 @@ export class TrueRatingsView {
         scoutDiff,
         isProspect: false,
         role: result.role,
-      };
+      });
     });
 
     // Find prospects (scouting entries without MLB stats)
-    const mlbPlayerIds = new Set(pitchersWithStats.map(p => p.player_id));
     const prospects = await this.buildProspectRows(mlbPlayerIds);
 
     // Merge MLB pitchers with prospects
@@ -2692,26 +2641,6 @@ export class TrueRatingsView {
     });
   }
   
-  /**
-   * Determine pitcher role from player attributes (scouting, stamina, pitches)
-   * Uses the centralized determinePitcherRole function from Player model
-   */
-  private determinePitcherRoleFromAttributes(
-    scouting: PitcherScoutingRatings | undefined,
-    player: Player | null | undefined,
-    pitcher: PitcherRow
-  ): PitcherRole {
-    const input: PitcherRoleInput = {
-      pitchRatings: scouting?.pitches,
-      stamina: scouting?.stamina,
-      ootpRole: player?.role,
-      gamesStarted: pitcher.gs,
-      inningsPitched: pitcher.ipOuts ? pitcher.ipOuts / 3 : undefined,
-    };
-
-    return determinePitcherRole(input);
-  }
-
   private determinePitcherRoleLabel(row: PitcherRow): 'SP' | 'RP' {
     // If we have gs (Games Started) and ip, use that
     if (typeof row.gs === 'number' && typeof row.ip === 'string') {

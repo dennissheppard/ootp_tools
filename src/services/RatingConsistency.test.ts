@@ -533,3 +533,167 @@ describe('Projection Formula Consistency', () => {
     expect(result1.woba).toBe(result2.woba);
   });
 });
+
+// ============================================================================
+// 7. Percentile-to-Rating Consistency Across Services
+// ============================================================================
+
+import { trueFutureRatingService } from './TrueFutureRatingService';
+import { hitterTrueFutureRatingService } from './HitterTrueFutureRatingService';
+
+describe('Percentile-to-Rating Consistency', () => {
+  /**
+   * The canonical PERCENTILE_TO_RATING thresholds.
+   * Any code that converts percentiles to star ratings MUST use these exact thresholds.
+   * If this test fails, a view/service has diverged from the canonical mapping.
+   */
+  const CANONICAL_THRESHOLDS: Array<{ percentile: number; expectedRating: number }> = [
+    { percentile: 99.0, expectedRating: 5.0 },
+    { percentile: 97.0, expectedRating: 4.5 },
+    { percentile: 93.0, expectedRating: 4.0 },
+    { percentile: 75.0, expectedRating: 3.5 },
+    { percentile: 60.0, expectedRating: 3.0 },
+    { percentile: 35.0, expectedRating: 2.5 },
+    { percentile: 20.0, expectedRating: 2.0 },
+    { percentile: 10.0, expectedRating: 1.5 },
+    { percentile: 5.0, expectedRating: 1.0 },
+    { percentile: 0.0, expectedRating: 0.5 },
+  ];
+
+  test('pitcher TFR service uses canonical percentile-to-rating thresholds', () => {
+    for (const { percentile, expectedRating } of CANONICAL_THRESHOLDS) {
+      expect(trueFutureRatingService.percentileToRating(percentile)).toBe(expectedRating);
+    }
+  });
+
+  test('hitter TFR service uses canonical percentile-to-rating thresholds', () => {
+    for (const { percentile, expectedRating } of CANONICAL_THRESHOLDS) {
+      expect(hitterTrueFutureRatingService.percentileToRating(percentile)).toBe(expectedRating);
+    }
+  });
+
+  test('pitcher and hitter TFR services produce identical ratings for same percentile', () => {
+    // Test across a range of percentiles including boundaries
+    const testPercentiles = [0, 2, 5, 8, 10, 15, 20, 30, 35, 50, 60, 70, 75, 80, 93, 95, 97, 98, 99, 100];
+    for (const p of testPercentiles) {
+      expect(trueFutureRatingService.percentileToRating(p))
+        .toBe(hitterTrueFutureRatingService.percentileToRating(p));
+    }
+  });
+
+  test('percentile just below threshold drops to lower rating tier', () => {
+    // These boundary cases caught the original bug: the Trade Analyzer used
+    // different thresholds (e.g., 84.1 for 4.0 instead of canonical 93.0)
+    expect(trueFutureRatingService.percentileToRating(92.9)).toBe(3.5); // below 93.0 → 3.5
+    expect(trueFutureRatingService.percentileToRating(96.9)).toBe(4.0); // below 97.0 → 4.0
+    expect(trueFutureRatingService.percentileToRating(98.9)).toBe(4.5); // below 99.0 → 4.5
+    expect(trueFutureRatingService.percentileToRating(74.9)).toBe(3.0); // below 75.0 → 3.0
+    expect(trueFutureRatingService.percentileToRating(59.9)).toBe(2.5); // below 60.0 → 2.5
+  });
+
+  test('output is always a valid 0.5-5.0 rating in 0.5 increments', () => {
+    for (let p = 0; p <= 100; p += 0.5) {
+      const rating = trueFutureRatingService.percentileToRating(p);
+      expect(VALID_TRUE_RATINGS).toContain(rating);
+    }
+  });
+});
+
+// ============================================================================
+// 8. Pitcher Profile Stat Path Consistency
+// ============================================================================
+
+describe('Pitcher Profile Stat Path Consistency', () => {
+  // PitcherProfileModal has two code paths to compute K/9, BB/9, HR/9:
+  //   Path A: Use canonical blended rates from TR (data.projK9/projBb9/projHr9)
+  //   Path B: Invert estimated ratings back to stats (fallback for prospects)
+  //
+  // The original bug: renderProjectionContent() used Path B for MLB players
+  // while computeProjectedStats()/radar used Path A → visible stat mismatch.
+
+  test('inline inversion formulas track canonical PotentialStatsService formulas', () => {
+    // The fallback inversion formulas in PitcherProfileModal must stay close
+    // to the canonical forward formulas in PotentialStatsService.
+    // If canonical intercepts change, the inline formulas need updating.
+    //
+    // Canonical:  K/9 = 2.10 + 0.074 * Stuff
+    // Inline:     K/9 = (Stuff + 28) / 13.5 ≈ 2.074 + 0.0741 * Stuff
+    //
+    // Canonical:  BB/9 = 5.30 - 0.052 * Control
+    // Inline:     BB/9 = (100.4 - Control) / 19.2 ≈ 5.229 - 0.0521 * Control
+    //
+    // Canonical:  HR/9 = 2.18 - 0.024 * HRA
+    // Inline:     HR/9 = (86.7 - HRA) / 41.7 ≈ 2.079 - 0.0240 * HRA
+
+    for (const rating of [30, 40, 50, 60, 70]) {
+      const canonicalK9 = PotentialStatsService.calculateK9(rating);
+      const inlineK9 = (rating + 28) / 13.5;
+      expect(Math.abs(inlineK9 - canonicalK9)).toBeLessThan(0.15);
+
+      const canonicalBb9 = PotentialStatsService.calculateBB9(rating);
+      const inlineBb9 = (100.4 - rating) / 19.2;
+      expect(Math.abs(inlineBb9 - canonicalBb9)).toBeLessThan(0.15);
+
+      const canonicalHr9 = PotentialStatsService.calculateHR9(rating);
+      const inlineHr9 = (86.7 - rating) / 41.7;
+      expect(Math.abs(inlineHr9 - canonicalHr9)).toBeLessThan(0.15);
+    }
+  });
+
+  test('rating inversion loses precision vs blended rates for real TR results', () => {
+    // This test documents WHY blended rates must be preferred over rating inversion.
+    // Rating estimation caps at 20-80, so extreme pitchers lose information.
+    // For the ace pitcher (K/9 ~10.3, capped at Stuff=80), inverted K/9 ≈ 8.0
+    // vs blended K/9 ≈ 10.3 — a massive 2+ K/9 gap that cascades into FIP/WAR.
+    const results = trueRatingsCalculationService.calculateTrueRatings([
+      acePitcherInput, avgPitcherInput, relieverInput,
+    ]);
+
+    for (const r of results) {
+      // Path A: FIP from canonical blended rates (what computeProjectedStats uses)
+      const fipBlended = ((13 * r.blendedHr9) + (3 * r.blendedBb9) - (2 * r.blendedK9)) / 9 + 3.47;
+
+      // Path B: FIP from rating inversion (the old renderProjectionContent fallback)
+      const k9Inv = (r.estimatedStuff + 28) / 13.5;
+      const bb9Inv = (100.4 - r.estimatedControl) / 19.2;
+      const hr9Inv = (86.7 - r.estimatedHra) / 41.7;
+      const fipInverted = ((13 * hr9Inv) + (3 * bb9Inv) - (2 * k9Inv)) / 9 + 3.47;
+
+      // For average pitchers the gap is small (~0.2), but for extreme pitchers
+      // it can exceed 1.0+ FIP due to rating capping. Both paths should at least
+      // be in the same ballpark (within 1.5 FIP) — if not, the formulas have
+      // diverged catastrophically.
+      expect(Math.abs(fipBlended - fipInverted)).toBeLessThan(1.5);
+    }
+  });
+
+  test('blended rates survive round-trip through estimated ratings for mid-range pitchers', () => {
+    // For pitchers whose ratings aren't capped (stuff/control/hra all in 30-70),
+    // the round-trip error should be small. This catches intercept drift.
+    const midRangeInput: TrueRatingInput = {
+      playerId: 99,
+      playerName: 'Mid Range SP',
+      yearlyStats: avgPitcherStats,  // K/9 ~7.3, BB/9 ~3.1, HR/9 ~1.05
+      role: 'SP',
+    };
+    const results = trueRatingsCalculationService.calculateTrueRatings([
+      midRangeInput, acePitcherInput, relieverInput,
+    ]);
+    const r = results.find(x => x.playerId === 99)!;
+
+    // For mid-range ratings (not capped), inversion should closely approximate blended rates
+    const k9Inv = (r.estimatedStuff + 28) / 13.5;
+    const bb9Inv = (100.4 - r.estimatedControl) / 19.2;
+    const hr9Inv = (86.7 - r.estimatedHra) / 41.7;
+
+    // Within 0.5 per component — if it's worse, the inline formulas need recalibration
+    expect(Math.abs(k9Inv - r.blendedK9)).toBeLessThan(0.5);
+    expect(Math.abs(bb9Inv - r.blendedBb9)).toBeLessThan(0.5);
+    expect(Math.abs(hr9Inv - r.blendedHr9)).toBeLessThan(0.5);
+
+    // FIP agreement within 0.3 for uncapped pitchers
+    const fipBlended = ((13 * r.blendedHr9) + (3 * r.blendedBb9) - (2 * r.blendedK9)) / 9 + 3.47;
+    const fipInverted = ((13 * hr9Inv) + (3 * bb9Inv) - (2 * k9Inv)) / 9 + 3.47;
+    expect(Math.abs(fipBlended - fipInverted)).toBeLessThan(0.30);
+  });
+});

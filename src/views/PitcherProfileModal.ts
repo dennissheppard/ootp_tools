@@ -1550,30 +1550,28 @@ export class PitcherProfileModal {
     const latestStat = isPeakMode ? undefined : stats.find(s => s.level === 'MLB');
     const age = isPeakMode ? 27 : (data.age ?? 27);
 
-    // Calculate projected stats — prefer TFR pipeline rates directly (avoids lossy round-trip)
-    let projK9: number;
-    let projBb9: number;
-    let projHr9: number;
-    let projFip: number;
+    // Calculate projected stats — prefer canonical blended rates (matches computeProjectedStats)
+    let projK9: number | undefined = data.projK9;
+    let projBb9: number | undefined = data.projBb9;
+    let projHr9: number | undefined = data.projHr9;
 
-    if (isPeakMode && data.projK9 !== undefined && data.projBb9 !== undefined && data.projHr9 !== undefined) {
-      // Use TFR pipeline rates directly
-      projK9 = data.projK9;
-      projBb9 = data.projBb9;
-      projHr9 = data.projHr9;
-      projFip = data.projFip ?? (((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47);
-    } else if (useStuff !== undefined && useControl !== undefined && useHra !== undefined) {
-      // Fallback: Invert RatingEstimatorService formulas: rating → expected stat
+    // Only invert from ratings if blended rates are unavailable
+    if (projK9 === undefined && useStuff !== undefined) {
       projK9 = (useStuff + 28) / 13.5;
-      projBb9 = (100.4 - useControl) / 19.2;
-      projHr9 = (86.7 - useHra) / 41.7;
-      projFip = ((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47;
-    } else {
-      projK9 = 7.5;
-      projBb9 = 3.5;
-      projHr9 = 1.2;
-      projFip = ((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47;
     }
+    if (projBb9 === undefined && useControl !== undefined) {
+      projBb9 = (100.4 - useControl) / 19.2;
+    }
+    if (projHr9 === undefined && useHra !== undefined) {
+      projHr9 = (86.7 - useHra) / 41.7;
+    }
+
+    // Final fallback defaults
+    projK9 = projK9 ?? 7.5;
+    projBb9 = projBb9 ?? 3.5;
+    projHr9 = projHr9 ?? 1.2;
+
+    const projFip = data.projFip ?? (((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47);
 
     // IP: prefer caller-provided, then ProjectionService result, then fallback
     const s = this.scoutingData;
