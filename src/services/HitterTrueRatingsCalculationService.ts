@@ -165,26 +165,22 @@ const STABILIZATION = {
  * Component-specific PA thresholds for scouting blend confidence.
  *
  * At the threshold PA, blend is 50/50 stats/scouting.
- * At 2x threshold, blend is 67/33.
- * At 3x threshold, blend is 75/25.
+ * Scouting blend target is OVR/POT-scaled potential (not raw potential),
+ * so these thresholds remain appropriate.
  *
- * Rationale:
- * - K%: Lower threshold (120 PA) - K% stabilizes quickly (60 PA), stats are predictive
- * - BB%: Medium threshold (200 PA) - Stabilizes at 120 PA, scouts can see plate discipline
- * - HR%: Higher threshold (350 PA) - Power is volatile, scouts see bat speed/exit velo
- *        that may not show up immediately in MLB results
- * - AVG: Higher threshold (350 PA) - Stabilizes at 300 PA, scouts can evaluate contact skills
- *
- * Note: ISO is not blended with scouting - we use HR% directly for power estimation.
+ * - K%:  Lower threshold (120 PA) — K% stabilizes quickly, stats are predictive
+ * - BB%: Medium threshold (200 PA) — Stabilizes at 120 PA
+ * - HR%: Higher threshold (350 PA) — Power volatile, scouts see bat speed early
+ * - AVG: Higher threshold (350 PA) — Stabilizes at 300 PA
  */
 const SCOUTING_BLEND_THRESHOLDS = {
-  kPct: 120,    // K% stabilizes at 60 PA - trust stats sooner
-  bbPct: 200,   // BB% stabilizes at 120 PA - medium trust
-  hrPct: 350,   // HR% stabilizes at 160 PA but volatile - trust scouts longer
-  avg: 350,     // AVG stabilizes at 300 PA - trust scouts longer
+  kPct: 120,
+  bbPct: 200,
+  hrPct: 350,
+  avg: 350,
 };
 
-/** Default threshold for backwards compatibility */
+/** Fallback threshold when component not specified */
 const SCOUTING_BLEND_CONFIDENCE_PA = 200;
 
 /** Default league averages (WBL calibrated) */
@@ -356,7 +352,10 @@ class HitterTrueRatingsCalculationService {
       weighted.avg, weighted.totalPa, leagueAverages.avgAvg, STABILIZATION.avg, 'avg', rawWoba
     );
 
-    // Step 3: Optional scouting blend
+    // Step 3: OVR/POT-scaled scouting blend
+    // Scouting component ratings are POTENTIAL (ceiling) values, not current ability.
+    // We scale them toward league average (50) by devRatio = OVR/POT before blending,
+    // so a 2★/4★ player's blend target is halfway between league avg and their ceiling.
     let blendedBbPct = regressedBbPct;
     let blendedKPct = regressedKPct;
     let blendedHrPct = regressedHrPct;
@@ -364,13 +363,12 @@ class HitterTrueRatingsCalculationService {
     let blendedAvg = regressedAvg;
 
     if (input.scoutingRatings) {
-      const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings);
-      // Use component-specific blend thresholds
-      // Note: ISO is not blended - we use HR% directly for power estimation
-      blendedBbPct = this.blendWithScouting(regressedBbPct, scoutExpected.bbPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.bbPct);
-      blendedKPct = this.blendWithScouting(regressedKPct, scoutExpected.kPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.kPct);
-      blendedHrPct = this.blendWithScouting(regressedHrPct, scoutExpected.hrPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.hrPct);
-      blendedAvg = this.blendWithScouting(regressedAvg, scoutExpected.avg, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.avg);
+      const effectiveDevRatio = this.getEffectiveDevRatio(input.scoutingRatings, weighted.totalPa);
+      const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings, effectiveDevRatio);
+      blendedBbPct = this.blendWithScouting(regressedBbPct, scoutExpected.bbPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.bbPct, effectiveDevRatio);
+      blendedKPct = this.blendWithScouting(regressedKPct, scoutExpected.kPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.kPct, effectiveDevRatio);
+      blendedHrPct = this.blendWithScouting(regressedHrPct, scoutExpected.hrPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.hrPct, effectiveDevRatio);
+      blendedAvg = this.blendWithScouting(regressedAvg, scoutExpected.avg, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.avg, effectiveDevRatio);
     }
 
     // Step 4: Calculate wOBA from blended rates (using HR% directly, not ISO)
@@ -630,39 +628,99 @@ class HitterTrueRatingsCalculationService {
   }
 
   /**
-   * Blend regressed stats with scouting-expected rates
+   * Blend regressed stats with scouting-expected rates.
+   *
+   * effectiveDevRatio BOOSTS scouting weight for unproven players.
+   * Until a player has proven themselves (effectiveDevRatio → 1.0),
+   * scouting gets a louder voice — anchoring both overperformers
+   * and underperformers toward the (already development-scaled) target.
+   *
+   * Combined with target scaling in scoutingToExpectedRates, this creates
+   * a double anchor: unproven players' targets are pulled toward league
+   * average AND those targets get more weight.
    */
   blendWithScouting(
     regressedRate: number,
     scoutingExpectedRate: number,
     totalPa: number,
-    confidencePa: number = SCOUTING_BLEND_CONFIDENCE_PA
+    confidencePa: number = SCOUTING_BLEND_CONFIDENCE_PA,
+    effectiveDevRatio: number = 1.0,
   ): number {
-    const statsWeight = totalPa / (totalPa + confidencePa);
-    const scoutWeight = 1 - statsWeight;
-    return statsWeight * regressedRate + scoutWeight * scoutingExpectedRate;
+    const baseScoutWeight = confidencePa / (totalPa + confidencePa);
+    // Boost scouting weight for unproven players (effectiveDevRatio < 1.0)
+    const scoutBoost = 1 - effectiveDevRatio;
+    const scoutWeight = Math.min(0.95, baseScoutWeight + scoutBoost * (1 - baseScoutWeight));
+    return (1 - scoutWeight) * regressedRate + scoutWeight * scoutingExpectedRate;
   }
 
   /**
-   * Convert scouting ratings to expected rate stats
+   * Compute effective development ratio combining star gap and MLB experience.
+   *
+   * Two independent signals for how "proven" a player is:
+   * 1. Star gap (OVR/POT): How close to ceiling per the game's assessment
+   * 2. PA accumulation: How much MLB evidence we have
+   *
+   * Uses geometric mean so scouting is suppressed when EITHER signal says
+   * "unproven", but recovers when either signal is strong.
+   *
+   * Experience thresholds:
+   * - With star gap (devRatio < 1.0): 1200 PA (~2 full seasons to develop)
+   * - No star gap (devRatio = 1.0): 500 PA (~1 full season to "prove it")
    */
-  private scoutingToExpectedRates(scouting: HitterScoutingRatings): {
+  private getEffectiveDevRatio(scouting: HitterScoutingRatings, totalPa: number): number {
+    const ovr = scouting.ovr ?? scouting.pot ?? 3.0;
+    const pot = scouting.pot ?? 3.0;
+    const devRatio = pot > 0 ? Math.min(1.0, ovr / pot) : 1.0;
+
+    const experienceThreshold = devRatio < 1.0 ? 1200 : 500;
+    const experienceDev = Math.min(1.0, totalPa / experienceThreshold);
+
+    return Math.sqrt(devRatio * experienceDev);
+  }
+
+  /**
+   * Convert scouting ratings to expected rate stats, scaled toward league average.
+   *
+   * Scouting component ratings are POTENTIAL (ceiling) values. To estimate current ability,
+   * we scale each component toward league average (50) by a development ratio:
+   *   scaledComponent = 50 + (potential - 50) × devRatio
+   *
+   * When effectiveDevRatio is provided (geometric mean of star gap + MLB experience),
+   * it pulls scouting targets closer to league average for unproven players. This works
+   * symmetrically: it dampens scouting inflation for underperformers AND preserves
+   * scouting's ability to pull down overperformers on small samples.
+   *
+   * @param scouting - Player's scouting ratings
+   * @param effectiveDevRatio - Combined star-gap + experience ratio (0–1). If omitted,
+   *   falls back to pure star-gap devRatio (OVR/POT).
+   */
+  private scoutingToExpectedRates(scouting: HitterScoutingRatings, effectiveDevRatio?: number): {
     bbPct: number;
     kPct: number;
     hrPct: number;
     iso: number;
     avg: number;
   } {
-    // Validate required scouting fields
     if (scouting.contact == null || Number.isNaN(scouting.contact)) {
       throw new Error(`Missing contact rating for player ${scouting.playerId}. Please clear cached data and re-run onboarding to reload scouting data.`);
     }
+
+    // Use effectiveDevRatio if provided (star gap + experience);
+    // otherwise fall back to pure star-gap ratio
+    const ovr = scouting.ovr ?? scouting.pot ?? 3.0;
+    const pot = scouting.pot ?? 3.0;
+    const devRatio = effectiveDevRatio ?? (pot > 0 ? Math.min(1.0, ovr / pot) : 1.0);
+
+    // Scale each component from potential toward league average (50 on 20-80 scale)
+    const LEAGUE_AVG = 50;
+    const scale = (raw: number) => LEAGUE_AVG + (raw - LEAGUE_AVG) * devRatio;
+
     return {
-      bbPct: HitterRatingEstimatorService.expectedBbPct(scouting.eye),
-      kPct: HitterRatingEstimatorService.expectedKPct(scouting.avoidK),
-      hrPct: HitterRatingEstimatorService.expectedHrPct(scouting.power),
-      iso: HitterRatingEstimatorService.expectedIso(scouting.power),
-      avg: HitterRatingEstimatorService.expectedAvg(scouting.contact),
+      bbPct: HitterRatingEstimatorService.expectedBbPct(scale(scouting.eye)),
+      kPct: HitterRatingEstimatorService.expectedKPct(scale(scouting.avoidK)),
+      hrPct: HitterRatingEstimatorService.expectedHrPct(scale(scouting.power)),
+      iso: HitterRatingEstimatorService.expectedIso(scale(scouting.power)),
+      avg: HitterRatingEstimatorService.expectedAvg(scale(scouting.contact)),
     };
   }
 

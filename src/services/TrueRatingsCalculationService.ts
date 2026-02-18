@@ -36,6 +36,10 @@ export interface PitcherScoutingRatings {
   stuff: number;     // 20-80 scale
   hra: number;       // 20-80 scale
   age?: number;
+  /** Overall star rating (0.5-5.0 scale) — used to scale potential toward current ability */
+  ovr?: number;
+  /** Potential star rating (0.5-5.0 scale) */
+  pot?: number;
 }
 
 /**
@@ -407,10 +411,11 @@ class TrueRatingsCalculationService {
     let blendedHr9 = regressedHr9;
 
     if (input.scoutingRatings) {
-      const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings);
-      blendedK9 = this.blendWithScouting(regressedK9, scoutExpected.k9, weighted.totalIp);
-      blendedBb9 = this.blendWithScouting(regressedBb9, scoutExpected.bb9, weighted.totalIp);
-      blendedHr9 = this.blendWithScouting(regressedHr9, scoutExpected.hr9, weighted.totalIp);
+      const effectiveDevRatio = this.getEffectiveDevRatio(input.scoutingRatings, weighted.totalIp);
+      const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings, effectiveDevRatio);
+      blendedK9 = this.blendWithScouting(regressedK9, scoutExpected.k9, weighted.totalIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
+      blendedBb9 = this.blendWithScouting(regressedBb9, scoutExpected.bb9, weighted.totalIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
+      blendedHr9 = this.blendWithScouting(regressedHr9, scoutExpected.hr9, weighted.totalIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
     }
 
     // Estimate ratings from blended rates (using inverse formulas)
@@ -604,38 +609,88 @@ class TrueRatingsCalculationService {
   /**
    * Step 2.4: Blend regressed stats with scouting-expected rates
    *
-   * Formula: w_stats = IP / (IP + confidenceIp)
-   * Final = w_stats * regressed + (1 - w_stats) * scoutExpected
+   * devRatio modulates the scouting blend WEIGHT so undeveloped pitchers
+   * (low OVR/POT) get less scouting influence. A fully developed pitcher
+   * (devRatio=1.0) uses the full scouting weight; an undeveloped prospect
+   * gets proportionally less scouting pull.
    *
    * @param regressedRate - Rate after regression to mean
    * @param scoutingExpectedRate - Expected rate from scouting ratings
    * @param totalIp - Total innings pitched
-   * @param isDebugPlayer - Whether to log debug info (default false)
    * @param confidenceIp - IP at which stats and scouting are equally weighted (default 60)
+   * @param effectiveDevRatio - Combined star-gap + experience ratio (0–1, default 1.0).
+   *   Boosts scouting weight for unproven players.
    * @returns Blended rate
    */
   blendWithScouting(
     regressedRate: number,
     scoutingExpectedRate: number,
     totalIp: number,
-    confidenceIp: number = SCOUTING_BLEND_CONFIDENCE_IP
+    confidenceIp: number = SCOUTING_BLEND_CONFIDENCE_IP,
+    effectiveDevRatio: number = 1.0,
   ): number {
-    const statsWeight = totalIp / (totalIp + confidenceIp);
-    const scoutWeight = 1 - statsWeight;
-    const blended = statsWeight * regressedRate + scoutWeight * scoutingExpectedRate;
-
-    return blended;
+    const baseScoutWeight = confidenceIp / (totalIp + confidenceIp);
+    // Boost scouting weight for unproven pitchers (effectiveDevRatio < 1.0)
+    const scoutBoost = 1 - effectiveDevRatio;
+    const scoutWeight = Math.min(0.95, baseScoutWeight + scoutBoost * (1 - baseScoutWeight));
+    return (1 - scoutWeight) * regressedRate + scoutWeight * scoutingExpectedRate;
   }
 
   /**
-   * Convert scouting ratings to expected rate stats
-   * Uses formulas from PotentialStatsService
+   * Compute effective development ratio combining star gap and MLB experience.
+   *
+   * Two independent signals for how "proven" a pitcher is:
+   * 1. Star gap (OVR/POT): How close to ceiling per the game's assessment
+   * 2. IP accumulation: How much MLB evidence we have
+   *
+   * Uses geometric mean so scouting is suppressed when EITHER signal says
+   * "unproven", but recovers when either signal is strong.
+   *
+   * Experience thresholds:
+   * - With star gap (devRatio < 1.0): 150 IP (~2 RP seasons or ~1 SP season)
+   * - No star gap (devRatio = 1.0): 60 IP (~1 RP season to "prove it")
    */
-  private scoutingToExpectedRates(scouting: PitcherScoutingRatings): { k9: number; bb9: number; hr9: number } {
+  private getEffectiveDevRatio(scouting: PitcherScoutingRatings, totalIp: number): number {
+    const ovr = scouting.ovr ?? scouting.pot ?? 3.0;
+    const pot = scouting.pot ?? 3.0;
+    const devRatio = pot > 0 ? Math.min(1.0, ovr / pot) : 1.0;
+
+    const experienceThreshold = devRatio < 1.0 ? 150 : 60;
+    const experienceDev = Math.min(1.0, totalIp / experienceThreshold);
+
+    return Math.sqrt(devRatio * experienceDev);
+  }
+
+  /**
+   * Convert scouting ratings to expected rate stats, scaled toward league average.
+   *
+   * Pitcher scouting component ratings (stuff, control, hra) are POTENTIAL (ceiling) values.
+   * We scale each toward league average (50) by a development ratio, matching batter logic.
+   *
+   * When effectiveDevRatio is provided (geometric mean of star gap + MLB experience),
+   * it pulls scouting targets closer to league average for unproven pitchers.
+   *
+   * @param scouting - Pitcher's scouting ratings
+   * @param effectiveDevRatio - Combined star-gap + experience ratio (0–1). If omitted,
+   *   falls back to pure star-gap devRatio (OVR/POT).
+   */
+  private scoutingToExpectedRates(scouting: PitcherScoutingRatings, effectiveDevRatio?: number): { k9: number; bb9: number; hr9: number } {
+    const ovr = scouting.ovr ?? scouting.pot ?? undefined;
+    const pot = scouting.pot ?? undefined;
+    const devRatio = effectiveDevRatio ?? (
+      (ovr !== undefined && pot !== undefined && pot > 0)
+        ? Math.min(1.0, ovr / pot)
+        : 1.0
+    );
+
+    // Scale each component from potential toward league average (50 on 20-80 scale)
+    const LEAGUE_AVG = 50;
+    const scale = (raw: number) => LEAGUE_AVG + (raw - LEAGUE_AVG) * devRatio;
+
     return {
-      k9: PotentialStatsService.calculateK9(scouting.stuff),
-      bb9: PotentialStatsService.calculateBB9(scouting.control),
-      hr9: PotentialStatsService.calculateHR9(scouting.hra),
+      k9: PotentialStatsService.calculateK9(scale(scouting.stuff)),
+      bb9: PotentialStatsService.calculateBB9(scale(scouting.control)),
+      hr9: PotentialStatsService.calculateHR9(scale(scouting.hra)),
     };
   }
 

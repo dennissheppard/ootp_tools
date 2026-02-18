@@ -1128,11 +1128,11 @@ class TeamRatingsService {
       if (cached) return cached;
 
       // Fetch hitter scouting data and league averages in parallel
-      const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerAbMap, contracts] = await Promise.all([
+      const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerMlbStatsMap, contracts] = await Promise.all([
           hitterScoutingDataService.getLatestScoutingRatings('my'),
           hitterScoutingDataService.getLatestScoutingRatings('osa'),
           leagueBattingAveragesService.getLeagueAverages(year),
-          this.getCareerMlbAbMap(year),
+          this.getCareerMlbStatsMap(year),
           contractService.getAllContracts()
       ]);
 
@@ -1189,7 +1189,8 @@ class TeamRatingsService {
           const team = teamMap.get(player.teamId);
           if (!team) return;
 
-          const careerAb = careerAbMap.get(playerId) ?? 0;
+          const careerMlbStats = careerMlbStatsMap.get(playerId);
+          const careerAb = careerMlbStats?.ab ?? 0;
           const starGap = (scouting.pot ?? 0) - (scouting.ovr ?? 0);
 
           // Gate check: only calculate TFR if age < 26 OR starGap >= 0.5
@@ -1379,8 +1380,16 @@ class TeamRatingsService {
               if (osaBatterTfr) prospect.tfrBySource.osa = buildBatterTfrSource(osaBatterTfr);
           }
 
-          // Compute development-curve-based TR
-          prospect.developmentTR = prospectDevelopmentCurveService.calculateProspectTR(prospect);
+          // Compute development-curve-based TR (with MLB stats adjustment if available)
+          const mlbCareer = careerMlbStatsMap.get(prospect.playerId);
+          const mlbForTR = (mlbCareer && mlbCareer.pa > 0 && mlbCareer.ab > 0) ? {
+              avg: mlbCareer.h / mlbCareer.ab,
+              bbPct: (mlbCareer.bb / mlbCareer.pa) * 100,
+              kPct: (mlbCareer.k / mlbCareer.pa) * 100,
+              hrPct: (mlbCareer.hr / mlbCareer.pa) * 100,
+              pa: mlbCareer.pa,
+          } : undefined;
+          prospect.developmentTR = prospectDevelopmentCurveService.calculateProspectTR(prospect, mlbForTR);
 
           allProspects.push(prospect);
 
@@ -1477,22 +1486,27 @@ class TeamRatingsService {
       };
   }
 
-  private async getCareerMlbAbMap(currentYear: number): Promise<Map<number, number>> {
+  private async getCareerMlbStatsMap(currentYear: number): Promise<Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }>> {
       const startYear = Math.max(2000, currentYear - 10);
       const promises = [];
       for (let y = startYear; y <= currentYear; y++) {
           promises.push(trueRatingsService.getTrueBattingStats(y));
       }
-      
+
       const results = await Promise.all(promises);
-      const map = new Map<number, number>();
-      
+      const map = new Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }>();
+
       results.flat().forEach(stat => {
-          const ab = stat.ab;
-          const current = map.get(stat.player_id) || 0;
-          map.set(stat.player_id, current + ab);
+          const current = map.get(stat.player_id) ?? { ab: 0, pa: 0, h: 0, bb: 0, k: 0, hr: 0 };
+          current.ab += stat.ab;
+          current.pa += stat.pa;
+          current.h += stat.h;
+          current.bb += stat.bb;
+          current.k += stat.k;
+          current.hr += stat.hr;
+          map.set(stat.player_id, current);
       });
-      
+
       return map;
   }
 

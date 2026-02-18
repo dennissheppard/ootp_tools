@@ -261,8 +261,37 @@ const STABILIZATION_PA: Record<string, number> = {
 
 /**
  * Rating points adjustment per 100% deviation from expected curve value.
+ * Contact needs higher sensitivity because AVG has ~3x smaller coefficient
+ * of variation than HR%/K%/BB%, so the same baseball-meaningful deviation
+ * maps to a much smaller fractional deviation.
  */
-const SENSITIVITY_POINTS = 8;
+const SENSITIVITY_POINTS: Record<string, number> = {
+  eye: 8, avoidK: 8, power: 8, contact: 25,
+};
+
+/**
+ * Stabilization PA thresholds for MLB stats adjustment.
+ * Higher than MiLB thresholds because MLB sample sizes are smaller for prospects
+ * and we want to be conservative with early-career MLB data.
+ */
+const MLB_STABILIZATION_PA: Record<string, number> = {
+  eye: 200,
+  avoidK: 120,
+  power: 350,
+  contact: 350,
+};
+
+/**
+ * MLB career stats for development curve TR adjustment.
+ * Provides an additional signal alongside MiLB stats.
+ */
+export interface MlbStatsForTR {
+  avg: number;
+  bbPct: number;
+  kPct: number;
+  hrPct: number;
+  pa: number;
+}
 
 // ============================================================================
 // Service
@@ -367,6 +396,7 @@ class ProspectDevelopmentCurveService {
     lowerIsBetter = false,
     curveSet: Record<string, CohortCurve[]> = DEVELOPMENT_CURVES,
     stabilizationMap: Record<string, number> = STABILIZATION_PA,
+    mlbAdjustment?: { actualStat: number; peakStat: number; pa: number; stabilization: number },
   ): number {
     const curves = curveSet[component];
     if (!curves) return tfrRating;
@@ -388,7 +418,9 @@ class ProspectDevelopmentCurveService {
     // Baseline TR from development fraction
     const baseline = 20 + (tfrRating - 20) * effectiveDevFraction;
 
-    // Individual adjustment (if raw stats available)
+    const sensitivityMap = SENSITIVITY_POINTS;
+
+    // Individual MiLB adjustment (if raw stats available)
     let ratingAdjust = 0;
     if (rawStat !== undefined && totalSample !== undefined && totalSample > 0) {
       const expectedRaw = this.interpolateCurve(cohort, age);
@@ -400,8 +432,16 @@ class ProspectDevelopmentCurveService {
 
         const stabilization = stabilizationMap[component] ?? 400;
         const shrinkage = totalSample / (totalSample + stabilization);
-        ratingAdjust = deviation * shrinkage * SENSITIVITY_POINTS;
+        ratingAdjust = deviation * shrinkage * (sensitivityMap[component] ?? 8);
       }
+    }
+
+    // MLB stats adjustment (additional signal, additive with MiLB adjustment)
+    if (mlbAdjustment && mlbAdjustment.pa > 0 && mlbAdjustment.peakStat > 0) {
+      let mlbDev = (mlbAdjustment.actualStat - mlbAdjustment.peakStat) / mlbAdjustment.peakStat;
+      if (lowerIsBetter) mlbDev = -mlbDev;
+      const mlbShrinkage = mlbAdjustment.pa / (mlbAdjustment.pa + mlbAdjustment.stabilization);
+      ratingAdjust += mlbDev * mlbShrinkage * (sensitivityMap[component] ?? 8);
     }
 
     // Clamp to [20, tfrRating]
@@ -411,28 +451,41 @@ class ProspectDevelopmentCurveService {
   /**
    * Calculate development-curve-based TR for all six components.
    */
-  calculateProspectTR(prospect: RatedHitterProspect): DevelopmentTR {
+  calculateProspectTR(prospect: RatedHitterProspect, mlbStats?: MlbStatsForTR): DevelopmentTR {
     const tfrR = prospect.trueRatings;
     const age = prospect.age;
     const rawStats = prospect.rawStats;
     const totalMinorPa = prospect.totalMinorPa;
 
+    // Build MLB adjustment objects per component (if MLB stats available)
+    const mlbPa = mlbStats?.pa ?? 0;
+    const mlbAdj = (actualStat: number, peakStat: number, component: string) =>
+      mlbPa > 0 ? { actualStat, peakStat, pa: mlbPa, stabilization: MLB_STABILIZATION_PA[component] ?? 350 } : undefined;
+
     // Stats-based components: use curves with individual adjustment
     const eyeTR = this.calculateComponentTR(
       'eye', tfrR.eye, prospect.projBbPct, age,
-      rawStats?.bbPct, totalMinorPa, false
+      rawStats?.bbPct, totalMinorPa, false,
+      DEVELOPMENT_CURVES, STABILIZATION_PA,
+      mlbStats ? mlbAdj(mlbStats.bbPct, prospect.projBbPct, 'eye') : undefined
     );
     const avoidKTR = this.calculateComponentTR(
       'avoidK', tfrR.avoidK, prospect.projKPct, age,
-      rawStats?.kPct, totalMinorPa, true
+      rawStats?.kPct, totalMinorPa, true,
+      DEVELOPMENT_CURVES, STABILIZATION_PA,
+      mlbStats ? mlbAdj(mlbStats.kPct, prospect.projKPct, 'avoidK') : undefined
     );
     const powerTR = this.calculateComponentTR(
       'power', tfrR.power, prospect.projHrPct, age,
-      rawStats?.hrPct, totalMinorPa, false
+      rawStats?.hrPct, totalMinorPa, false,
+      DEVELOPMENT_CURVES, STABILIZATION_PA,
+      mlbStats ? mlbAdj(mlbStats.hrPct, prospect.projHrPct, 'power') : undefined
     );
     const contactTR = this.calculateComponentTR(
       'contact', tfrR.contact, prospect.projAvg, age,
-      rawStats?.avg, totalMinorPa, false
+      rawStats?.avg, totalMinorPa, false,
+      DEVELOPMENT_CURVES, STABILIZATION_PA,
+      mlbStats ? mlbAdj(mlbStats.avg, prospect.projAvg, 'contact') : undefined
     );
 
     // Gap/Speed: no MiLB stats — use average devFraction from the four stats-based components
@@ -489,6 +542,7 @@ class ProspectDevelopmentCurveService {
     rawStat?: number,
     totalMinorPa?: number,
     lowerIsBetter = false,
+    mlbAdjustment?: { actualStat: number; peakStat: number; pa: number; stabilization: number },
   ): {
     cohortLabel: string;
     expectedRaw: number | undefined;
@@ -497,6 +551,9 @@ class ProspectDevelopmentCurveService {
     deviation: number | undefined;
     shrinkage: number | undefined;
     ratingAdjust: number;
+    mlbDeviation: number | undefined;
+    mlbShrinkage: number | undefined;
+    mlbRatingAdjust: number;
     finalTR: number;
   } {
     const curves = DEVELOPMENT_CURVES[component];
@@ -504,7 +561,8 @@ class ProspectDevelopmentCurveService {
       return {
         cohortLabel: 'N/A', expectedRaw: undefined, devFraction: 0.5,
         baseline: tfrRating, deviation: undefined, shrinkage: undefined,
-        ratingAdjust: 0, finalTR: tfrRating,
+        ratingAdjust: 0, mlbDeviation: undefined, mlbShrinkage: undefined,
+        mlbRatingAdjust: 0, finalTR: tfrRating,
       };
     }
 
@@ -531,10 +589,22 @@ class ProspectDevelopmentCurveService {
       if (lowerIsBetter) deviation = -deviation;
       const stabilization = STABILIZATION_PA[component] ?? 400;
       shrinkage = totalMinorPa / (totalMinorPa + stabilization);
-      ratingAdjust = deviation * shrinkage * SENSITIVITY_POINTS;
+      ratingAdjust = deviation * shrinkage * (SENSITIVITY_POINTS[component] ?? 8);
     }
 
-    const finalTR = Math.round(Math.max(20, Math.min(tfrRating, baseline + ratingAdjust)));
+    // MLB adjustment
+    let mlbDeviation: number | undefined;
+    let mlbShrinkage: number | undefined;
+    let mlbRatingAdjust = 0;
+    if (mlbAdjustment && mlbAdjustment.pa > 0 && mlbAdjustment.peakStat > 0) {
+      mlbDeviation = (mlbAdjustment.actualStat - mlbAdjustment.peakStat) / mlbAdjustment.peakStat;
+      if (lowerIsBetter) mlbDeviation = -mlbDeviation;
+      mlbShrinkage = mlbAdjustment.pa / (mlbAdjustment.pa + mlbAdjustment.stabilization);
+      mlbRatingAdjust = mlbDeviation * mlbShrinkage * (SENSITIVITY_POINTS[component] ?? 8);
+    }
+
+    const totalAdjust = ratingAdjust + mlbRatingAdjust;
+    const finalTR = Math.round(Math.max(20, Math.min(tfrRating, baseline + totalAdjust)));
 
     return {
       cohortLabel: cohort.label,
@@ -544,6 +614,9 @@ class ProspectDevelopmentCurveService {
       deviation,
       shrinkage,
       ratingAdjust: Math.round(ratingAdjust * 10) / 10,
+      mlbDeviation,
+      mlbShrinkage,
+      mlbRatingAdjust: Math.round(mlbRatingAdjust * 10) / 10,
       finalTR,
     };
   }
@@ -649,7 +722,7 @@ class ProspectDevelopmentCurveService {
       if (lowerIsBetter) deviation = -deviation;
       const stabilization = PITCHER_STABILIZATION_IP[component] ?? 200;
       shrinkage = totalMinorIp / (totalMinorIp + stabilization);
-      ratingAdjust = deviation * shrinkage * SENSITIVITY_POINTS;
+      ratingAdjust = deviation * shrinkage * (SENSITIVITY_POINTS[component] ?? 8);
     }
 
     const finalTR = Math.round(Math.max(20, Math.min(tfrRating, baseline + ratingAdjust)));

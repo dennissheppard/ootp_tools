@@ -549,12 +549,12 @@ export class TeamPlanningView {
       for (const h of farmHitters) {
         const devRating = this.devOverrides.has(h.playerId) ? h.trueFutureRating : this.computeProspectCurrentRating(h);
         const canonicalTr = canonicalBatterTr.get(h.playerId)?.trueRating;
-        this.prospectCurrentRatingMap.set(h.playerId, canonicalTr ? Math.max(devRating, canonicalTr) : devRating);
+        this.prospectCurrentRatingMap.set(h.playerId, canonicalTr ?? devRating);
       }
       for (const p of orgPitchers) {
         const devRating = this.devOverrides.has(p.playerId) ? p.trueFutureRating : this.computeProspectCurrentRating(p);
         const canonicalTr = canonicalPitcherTr.get(p.playerId)?.trueRating;
-        this.prospectCurrentRatingMap.set(p.playerId, canonicalTr ? Math.max(devRating, canonicalTr) : devRating);
+        this.prospectCurrentRatingMap.set(p.playerId, canonicalTr ?? devRating);
       }
 
       // Build player age map for buildRow projections
@@ -2130,20 +2130,23 @@ export class TeamPlanningView {
       .filter(p => p.parentTeamId === this.selectedTeamId || p.teamId === this.selectedTeamId)
       .sort((a, b) => (this.playerRatingMap.get(b.id) ?? 0) - (this.playerRatingMap.get(a.id) ?? 0));
     const allPlayers = Array.from(this.playerMap.values()).filter(p => !p.retired);
+
+    // Display rating map: use current ability (not TFR ceiling) so prospects
+    // show their development-curve estimate rather than their ceiling rating.
     const displayRatingMap = new Map<number, number>();
     for (const p of orgPlayers) {
-      displayRatingMap.set(p.id, this.resolveBestKnownRating(p.id, year));
+      displayRatingMap.set(p.id, this.resolveCurrentRatingForProjection(p.id));
     }
 
     // Build projected age/rating map only for future years.
-    // For current year edits, use canonical rating map values directly.
+    // For current year edits, displayRatingMap provides the correct current ability.
     const yearOffset = year - this.gameYear;
     let projectedDataMap: Map<number, { projectedAge: number; projectedRating: number }> | undefined;
     if (yearOffset > 0) {
       projectedDataMap = new Map<number, { projectedAge: number; projectedRating: number }>();
       for (const p of orgPlayers) {
         const baseAge = this.playerAgeMap.get(p.id) ?? p.age;
-        const currentRating = this.resolveBestKnownRating(p.id, this.gameYear);
+        const currentRating = this.resolveCurrentRatingForProjection(p.id);
         const tfr = this.playerTfrMap.get(p.id);
         const peakRating = (tfr !== undefined && tfr > currentRating) ? tfr : currentRating;
         const effectiveCurrent = this.devOverrides.has(p.id) ? Math.max(currentRating, peakRating) : currentRating;
@@ -2243,8 +2246,14 @@ export class TeamPlanningView {
       const contract = this.contractMap.get(player.id);
       const isMinorLeaguer = player.level !== undefined && player.level > 1;
 
-      // Resolve rating from all known sources (grid/TR/TFR) to avoid stale 0.5 fallbacks.
-      const playerRating = this.resolveBestKnownRating(player.id, year);
+      // Resolve current ability (without TFR) for projection, and TFR as ceiling.
+      const baseAge = this.playerAgeMap.get(player.id) ?? player.age;
+      const currentRating = this.resolveCurrentRatingForProjection(player.id);
+      const tfr = this.playerTfrMap.get(player.id);
+      const peakRating = (tfr !== undefined && tfr > currentRating) ? tfr : currentRating;
+      const effectiveCurrent = this.devOverrides.has(player.id) ? Math.max(currentRating, peakRating) : currentRating;
+      // For salary estimation, use TFR-inclusive rating (consistent with auto-fill salary logic)
+      const salaryBasisRating = this.resolveBestKnownRating(player.id, year);
 
       // Determine how many years of control we have
       let controlYears: number;
@@ -2327,6 +2336,9 @@ export class TeamPlanningView {
         const yearOffset = targetYear - this.gameYear;
         const key = `${this.selectedTeamId}_${position}_${targetYear}`;
 
+        // Project rating: grow from current ability toward peak, then age decline
+        const cellRating = this.projectPlanningRating(effectiveCurrent, peakRating, baseAge, yearOffset);
+
         // Compute salary: use contract salary if available, otherwise estimate from team control
         let cellSalary: number;
         if (contract && !isMinorLeaguer) {
@@ -2336,12 +2348,12 @@ export class TeamPlanningView {
           } else {
             // Beyond contract — arb/team control estimate
             const serviceYear = serviceYearStart + i;
-            cellSalary = estimateTeamControlSalary(serviceYear, playerRating);
+            cellSalary = estimateTeamControlSalary(serviceYear, salaryBasisRating);
           }
         } else {
           // Minor leaguer or no contract — full team control estimate
           const serviceYear = i + 1;
-          cellSalary = estimateTeamControlSalary(serviceYear, playerRating);
+          cellSalary = estimateTeamControlSalary(serviceYear, salaryBasisRating);
         }
 
         const isLastYear = i === controlYears - 1;
@@ -2353,7 +2365,7 @@ export class TeamPlanningView {
           playerId: player.id,
           playerName: `${player.firstName} ${player.lastName}`,
           age: player.age + yearOffset,
-          rating: playerRating,
+          rating: cellRating,
           salary: cellSalary,
           contractStatus: isLastYear ? 'final-year' : 'under-contract',
           isProspect: isMinorLeaguer,
@@ -3002,6 +3014,25 @@ export class TeamPlanningView {
       rating = Math.max(rating, this.getGridRatingForPlayerYear(playerId, year));
     }
 
+    return rating;
+  }
+
+  /**
+   * Get a player's current ability rating WITHOUT TFR — for use as a projection base.
+   * For prospects, uses the development-curve estimate. For MLB vets, uses canonical TR.
+   */
+  private resolveCurrentRatingForProjection(playerId: number): number {
+    // Development-curve estimate for prospects
+    let rating = this.prospectCurrentRatingMap.get(playerId) ?? 0;
+    // Canonical MLB TR (proven stats-based ability)
+    rating = Math.max(rating, this.canonicalPitcherTrMap.get(playerId) ?? 0);
+    rating = Math.max(rating, this.canonicalBatterTrMap.get(playerId) ?? 0);
+    // Fallback for MLB vets not in prospect/canonical maps (pure power-ranking data).
+    // playerRatingMap has TFR mixed in for prospects, but if we reach here with 0,
+    // the player isn't a prospect — so playerRatingMap is safe.
+    if (rating === 0) {
+      rating = this.playerRatingMap.get(playerId) ?? 0;
+    }
     return rating;
   }
 

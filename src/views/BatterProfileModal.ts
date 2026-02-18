@@ -17,7 +17,8 @@ import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricTog
 import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
-import { hasComponentUpside } from '../utils/tfrUpside';
+import { resolveCanonicalBatterData, computeBatterProjection } from '../services/ModalDataService';
+import { computeBatterTags, renderTagsHtml, TagContext } from '../utils/playerTags';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -116,6 +117,10 @@ export interface BatterProfileData {
 
   // TFR by scout source (for toggle in modal)
   tfrBySource?: { my?: BatterTfrSourceData; osa?: BatterTfrSourceData };
+
+  // Prospect metadata (for tags)
+  level?: string;
+  totalMinorPa?: number;
 }
 
 interface BatterSeasonStats {
@@ -171,6 +176,12 @@ export class BatterProfileModal {
 
   // League WAR ceiling for arc scaling
   private leagueWarMax: number = 8;
+
+  // Tag context (cross-player data for Expensive/Bargain/Blocked tags)
+  private leagueDollarPerWar: number[] | undefined;
+  private blockingPlayer: string | undefined;
+  private blockingRating: number | undefined;
+  private blockingYears: number | undefined;
 
   // Cached projected PA for legend display
   private cachedProjPa: number | undefined;
@@ -342,81 +353,8 @@ export class BatterProfileModal {
       tfrEntry = unifiedData.prospects.find(p => p.playerId === data.playerId);
     } catch { /* TFR data not available */ }
 
-    // 3. Override TR fields from canonical source
-    if (playerTR) {
-      data.trueRating = playerTR.trueRating;
-      data.percentile = playerTR.percentile;
-      data.woba = playerTR.woba;
-      data.estimatedPower = playerTR.estimatedPower;
-      data.estimatedEye = playerTR.estimatedEye;
-      data.estimatedAvoidK = playerTR.estimatedAvoidK;
-      data.estimatedContact = playerTR.estimatedContact;
-      data.estimatedGap = playerTR.estimatedGap;
-      data.estimatedSpeed = playerTR.estimatedSpeed;
-      data.projBbPct = playerTR.blendedBbPct;
-      data.projKPct = playerTR.blendedKPct;
-      data.projHrPct = playerTR.blendedHrPct;
-      data.projAvg = playerTR.blendedAvg;
-      data.projWoba = playerTR.woba;
-      data.projDoublesRate = playerTR.blendedDoublesRate;
-      data.projTriplesRate = playerTR.blendedTriplesRate;
-      data.isProspect = false; // Has MLB stats → not a prospect for display purposes
-    }
-
-    // 4. Override TFR fields from canonical source
-    if (tfrEntry) {
-      data.trueFutureRating = tfrEntry.trueFutureRating;
-      data.tfrPercentile = tfrEntry.percentile;
-      data.tfrPower = tfrEntry.trueRatings.power;
-      data.tfrEye = tfrEntry.trueRatings.eye;
-      data.tfrAvoidK = tfrEntry.trueRatings.avoidK;
-      data.tfrContact = tfrEntry.trueRatings.contact;
-      data.tfrGap = tfrEntry.trueRatings.gap;
-      data.tfrSpeed = tfrEntry.trueRatings.speed;
-      data.tfrBbPct = tfrEntry.projBbPct;
-      data.tfrKPct = tfrEntry.projKPct;
-      data.tfrHrPct = tfrEntry.projHrPct;
-      data.tfrAvg = tfrEntry.projAvg;
-      data.tfrObp = tfrEntry.projObp;
-      data.tfrSlg = tfrEntry.projSlg;
-      data.tfrPa = tfrEntry.projPa;
-      data.tfrBySource = tfrEntry.tfrBySource;
-
-      if (playerTR) {
-        // MLB player with upside: overall TFR > TR, or any component TFR >= TR + 5
-        data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating
-          || hasComponentUpside(
-            [data.estimatedPower, data.estimatedEye, data.estimatedAvoidK,
-             data.estimatedContact, data.estimatedGap, data.estimatedSpeed],
-            [tfrEntry.trueRatings.power, tfrEntry.trueRatings.eye, tfrEntry.trueRatings.avoidK,
-             tfrEntry.trueRatings.contact, tfrEntry.trueRatings.gap, tfrEntry.trueRatings.speed]
-          );
-      } else {
-        // Pure prospect: always show TFR
-        data.hasTfrUpside = true;
-        data.isProspect = true;
-        // Use development curve TR for estimated ratings (current ability)
-        const devTR = tfrEntry.developmentTR;
-        data.estimatedPower = devTR?.power ?? tfrEntry.trueRatings.power;
-        data.estimatedEye = devTR?.eye ?? tfrEntry.trueRatings.eye;
-        data.estimatedAvoidK = devTR?.avoidK ?? tfrEntry.trueRatings.avoidK;
-        data.estimatedContact = devTR?.contact ?? tfrEntry.trueRatings.contact;
-        data.estimatedGap = devTR?.gap ?? tfrEntry.trueRatings.gap;
-        data.estimatedSpeed = devTR?.speed ?? tfrEntry.trueRatings.speed;
-        // Peak projection stats
-        data.projWoba = tfrEntry.projWoba;
-        data.projAvg = tfrEntry.projAvg;
-        data.projBbPct = tfrEntry.projBbPct;
-        data.projKPct = tfrEntry.projKPct;
-        data.projHrPct = tfrEntry.projHrPct;
-      }
-    }
-
-    // 5. Force recompute of WAR/PA from canonical data
-    if (playerTR || tfrEntry) {
-      data.projWar = undefined;
-      data.projPa = undefined;
-    }
+    // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
+    resolveCanonicalBatterData(data, playerTR, tfrEntry);
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -473,11 +411,12 @@ export class BatterProfileModal {
     // Fetch additional data
     try {
       // Fetch scouting data, contract data, and league WAR ceiling
-      const [myScoutingAll, osaScoutingAll, allContracts, lastYearBatting] = await Promise.all([
+      const [myScoutingAll, osaScoutingAll, allContracts, lastYearBatting, powerRankings] = await Promise.all([
         hitterScoutingDataService.getLatestScoutingRatings('my'),
         hitterScoutingDataService.getLatestScoutingRatings('osa'),
         contractService.getAllContracts(),
-        trueRatingsService.getTrueBattingStats(currentYear - 1).catch(() => [])
+        trueRatingsService.getTrueBattingStats(currentYear - 1).catch(() => []),
+        teamRatingsService.getPowerRankings(currentYear).catch(() => [] as import('../services/TeamRatingsService').TeamPowerRanking[]),
       ]);
       if (generation !== this.showGeneration) return; // Stale call
 
@@ -487,6 +426,48 @@ export class BatterProfileModal {
       if (lastYearBatting.length > 0) {
         const maxWar = lastYearBatting.reduce((max, p) => Math.max(max, p.war ?? 0), 0);
         this.leagueWarMax = Math.max(6, maxWar);
+      }
+
+      // Compute tag context: league $/WAR distribution and blocking info
+      this.leagueDollarPerWar = undefined;
+      this.blockingPlayer = undefined;
+      this.blockingRating = undefined;
+      this.blockingYears = undefined;
+
+      if (powerRankings.length > 0) {
+        // League $/WAR distribution for Expensive/Bargain tags
+        const dollarPerWarList: number[] = [];
+        for (const team of powerRankings) {
+          for (const player of [...team.lineup, ...team.bench]) {
+            const c = allContracts.get(player.playerId);
+            if (!c) continue;
+            const sal = contractService.getCurrentSalary(c);
+            const war = player.projWar;
+            if (sal >= 3_000_000 && war !== undefined && war > 0.5) {
+              dollarPerWarList.push(sal / war);
+            }
+          }
+        }
+        dollarPerWarList.sort((a, b) => a - b);
+        if (dollarPerWarList.length > 0) this.leagueDollarPerWar = dollarPerWarList;
+
+        // Blocking info for prospects
+        if (data.isProspect && data.position !== undefined) {
+          const playerOrg = data.parentTeam ?? data.team;
+          const orgTeam = powerRankings.find(t => t.teamName === playerOrg);
+          if (orgTeam) {
+            const incumbent = orgTeam.lineup.find(b => b.position === data.position);
+            if (incumbent) {
+              const incumbentContract = allContracts.get(incumbent.playerId);
+              const yearsRemaining = incumbentContract ? contractService.getYearsRemaining(incumbentContract) : 0;
+              if (incumbent.trueRating >= 3.5 && yearsRemaining >= 3) {
+                this.blockingPlayer = incumbent.name;
+                this.blockingRating = incumbent.trueRating;
+                this.blockingYears = yearsRemaining;
+              }
+            }
+          }
+        }
       }
 
       const myScouting = myScoutingAll.find(s => s.playerId === data.playerId);
@@ -631,8 +612,10 @@ export class BatterProfileModal {
       }
     } catch (error) {
       console.error('Error loading batter profile data:', error);
+      console.error('Player:', data.playerId, data.playerName, 'isProspect:', data.isProspect, 'TR:', data.trueRating, 'TFR:', data.trueFutureRating);
       if (bodyEl) {
-        bodyEl.innerHTML = '<p class="error">Failed to load player data.</p>';
+        const msg = error instanceof Error ? error.message : String(error);
+        bodyEl.innerHTML = `<p class="error">Failed to load player data: ${msg}</p>`;
       }
     }
   }
@@ -937,6 +920,8 @@ export class BatterProfileModal {
     const injuryClass = this.getInjuryBadgeClass(injury);
     const personalityHtml = this.renderPersonalityVitalsColumn();
 
+    // Tags are rendered in renderBody(), not here
+
     return `
       <span class="header-divider" style="visibility:hidden;"></span>
       <div class="vitals-col">
@@ -1123,11 +1108,23 @@ export class BatterProfileModal {
     const projectionContent = this.renderProjectionContent(data, stats);
     const careerContent = this.renderCareerStatsContent(stats);
 
+    // Compute player tags
+    const currentSalary = this.contract ? contractService.getCurrentSalary(this.contract) : 0;
+    const tagCtx: TagContext = {
+      currentSalary,
+      leagueDollarPerWar: this.leagueDollarPerWar,
+      blockingPlayer: this.blockingPlayer,
+      blockingRating: this.blockingRating,
+      blockingYears: this.blockingYears,
+    };
+    const tagsHtml = renderTagsHtml(computeBatterTags(data, tagCtx));
+
     return `
       <div class="profile-tabs">
         <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
         <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
+        ${tagsHtml}
       </div>
       <div class="profile-tab-content">
         <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
@@ -1562,196 +1559,53 @@ export class BatterProfileModal {
   }
 
   private renderProjectionContent(data: BatterProfileData, stats: BatterSeasonStats[]): string {
-    // Determine if toggle should be shown: MLB player with TFR upside
+    // Compute projection via pure function
+    const proj = computeBatterProjection(data, stats, {
+      projectionMode: this.projectionMode,
+      projectionYear: this.projectionYear,
+      leagueAvg: this.leagueAvg,
+      scoutingData: this.scoutingData ? {
+        injuryProneness: this.scoutingData.injuryProneness,
+        stealingAggressiveness: this.scoutingData.stealingAggressiveness,
+        stealingAbility: this.scoutingData.stealingAbility,
+      } : null,
+      expectedBbPct: (eye) => HitterRatingEstimatorService.expectedBbPct(eye),
+      expectedKPct: (avoidK) => HitterRatingEstimatorService.expectedKPct(avoidK),
+      expectedAvg: (contact) => HitterRatingEstimatorService.expectedAvg(contact),
+      expectedHrPct: (power) => HitterRatingEstimatorService.expectedHrPct(power),
+      expectedDoublesRate: (gap) => HitterRatingEstimatorService.expectedDoublesRate(gap),
+      expectedTriplesRate: (speed) => HitterRatingEstimatorService.expectedTriplesRate(speed),
+      getProjectedPa: (injury, age) => leagueBattingAveragesService.getProjectedPa(injury, age),
+      getProjectedPaWithHistory: (history, age, injury) => leagueBattingAveragesService.getProjectedPaWithHistory(history, age, injury),
+      calculateOpsPlus: (obp, slg, lg) => leagueBattingAveragesService.calculateOpsPlus(obp, slg, lg),
+      computeWoba: (bbRate, avg, d, t, hr) => this.computeWoba(bbRate, avg, d, t, hr),
+      calculateBaserunningRuns: (sb, cs) => leagueBattingAveragesService.calculateBaserunningRuns(sb, cs),
+      calculateBattingWar: (woba, pa, lg, sbRuns) => leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns),
+      projectStolenBases: (sr, ste, pa) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
+    });
+
+    // Destructure for template compatibility
+    const { projAvg, projObp, projSlg, projBbPct, projKPct, projHrPct,
+            projPa, projHr, proj2b, proj3b, projSb, projWar,
+            projOps, projOpsPlus, age, ratingLabel, projNote,
+            isPeakMode, showActualComparison, ratings } = proj;
+
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
-
-    // In peak mode, use TFR component ratings and peak age
-    const isPeakMode = this.projectionMode === 'peak' && showToggle;
-
-    // Select ratings source based on mode
-    // Pure prospects (no MLB TR) always show peak projection — use TFR ratings
-    const isProspectPeak = data.trueRating === undefined && data.trueFutureRating !== undefined;
-    const usePower = (isPeakMode || isProspectPeak) ? (data.tfrPower ?? data.estimatedPower) : data.estimatedPower;
-    const useEye = (isPeakMode || isProspectPeak) ? (data.tfrEye ?? data.estimatedEye) : data.estimatedEye;
-    const useAvoidK = (isPeakMode || isProspectPeak) ? (data.tfrAvoidK ?? data.estimatedAvoidK) : data.estimatedAvoidK;
-    const useContact = (isPeakMode || isProspectPeak) ? (data.tfrContact ?? data.estimatedContact) : data.estimatedContact;
-    const useGap = (isPeakMode || isProspectPeak) ? (data.tfrGap ?? data.estimatedGap) : data.estimatedGap;
-    const useSpeed = (isPeakMode || isProspectPeak) ? (data.tfrSpeed ?? data.estimatedSpeed) : data.estimatedSpeed;
-
-    // Get most recent year stats for comparison (only in current mode)
-    const latestStat = isPeakMode ? undefined : stats.find(s => s.level === 'MLB');
-    const age = isPeakMode ? 27 : (data.age ?? 27);
-
-    // League averages for OPS+ calculation (dynamic with fallback)
+    const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB') : undefined;
     const lgObp = this.leagueAvg?.lgObp ?? 0.320;
     const lgSlg = this.leagueAvg?.lgSlg ?? 0.400;
-
-    // Calculate projected stats from ratings
-    let projAvg: number;
-    let projObp: number;
-    let projSlg: number;
-    let projBbPct: number;
-    let projKPct: number;
-
-    // Peak mode (or prospect peak): use TFR blended rates directly
-    if ((isPeakMode || isProspectPeak) && data.tfrAvg !== undefined && data.tfrObp !== undefined && data.tfrSlg !== undefined) {
-      projAvg = data.tfrAvg;
-      projObp = data.tfrObp;
-      projSlg = data.tfrSlg;
-      projBbPct = data.tfrBbPct ?? 8.5;
-      projKPct = data.tfrKPct ?? 22.0;
-    }
-    // Current mode: use pre-computed TR blended projections
-    else if (!isPeakMode && !isProspectPeak && data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
-      projAvg = data.projAvg;
-      projObp = data.projObp;
-      projSlg = data.projSlg;
-      projBbPct = data.projBbPct ?? 8.5;
-      projKPct = data.projKPct ?? 22.0;
-    }
-    // Fallback: derive from component ratings (prefer TFR blended rates for prospects)
-    else if (usePower !== undefined && useEye !== undefined &&
-             useAvoidK !== undefined && useContact !== undefined) {
-      projBbPct = (isPeakMode || isProspectPeak)
-        ? (data.tfrBbPct ?? data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(useEye))
-        : (data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(useEye));
-      projKPct = (isPeakMode || isProspectPeak)
-        ? (data.tfrKPct ?? data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK))
-        : (data.projKPct ?? HitterRatingEstimatorService.expectedKPct(useAvoidK));
-      projAvg = (isPeakMode || isProspectPeak)
-        ? (data.tfrAvg ?? data.projAvg ?? HitterRatingEstimatorService.expectedAvg(useContact))
-        : (data.projAvg ?? HitterRatingEstimatorService.expectedAvg(useContact));
-      projObp = (isPeakMode || isProspectPeak)
-        ? (data.tfrObp ?? Math.min(0.450, projAvg + (projBbPct / 100)))
-        : Math.min(0.450, projAvg + (projBbPct / 100));
-      const hrPerAb = (HitterRatingEstimatorService.expectedHrPct(usePower) / 100) / 0.88;
-      const doublesPerAb = useGap !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(useGap) : 0.04;
-      const triplesPerAb = useSpeed !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(useSpeed) : 0.005;
-      const iso = doublesPerAb + 2 * triplesPerAb + 3 * hrPerAb;
-      projSlg = (isPeakMode || isProspectPeak)
-        ? (data.tfrSlg ?? projAvg + iso)
-        : (projAvg + iso);
-    }
-    else {
-      projAvg = 0.260;
-      projObp = 0.330;
-      projSlg = 0.420;
-      projBbPct = 8.5;
-      projKPct = 22.0;
-    }
-
-    // Calculate projected PA — prefer pre-calculated value from caller for consistency.
-    // Exclude current year to avoid partial-season contamination.
-    const injuryProneness = this.scoutingData?.injuryProneness ?? data.injuryProneness;
-    let projPa: number;
-    if (isPeakMode) {
-      projPa = data.tfrPa ?? leagueBattingAveragesService.getProjectedPa(injuryProneness, 27);
-    } else if (data.projPa !== undefined) {
-      projPa = data.projPa;
-    } else {
-      const mlbHistory = (stats ?? [])
-        .filter(s2 => s2.level === 'MLB' && s2.year < this.projectionYear)
-        .map(s2 => ({ year: s2.year, pa: s2.pa }));
-      projPa = mlbHistory.length > 0
-        ? leagueBattingAveragesService.getProjectedPaWithHistory(mlbHistory, age, injuryProneness)
-        : leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
-    }
-
-    // Calculate projected HR from HR%
-    let projHr: number;
-    if (isPeakMode && data.tfrHrPct !== undefined) {
-      projHr = Math.round(projPa * (data.tfrHrPct / 100));
-    } else if (!isPeakMode && data.projHr !== undefined) {
-      projHr = data.projHr;
-    } else if (!isPeakMode && data.projHrPct !== undefined) {
-      projHr = Math.round(projPa * (data.projHrPct / 100));
-    } else if (usePower !== undefined) {
-      const derivedHrPct = HitterRatingEstimatorService.expectedHrPct(usePower);
-      projHr = Math.round(projPa * (derivedHrPct / 100));
-    } else {
-      projHr = Math.round((projSlg - projAvg) * 100);
-    }
-
-    // Calculate projected 2B and 3B from doubles/triples rates
-    const abPerPa = 0.88;
-    const projAb = Math.round(projPa * abPerPa);
-    let proj2b: number;
-    let proj3b: number;
-    if (!isPeakMode && data.projDoublesRate !== undefined) {
-      proj2b = Math.round(projAb * data.projDoublesRate);
-    } else if (useGap !== undefined) {
-      proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(useGap));
-    } else {
-      proj2b = Math.round(projAb * 0.04);
-    }
-    if (!isPeakMode && data.projTriplesRate !== undefined) {
-      proj3b = Math.round(projAb * data.projTriplesRate);
-    } else if (useSpeed !== undefined) {
-      proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(useSpeed));
-    } else {
-      proj3b = Math.round(projAb * 0.005);
-    }
-
-    // Calculate projected SB from SR/STE ratings
-    const sr = this.scoutingData?.stealingAggressiveness ?? data.scoutSR ?? 50;
-    const ste = this.scoutingData?.stealingAbility ?? data.scoutSTE ?? 50;
     const hasSrSte = (this.scoutingData?.stealingAggressiveness !== undefined) || (data.scoutSR !== undefined);
-    let projSb: number;
-    if (data.projSb !== undefined) {
-      projSb = data.projSb;
-    } else if (hasSrSte) {
-      const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-      projSb = sbProj.sb;
-    } else {
-      projSb = 0;
-    }
-
-    // Calculate OPS and OPS+
-    const projOps = projObp + projSlg;
-    const projOpsPlus = this.leagueAvg
-      ? leagueBattingAveragesService.calculateOpsPlus(projObp, projSlg, this.leagueAvg)
-      : Math.round(100 * ((projObp / lgObp) + (projSlg / lgSlg) - 1));
-
-    // Calculate WAR from wOBA (same approach as farm rankings)
-    const projHrPerAb = projPa > 0 ? projHr / (projPa * abPerPa) : 0;
-    const projDoublesPerAb = projAb > 0 ? proj2b / projAb : 0.04;
-    const projTriplesPerAb = projAb > 0 ? proj3b / projAb : 0.005;
-    const peakWobaFromRates = this.computeWoba(projBbPct / 100, projAvg, projDoublesPerAb, projTriplesPerAb, projHrPerAb);
-    const projWoba = (isPeakMode || isProspectPeak) ? peakWobaFromRates : (data.projWoba ?? peakWobaFromRates);
-
-    // SB runs for WAR (use projected SB and CS)
-    let projSbRuns = 0;
-    if (hasSrSte) {
-      const sbProjForWar = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-      projSbRuns = leagueBattingAveragesService.calculateBaserunningRuns(sbProjForWar.sb, sbProjForWar.cs);
-    } else if (data.projSb !== undefined) {
-      const projCsForWar = data.projCs ?? Math.round(projSb * 0.25);
-      projSbRuns = leagueBattingAveragesService.calculateBaserunningRuns(projSb, projCsForWar);
-    }
-
-    let calculatedWar: number;
-    if (this.leagueAvg) {
-      calculatedWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, this.leagueAvg, projSbRuns);
-    } else {
-      const fallbackAvg: LeagueBattingAverages = { year: 0, lgObp: 0.320, lgSlg: 0.400, lgWoba: 0.320, lgRpa: 0.115, wobaScale: 1.15, runsPerWin: 10, totalPa: 0, totalRuns: 0 };
-      calculatedWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, fallbackAvg, projSbRuns);
-    }
-    const projWar = isPeakMode ? calculatedWar : (data.projWar ?? calculatedWar);
 
     const formatStat = (val: number, decimals: number = 3) => val.toFixed(decimals);
     const formatPct = (val: number) => val.toFixed(1) + '%';
 
-    // Calculate derived HR% for display
-    const projHrPct = projPa > 0 ? (projHr / projPa) * 100 : 0;
-
     // Prepare Flip Cards
-    const contactRating = this.clampRatingForDisplay(useContact ?? 50);
-    const eyeRating = this.clampRatingForDisplay(useEye ?? 50);
-    const powerRating = this.clampRatingForDisplay(usePower ?? 50);
-    const gapRating = this.clampRatingForDisplay(useGap ?? 50);
-    const speedRating = this.clampRatingForDisplay(useSpeed ?? 50);
+    const contactRating = this.clampRatingForDisplay(ratings.contact);
+    const eyeRating = this.clampRatingForDisplay(ratings.eye);
+    const powerRating = this.clampRatingForDisplay(ratings.power);
+    const gapRating = this.clampRatingForDisplay(ratings.gap);
+    const speedRating = this.clampRatingForDisplay(ratings.speed);
 
-    const ratingLabel = isPeakMode ? 'TFR' : 'Estimated';
     const avgFlip = this.renderFlipCell(formatStat(projAvg), contactRating.toString(), `${ratingLabel} Contact`);
     const bbPctFlip = this.renderFlipCell(formatPct(projBbPct), eyeRating.toString(), `${ratingLabel} Eye`);
     const kPctDisplay = formatPct(projKPct);
@@ -1827,10 +1681,6 @@ export class BatterProfileModal {
         <button class="projection-toggle-btn ${this.projectionMode === 'peak' ? 'active' : ''}" data-mode="peak">Peak</button>
       </div>
     ` : '';
-
-    const projNote = isPeakMode
-      ? '* Peak projection based on True Future Rating. Assumes full development and everything going right for this guy.'
-      : '* Projection based on True Ratings.';
 
     return `
       <div class="projection-section">

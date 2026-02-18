@@ -310,30 +310,42 @@ export class CellEditModal {
   ): void {
     const isPitcherSlot = context.section === 'rotation' || context.section === 'bullpen';
     const eligible = POSITION_ELIGIBILITY[context.position];
-    const filtered = orgPlayers.filter(p => {
-      if (isPitcherSlot) return p.position === 1;
-      if (eligible) return eligible.includes(p.position);
-      return p.position !== 1;
-    });
 
-    if (filtered.length === 0) {
+    // All players of the right type (pitcher vs batter)
+    const allOfType = orgPlayers.filter(p => isPitcherSlot ? p.position === 1 : p.position !== 1);
+
+    if (allOfType.length === 0) {
       container.innerHTML = '<div class="cell-edit-no-results">No eligible org players found.</div>';
       return;
     }
 
-    // Build display data for sorting
-    const displayData = filtered.map(p => {
+    // Position-eligible player IDs (strict roster rules)
+    const positionEligibleIds = new Set<number>();
+    for (const p of allOfType) {
+      if (isPitcherSlot || (eligible && eligible.includes(p.position))) {
+        positionEligibleIds.add(p.id);
+      }
+    }
+
+    // Build display data
+    const buildDisplayItem = (p: Player) => {
       const proj = projectedDataMap?.get(p.id);
       const displayAge = proj ? proj.projectedAge : p.age;
       const canonicalRating = ratingMap?.get(p.id) ?? 0;
       // Manual insertion uses canonical rating; never display a lower projected value in the picker.
       const rating = proj ? Math.max(proj.projectedRating, canonicalRating) : canonicalRating;
       return { player: p, displayAge, rating };
-    });
+    };
 
-    const renderList = () => {
-      // Sort
-      displayData.sort((a, b) => {
+    const allDisplayData = allOfType.map(buildDisplayItem);
+
+    // Split: recommended = position-eligible + rating >= 2.5; rest = everyone else
+    const recommended = allDisplayData.filter(d => positionEligibleIds.has(d.player.id) && d.rating >= 2.5);
+    const recommendedIds = new Set(recommended.map(d => d.player.id));
+    const rest = allDisplayData.filter(d => !recommendedIds.has(d.player.id));
+
+    const sortData = (data: typeof allDisplayData) => {
+      data.sort((a, b) => {
         const dir = this.orgSortDirection === 'asc' ? 1 : -1;
         switch (this.orgSortColumn) {
           case 'name':
@@ -348,6 +360,11 @@ export class CellEditModal {
             return 0;
         }
       });
+    };
+
+    const renderList = () => {
+      sortData(recommended);
+      sortData(rest);
 
       const noteHtml = context.year > context.gameYear
         ? `<div class="cell-edit-projection-note">Projected age &amp; rating for ${context.year}</div>`
@@ -365,7 +382,7 @@ export class CellEditModal {
         </div>
       `;
 
-      const rowsHtml = displayData.map(d => {
+      const renderRows = (data: typeof allDisplayData) => data.map(d => {
         const ratingStr = d.rating ? `<span class="player-item-rating">${d.rating.toFixed(1)}</span>` : '';
         return `
           <div class="cell-edit-player-item" data-player-id="${d.player.id}">
@@ -377,7 +394,13 @@ export class CellEditModal {
         `;
       }).join('');
 
-      container.innerHTML = noteHtml + headerHtml + rowsHtml;
+      const typeLabel = isPitcherSlot ? 'Pitchers' : 'Batters';
+      const recommendedHtml = recommended.length > 0
+        ? `<div class="cell-edit-section-label cell-edit-section-recommended">Recommended Options</div>${renderRows(recommended)}`
+        : '';
+      const restHtml = `<div class="cell-edit-section-label cell-edit-section-all">All ${typeLabel}</div>${renderRows(rest)}`;
+
+      container.innerHTML = noteHtml + headerHtml + recommendedHtml + restHtml;
 
       // Bind sort headers
       container.querySelectorAll<HTMLElement>('.org-header-col').forEach(hdr => {
