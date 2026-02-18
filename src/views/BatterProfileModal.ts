@@ -18,6 +18,7 @@ import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
 import { resolveCanonicalBatterData, computeBatterProjection } from '../services/ModalDataService';
+import { computeBatterTags, renderTagsHtml, TagContext } from '../utils/playerTags';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -116,6 +117,10 @@ export interface BatterProfileData {
 
   // TFR by scout source (for toggle in modal)
   tfrBySource?: { my?: BatterTfrSourceData; osa?: BatterTfrSourceData };
+
+  // Prospect metadata (for tags)
+  level?: string;
+  totalMinorPa?: number;
 }
 
 interface BatterSeasonStats {
@@ -171,6 +176,12 @@ export class BatterProfileModal {
 
   // League WAR ceiling for arc scaling
   private leagueWarMax: number = 8;
+
+  // Tag context (cross-player data for Expensive/Bargain/Blocked tags)
+  private leagueDollarPerWar: number[] | undefined;
+  private blockingPlayer: string | undefined;
+  private blockingRating: number | undefined;
+  private blockingYears: number | undefined;
 
   // Cached projected PA for legend display
   private cachedProjPa: number | undefined;
@@ -343,8 +354,7 @@ export class BatterProfileModal {
     } catch { /* TFR data not available */ }
 
     // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
-    const canonicalPatch = resolveCanonicalBatterData(data, playerTR, tfrEntry);
-    Object.assign(data, canonicalPatch);
+    resolveCanonicalBatterData(data, playerTR, tfrEntry);
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -401,11 +411,12 @@ export class BatterProfileModal {
     // Fetch additional data
     try {
       // Fetch scouting data, contract data, and league WAR ceiling
-      const [myScoutingAll, osaScoutingAll, allContracts, lastYearBatting] = await Promise.all([
+      const [myScoutingAll, osaScoutingAll, allContracts, lastYearBatting, powerRankings] = await Promise.all([
         hitterScoutingDataService.getLatestScoutingRatings('my'),
         hitterScoutingDataService.getLatestScoutingRatings('osa'),
         contractService.getAllContracts(),
-        trueRatingsService.getTrueBattingStats(currentYear - 1).catch(() => [])
+        trueRatingsService.getTrueBattingStats(currentYear - 1).catch(() => []),
+        teamRatingsService.getPowerRankings(currentYear).catch(() => [] as import('../services/TeamRatingsService').TeamPowerRanking[]),
       ]);
       if (generation !== this.showGeneration) return; // Stale call
 
@@ -415,6 +426,48 @@ export class BatterProfileModal {
       if (lastYearBatting.length > 0) {
         const maxWar = lastYearBatting.reduce((max, p) => Math.max(max, p.war ?? 0), 0);
         this.leagueWarMax = Math.max(6, maxWar);
+      }
+
+      // Compute tag context: league $/WAR distribution and blocking info
+      this.leagueDollarPerWar = undefined;
+      this.blockingPlayer = undefined;
+      this.blockingRating = undefined;
+      this.blockingYears = undefined;
+
+      if (powerRankings.length > 0) {
+        // League $/WAR distribution for Expensive/Bargain tags
+        const dollarPerWarList: number[] = [];
+        for (const team of powerRankings) {
+          for (const player of [...team.lineup, ...team.bench]) {
+            const c = allContracts.get(player.playerId);
+            if (!c) continue;
+            const sal = contractService.getCurrentSalary(c);
+            const war = player.projWar;
+            if (sal >= 3_000_000 && war !== undefined && war > 0.5) {
+              dollarPerWarList.push(sal / war);
+            }
+          }
+        }
+        dollarPerWarList.sort((a, b) => a - b);
+        if (dollarPerWarList.length > 0) this.leagueDollarPerWar = dollarPerWarList;
+
+        // Blocking info for prospects
+        if (data.isProspect && data.position !== undefined) {
+          const playerOrg = data.parentTeam ?? data.team;
+          const orgTeam = powerRankings.find(t => t.teamName === playerOrg);
+          if (orgTeam) {
+            const incumbent = orgTeam.lineup.find(b => b.position === data.position);
+            if (incumbent) {
+              const incumbentContract = allContracts.get(incumbent.playerId);
+              const yearsRemaining = incumbentContract ? contractService.getYearsRemaining(incumbentContract) : 0;
+              if (incumbent.trueRating >= 3.5 && yearsRemaining >= 3) {
+                this.blockingPlayer = incumbent.name;
+                this.blockingRating = incumbent.trueRating;
+                this.blockingYears = yearsRemaining;
+              }
+            }
+          }
+        }
       }
 
       const myScouting = myScoutingAll.find(s => s.playerId === data.playerId);
@@ -559,8 +612,10 @@ export class BatterProfileModal {
       }
     } catch (error) {
       console.error('Error loading batter profile data:', error);
+      console.error('Player:', data.playerId, data.playerName, 'isProspect:', data.isProspect, 'TR:', data.trueRating, 'TFR:', data.trueFutureRating);
       if (bodyEl) {
-        bodyEl.innerHTML = '<p class="error">Failed to load player data.</p>';
+        const msg = error instanceof Error ? error.message : String(error);
+        bodyEl.innerHTML = `<p class="error">Failed to load player data: ${msg}</p>`;
       }
     }
   }
@@ -865,6 +920,8 @@ export class BatterProfileModal {
     const injuryClass = this.getInjuryBadgeClass(injury);
     const personalityHtml = this.renderPersonalityVitalsColumn();
 
+    // Tags are rendered in renderBody(), not here
+
     return `
       <span class="header-divider" style="visibility:hidden;"></span>
       <div class="vitals-col">
@@ -1051,11 +1108,23 @@ export class BatterProfileModal {
     const projectionContent = this.renderProjectionContent(data, stats);
     const careerContent = this.renderCareerStatsContent(stats);
 
+    // Compute player tags
+    const currentSalary = this.contract ? contractService.getCurrentSalary(this.contract) : 0;
+    const tagCtx: TagContext = {
+      currentSalary,
+      leagueDollarPerWar: this.leagueDollarPerWar,
+      blockingPlayer: this.blockingPlayer,
+      blockingRating: this.blockingRating,
+      blockingYears: this.blockingYears,
+    };
+    const tagsHtml = renderTagsHtml(computeBatterTags(data, tagCtx));
+
     return `
       <div class="profile-tabs">
         <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
         <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
+        ${tagsHtml}
       </div>
       <div class="profile-tab-content">
         <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
@@ -1500,12 +1569,12 @@ export class BatterProfileModal {
         stealingAggressiveness: this.scoutingData.stealingAggressiveness,
         stealingAbility: this.scoutingData.stealingAbility,
       } : null,
-      expectedBbPct: HitterRatingEstimatorService.expectedBbPct,
-      expectedKPct: HitterRatingEstimatorService.expectedKPct,
-      expectedAvg: HitterRatingEstimatorService.expectedAvg,
-      expectedHrPct: HitterRatingEstimatorService.expectedHrPct,
-      expectedDoublesRate: HitterRatingEstimatorService.expectedDoublesRate,
-      expectedTriplesRate: HitterRatingEstimatorService.expectedTriplesRate,
+      expectedBbPct: (eye) => HitterRatingEstimatorService.expectedBbPct(eye),
+      expectedKPct: (avoidK) => HitterRatingEstimatorService.expectedKPct(avoidK),
+      expectedAvg: (contact) => HitterRatingEstimatorService.expectedAvg(contact),
+      expectedHrPct: (power) => HitterRatingEstimatorService.expectedHrPct(power),
+      expectedDoublesRate: (gap) => HitterRatingEstimatorService.expectedDoublesRate(gap),
+      expectedTriplesRate: (speed) => HitterRatingEstimatorService.expectedTriplesRate(speed),
       getProjectedPa: (injury, age) => leagueBattingAveragesService.getProjectedPa(injury, age),
       getProjectedPaWithHistory: (history, age, injury) => leagueBattingAveragesService.getProjectedPaWithHistory(history, age, injury),
       calculateOpsPlus: (obp, slg, lg) => leagueBattingAveragesService.calculateOpsPlus(obp, slg, lg),

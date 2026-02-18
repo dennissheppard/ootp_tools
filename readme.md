@@ -34,18 +34,40 @@ src/
 
 Blends scouting grades with actual performance stats to produce a 0.5-5.0 star rating for current MLB players.
 
-```typescript
-trueRating = (scoutingProjection × 0.5) + (statsBasedRating × 0.5)
-confidence = min(IP / 150, 1.0)  // or PA for batters
-finalRating = (trueRating × confidence) + (scoutingProjection × (1 - confidence))
-```
-
 **Key design choices:**
 - **Percentile-based component ratings** — Contact, Power, Eye, AvK ranked within each season (not absolute thresholds), ensuring fair cross-era comparison
 - **HR%-based power** (not ISO) to correctly distinguish gap hitters from power hitters
 - **WAR-based ranking** — Final TR percentiles use WAR per 600 PA (incorporates baserunning via SB/CS)
 - **Tier-aware regression** — Elite hitters regress toward elite targets, not league average
 - **Component stabilization**: BB% 120 PA, K% 60 PA, HR% 160 PA, AVG 300 PA
+- **3-layer scouting blend** — see below
+
+#### Scouting Blend (3-Layer System)
+
+Scouting potential ratings are blended with stats-based rates using three layers that work together to handle prospects, rookies, and veterans correctly:
+
+**Layer 1: effectiveDevRatio** — geometric mean of star gap and MLB experience:
+```
+starDev = min(1.0, OVR / POT)
+experienceThreshold = starDev < 1.0 ? 1200 : 500  // PA; pitchers: 150 / 60 IP
+experienceDev = min(1.0, totalPA / experienceThreshold)
+effectiveDevRatio = √(starDev × experienceDev)
+```
+
+**Layer 2: Target scaling** — scouting targets pulled toward league average (50) by effectiveDevRatio:
+```
+scaledComponent = 50 + (potential − 50) × effectiveDevRatio
+```
+A 2★/3★ rookie with 56 PA gets effectiveDevRatio ≈ 0.18 → scouting targets sit near league average. A 4★/4★ veteran with 2000 PA gets effectiveDevRatio = 1.0 → full potential.
+
+**Layer 3: Weight boosting** — unproven players get louder scouting voice (anchoring both over- and under-performers):
+```
+baseScoutWeight = threshold / (PA + threshold)
+scoutBoost = 1 − effectiveDevRatio
+scoutWeight = min(0.95, baseScoutWeight + scoutBoost × (1 − baseScoutWeight))
+```
+
+This design is **directionally neutral**: it dampens scouting inflation for bad players AND preserves scouting's ability to pull down overperformers on small samples. A lucky rookie batting .324 with contact scouting of 45 gets anchored toward league average, not inflated by the hot start.
 
 ### True Future Rating (TFR)
 
@@ -128,6 +150,20 @@ Instead of proxy thresholds, the actual ratings comparison determines display:
 - **Gate check** (skip TFR calculation): age >= 26 AND star gap < 0.5
 - **Projection toggle**: Current uses TR blended rates; Peak uses TFR blended rates directly (NOT formula-derived from 20-80 ratings — the round-trip is lossy)
 
+### Player Tags
+
+Contextual pill badges in the profile modal tab bar (right-aligned, next to Ratings/Career/Development tabs). Computed by `src/utils/playerTags.ts`.
+
+| Tag | Color | Condition |
+|-----|-------|-----------|
+| Overperformer | amber | Overall TR > TFR |
+| Underperformer | amber | devRatio ≥ 0.8, TFR − TR ≥ 0.5 |
+| Expensive | amber | salary ≥ $3M, WAR > 0.5, $/WAR in bottom 1/3 of league |
+| Bargain | green | salary ≥ $3M, WAR > 0.5, $/WAR in top 1/3 of league |
+| Ready for Promotion | green | prospect, devRatio ≥ 0.5, MiLB PA ≥ 300 (batters) or IP ≥ 100 (pitchers) |
+| Blocked | red | prospect, TFR ≥ 3.0, incumbent TR ≥ 3.5 with 3+ years remaining |
+| Workhorse | green | projPa ≥ 650 (batters) or projIp ≥ 190 (pitchers) |
+
 ### Projections
 
 Three-model ensemble:
@@ -173,6 +209,7 @@ Three-model ensemble:
 
 | Service | Purpose |
 |---------|---------|
+| `ModalDataService` | Pure functions for modal data resolution and projection computation (extracted from profile modals for testability) |
 | `ContractService` | Contract parsing, salary schedules, years remaining, team control |
 | `TeamRatingsService` | Farm rankings, org depth, Farm Score, Power Rankings, team WAR projections |
 | `StandingsService` | Historical standings data (bundled CSVs, 2005-2020) |
@@ -197,7 +234,7 @@ Three-model ensemble:
 | `TradeAnalyzerView` | Multi-asset trade evaluation (MLB + prospects + draft picks) |
 | `DevTrackerView` | Org-level development rankings |
 | `DataManagementView` | File uploads with header validation |
-| `PlayerProfileModal` / `BatterProfileModal` | Deep-dive with Ratings + Development tabs |
+| `PlayerProfileModal` / `BatterProfileModal` | Deep-dive with Ratings + Development tabs + player tags |
 
 ### Team Ratings & Projected Standings
 
@@ -232,6 +269,7 @@ rawWins = 81 + deviation × slope
 
 **Prospect Starting Ratings (`computeProspectCurrentRating()`):**
 - Derived from `developmentTR` component fractions, averaged: `estimatedStar = 0.5 + (TFR - 0.5) * avgFraction`
+- **Planning grid uses canonical TR when available** (`canonicalTr ?? devRating`), not `Math.max(devRating, canonicalTr)`. Once a player has MLB stats, the stats-based TR is authoritative.
 
 **Team Control:** Service years counted from actual MLB stats years. `teamControlRemaining = 6 - serviceYears + 1`.
 
@@ -381,11 +419,10 @@ Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 
 | Tool | Purpose | Usage |
 |------|---------|-------|
-| `tools/trace-rating.ts` | Trace full TR/TFR pipeline for a single player | `npx tsx tools/trace-rating.ts <id> --type=batter --full --scouting=my` |
 | `tools/validate-ratings.ts` | Automated TR validation (WAR correlation, distributions, stability) | `npx tsx tools/validate-ratings.ts --year=2020` |
 | `tools/investigate-pitcher-war.ts` | Investigate pitcher WAR projection gaps | `npx tsx tools/investigate-pitcher-war.ts` |
 
-**trace-rating.ts** mirrors the service pipeline. If trace disagrees with UI, the **service** is authoritative. Flags: `--type=batter|pitcher`, `--full`, `--scouting=my|osa`, `--progress=0.0-1.0`.
+**Planned:** In-app "Explain This Rating" panel using instrumented service calls (Option B). The old `trace-rating.ts` CLI tool was deleted — it reimplemented all service math independently and drifted out of sync.
 
 ### Calibration
 
@@ -413,9 +450,12 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 
 | File | Tests | Coverage |
 |------|-------|----------|
-| `RatingConsistency.test.ts` | 51 | TR/TFR determinism, cross-service consistency, round-trips, data contracts, pool sensitivity, TFR display logic |
-| `RatingEstimatorService.test.ts` | 14 | Pitcher rating estimation with confidence intervals |
-| `ProjectionService.test.ts` | 6 | IP projection pipeline |
+| `RatingConsistency.test.ts` | 36 | TR/TFR determinism, cross-service consistency, hitter round-trips, data contracts, pool sensitivity, TFR display logic, scouting blend dev-ratio scaling |
+| `playerTags.test.ts` | 30 | All 7 player tags (overperformer, underperformer, expensive, bargain, ready for promotion, blocked, workhorse) + edge cases |
+| `ModalDataService.test.ts` | 17 | Resolve and projection functions across prospect/MLB player archetypes (batter and pitcher) |
+| `RatingEstimatorService.test.ts` | 20 | Pitcher rating estimation with confidence intervals |
+| `ProjectionService.test.ts` | 8 | IP projection pipeline |
+| `TeamPlanningView.test.ts` | 3 | Rating resolution and grid manipulation |
 
 ## Architecture Notes
 

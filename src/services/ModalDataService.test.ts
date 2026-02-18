@@ -187,36 +187,33 @@ function makePitcherDeps(overrides: Partial<PitcherProjectionDeps> = {}): Pitche
 // ============================================================================
 
 describe('resolveCanonicalBatterData', () => {
-  it('farm-eligible prospect: sets isProspect, uses devTR, clears MLB TR', () => {
+  it('farm-eligible prospect with playerTR: MLB player with upside, keeps TR', () => {
     const data = makeBatterData({ trueRating: 2.0, percentile: 40, woba: 0.280 });
     const playerTR = makeHitterTR();
     const tfrEntry = makeTfrEntry({ isFarmEligible: true });
 
-    const patch = resolveCanonicalBatterData(data, playerTR, tfrEntry);
+    resolveCanonicalBatterData(data, playerTR, tfrEntry);
 
-    expect(patch.isProspect).toBe(true);
-    expect(patch.hasTfrUpside).toBe(true);
-    // TR cleared (prospect path)
-    expect(patch.trueRating).toBeUndefined();
-    expect(patch.percentile).toBeUndefined();
-    expect(patch.woba).toBeUndefined();
-    // Uses devTR, not TFR ratings
-    expect(patch.estimatedPower).toBe(48); // from developmentTR
-    expect(patch.estimatedEye).toBe(45);
-    expect(patch.estimatedContact).toBe(44);
+    // playerTR exists → MLB player path (keeps TR, computes hasTfrUpside)
+    expect(data.isProspect).toBe(false);
+    expect(data.hasTfrUpside).toBe(true); // TFR 4.0 > TR 3.0
+    // TR kept from canonical source
+    expect(data.trueRating).toBe(3.0);
+    expect(data.percentile).toBe(60);
+    expect(data.woba).toBe(0.330);
+    // Uses TR ratings, not devTR
+    expect(data.estimatedPower).toBe(55);
+    expect(data.estimatedEye).toBe(50);
     // TFR fields set
-    expect(patch.trueFutureRating).toBe(4.0);
-    expect(patch.tfrPower).toBe(62);
-    // Peak projection stats from TFR pipeline
-    expect(patch.projAvg).toBe(0.285);
-    expect(patch.projBbPct).toBe(10.0);
-    // PA from TFR
-    expect(patch.projPa).toBe(620);
+    expect(data.trueFutureRating).toBe(4.0);
+    expect(data.tfrPower).toBe(62);
+    // PA cleared for recomputation
+    expect(data.projPa).toBeUndefined();
     // WAR cleared for recomputation
-    expect(patch.projWar).toBeUndefined();
+    expect(data.projWar).toBeUndefined();
   });
 
-  it('young MLB regular with upside: keeps MLB TR, sets hasTfrUpside', () => {
+  it('young MLB regular with upside (not farm-eligible): keeps MLB TR, sets hasTfrUpside', () => {
     const data = makeBatterData();
     const playerTR = makeHitterTR({ trueRating: 3.0 });
     const tfrEntry = makeTfrEntry({
@@ -224,55 +221,57 @@ describe('resolveCanonicalBatterData', () => {
       trueFutureRating: 4.0, // > 3.0 TR
     });
 
-    const patch = resolveCanonicalBatterData(data, playerTR, tfrEntry);
+    resolveCanonicalBatterData(data, playerTR, tfrEntry);
 
-    expect(patch.isProspect).toBe(false); // Set by playerTR step, NOT overridden
-    expect(patch.hasTfrUpside).toBe(true); // TFR > TR
-    expect(patch.trueRating).toBe(3.0); // Preserved from TR
-    expect(patch.percentile).toBe(60);
+    expect(data.isProspect).toBe(false); // Set by playerTR step, NOT overridden
+    expect(data.hasTfrUpside).toBe(true); // TFR > TR
+    expect(data.trueRating).toBe(3.0); // Preserved from TR
+    expect(data.percentile).toBe(60);
     // Uses TR ratings, not devTR
-    expect(patch.estimatedPower).toBe(55);
-    expect(patch.estimatedEye).toBe(50);
+    expect(data.estimatedPower).toBe(55);
+    expect(data.estimatedEye).toBe(50);
     // TFR fields set
-    expect(patch.tfrPower).toBe(62);
-    expect(patch.tfrEye).toBe(58);
+    expect(data.tfrPower).toBe(62);
+    expect(data.tfrEye).toBe(58);
     // PA cleared for recomputation
-    expect(patch.projPa).toBeUndefined();
+    expect(data.projPa).toBeUndefined();
   });
 
   it('no TFR entry: only applies TR override', () => {
     const data = makeBatterData();
     const playerTR = makeHitterTR();
 
-    const patch = resolveCanonicalBatterData(data, playerTR, undefined);
+    resolveCanonicalBatterData(data, playerTR, undefined);
 
-    expect(patch.trueRating).toBe(3.0);
-    expect(patch.isProspect).toBe(false);
-    expect(patch.estimatedPower).toBe(55);
-    expect(patch.projBbPct).toBe(8.5);
+    expect(data.trueRating).toBe(3.0);
+    expect(data.isProspect).toBe(false);
+    expect(data.estimatedPower).toBe(55);
+    expect(data.projBbPct).toBe(8.5);
     // No TFR fields
-    expect(patch.trueFutureRating).toBeUndefined();
-    expect(patch.tfrPower).toBeUndefined();
-    expect(patch.hasTfrUpside).toBeUndefined();
+    expect(data.trueFutureRating).toBeUndefined();
+    expect(data.tfrPower).toBeUndefined();
+    expect(data.hasTfrUpside).toBeUndefined();
   });
 
-  it('no TR and no TFR: returns empty patch', () => {
-    const data = makeBatterData();
-    const patch = resolveCanonicalBatterData(data, undefined, undefined);
-    expect(Object.keys(patch).length).toBe(0);
+  it('no TR and no TFR: data unchanged', () => {
+    const data = makeBatterData({ trueRating: 2.5, estimatedPower: 40 });
+    resolveCanonicalBatterData(data, undefined, undefined);
+    expect(data.trueRating).toBe(2.5);
+    expect(data.estimatedPower).toBe(40);
   });
 
   it('prospect with no MLB stats and no playerTR: prospect path only', () => {
     const data = makeBatterData();
     const tfrEntry = makeTfrEntry({ isFarmEligible: true });
 
-    const patch = resolveCanonicalBatterData(data, undefined, tfrEntry);
+    resolveCanonicalBatterData(data, undefined, tfrEntry);
 
-    expect(patch.isProspect).toBe(true);
-    expect(patch.hasTfrUpside).toBe(true);
-    expect(patch.trueRating).toBeUndefined();
-    expect(patch.estimatedPower).toBe(48); // devTR
-    expect(patch.projPa).toBe(620); // TFR PA
+    expect(data.isProspect).toBe(true);
+    expect(data.hasTfrUpside).toBe(true);
+    // No playerTR → trueRating never set by step 3, stays as caller value
+    expect(data.trueRating).toBeUndefined();
+    expect(data.estimatedPower).toBe(48); // devTR
+    expect(data.projPa).toBeUndefined(); // cleared for recomputation
   });
 });
 
@@ -396,44 +395,76 @@ describe('resolveCanonicalPitcherData', () => {
     const data = makePitcherData({ age: 17 });
     const tfrEntry = makePitcherTfrEntry({ age: 17 });
 
-    const patch = resolveCanonicalPitcherData(data, undefined, tfrEntry);
+    resolveCanonicalPitcherData(data, undefined, tfrEntry);
 
-    expect(patch.isProspect).toBe(true);
-    expect(patch.hasTfrUpside).toBe(true);
-    expect(patch.trueRating).toBeUndefined();
-    expect(patch.percentile).toBeUndefined();
-    expect(patch.fipLike).toBeUndefined();
+    expect(data.isProspect).toBe(true);
+    expect(data.hasTfrUpside).toBe(true);
+    expect(data.trueRating).toBeUndefined();
+    expect(data.percentile).toBeUndefined();
+    expect(data.fipLike).toBeUndefined();
     // Uses devTR
-    expect(patch.estimatedStuff).toBe(50);
-    expect(patch.estimatedControl).toBe(44);
-    expect(patch.estimatedHra).toBe(48);
+    expect(data.estimatedStuff).toBe(50);
+    expect(data.estimatedControl).toBe(44);
+    expect(data.estimatedHra).toBe(48);
     // TFR fields set
-    expect(patch.trueFutureRating).toBe(4.0);
-    expect(patch.tfrStuff).toBe(63);
+    expect(data.trueFutureRating).toBe(4.0);
+    expect(data.tfrStuff).toBe(63);
     // Peak projection from TFR pipeline
-    expect(patch.projK9).toBe(9.5);
-    expect(patch.projBb9).toBe(2.5);
+    expect(data.projK9).toBe(9.5);
+    expect(data.projBb9).toBe(2.5);
     // Derived projections cleared
-    expect(patch.projFip).toBeUndefined();
-    expect(patch.projWar).toBeUndefined();
+    expect(data.projFip).toBeUndefined();
+    expect(data.projWar).toBeUndefined();
   });
 
   it('veteran pitcher (no TFR entry): no toggle, standard path', () => {
     const data = makePitcherData({ age: 32 });
     const playerTR = makePitcherTR();
 
-    const patch = resolveCanonicalPitcherData(data, playerTR, undefined);
+    resolveCanonicalPitcherData(data, playerTR, undefined);
 
-    expect(patch.isProspect).toBe(false);
-    expect(patch.trueRating).toBe(3.5);
-    expect(patch.estimatedStuff).toBe(58);
-    expect(patch.projK9).toBe(8.5);
-    expect(patch.hasTfrUpside).toBeUndefined();
-    expect(patch.trueFutureRating).toBeUndefined();
+    expect(data.isProspect).toBe(false);
+    expect(data.trueRating).toBe(3.5);
+    expect(data.estimatedStuff).toBe(58);
+    expect(data.projK9).toBe(8.5);
+    expect(data.hasTfrUpside).toBeUndefined();
+    expect(data.trueFutureRating).toBeUndefined();
     // Derived cleared
-    expect(patch.projFip).toBeUndefined();
-    expect(patch.projWar).toBeUndefined();
-    expect(patch.projIp).toBeUndefined(); // Cleared for non-prospect
+    expect(data.projFip).toBeUndefined();
+    expect(data.projWar).toBeUndefined();
+    expect(data.projIp).toBeUndefined(); // Cleared for non-prospect
+  });
+
+  it('MLB pitcher with both TR and TFR (young pitcher with upside): keeps TR, computes hasTfrUpside', () => {
+    const data = makePitcherData({ age: 23 });
+    const playerTR = makePitcherTR({ trueRating: 2.5, estimatedStuff: 50, estimatedControl: 45, estimatedHra: 48 });
+    const tfrEntry = makePitcherTfrEntry({
+      trueFutureRating: 4.0, // > 2.5 TR
+      trueRatings: { stuff: 63, control: 56, hra: 54 },
+    });
+
+    resolveCanonicalPitcherData(data, playerTR, tfrEntry);
+
+    // MLB player path: keeps TR, NOT treated as prospect
+    expect(data.isProspect).toBe(false);
+    expect(data.hasTfrUpside).toBe(true); // TFR 4.0 > TR 2.5
+    // TR preserved from canonical source
+    expect(data.trueRating).toBe(2.5);
+    expect(data.percentile).toBe(65);
+    expect(data.fipLike).toBe(3.60);
+    // Uses TR ratings (from step 3), not devTR
+    expect(data.estimatedStuff).toBe(50);
+    expect(data.estimatedControl).toBe(45);
+    expect(data.estimatedHra).toBe(48);
+    // TFR fields still set
+    expect(data.trueFutureRating).toBe(4.0);
+    expect(data.tfrStuff).toBe(63);
+    // Rate stats from TR (step 3), not overridden by prospect path
+    expect(data.projK9).toBe(8.5);
+    // Derived cleared for recomputation
+    expect(data.projFip).toBeUndefined();
+    expect(data.projWar).toBeUndefined();
+    expect(data.projIp).toBeUndefined(); // Non-prospect → cleared
   });
 });
 

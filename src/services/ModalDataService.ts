@@ -6,11 +6,11 @@
  * renderProjectionContent() methods, into testable pure functions.
  */
 
-import { BatterProfileData } from '../views/BatterProfileModal';
-import { PitcherProfileData } from '../views/PitcherProfileModal';
-import { HitterTrueRatingResult } from './HitterTrueRatingsCalculationService';
-import { TrueRatingResult } from './TrueRatingsCalculationService';
-import { RatedHitterProspect, RatedProspect } from './TeamRatingsService';
+import type { BatterProfileData } from '../views/BatterProfileModal';
+import type { PitcherProfileData } from '../views/PitcherProfileModal';
+import type { HitterTrueRatingResult } from './HitterTrueRatingsCalculationService';
+import type { TrueRatingResult } from './TrueRatingsCalculationService';
+import type { RatedHitterProspect, RatedProspect } from './TeamRatingsService';
 import { hasComponentUpside } from '../utils/tfrUpside';
 
 // ============================================================================
@@ -21,107 +21,97 @@ import { hasComponentUpside } from '../utils/tfrUpside';
  * Applies canonical TR and TFR overrides to batter profile data.
  * Extracted from BatterProfileModal.show() steps 3-5.
  *
- * Returns a patch object to be merged onto the data.
+ * Mutates `data` in place (matches original inline pattern).
  */
 export function resolveCanonicalBatterData(
   data: BatterProfileData,
   playerTR: HitterTrueRatingResult | undefined,
   tfrEntry: RatedHitterProspect | undefined,
-): Partial<BatterProfileData> {
-  const patch: Partial<BatterProfileData> = {};
-
+): void {
   // Step 3: Override TR fields from canonical source
   if (playerTR) {
-    patch.trueRating = playerTR.trueRating;
-    patch.percentile = playerTR.percentile;
-    patch.woba = playerTR.woba;
-    patch.estimatedPower = playerTR.estimatedPower;
-    patch.estimatedEye = playerTR.estimatedEye;
-    patch.estimatedAvoidK = playerTR.estimatedAvoidK;
-    patch.estimatedContact = playerTR.estimatedContact;
-    patch.estimatedGap = playerTR.estimatedGap;
-    patch.estimatedSpeed = playerTR.estimatedSpeed;
-    patch.projBbPct = playerTR.blendedBbPct;
-    patch.projKPct = playerTR.blendedKPct;
-    patch.projHrPct = playerTR.blendedHrPct;
-    patch.projAvg = playerTR.blendedAvg;
-    patch.projWoba = playerTR.woba;
-    patch.projDoublesRate = playerTR.blendedDoublesRate;
-    patch.projTriplesRate = playerTR.blendedTriplesRate;
-    patch.isProspect = false;
+    data.trueRating = playerTR.trueRating;
+    data.percentile = playerTR.percentile;
+    data.woba = playerTR.woba;
+    data.estimatedPower = playerTR.estimatedPower;
+    data.estimatedEye = playerTR.estimatedEye;
+    data.estimatedAvoidK = playerTR.estimatedAvoidK;
+    data.estimatedContact = playerTR.estimatedContact;
+    data.estimatedGap = playerTR.estimatedGap;
+    data.estimatedSpeed = playerTR.estimatedSpeed;
+    data.projBbPct = playerTR.blendedBbPct;
+    data.projKPct = playerTR.blendedKPct;
+    data.projHrPct = playerTR.blendedHrPct;
+    data.projAvg = playerTR.blendedAvg;
+    data.projWoba = playerTR.woba;
+    data.projDoublesRate = playerTR.blendedDoublesRate;
+    data.projTriplesRate = playerTR.blendedTriplesRate;
+    data.isProspect = false;
   }
 
-  // Step 4: Override TFR fields + farm-eligible branching
+  // Step 4: Override TFR fields + prospect branching
   if (tfrEntry) {
-    patch.trueFutureRating = tfrEntry.trueFutureRating;
-    patch.tfrPercentile = tfrEntry.percentile;
-    patch.tfrPower = tfrEntry.trueRatings.power;
-    patch.tfrEye = tfrEntry.trueRatings.eye;
-    patch.tfrAvoidK = tfrEntry.trueRatings.avoidK;
-    patch.tfrContact = tfrEntry.trueRatings.contact;
-    patch.tfrGap = tfrEntry.trueRatings.gap;
-    patch.tfrSpeed = tfrEntry.trueRatings.speed;
-    patch.tfrBbPct = tfrEntry.projBbPct;
-    patch.tfrKPct = tfrEntry.projKPct;
-    patch.tfrHrPct = tfrEntry.projHrPct;
-    patch.tfrAvg = tfrEntry.projAvg;
-    patch.tfrObp = tfrEntry.projObp;
-    patch.tfrSlg = tfrEntry.projSlg;
-    patch.tfrPa = tfrEntry.projPa;
-    patch.tfrBySource = tfrEntry.tfrBySource;
+    data.trueFutureRating = tfrEntry.trueFutureRating;
+    data.tfrPercentile = tfrEntry.percentile;
+    data.tfrPower = tfrEntry.trueRatings.power;
+    data.tfrEye = tfrEntry.trueRatings.eye;
+    data.tfrAvoidK = tfrEntry.trueRatings.avoidK;
+    data.tfrContact = tfrEntry.trueRatings.contact;
+    data.tfrGap = tfrEntry.trueRatings.gap;
+    data.tfrSpeed = tfrEntry.trueRatings.speed;
+    data.tfrBbPct = tfrEntry.projBbPct;
+    data.tfrKPct = tfrEntry.projKPct;
+    data.tfrHrPct = tfrEntry.projHrPct;
+    data.tfrAvg = tfrEntry.projAvg;
+    data.tfrObp = tfrEntry.projObp;
+    data.tfrSlg = tfrEntry.projSlg;
+    data.tfrPa = tfrEntry.projPa;
+    data.tfrBySource = tfrEntry.tfrBySource;
+    data.level = tfrEntry.level;
+    data.totalMinorPa = tfrEntry.totalMinorPa;
 
-    if (playerTR && !tfrEntry.isFarmEligible) {
-      // Young MLB regular with upside
+    if (playerTR) {
+      // MLB player with upside — keep TR, compute hasTfrUpside
       const currentRatings = [
-        patch.estimatedPower ?? data.estimatedPower,
-        patch.estimatedEye ?? data.estimatedEye,
-        patch.estimatedAvoidK ?? data.estimatedAvoidK,
-        patch.estimatedContact ?? data.estimatedContact,
-        patch.estimatedGap ?? data.estimatedGap,
-        patch.estimatedSpeed ?? data.estimatedSpeed,
+        data.estimatedPower,
+        data.estimatedEye,
+        data.estimatedAvoidK,
+        data.estimatedContact,
+        data.estimatedGap,
+        data.estimatedSpeed,
       ];
       const tfrRatings = [
         tfrEntry.trueRatings.power, tfrEntry.trueRatings.eye,
         tfrEntry.trueRatings.avoidK, tfrEntry.trueRatings.contact,
         tfrEntry.trueRatings.gap, tfrEntry.trueRatings.speed,
       ];
-      patch.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating
+      data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating
         || hasComponentUpside(currentRatings as number[], tfrRatings);
     } else {
-      // Prospect: farm-eligible or no MLB stats
-      patch.hasTfrUpside = true;
-      patch.isProspect = true;
+      // Prospect: no MLB stats
+      data.hasTfrUpside = true;
+      data.isProspect = true;
       const devTR = tfrEntry.developmentTR;
-      patch.estimatedPower = devTR?.power ?? tfrEntry.trueRatings.power;
-      patch.estimatedEye = devTR?.eye ?? tfrEntry.trueRatings.eye;
-      patch.estimatedAvoidK = devTR?.avoidK ?? tfrEntry.trueRatings.avoidK;
-      patch.estimatedContact = devTR?.contact ?? tfrEntry.trueRatings.contact;
-      patch.estimatedGap = devTR?.gap ?? tfrEntry.trueRatings.gap;
-      patch.estimatedSpeed = devTR?.speed ?? tfrEntry.trueRatings.speed;
+      data.estimatedPower = devTR?.power ?? tfrEntry.trueRatings.power;
+      data.estimatedEye = devTR?.eye ?? tfrEntry.trueRatings.eye;
+      data.estimatedAvoidK = devTR?.avoidK ?? tfrEntry.trueRatings.avoidK;
+      data.estimatedContact = devTR?.contact ?? tfrEntry.trueRatings.contact;
+      data.estimatedGap = devTR?.gap ?? tfrEntry.trueRatings.gap;
+      data.estimatedSpeed = devTR?.speed ?? tfrEntry.trueRatings.speed;
       // Peak projection stats
-      patch.projWoba = tfrEntry.projWoba;
-      patch.projAvg = tfrEntry.projAvg;
-      patch.projBbPct = tfrEntry.projBbPct;
-      patch.projKPct = tfrEntry.projKPct;
-      patch.projHrPct = tfrEntry.projHrPct;
-      // Clear inflated MLB stats TR
-      patch.trueRating = undefined;
-      patch.percentile = undefined;
-      patch.woba = undefined;
+      data.projWoba = tfrEntry.projWoba;
+      data.projAvg = tfrEntry.projAvg;
+      data.projBbPct = tfrEntry.projBbPct;
+      data.projKPct = tfrEntry.projKPct;
+      data.projHrPct = tfrEntry.projHrPct;
     }
   }
 
   // Step 5: Force recompute of WAR/PA
   if (playerTR || tfrEntry) {
-    patch.projWar = undefined;
-    if (patch.isProspect ?? data.isProspect) {
-      patch.projPa = patch.tfrPa ?? data.tfrPa;
-    } else {
-      patch.projPa = undefined;
-    }
+    data.projWar = undefined;
+    data.projPa = undefined;
   }
-
-  return patch;
 }
 
 // ============================================================================
@@ -131,64 +121,80 @@ export function resolveCanonicalBatterData(
 /**
  * Applies canonical TR and TFR overrides to pitcher profile data.
  * Extracted from PitcherProfileModal.show() steps 3-5.
+ *
+ * Mutates `data` in place (matches original inline pattern).
  */
 export function resolveCanonicalPitcherData(
   data: PitcherProfileData,
   playerTR: TrueRatingResult | undefined,
   tfrEntry: RatedProspect | undefined,
-): Partial<PitcherProfileData> {
-  const patch: Partial<PitcherProfileData> = {};
-
+): void {
   // Step 3: Override TR fields from canonical source
   if (playerTR) {
-    patch.trueRating = playerTR.trueRating;
-    patch.percentile = playerTR.percentile;
-    patch.fipLike = playerTR.fipLike;
-    patch.estimatedStuff = playerTR.estimatedStuff;
-    patch.estimatedControl = playerTR.estimatedControl;
-    patch.estimatedHra = playerTR.estimatedHra;
-    patch.projK9 = playerTR.blendedK9;
-    patch.projBb9 = playerTR.blendedBb9;
-    patch.projHr9 = playerTR.blendedHr9;
-    patch.isProspect = false;
+    data.trueRating = playerTR.trueRating;
+    data.percentile = playerTR.percentile;
+    data.fipLike = playerTR.fipLike;
+    data.estimatedStuff = playerTR.estimatedStuff;
+    data.estimatedControl = playerTR.estimatedControl;
+    data.estimatedHra = playerTR.estimatedHra;
+    data.projK9 = playerTR.blendedK9;
+    data.projBb9 = playerTR.blendedBb9;
+    data.projHr9 = playerTR.blendedHr9;
+    data.isProspect = false;
   }
 
-  // Step 4: Override TFR fields from canonical source
+  // Step 4: Override TFR fields + prospect branching
   if (tfrEntry) {
-    patch.trueFutureRating = tfrEntry.trueFutureRating;
-    patch.tfrPercentile = tfrEntry.percentile;
-    patch.tfrStuff = tfrEntry.trueRatings?.stuff;
-    patch.tfrControl = tfrEntry.trueRatings?.control;
-    patch.tfrHra = tfrEntry.trueRatings?.hra;
-    patch.tfrBySource = tfrEntry.tfrBySource;
+    data.trueFutureRating = tfrEntry.trueFutureRating;
+    data.tfrPercentile = tfrEntry.percentile;
+    data.tfrStuff = tfrEntry.trueRatings?.stuff;
+    data.tfrControl = tfrEntry.trueRatings?.control;
+    data.tfrHra = tfrEntry.trueRatings?.hra;
+    data.tfrBySource = tfrEntry.tfrBySource;
+    data.level = tfrEntry.level;
+    data.totalMinorIp = tfrEntry.totalMinorIp;
 
-    // Auto-prospect detection: if tfrEntry exists, player is a prospect
-    patch.hasTfrUpside = true;
-    patch.isProspect = true;
-    const devTR = tfrEntry.developmentTR;
-    patch.estimatedStuff = devTR?.stuff ?? tfrEntry.trueRatings?.stuff;
-    patch.estimatedControl = devTR?.control ?? tfrEntry.trueRatings?.control;
-    patch.estimatedHra = devTR?.hra ?? tfrEntry.trueRatings?.hra;
-    // Peak projection stats
-    patch.projK9 = tfrEntry.projK9;
-    patch.projBb9 = tfrEntry.projBb9;
-    patch.projHr9 = tfrEntry.projHr9;
-    // Clear inflated MLB stats TR
-    patch.trueRating = undefined;
-    patch.percentile = undefined;
-    patch.fipLike = undefined;
+    if (playerTR) {
+      // MLB pitcher with upside — keep TR, compute hasTfrUpside
+      const currentRatings = [
+        data.estimatedStuff,
+        data.estimatedControl,
+        data.estimatedHra,
+      ];
+      const tfrRatings = [
+        tfrEntry.trueRatings?.stuff,
+        tfrEntry.trueRatings?.control,
+        tfrEntry.trueRatings?.hra,
+      ];
+      data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating
+        || hasComponentUpside(currentRatings as number[], tfrRatings as number[]);
+    } else {
+      // Prospect: no MLB stats
+      data.hasTfrUpside = true;
+      data.isProspect = true;
+      const devTR = tfrEntry.developmentTR;
+      data.estimatedStuff = devTR?.stuff ?? tfrEntry.trueRatings?.stuff;
+      data.estimatedControl = devTR?.control ?? tfrEntry.trueRatings?.control;
+      data.estimatedHra = devTR?.hra ?? tfrEntry.trueRatings?.hra;
+      // Peak projection stats
+      data.projK9 = tfrEntry.projK9;
+      data.projBb9 = tfrEntry.projBb9;
+      data.projHr9 = tfrEntry.projHr9;
+      // Clear inflated MLB stats TR
+      data.trueRating = undefined;
+      data.percentile = undefined;
+      data.fipLike = undefined;
+    }
   }
 
   // Step 5: Force recompute of derived projections
   if (playerTR || tfrEntry) {
-    patch.projFip = undefined;
-    patch.projWar = undefined;
-    if (!(patch.isProspect ?? data.isProspect)) {
-      patch.projIp = undefined;
+    data.projFip = undefined;
+    data.projWar = undefined;
+    if (!(data.isProspect)) {
+      data.projIp = undefined;
     }
   }
-
-  return patch;
 }
 
 // ============================================================================

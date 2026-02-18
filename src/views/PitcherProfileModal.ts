@@ -19,6 +19,7 @@ import { projectionService } from '../services/ProjectionService';
 import { PitcherTfrSourceData, teamRatingsService } from '../services/TeamRatingsService';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
 import { resolveCanonicalPitcherData, computePitcherProjection } from '../services/ModalDataService';
+import { computePitcherTags, renderTagsHtml, TagContext } from '../utils/playerTags';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -84,6 +85,10 @@ export interface PitcherProfileData {
 
   // TFR by scout source (for toggle in modal)
   tfrBySource?: { my?: PitcherTfrSourceData; osa?: PitcherTfrSourceData };
+
+  // Prospect metadata (for tags)
+  level?: string;
+  totalMinorIp?: number;
 }
 
 interface PitcherSeasonStats {
@@ -130,6 +135,12 @@ export class PitcherProfileModal {
 
   // League WAR ceiling for arc scaling
   private leagueWarMax: number = 5;
+
+  // Tag context (cross-player data for Expensive/Bargain/Blocked tags)
+  private leagueDollarPerWar: number[] | undefined;
+  private blockingPlayer: string | undefined;
+  private blockingRating: number | undefined;
+  private blockingYears: number | undefined;
 
   // Sorted league FIP distribution (ascending) for percentile calculation
   private leagueFipDistribution: number[] = [];
@@ -280,8 +291,7 @@ export class PitcherProfileModal {
     } catch { /* TFR data not available */ }
 
     // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
-    const canonicalPatch = resolveCanonicalPitcherData(data, playerTR, tfrEntry);
-    Object.assign(data, canonicalPatch);
+    resolveCanonicalPitcherData(data, playerTR, tfrEntry);
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -336,15 +346,61 @@ export class PitcherProfileModal {
 
     try {
       // Fetch scouting data, contract data, and league WAR ceiling
-      const [myScoutingAll, osaScoutingAll, allContracts, lastYearPitching] = await Promise.all([
+      const [myScoutingAll, osaScoutingAll, allContracts, lastYearPitching, powerRankings] = await Promise.all([
         scoutingDataService.getLatestScoutingRatings('my'),
         scoutingDataService.getLatestScoutingRatings('osa'),
         contractService.getAllContracts(),
-        trueRatingsService.getTruePitchingStats(currentYear - 1).catch(() => [])
+        trueRatingsService.getTruePitchingStats(currentYear - 1).catch(() => []),
+        teamRatingsService.getPowerRankings(currentYear).catch(() => [] as import('../services/TeamRatingsService').TeamPowerRanking[]),
       ]);
       if (generation !== this.showGeneration) return; // Stale call
 
       this.contract = allContracts.get(data.playerId) ?? null;
+
+      // Compute tag context: league $/WAR distribution and blocking info
+      this.leagueDollarPerWar = undefined;
+      this.blockingPlayer = undefined;
+      this.blockingRating = undefined;
+      this.blockingYears = undefined;
+
+      if (powerRankings.length > 0) {
+        // League $/WAR from pitchers (rotation + bullpen)
+        const dollarPerWarList: number[] = [];
+        for (const team of powerRankings) {
+          for (const player of [...team.rotation, ...team.bullpen]) {
+            const c = allContracts.get(player.playerId);
+            if (!c) continue;
+            const sal = contractService.getCurrentSalary(c);
+            const war = player.stats?.war;
+            if (sal >= 3_000_000 && war !== undefined && war > 0.5) {
+              dollarPerWarList.push(sal / war);
+            }
+          }
+        }
+        dollarPerWarList.sort((a, b) => a - b);
+        if (dollarPerWarList.length > 0) this.leagueDollarPerWar = dollarPerWarList;
+
+        // Blocking info for pitcher prospects
+        if (data.isProspect) {
+          const playerOrg = data.parentTeam ?? data.team;
+          const orgTeam = powerRankings.find(t => t.teamName === playerOrg);
+          if (orgTeam) {
+            // Check if all rotation spots are occupied by strong pitchers with long contracts
+            const strongRotation = orgTeam.rotation.filter(p => {
+              const c = allContracts.get(p.playerId);
+              return p.trueRating >= 3.5 && c && contractService.getYearsRemaining(c) >= 3;
+            });
+            if (strongRotation.length >= 5) {
+              // All 5 rotation spots blocked
+              const weakest = strongRotation.reduce((min, p) => p.trueRating < min.trueRating ? p : min);
+              const weakestContract = allContracts.get(weakest.playerId);
+              this.blockingPlayer = `full rotation`;
+              this.blockingRating = weakest.trueRating;
+              this.blockingYears = weakestContract ? contractService.getYearsRemaining(weakestContract) : 3;
+            }
+          }
+        }
+      }
 
       // Compute league WAR ceiling and FIP distribution from last year's pitchers
       if (lastYearPitching.length > 0) {
@@ -494,8 +550,10 @@ export class PitcherProfileModal {
       }
     } catch (error) {
       console.error('Error loading pitcher profile data:', error);
+      console.error('Player:', data.playerId, data.playerName, 'isProspect:', data.isProspect, 'TR:', data.trueRating, 'TFR:', data.trueFutureRating);
       if (bodyEl) {
-        bodyEl.innerHTML = '<p class="error">Failed to load player data.</p>';
+        const msg = error instanceof Error ? error.message : String(error);
+        bodyEl.innerHTML = `<p class="error">Failed to load player data: ${msg}</p>`;
       }
     }
   }
@@ -751,6 +809,8 @@ export class PitcherProfileModal {
     const injuryClass = this.getInjuryBadgeClass(injury);
     const personalityHtml = this.renderPersonalityVitalsColumn();
 
+    // Tags are rendered in renderBody(), not here
+
     return `
       <span class="header-divider" style="visibility:hidden;"></span>
       <div class="vitals-col">
@@ -949,11 +1009,23 @@ export class PitcherProfileModal {
     const projectionContent = this.renderProjectionContent(data, stats);
     const careerContent = this.renderCareerStatsContent(stats);
 
+    // Compute player tags
+    const currentSalary = this.contract ? contractService.getCurrentSalary(this.contract) : 0;
+    const tagCtx: TagContext = {
+      currentSalary,
+      leagueDollarPerWar: this.leagueDollarPerWar,
+      blockingPlayer: this.blockingPlayer,
+      blockingRating: this.blockingRating,
+      blockingYears: this.blockingYears,
+    };
+    const tagsHtml = renderTagsHtml(computePitcherTags(data, tagCtx));
+
     return `
       <div class="profile-tabs">
         <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
         <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
+        ${tagsHtml}
       </div>
       <div class="profile-tab-content">
         <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">

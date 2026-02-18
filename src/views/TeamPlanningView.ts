@@ -549,12 +549,12 @@ export class TeamPlanningView {
       for (const h of farmHitters) {
         const devRating = this.devOverrides.has(h.playerId) ? h.trueFutureRating : this.computeProspectCurrentRating(h);
         const canonicalTr = canonicalBatterTr.get(h.playerId)?.trueRating;
-        this.prospectCurrentRatingMap.set(h.playerId, canonicalTr ? Math.max(devRating, canonicalTr) : devRating);
+        this.prospectCurrentRatingMap.set(h.playerId, canonicalTr ?? devRating);
       }
       for (const p of orgPitchers) {
         const devRating = this.devOverrides.has(p.playerId) ? p.trueFutureRating : this.computeProspectCurrentRating(p);
         const canonicalTr = canonicalPitcherTr.get(p.playerId)?.trueRating;
-        this.prospectCurrentRatingMap.set(p.playerId, canonicalTr ? Math.max(devRating, canonicalTr) : devRating);
+        this.prospectCurrentRatingMap.set(p.playerId, canonicalTr ?? devRating);
       }
 
       // Build player age map for buildRow projections
