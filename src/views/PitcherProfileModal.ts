@@ -18,7 +18,7 @@ import { fipWarService } from '../services/FipWarService';
 import { projectionService } from '../services/ProjectionService';
 import { PitcherTfrSourceData, teamRatingsService } from '../services/TeamRatingsService';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
-import { hasComponentUpside } from '../utils/tfrUpside';
+import { resolveCanonicalPitcherData, computePitcherProjection } from '../services/ModalDataService';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -279,61 +279,9 @@ export class PitcherProfileModal {
       tfrEntry = farmData.prospects.find(p => p.playerId === data.playerId);
     } catch { /* TFR data not available */ }
 
-    // 3. Override TR fields from canonical source
-    if (playerTR) {
-      data.trueRating = playerTR.trueRating;
-      data.percentile = playerTR.percentile;
-      data.fipLike = playerTR.fipLike;
-      data.estimatedStuff = playerTR.estimatedStuff;
-      data.estimatedControl = playerTR.estimatedControl;
-      data.estimatedHra = playerTR.estimatedHra;
-      data.projK9 = playerTR.blendedK9;
-      data.projBb9 = playerTR.blendedBb9;
-      data.projHr9 = playerTR.blendedHr9;
-      data.isProspect = false; // Has MLB stats → not a prospect for display purposes
-    }
-
-    // 4. Override TFR fields from canonical source
-    if (tfrEntry) {
-      data.trueFutureRating = tfrEntry.trueFutureRating;
-      data.tfrPercentile = tfrEntry.percentile;
-      data.tfrStuff = tfrEntry.trueRatings?.stuff;
-      data.tfrControl = tfrEntry.trueRatings?.control;
-      data.tfrHra = tfrEntry.trueRatings?.hra;
-      data.tfrBySource = tfrEntry.tfrBySource;
-
-      if (playerTR) {
-        // MLB pitcher with upside: overall TFR > TR, or any component TFR >= TR + 5
-        data.hasTfrUpside = tfrEntry.trueFutureRating > playerTR.trueRating
-          || hasComponentUpside(
-            [data.estimatedStuff, data.estimatedControl, data.estimatedHra],
-            [tfrEntry.trueRatings?.stuff, tfrEntry.trueRatings?.control, tfrEntry.trueRatings?.hra]
-          );
-      } else {
-        // Pure prospect: always show TFR
-        data.hasTfrUpside = true;
-        data.isProspect = true;
-        // Use development curve TR for estimated ratings (current ability)
-        const devTR = tfrEntry.developmentTR;
-        data.estimatedStuff = devTR?.stuff ?? tfrEntry.trueRatings?.stuff;
-        data.estimatedControl = devTR?.control ?? tfrEntry.trueRatings?.control;
-        data.estimatedHra = devTR?.hra ?? tfrEntry.trueRatings?.hra;
-        // Peak projection stats
-        data.projK9 = tfrEntry.projK9;
-        data.projBb9 = tfrEntry.projBb9;
-        data.projHr9 = tfrEntry.projHr9;
-      }
-    }
-
-    // 5. Force recompute of derived projections from canonical data
-    if (playerTR || tfrEntry) {
-      data.projFip = undefined;
-      data.projWar = undefined;
-      // Only clear projIp for MLB players; prospects use peak IP from TFR pipeline
-      if (!data.isProspect) {
-        data.projIp = undefined;
-      }
-    }
+    // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
+    const canonicalPatch = resolveCanonicalPitcherData(data, playerTR, tfrEntry);
+    Object.assign(data, canonicalPatch);
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -1539,64 +1487,33 @@ export class PitcherProfileModal {
   // ─── Projection Section ─────────────────────────────────────────────
 
   private renderProjectionContent(data: PitcherProfileData, stats: PitcherSeasonStats[]): string {
+    // Compute projection via pure function
+    const proj = computePitcherProjection(data, stats, {
+      projectionMode: this.projectionMode,
+      scoutingData: this.scoutingData ? {
+        stamina: this.scoutingData.stamina,
+        injuryProneness: this.scoutingData.injuryProneness,
+      } : null,
+      projectedIp: this.projectedIp,
+      estimateIp: (stamina, injury) => this.estimateIp(stamina, injury),
+      calculateWar: (fip, ip) => fipWarService.calculateWar(fip, ip),
+    });
+
+    // Destructure for template compatibility
+    const { projK9, projBb9, projHr9, projFip, projIp, projWar,
+            projK, projBb, projHr, age, ratingLabel, projNote,
+            isPeakMode, showActualComparison, ratings } = proj;
+
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
-    const isPeakMode = (this.projectionMode === 'peak' && showToggle) || (data.isProspect === true);
-
-    // Select ratings source
-    const useStuff = isPeakMode ? (data.tfrStuff ?? data.estimatedStuff) : data.estimatedStuff;
-    const useControl = isPeakMode ? (data.tfrControl ?? data.estimatedControl) : data.estimatedControl;
-    const useHra = isPeakMode ? (data.tfrHra ?? data.estimatedHra) : data.estimatedHra;
-
-    const latestStat = isPeakMode ? undefined : stats.find(s => s.level === 'MLB');
-    const age = isPeakMode ? 27 : (data.age ?? 27);
-
-    // Calculate projected stats — prefer canonical blended rates (matches computeProjectedStats)
-    let projK9: number | undefined = data.projK9;
-    let projBb9: number | undefined = data.projBb9;
-    let projHr9: number | undefined = data.projHr9;
-
-    // Only invert from ratings if blended rates are unavailable
-    if (projK9 === undefined && useStuff !== undefined) {
-      projK9 = (useStuff + 28) / 13.5;
-    }
-    if (projBb9 === undefined && useControl !== undefined) {
-      projBb9 = (100.4 - useControl) / 19.2;
-    }
-    if (projHr9 === undefined && useHra !== undefined) {
-      projHr9 = (86.7 - useHra) / 41.7;
-    }
-
-    // Final fallback defaults
-    projK9 = projK9 ?? 7.5;
-    projBb9 = projBb9 ?? 3.5;
-    projHr9 = projHr9 ?? 1.2;
-
-    const projFip = data.projFip ?? (((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47);
-
-    // IP: prefer caller-provided, then ProjectionService result, then fallback
-    const s = this.scoutingData;
-    const stamina = s?.stamina ?? data.scoutStamina;
-    const injury = s?.injuryProneness ?? data.injuryProneness;
-    const projIp = data.projIp ?? this.projectedIp ?? this.estimateIp(stamina ?? 50, injury);
-
-    // WAR estimate using FipWarService (replacement FIP 5.20, runsPerWin 8.50)
-    const projWar = isPeakMode
-      ? fipWarService.calculateWar(projFip, projIp)
-      : (data.projWar ?? fipWarService.calculateWar(projFip, projIp));
+    const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB') : undefined;
 
     const formatStat = (val: number, decimals: number = 2) => val.toFixed(decimals);
 
-    // Derive counting stats from rate stats and IP
-    const projK = Math.round(projK9 * projIp / 9);
-    const projBb = Math.round(projBb9 * projIp / 9);
-    const projHr = Math.round(projHr9 * projIp / 9);
-
     // Flip cells
-    const stuffRating = this.clampRatingForDisplay(useStuff ?? 50);
-    const controlRating = this.clampRatingForDisplay(useControl ?? 50);
-    const hraRating = this.clampRatingForDisplay(useHra ?? 50);
+    const stuffRating = this.clampRatingForDisplay(ratings.stuff);
+    const controlRating = this.clampRatingForDisplay(ratings.control);
+    const hraRating = this.clampRatingForDisplay(ratings.hra);
 
-    const ratingLabel = isPeakMode ? 'TFR' : 'Estimated';
     const k9Flip = this.renderFlipCell(formatStat(projK9), stuffRating.toString(), `${ratingLabel} Stuff`);
     const bb9Flip = this.renderFlipCell(formatStat(projBb9), controlRating.toString(), `${ratingLabel} Control`);
     const hr9Flip = this.renderFlipCell(formatStat(projHr9), hraRating.toString(), `${ratingLabel} HRA`);
@@ -1640,10 +1557,6 @@ export class PitcherProfileModal {
         <button class="projection-toggle-btn ${this.projectionMode === 'peak' ? 'active' : ''}" data-mode="peak">Peak</button>
       </div>
     ` : '';
-
-    const projNote = isPeakMode
-      ? '* Peak projection based on True Future Rating. Assumes full development and optimal performance.'
-      : '* Projection based on True Ratings';
 
     return `
       <div class="projection-section">

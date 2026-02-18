@@ -2208,6 +2208,44 @@ function loadCareerMLBAb(upToYear: number): Map<number, number> {
   return result;
 }
 
+function loadCareerMLBStats(upToYear: number): Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }> {
+  const startYear = Math.max(2000, upToYear - 10);
+  const result = new Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }>();
+
+  for (let year = startYear; year <= upToYear; year++) {
+    const filePath = path.join(DATA_DIR, 'mlb_batting', `${year}_batting.csv`);
+    if (!fs.existsSync(filePath)) continue;
+
+    const csvText = fs.readFileSync(filePath, 'utf-8');
+    const { headers, rows } = parseCSV(csvText);
+
+    const playerIdIdx = headers.indexOf('player_id');
+    const splitIdIdx = headers.indexOf('split_id');
+    const abIdx = headers.indexOf('ab');
+    const paIdx = headers.indexOf('pa');
+    const hIdx = headers.indexOf('h');
+    const bbIdx = headers.indexOf('bb');
+    const kIdx = headers.indexOf('k');
+    const hrIdx = headers.indexOf('hr');
+
+    for (const row of rows) {
+      if (parseInt(row[splitIdIdx]) !== 1) continue;
+      const playerId = parseInt(row[playerIdIdx]);
+      if (isNaN(playerId)) continue;
+
+      const current = result.get(playerId) ?? { ab: 0, pa: 0, h: 0, bb: 0, k: 0, hr: 0 };
+      current.ab += parseInt(row[abIdx]) || 0;
+      current.pa += parseInt(row[paIdx]) || 0;
+      current.h += parseInt(row[hIdx]) || 0;
+      current.bb += parseInt(row[bbIdx]) || 0;
+      current.k += parseInt(row[kIdx]) || 0;
+      current.hr += parseInt(row[hrIdx]) || 0;
+      result.set(playerId, current);
+    }
+  }
+  return result;
+}
+
 /**
  * Load player DOB map from mlb_dob.csv.
  * Returns Map<playerId, Date>.
@@ -2937,7 +2975,7 @@ const TRACE_DEV_CURVES: Record<string, TraceCohortCurve[]> = {
 };
 
 const TRACE_STABILIZATION_PA: Record<string, number> = { eye: 600, avoidK: 200, power: 400, contact: 400 };
-const TRACE_SENSITIVITY_POINTS = 8;
+const TRACE_SENSITIVITY_POINTS: Record<string, number> = { eye: 8, avoidK: 8, power: 8, contact: 25 };
 
 // Pitcher development curves (from tools/research/explore_pitcher_development.ts)
 const TRACE_PITCHER_DEV_CURVES: Record<string, TraceCohortCurve[]> = {
@@ -3013,7 +3051,7 @@ function getPitcherDevelopmentCurveDiagnosticsLocal(age: number, totalIp: number
       if (lowerIsBetter) deviation = -deviation;
       const stabilization = TRACE_PITCHER_STABILIZATION_IP[component] ?? 200;
       const shrinkage = totalIp / (totalIp + stabilization);
-      ratingAdjust = deviation * shrinkage * TRACE_SENSITIVITY_POINTS;
+      ratingAdjust = deviation * shrinkage * (TRACE_SENSITIVITY_POINTS[component] ?? 8);
     }
 
     const finalTR = Math.round(Math.max(20, Math.min(tfrRating, baseline + ratingAdjust)));
@@ -3075,7 +3113,7 @@ function getDevelopmentCurveDiagnosticsLocal(age: number, totalPa: number) {
       if (lowerIsBetter) deviation = -deviation;
       const stabilization = TRACE_STABILIZATION_PA[component] ?? 400;
       const shrinkage = totalPa / (totalPa + stabilization);
-      ratingAdjust = deviation * shrinkage * TRACE_SENSITIVITY_POINTS;
+      ratingAdjust = deviation * shrinkage * (TRACE_SENSITIVITY_POINTS[component] ?? 8);
     }
 
     const finalTR = Math.round(Math.max(20, Math.min(tfrRating, baseline + ratingAdjust)));
@@ -3131,6 +3169,7 @@ function traceBatterTFRFull(
   // Filter to prospects (<=130 career MLB AB)
   console.log(`\n  Loading career MLB AB to filter prospects...`);
   const careerAbMap = loadCareerMLBAb(baseYear);
+  const careerMlbStatsMap = loadCareerMLBStats(baseYear);
   const prospects = allScouting.filter(s => (careerAbMap.get(s.playerId) ?? 0) <= 130);
   console.log(`  After career AB filter (<=130): ${prospects.length} prospects`);
 
@@ -3235,8 +3274,10 @@ function traceBatterTFRFull(
     console.log(`    Gap:           ${gapPercentile.toFixed(1)}th percentile (among prospects)`);
     console.log(`    Speed:         ${speedPercentile.toFixed(1)}th percentile (among prospects)`);
 
-    // --- STEP 6: True Ratings ---
-    console.log('\n--- STEP 6: True Ratings (from MLB percentiles) ---\n');
+    // --- STEP 6: TFR Component Ratings ---
+    console.log('\n--- STEP 6: TFR Component Ratings (from MLB percentiles) ---\n');
+    console.log('  These are PEAK POTENTIAL ratings (green dashed line on radar chart).');
+    console.log('  Current TR (blue solid line) is derived in Step 11 via development curves.\n');
     const trueEye = Math.round(20 + (eyePercentile / 100) * 60);
     const trueAvoidK = Math.round(20 + (avoidKPercentile / 100) * 60);
     const truePower = Math.round(20 + (powerPercentile / 100) * 60);
@@ -3244,12 +3285,12 @@ function traceBatterTFRFull(
     const trueGap = Math.round(20 + (gapPercentile / 100) * 60);
     const trueSpeed = Math.round(20 + (speedPercentile / 100) * 60);
 
-    console.log(`  True Eye:     ${trueEye}  (${eyePercentile.toFixed(1)}th MLB pctl -> 20 + ${(eyePercentile / 100 * 60).toFixed(1)} = ${trueEye})`);
-    console.log(`  True AvoidK:  ${trueAvoidK}  (${avoidKPercentile.toFixed(1)}th MLB pctl -> 20 + ${(avoidKPercentile / 100 * 60).toFixed(1)} = ${trueAvoidK})`);
-    console.log(`  True Power:   ${truePower}  (${powerPercentile.toFixed(1)}th MLB pctl -> 20 + ${(powerPercentile / 100 * 60).toFixed(1)} = ${truePower})`);
-    console.log(`  True Contact: ${trueContact}  (${contactPercentile.toFixed(1)}th MLB pctl -> 20 + ${(contactPercentile / 100 * 60).toFixed(1)} = ${trueContact})`);
-    console.log(`  True Gap:     ${trueGap}  (${gapPercentile.toFixed(1)}th prospect pctl)`);
-    console.log(`  True Speed:   ${trueSpeed}  (${speedPercentile.toFixed(1)}th prospect pctl)`);
+    console.log(`  TFR Eye:     ${trueEye}  (${eyePercentile.toFixed(1)}th MLB pctl -> 20 + ${(eyePercentile / 100 * 60).toFixed(1)} = ${trueEye})`);
+    console.log(`  TFR AvoidK:  ${trueAvoidK}  (${avoidKPercentile.toFixed(1)}th MLB pctl -> 20 + ${(avoidKPercentile / 100 * 60).toFixed(1)} = ${trueAvoidK})`);
+    console.log(`  TFR Power:   ${truePower}  (${powerPercentile.toFixed(1)}th MLB pctl -> 20 + ${(powerPercentile / 100 * 60).toFixed(1)} = ${truePower})`);
+    console.log(`  TFR Contact: ${trueContact}  (${contactPercentile.toFixed(1)}th MLB pctl -> 20 + ${(contactPercentile / 100 * 60).toFixed(1)} = ${trueContact})`);
+    console.log(`  TFR Gap:     ${trueGap}  (${gapPercentile.toFixed(1)}th prospect pctl)`);
+    console.log(`  TFR Speed:   ${trueSpeed}  (${speedPercentile.toFixed(1)}th prospect pctl)`);
 
     // --- STEP 7: Projected Rates (Ceiling-Boosted Rates) ---
     console.log('\n--- STEP 7: Projected Peak Rates (ceiling-boosted) ---\n');
@@ -3335,7 +3376,7 @@ function traceBatterTFRFull(
     console.log(`  Prospect Pool: ${prospects.length} prospects`);
     console.log(`  Method: Direct MLB Comparison (blended rates vs MLB peak-age distribution)`);
 
-    console.log(`\n  True Ratings (20-80 scale):`);
+    console.log(`\n  TFR Component Ratings (20-80 scale, peak potential):`);
     console.log(`    Eye:     ${trueEye}  (MLB percentile: ${eyePercentile.toFixed(1)})`);
     console.log(`    AvoidK:  ${trueAvoidK}  (MLB percentile: ${avoidKPercentile.toFixed(1)})`);
     console.log(`    Power:   ${truePower}  (MLB percentile: ${powerPercentile.toFixed(1)})`);
@@ -3364,7 +3405,25 @@ function traceBatterTFRFull(
 
     const trAge = calculateAge(dobMap.get(playerId), baseYear) ?? 22;
     console.log(`  Age: ${trAge}`);
-    console.log(`  Total MiLB PA: ${targetBlend?.totalPa ?? 0}\n`);
+    console.log(`  Total MiLB PA: ${targetBlend?.totalPa ?? 0}`);
+
+    // MLB career stats for additional adjustment
+    const mlbCareer = careerMlbStatsMap.get(playerId);
+    const mlbForTR = (mlbCareer && mlbCareer.pa > 0 && mlbCareer.ab > 0) ? {
+      avg: mlbCareer.h / mlbCareer.ab,
+      bbPct: (mlbCareer.bb / mlbCareer.pa) * 100,
+      kPct: (mlbCareer.k / mlbCareer.pa) * 100,
+      hrPct: (mlbCareer.hr / mlbCareer.pa) * 100,
+      pa: mlbCareer.pa,
+    } : undefined;
+    if (mlbForTR) {
+      console.log(`  MLB Career PA: ${mlbForTR.pa} (AVG=${mlbForTR.avg.toFixed(3)}, BB%=${mlbForTR.bbPct.toFixed(1)}, K%=${mlbForTR.kPct.toFixed(1)}, HR%=${mlbForTR.hrPct.toFixed(2)})`);
+    } else {
+      console.log(`  MLB Career PA: 0`);
+    }
+    console.log('');
+
+    const MLB_STAB: Record<string, number> = { eye: 200, avoidK: 120, power: 350, contact: 350 };
 
     if (targetBlend) {
       const projBbPct = targetBlend.eyeValue;
@@ -3373,24 +3432,37 @@ function traceBatterTFRFull(
       const projAvg = targetBlend.contactValue;
 
       const components = [
-        { name: 'Eye',     key: 'eye',     tfrVal: trueEye,     peakStat: projBbPct, rawStat: targetBlend.rawBbPct, lower: false, unit: '%' },
-        { name: 'AvoidK',  key: 'avoidK',  tfrVal: trueAvoidK,  peakStat: projKPct,  rawStat: targetBlend.rawKPct,  lower: true,  unit: '%' },
-        { name: 'Power',   key: 'power',   tfrVal: truePower,   peakStat: projHrPct, rawStat: targetBlend.rawHrPct, lower: false, unit: '%' },
-        { name: 'Contact', key: 'contact', tfrVal: trueContact, peakStat: projAvg,   rawStat: targetBlend.rawAvg,   lower: false, unit: '' },
+        { name: 'Eye',     key: 'eye',     tfrVal: trueEye,     peakStat: projBbPct, rawStat: targetBlend.rawBbPct, lower: false, unit: '%', mlbStat: mlbForTR?.bbPct, mlbExpected: projBbPct },
+        { name: 'AvoidK',  key: 'avoidK',  tfrVal: trueAvoidK,  peakStat: projKPct,  rawStat: targetBlend.rawKPct,  lower: true,  unit: '%', mlbStat: mlbForTR?.kPct,  mlbExpected: projKPct },
+        { name: 'Power',   key: 'power',   tfrVal: truePower,   peakStat: projHrPct, rawStat: targetBlend.rawHrPct, lower: false, unit: '%', mlbStat: mlbForTR?.hrPct, mlbExpected: projHrPct },
+        { name: 'Contact', key: 'contact', tfrVal: trueContact, peakStat: projAvg,   rawStat: targetBlend.rawAvg,   lower: false, unit: '',  mlbStat: mlbForTR?.avg,   mlbExpected: projAvg },
       ];
 
-      console.log(`  ${'Component'.padEnd(10)} ${'Cohort'.padEnd(12)} ${'Expected'.padEnd(10)} ${'Actual Raw'.padEnd(12)} ${'DevFrac'.padEnd(8)} ${'Base'.padEnd(6)} ${'Adj'.padEnd(8)} ${'TFR'.padEnd(6)} Final TR  Gap`);
-      console.log(`  ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(10)} ${'─'.repeat(5)}`);
+      console.log(`  ${'Component'.padEnd(10)} ${'Cohort'.padEnd(12)} ${'Expected'.padEnd(10)} ${'Actual Raw'.padEnd(12)} ${'DevFrac'.padEnd(8)} ${'Base'.padEnd(6)} ${'MiLBAdj'.padEnd(8)} ${'MLBAdj'.padEnd(8)} ${'TFR'.padEnd(6)} Final TR  Gap`);
+      console.log(`  ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(10)} ${'─'.repeat(12)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(8)} ${'─'.repeat(8)} ${'─'.repeat(6)} ${'─'.repeat(10)} ${'─'.repeat(5)}`);
 
       const devCurveDiag = getDevelopmentCurveDiagnosticsLocal(trAge, targetBlend.totalPa);
 
       for (const c of components) {
         const diag = devCurveDiag(c.key, c.tfrVal, c.peakStat, c.rawStat, c.lower);
-        const gap = c.tfrVal - diag.finalTR;
+
+        // Compute MLB adjustment separately for display
+        let mlbAdj = 0;
+        if (mlbForTR && c.mlbStat !== undefined && c.mlbExpected > 0) {
+          let mlbDev = (c.mlbStat - c.mlbExpected) / c.mlbExpected;
+          if (c.lower) mlbDev = -mlbDev;
+          const mlbShrinkage = mlbForTR.pa / (mlbForTR.pa + (MLB_STAB[c.key] ?? 350));
+          mlbAdj = mlbDev * mlbShrinkage * (TRACE_SENSITIVITY_POINTS[c.key] ?? 8);
+        }
+
+        const totalAdj = diag.ratingAdjust + mlbAdj;
+        const finalTR = Math.round(Math.max(20, Math.min(c.tfrVal, diag.baseline + totalAdj)));
+        const gap = c.tfrVal - finalTR;
         const expectedStr = diag.expectedRaw !== undefined ? (c.unit === '%' ? diag.expectedRaw.toFixed(1) + '%' : diag.expectedRaw.toFixed(3)) : '—';
         const actualStr = c.rawStat !== undefined ? (c.unit === '%' ? c.rawStat.toFixed(1) + '%' : c.rawStat.toFixed(3)) : '—';
-        const adjStr = diag.ratingAdjust !== 0 ? (diag.ratingAdjust > 0 ? '+' : '') + diag.ratingAdjust.toFixed(1) : '0';
-        console.log(`  ${c.name.padEnd(10)} ${diag.cohortLabel.padEnd(12)} ${expectedStr.padEnd(10)} ${actualStr.padEnd(12)} ${diag.devFraction.toFixed(2).padEnd(8)} ${String(diag.baseline).padEnd(6)} ${adjStr.padEnd(8)} ${String(c.tfrVal).padEnd(6)} ${String(diag.finalTR).padEnd(10)} +${gap}`);
+        const milbAdjStr = diag.ratingAdjust !== 0 ? (diag.ratingAdjust > 0 ? '+' : '') + diag.ratingAdjust.toFixed(1) : '0';
+        const mlbAdjStr = mlbAdj !== 0 ? (mlbAdj > 0 ? '+' : '') + mlbAdj.toFixed(1) : '—';
+        console.log(`  ${c.name.padEnd(10)} ${diag.cohortLabel.padEnd(12)} ${expectedStr.padEnd(10)} ${actualStr.padEnd(12)} ${diag.devFraction.toFixed(2).padEnd(8)} ${String(diag.baseline).padEnd(6)} ${milbAdjStr.padEnd(8)} ${mlbAdjStr.padEnd(8)} ${String(c.tfrVal).padEnd(6)} ${String(finalTR).padEnd(10)} +${gap}`);
       }
 
       // Gap/Speed use average devFraction
@@ -3401,11 +3473,12 @@ function traceBatterTFRFull(
 
       const gapTR = Math.round(Math.max(20, Math.min(trueGap, 20 + (trueGap - 20) * avgDevFrac)));
       const speedTR = Math.round(Math.max(20, Math.min(trueSpeed, 20 + (trueSpeed - 20) * avgDevFrac)));
-      console.log(`  ${'Gap'.padEnd(10)} ${'(avg frac)'.padEnd(12)} ${'—'.padEnd(10)} ${'—'.padEnd(12)} ${avgDevFrac.toFixed(2).padEnd(8)} ${String(gapTR).padEnd(6)} ${'—'.padEnd(8)} ${String(trueGap).padEnd(6)} ${String(gapTR).padEnd(10)} +${trueGap - gapTR}`);
-      console.log(`  ${'Speed'.padEnd(10)} ${'(avg frac)'.padEnd(12)} ${'—'.padEnd(10)} ${'—'.padEnd(12)} ${avgDevFrac.toFixed(2).padEnd(8)} ${String(speedTR).padEnd(6)} ${'—'.padEnd(8)} ${String(trueSpeed).padEnd(6)} ${String(speedTR).padEnd(10)} +${trueSpeed - speedTR}`);
+      console.log(`  ${'Gap'.padEnd(10)} ${'(avg frac)'.padEnd(12)} ${'—'.padEnd(10)} ${'—'.padEnd(12)} ${avgDevFrac.toFixed(2).padEnd(8)} ${String(gapTR).padEnd(6)} ${'—'.padEnd(8)} ${'—'.padEnd(8)} ${String(trueGap).padEnd(6)} ${String(gapTR).padEnd(10)} +${trueGap - gapTR}`);
+      console.log(`  ${'Speed'.padEnd(10)} ${'(avg frac)'.padEnd(12)} ${'—'.padEnd(10)} ${'—'.padEnd(12)} ${avgDevFrac.toFixed(2).padEnd(8)} ${String(speedTR).padEnd(6)} ${'—'.padEnd(8)} ${'—'.padEnd(8)} ${String(trueSpeed).padEnd(6)} ${String(speedTR).padEnd(10)} +${trueSpeed - speedTR}`);
 
-      console.log(`\n  Stabilization PA: Eye=600, AvoidK=200, Power=400, Contact=400`);
-      console.log(`  Sensitivity: ${TRACE_SENSITIVITY_POINTS} rating points per 100% deviation from expected curve value.`);
+      console.log(`\n  Stabilization PA (MiLB): Eye=600, AvoidK=200, Power=400, Contact=400`);
+      console.log(`  Stabilization PA (MLB):  Eye=200, AvoidK=120, Power=350, Contact=350`);
+      console.log(`  Sensitivity: Eye=8, AvoidK=8, Power=8, Contact=25 rating points per 100% deviation.`);
     }
   }
 }
