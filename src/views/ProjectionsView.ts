@@ -14,6 +14,7 @@ import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { projectionAnalysisService, AggregateAnalysisReport } from '../services/ProjectionAnalysisService';
 import { batterProjectionAnalysisService, BatterAggregateAnalysisReport } from '../services/BatterProjectionAnalysisService';
 import { standingsService } from '../services/StandingsService';
+import { renderDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -79,6 +80,7 @@ export class ProjectionsView {
   private statsYearUsed: number | null = null;
   private usedFallbackStats = false;
   private scoutingMetadata?: { fromMyScout: number; fromOSA: number };
+  private scoutingDataMode: ScoutingDataMode = 'none';
   private viewMode: 'projections' | 'backcasting' | 'analysis' = 'projections';
   private sortKey: string = this.mode === 'batters' ? 'projectedStats.war' : 'projectedStats.fip';
   private sortDirection: 'asc' | 'desc' = this.mode === 'batters' ? 'desc' : 'asc';
@@ -268,6 +270,7 @@ export class ProjectionsView {
     this.container.innerHTML = `
       <div class="true-ratings-content">        
         <p class="section-subtitle" id="projections-subtitle"></p>
+        <div id="projections-data-source-badges">${renderDataSourceBadges('preseason-model', this.scoutingDataMode)}</div>
         
         <div class="true-ratings-controls">
           <div class="filter-bar" id="projections-filter-bar">
@@ -3382,8 +3385,24 @@ export class ProjectionsView {
         : '';
       subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings ${fallbackNote}`;
     }
-    
+
+    this.updateDataSourceBadges();
     this.updateScoutingBanner();
+  }
+
+  private inferScoutingDataMode(): void {
+    const fromMyScout = this.scoutingMetadata?.fromMyScout ?? 0;
+    const fromOSA = this.scoutingMetadata?.fromOSA ?? 0;
+    const hasMy = fromMyScout > 0;
+    const hasOsa = fromOSA > 0;
+    this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : 'none';
+  }
+
+  private updateDataSourceBadges(): void {
+    this.inferScoutingDataMode();
+    const slot = this.container.querySelector<HTMLElement>('#projections-data-source-badges');
+    if (!slot) return;
+    slot.innerHTML = renderDataSourceBadges('preseason-model', this.scoutingDataMode);
   }
 
   private renderPowerQuartileRows(report: any): string {

@@ -67,6 +67,8 @@ export interface ProjectedBatter {
     avoidK: number;
     contact: number;
   };
+  /** Flag indicating this is a prospect-like asset in canonical modal path */
+  isProspect?: boolean;
 }
 
 export interface BatterProjectionContext {

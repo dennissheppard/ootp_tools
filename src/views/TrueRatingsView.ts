@@ -20,6 +20,8 @@ import { leagueBattingAveragesService, LeagueBattingAverages } from '../services
 import { teamRatingsService, HitterFarmData, FarmData } from '../services/TeamRatingsService';
 import { analyticsService } from '../services/AnalyticsService';
 import { hasComponentUpside } from '../utils/tfrUpside';
+import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
+import { renderDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -192,6 +194,7 @@ export class TrueRatingsView {
   private isDraggingColumn = false;
   private scoutingRatings: PitcherScoutingRatings[] = []; // Merged fallback (my > osa)
   private scoutingMetadata: { hasMyScoutData: boolean; fromMyScout: number; fromOSA: number } | null = null;
+  private scoutingDataMode: ScoutingDataMode = 'none';
   private rawPitcherStats: PitcherRow[] = [];
   private rawBatterStats: BatterRow[] = [];
   private playerRowLookup: Map<number, PitcherRow> = new Map();
@@ -333,6 +336,7 @@ export class TrueRatingsView {
       <div class="true-ratings-content">
         
           <p class="section-subtitle">A blend of historical stats and scouting ratings produces True Ratings. This blend varies based on player experience, age, position, moon phase, etc.</p>
+          <div id="true-ratings-data-source-badges">${renderDataSourceBadges('current-ytd', this.scoutingDataMode)}</div>
         
         <div class="true-ratings-controls">
           <div class="filter-bar" id="ratings-view-toggle">
@@ -3016,6 +3020,43 @@ export class TrueRatingsView {
     // This function used to update the upload status text. 
     // Now it primarily serves to check missing players if data exists, or trigger visibility updates.
     this.updateScoutingUploadVisibility();
+    void this.refreshDataSourceBadges();
+  }
+
+  private updateDataSourceBadges(): void {
+    const slot = this.container.querySelector<HTMLElement>('#true-ratings-data-source-badges');
+    if (!slot) return;
+    slot.innerHTML = renderDataSourceBadges('current-ytd', this.scoutingDataMode);
+  }
+
+  private async refreshDataSourceBadges(): Promise<void> {
+    const currentYear = this.currentGameYear ?? await dateService.getCurrentYear().catch(() => new Date().getFullYear());
+    this.currentGameYear = currentYear;
+
+    if (this.selectedYear < currentYear) {
+      this.scoutingDataMode = 'none';
+      this.updateDataSourceBadges();
+      return;
+    }
+
+    if (this.mode === 'pitchers') {
+      const fromMyScout = this.scoutingMetadata?.fromMyScout ?? 0;
+      const fromOSA = this.scoutingMetadata?.fromOSA ?? 0;
+      const hasMy = fromMyScout > 0;
+      const hasOsa = fromOSA > 0;
+      this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : 'none';
+      this.updateDataSourceBadges();
+      return;
+    }
+
+    const [myHitters, osaHitters] = await Promise.all([
+      hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
+      hitterScoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
+    ]);
+    const hasMy = myHitters.length > 0;
+    const hasOsa = osaHitters.length > 0;
+    this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : 'none';
+    this.updateDataSourceBadges();
   }
 
   private ensureSortKeyForView(): void {

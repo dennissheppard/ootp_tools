@@ -1,20 +1,15 @@
 import { Player, getFullName, isPitcher, getPositionLabel } from '../models/Player';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
-import { projectionService, ProjectedPlayer } from '../services/ProjectionService';
+import { ProjectedPlayer } from '../services/ProjectionService';
 import { Team } from '../models/Team';
 import { dateService } from '../services/DateService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
 import { PitcherScoutingRatings, HitterScoutingRatings } from '../models/ScoutingData';
-import { trueFutureRatingService } from '../services/TrueFutureRatingService';
-import { minorLeagueStatsService } from '../services/MinorLeagueStatsService';
-import { MinorLeagueStatsWithLevel } from '../models/Stats';
-import { fipWarService } from '../services/FipWarService';
 import { pitcherProfileModal } from './PitcherProfileModal';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
-import { batterProjectionService, ProjectedBatter } from '../services/BatterProjectionService';
+import { ProjectedBatter } from '../services/BatterProjectionService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
-import { hitterTrueFutureRatingService } from '../services/HitterTrueFutureRatingService';
 import { teamRatingsService, RatedProspect, RatedHitterProspect, TeamPowerRanking, RatedPitcher, RatedBatter } from '../services/TeamRatingsService';
 import { contractService, Contract } from '../services/ContractService';
 import { trueRatingsService } from '../services/TrueRatingsService';
@@ -23,6 +18,8 @@ import { HitterTrueRatingResult } from '../services/HitterTrueRatingsCalculation
 import { aiTradeAnalysisService, TradeContext, TradePlayerContext, TradePickContext } from '../services/AITradeAnalysisService';
 import { markdownToHtml } from '../services/AIScoutingService';
 import { hasComponentUpside } from '../utils/tfrUpside';
+import { canonicalCurrentProjectionService } from '../services/CanonicalCurrentProjectionService';
+import { renderDataSourceBadges } from '../utils/dataSourceBadges';
 
 interface DraftPick {
   id: string;
@@ -63,9 +60,9 @@ export class TradeAnalyzerView {
   private allScoutingRatings: Map<number, PitcherScoutingRatings> = new Map();
   private allBatterProjections: Map<number, ProjectedBatter> = new Map();
   private allHitterScoutingRatings: Map<number, HitterScoutingRatings> = new Map();
-  private minorLeagueStats: Map<number, MinorLeagueStatsWithLevel[]> = new Map();
   private currentYear: number = 2022;
   private batterProfileModal: BatterProfileModal;
+  private scoutingDataMode: 'my' | 'osa' | 'mixed' | 'none' = 'none';
 
   // Full-pool farm data maps (Improvement 1)
   private pitcherProspectMap: Map<number, RatedProspect> = new Map();
@@ -108,20 +105,6 @@ export class TradeAnalyzerView {
     this.initialize();
   }
 
-  /** Matches canonical PERCENTILE_TO_RATING from TrueFutureRatingService */
-  private percentileToRating(percentile: number): number {
-    if (percentile >= 99.0) return 5.0;
-    if (percentile >= 97.0) return 4.5;
-    if (percentile >= 93.0) return 4.0;
-    if (percentile >= 75.0) return 3.5;
-    if (percentile >= 60.0) return 3.0;
-    if (percentile >= 35.0) return 2.5;
-    if (percentile >= 20.0) return 2.0;
-    if (percentile >= 10.0) return 1.5;
-    if (percentile >= 5.0) return 1.0;
-    return 0.5;
-  }
-
   private async openPlayerProfile(playerId: number): Promise<void> {
     const player = this.allPlayers.find(p => p.id === playerId);
     if (!player) {
@@ -141,7 +124,8 @@ export class TradeAnalyzerView {
       const scouting = this.allScoutingRatings.get(playerId);
       const projection = this.allProjections.get(playerId);
       const prospect = this.pitcherProspectMap.get(playerId);
-      const isProspect = !projection || (team && team.parentTeamId !== 0);
+      const isProspect = projection?.isProspect === true
+        || (!this.canonicalPitcherTR.has(playerId) && !!prospect);
 
       // Estimated ratings: use development TR for prospects, projection for MLB
       let estimatedStuff = projection?.projectedRatings?.stuff;
@@ -254,7 +238,8 @@ export class TradeAnalyzerView {
       const batterProjection = this.allBatterProjections.get(playerId);
       const prospect = this.hitterProspectMap.get(playerId);
       const hitterScouting = this.allHitterScoutingRatings.get(playerId);
-      const isProspect = !batterProjection || (team && team.parentTeamId !== 0);
+      const isProspect = batterProjection?.isProspect === true
+        || (!this.canonicalBatterTR.has(playerId) && !!prospect);
 
       // Projected stats
       let projWar: number | undefined;
@@ -487,18 +472,14 @@ export class TradeAnalyzerView {
     this.allPlayers = await playerService.getAllPlayers();
     this.allTeams = await teamService.getAllTeams();
 
-    // Load projections for current year - 1 (projection base year)
+    // Load canonical modal-equivalent projection snapshots (current pipeline)
     try {
-      const projectionYear = this.currentYear - 1;
-      console.log(`Loading projections for year ${projectionYear}...`);
-      const projections = await projectionService.getProjections(projectionYear);
-      console.log(`Loaded ${projections.length} projections`);
-      projections.forEach(p => {
-        this.allProjections.set(p.playerId, p);
-      });
-      console.log(`Projection map size: ${this.allProjections.size}`);
+      const snapshot = await canonicalCurrentProjectionService.getSnapshot(this.currentYear);
+      this.allProjections = new Map(snapshot.pitchers);
+      this.allBatterProjections = new Map(snapshot.batters);
+      console.log(`Loaded canonical snapshots: pitchers=${this.allProjections.size}, batters=${this.allBatterProjections.size}`);
     } catch (e) {
-      console.error('Failed to load projections:', e);
+      console.error('Failed to load canonical projection snapshots:', e);
     }
 
     // Load scouting ratings for fallback (for players without projections)
@@ -510,34 +491,17 @@ export class TradeAnalyzerView {
           this.allScoutingRatings.set(rating.playerId, rating);
         }
       });
+      this.scoutingDataMode = scoutingResult.metadata.fromMyScout > 0 && scoutingResult.metadata.fromOSA > 0
+        ? 'mixed'
+        : scoutingResult.metadata.fromMyScout > 0
+          ? 'my'
+          : scoutingResult.metadata.fromOSA > 0
+            ? 'osa'
+            : 'none';
+      this.updateDataSourceBadges();
       console.log(`Loaded ${this.allScoutingRatings.size} scouting ratings`);
     } catch (e) {
       console.error('Failed to load scouting ratings:', e);
-    }
-
-    // Load minor league stats for TFR calculations
-    try {
-      console.log('Loading minor league stats...');
-      // Load stats for last 3 years
-      const endYear = this.currentYear;
-      const startYear = endYear - 3;
-      this.minorLeagueStats = await minorLeagueStatsService.getAllPlayerStatsBatch(startYear, endYear);
-      console.log(`Loaded minor league stats for ${this.minorLeagueStats.size} players`);
-    } catch (e) {
-      console.error('Failed to load minor league stats:', e);
-    }
-
-    // Load batter projections
-    try {
-      const projectionYear = this.currentYear - 1;
-      console.log(`Loading batter projections for year ${projectionYear}...`);
-      const batterProjections = await batterProjectionService.getProjections(projectionYear);
-      console.log(`Loaded ${batterProjections.length} batter projections`);
-      batterProjections.forEach(p => {
-        this.allBatterProjections.set(p.playerId, p);
-      });
-    } catch (e) {
-      console.error('Failed to load batter projections:', e);
     }
 
     // Load hitter scouting ratings
@@ -556,6 +520,12 @@ export class TradeAnalyzerView {
           this.allHitterScoutingRatings.set(rating.playerId, rating);
         }
       });
+      if (this.scoutingDataMode !== 'mixed') {
+        const hasMy = myHitterScouting.length > 0;
+        const hasOsa = hitterScoutingList.length > 0;
+        this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : this.scoutingDataMode;
+      }
+      this.updateDataSourceBadges();
       console.log(`Loaded ${this.allHitterScoutingRatings.size} hitter scouting ratings`);
     } catch (e) {
       console.error('Failed to load hitter scouting ratings:', e);
@@ -563,22 +533,21 @@ export class TradeAnalyzerView {
 
     // Load farm data, power rankings, contracts, and canonical TR in parallel
     try {
-      const projectionYear = this.currentYear - 1;
-      const [farmData, hitterFarmData, powerRankings, contracts, pitcherTR, batterTR] = await Promise.all([
-        teamRatingsService.getFarmData(this.currentYear).catch(e => { console.warn('Failed to load pitcher farm data:', e); return null; }),
-        teamRatingsService.getHitterFarmData(this.currentYear).catch(e => { console.warn('Failed to load hitter farm data:', e); return null; }),
-        teamRatingsService.getPowerRankings(projectionYear).catch(e => { console.warn('Failed to load power rankings:', e); return null; }),
+      const [pitcherUnifiedData, hitterUnifiedData, powerRankings, contracts, pitcherTR, batterTR] = await Promise.all([
+        teamRatingsService.getUnifiedPitcherTfrData(this.currentYear).catch(e => { console.warn('Failed to load unified pitcher TFR data:', e); return null; }),
+        teamRatingsService.getUnifiedHitterTfrData(this.currentYear).catch(e => { console.warn('Failed to load unified hitter TFR data:', e); return null; }),
+        teamRatingsService.getPowerRankings(this.currentYear).catch(e => { console.warn('Failed to load power rankings:', e); return null; }),
         contractService.getAllContracts().catch(e => { console.warn('Failed to load contracts:', e); return null; }),
         trueRatingsService.getPitcherTrueRatings(this.currentYear).catch(e => { console.warn('Failed to load canonical pitcher TR:', e); return null; }),
         trueRatingsService.getHitterTrueRatings(this.currentYear).catch(e => { console.warn('Failed to load canonical batter TR:', e); return null; }),
       ]);
 
-      if (farmData) {
-        farmData.prospects.forEach(p => this.pitcherProspectMap.set(p.playerId, p));
+      if (pitcherUnifiedData) {
+        pitcherUnifiedData.prospects.forEach(p => this.pitcherProspectMap.set(p.playerId, p));
         console.log(`Loaded ${this.pitcherProspectMap.size} pitcher prospects into map`);
       }
-      if (hitterFarmData) {
-        hitterFarmData.prospects.forEach(p => this.hitterProspectMap.set(p.playerId, p));
+      if (hitterUnifiedData) {
+        hitterUnifiedData.prospects.forEach(p => this.hitterProspectMap.set(p.playerId, p));
         console.log(`Loaded ${this.hitterProspectMap.size} hitter prospects into map`);
       }
       if (powerRankings) {
@@ -609,6 +578,7 @@ export class TradeAnalyzerView {
     this.container.innerHTML = `
       <div class="view-header">
         <p class="section-subtitle">Fill in potential trades to view projected war swappage</p>
+        <div id="trade-data-source-badges">${renderDataSourceBadges('current-ytd', this.scoutingDataMode)}</div>
       </div>
 
       <div class="trade-analyzer-container">
@@ -695,6 +665,12 @@ export class TradeAnalyzerView {
         </div>
       </div>
     `;
+  }
+
+  private updateDataSourceBadges(): void {
+    const slot = this.container.querySelector<HTMLElement>('#trade-data-source-badges');
+    if (!slot) return;
+    slot.innerHTML = renderDataSourceBadges('current-ytd', this.scoutingDataMode);
   }
 
   private populateTeamDropdowns(): void {
@@ -988,18 +964,97 @@ export class TradeAnalyzerView {
     return 'rating-poor';
   }
 
-  private wobaToRating(woba: number): number {
-    // Convert wOBA to 0.5-5.0 scale
-    // Elite: .400+ → 4.5-5.0
-    // Plus:  .370-.399 → 4.0-4.5
-    // Avg:   .320-.369 → 3.0-4.0
-    // Below: .280-.319 → 2.0-3.0
-    // Poor:  <.280 → 0.5-2.0
-    if (woba >= 0.400) return 4.5 + (woba - 0.400) * 10;
-    if (woba >= 0.370) return 4.0 + (woba - 0.370) / 0.030 * 0.5;
-    if (woba >= 0.320) return 3.0 + (woba - 0.320) / 0.050;
-    if (woba >= 0.280) return 2.0 + (woba - 0.280) / 0.040;
-    return Math.max(0.5, 0.5 + (woba - 0.200) / 0.080 * 1.5);
+  private buildPitcherFallbackFromCanonical(player: Player): ProjectedPlayer | undefined {
+    const tr = this.canonicalPitcherTR.get(player.id);
+    const prospect = this.pitcherProspectMap.get(player.id);
+    if (!tr && !prospect) return undefined;
+
+    const team = this.allTeams.find(t => t.id === player.teamId);
+    const scouting = this.allScoutingRatings.get(player.id);
+    const currentRating = tr?.trueRating ?? prospect?.trueFutureRating ?? 0.5;
+    const projectedTrue = prospect?.trueFutureRating ?? currentRating;
+    const role = tr?.role;
+    const usablePitchCount = scouting?.pitches ? Object.values(scouting.pitches).filter(v => (v ?? 0) >= 45).length : 0;
+    const isSp = role ? role !== 'RP' : ((scouting?.stamina ?? 0) >= 30 && usablePitchCount >= 3);
+
+    return {
+      playerId: player.id,
+      name: getFullName(player),
+      teamId: player.teamId,
+      teamName: team?.nickname ?? 'Unknown',
+      position: player.position,
+      age: player.age,
+      currentTrueRating: currentRating,
+      currentPercentile: tr?.percentile,
+      projectedTrueRating: projectedTrue,
+      projectedStats: {
+        k9: tr?.blendedK9 ?? prospect?.projK9 ?? prospect?.stats.k9 ?? 7.2,
+        bb9: tr?.blendedBb9 ?? prospect?.projBb9 ?? prospect?.stats.bb9 ?? 3.2,
+        hr9: tr?.blendedHr9 ?? prospect?.projHr9 ?? prospect?.stats.hr9 ?? 1.1,
+        fip: tr?.fipLike ?? prospect?.peakFip ?? 4.2,
+        war: prospect?.peakWar ?? 0,
+        ip: prospect?.peakIp ?? 80,
+      },
+      projectedRatings: {
+        stuff: tr?.estimatedStuff ?? prospect?.developmentTR?.stuff ?? prospect?.trueRatings?.stuff ?? 50,
+        control: tr?.estimatedControl ?? prospect?.developmentTR?.control ?? prospect?.trueRatings?.control ?? 50,
+        hra: tr?.estimatedHra ?? prospect?.developmentTR?.hra ?? prospect?.trueRatings?.hra ?? 50,
+      },
+      isSp,
+      fipLike: tr?.fipLike,
+      isProspect: !tr,
+    };
+  }
+
+  private buildBatterFallbackFromCanonical(player: Player): ProjectedBatter | undefined {
+    const tr = this.canonicalBatterTR.get(player.id);
+    const prospect = this.hitterProspectMap.get(player.id);
+    if (!tr && !prospect) return undefined;
+
+    const team = this.allTeams.find(t => t.id === player.teamId);
+    const scouting = this.allHitterScoutingRatings.get(player.id);
+    const currentRating = tr?.trueRating ?? prospect?.trueFutureRating ?? 0.5;
+
+    return {
+      playerId: player.id,
+      name: getFullName(player),
+      teamId: player.teamId,
+      teamName: team?.nickname ?? 'Unknown',
+      position: player.position,
+      positionLabel: getPositionLabel(player.position),
+      age: player.age,
+      currentTrueRating: currentRating,
+      percentile: tr?.percentile ?? prospect?.percentile ?? 0,
+      projectedStats: {
+        woba: tr?.woba ?? prospect?.projWoba ?? 0.300,
+        avg: tr?.blendedAvg ?? prospect?.projAvg ?? 0.245,
+        obp: tr ? (tr.blendedAvg + tr.blendedBbPct / 100) : (prospect?.projObp ?? 0.315),
+        slg: prospect?.projSlg ?? 0.390,
+        ops: prospect?.projOps ?? 0.705,
+        wrcPlus: prospect?.wrcPlus ?? 100,
+        war: prospect?.projWar ?? 0,
+        pa: prospect?.projPa ?? 520,
+        hr: Math.round((prospect?.projPa ?? 520) * ((prospect?.projHrPct ?? tr?.blendedHrPct ?? 2.5) / 100)),
+        rbi: Math.round((prospect?.projPa ?? 520) * 0.12),
+        sb: 0,
+        hrPct: prospect?.projHrPct ?? tr?.blendedHrPct,
+        bbPct: prospect?.projBbPct ?? tr?.blendedBbPct,
+        kPct: prospect?.projKPct ?? tr?.blendedKPct,
+      },
+      estimatedRatings: {
+        power: tr?.estimatedPower ?? prospect?.developmentTR?.power ?? prospect?.trueRatings?.power ?? 50,
+        eye: tr?.estimatedEye ?? prospect?.developmentTR?.eye ?? prospect?.trueRatings?.eye ?? 50,
+        avoidK: tr?.estimatedAvoidK ?? prospect?.developmentTR?.avoidK ?? prospect?.trueRatings?.avoidK ?? 50,
+        contact: tr?.estimatedContact ?? prospect?.developmentTR?.contact ?? prospect?.trueRatings?.contact ?? 50,
+      },
+      scoutingRatings: scouting ? {
+        power: scouting.power,
+        eye: scouting.eye,
+        avoidK: scouting.avoidK,
+        contact: scouting.contact,
+      } : undefined,
+      isProspect: !tr,
+    };
   }
 
   private updatePlayerList(teamNum: 1 | 2): void {
@@ -1250,251 +1305,26 @@ export class TradeAnalyzerView {
     const playerIsPitcher = isPitcher(player);
 
     if (playerIsPitcher) {
-      // Handle pitcher
       if (state.tradingPlayers.find(p => p.playerId === playerId)) return;
-
       let projection = this.allProjections.get(playerId);
-
       if (!projection) {
-        // Try farm data map first for full-pool TFR
-        const prospect = this.pitcherProspectMap.get(playerId);
-        const team = this.allTeams.find(t => t.id === player.teamId);
-
-        if (prospect) {
-          projection = {
-            playerId: player.id,
-            name: getFullName(player),
-            teamId: player.teamId,
-            teamName: team?.nickname ?? 'Unknown',
-            position: player.position,
-            age: player.age,
-            currentTrueRating: prospect.trueFutureRating,
-            projectedTrueRating: prospect.trueFutureRating,
-            projectedStats: {
-              k9: prospect.projK9 ?? prospect.stats.k9,
-              bb9: prospect.projBb9 ?? prospect.stats.bb9,
-              hr9: prospect.projHr9 ?? prospect.stats.hr9,
-              fip: prospect.peakFip,
-              war: prospect.peakWar,
-              ip: prospect.peakIp ?? 150
-            },
-            projectedRatings: {
-              stuff: prospect.potentialRatings.stuff,
-              control: prospect.potentialRatings.control,
-              hra: prospect.potentialRatings.hra
-            },
-            isSp: true,
-            isProspect: true
-          };
-
-          console.log(`Used farm data for pitcher ${getFullName(player)}:`, {
-            tfr: prospect.trueFutureRating,
-            projFip: prospect.peakFip,
-            projWar: prospect.peakWar,
-          });
-        } else {
-          // Fall back to on-the-fly TFR calculation
-          const scouting = this.allScoutingRatings.get(playerId);
-
-          if (!scouting) {
-            console.warn(`No scouting data for pitcher ${playerId}`);
-            return;
-          }
-
-          const playerMinorStats = this.minorLeagueStats.get(playerId) || [];
-
-          try {
-            const tfrResult = trueFutureRatingService.calculateTrueFutureRating({
-              playerId: player.id,
-              playerName: getFullName(player),
-              age: player.age,
-              scouting,
-              minorLeagueStats: playerMinorStats
-            });
-
-            const fip = tfrResult.projFip;
-            let percentile = 50;
-            if (fip < 3.0) percentile = 90;
-            else if (fip < 3.5) percentile = 75;
-            else if (fip < 4.0) percentile = 60;
-            else if (fip < 4.5) percentile = 50;
-            else if (fip < 5.0) percentile = 35;
-            else if (fip < 5.5) percentile = 20;
-            else percentile = 10;
-
-            const trueRating = this.percentileToRating(percentile);
-
-            const projectedIp = 150;
-            const warResult = fipWarService.calculate({
-              k9: tfrResult.projK9,
-              bb9: tfrResult.projBb9,
-              hr9: tfrResult.projHr9,
-              ip: projectedIp
-            });
-
-            projection = {
-              playerId: player.id,
-              name: getFullName(player),
-              teamId: player.teamId,
-              teamName: team?.nickname ?? 'Unknown',
-              position: player.position,
-              age: player.age,
-              currentTrueRating: trueRating,
-              projectedTrueRating: trueRating,
-              projectedStats: {
-                k9: tfrResult.projK9,
-                bb9: tfrResult.projBb9,
-                hr9: tfrResult.projHr9,
-                fip: tfrResult.projFip,
-                war: warResult.war,
-                ip: projectedIp
-              },
-              projectedRatings: {
-                stuff: scouting.stuff,
-                control: scouting.control,
-                hra: scouting.hra
-              },
-              isSp: true,
-              isProspect: true
-            };
-          } catch (e) {
-            console.error(`Failed to calculate TFR for pitcher ${playerId}:`, e);
-            return;
-          }
-        }
+        projection = this.buildPitcherFallbackFromCanonical(player);
+      }
+      if (!projection) {
+        console.warn(`No canonical pitcher snapshot available for player ${playerId}`);
+        return;
       }
 
       state.tradingPlayers.push(projection);
     } else {
-      // Handle batter
       if (state.tradingBatters.find(p => p.playerId === playerId)) return;
-
       let batterProjection = this.allBatterProjections.get(playerId);
-
       if (!batterProjection) {
-        // Try farm data map first for full-pool TFR
-        const prospect = this.hitterProspectMap.get(playerId);
-        const team = this.allTeams.find(t => t.id === player.teamId);
-        const positionLabels: Record<number, string> = {
-          1: 'P', 2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH',
-        };
-
-        if (prospect) {
-          batterProjection = {
-            playerId: player.id,
-            name: getFullName(player),
-            teamId: player.teamId,
-            teamName: team?.nickname ?? 'Unknown',
-            position: player.position,
-            positionLabel: positionLabels[player.position] || 'UT',
-            age: player.age,
-            currentTrueRating: prospect.trueFutureRating,
-            percentile: prospect.percentile,
-            projectedStats: {
-              woba: prospect.projWoba,
-              avg: prospect.projAvg,
-              obp: prospect.projObp,
-              slg: prospect.projSlg,
-              ops: prospect.projOps,
-              wrcPlus: prospect.wrcPlus,
-              war: prospect.projWar,
-              pa: prospect.projPa,
-              hr: Math.round(prospect.projPa * (prospect.projHrPct / 100)),
-              rbi: Math.round(prospect.projPa * 0.12),
-              sb: 5,
-              hrPct: prospect.projHrPct,
-              bbPct: prospect.projBbPct,
-              kPct: prospect.projKPct,
-            },
-            estimatedRatings: {
-              power: prospect.trueRatings.power,
-              eye: prospect.trueRatings.eye,
-              avoidK: prospect.trueRatings.avoidK,
-              contact: prospect.trueRatings.contact,
-            },
-            scoutingRatings: {
-              power: prospect.scoutingRatings.power,
-              eye: prospect.scoutingRatings.eye,
-              avoidK: prospect.scoutingRatings.avoidK,
-              contact: prospect.scoutingRatings.contact,
-            },
-          };
-
-          console.log(`Used farm data for batter ${getFullName(player)}:`, {
-            tfr: prospect.trueFutureRating,
-            projWoba: prospect.projWoba,
-            projWar: prospect.projWar,
-          });
-        } else {
-          // Fall back to on-the-fly TFR calculation
-          const scouting = this.allHitterScoutingRatings.get(playerId);
-
-          if (!scouting) {
-            console.warn(`No scouting data for batter ${playerId}`);
-            return;
-          }
-
-          try {
-            const tfrResult = hitterTrueFutureRatingService.calculateTrueFutureRating({
-              playerId: player.id,
-              playerName: getFullName(player),
-              age: player.age,
-              scouting,
-              minorLeagueStats: []
-            });
-
-            const trueRating = this.wobaToRating(tfrResult.projWoba);
-            const projectedPa = 550;
-            const lgWoba = 0.320;
-            const wobaScale = 1.25;
-            const wRaa = ((tfrResult.projWoba - lgWoba) / wobaScale) * projectedPa;
-            const war = wRaa / 10;
-
-            batterProjection = {
-              playerId: player.id,
-              name: getFullName(player),
-              teamId: player.teamId,
-              teamName: team?.nickname ?? 'Unknown',
-              position: player.position,
-              positionLabel: positionLabels[player.position] || 'UT',
-              age: player.age,
-              currentTrueRating: trueRating,
-              percentile: 50,
-              projectedStats: {
-                woba: tfrResult.projWoba,
-                avg: tfrResult.projAvg,
-                obp: tfrResult.projAvg + (tfrResult.projBbPct / 100),
-                slg: tfrResult.projAvg + (tfrResult.projHrPct / 100) * 3 + 0.05,
-                ops: 0,
-                wrcPlus: 100,
-                war: Math.max(0, war),
-                pa: projectedPa,
-                hr: Math.round(projectedPa * (tfrResult.projHrPct / 100)),
-                rbi: Math.round(projectedPa * 0.12),
-                sb: 5,
-                hrPct: tfrResult.projHrPct,
-                bbPct: tfrResult.projBbPct,
-                kPct: tfrResult.projKPct,
-              },
-              estimatedRatings: {
-                power: scouting.power,
-                eye: scouting.eye,
-                avoidK: scouting.avoidK,
-                contact: scouting.contact,
-              },
-              scoutingRatings: {
-                power: scouting.power,
-                eye: scouting.eye,
-                avoidK: scouting.avoidK,
-                contact: scouting.contact,
-              },
-            };
-            batterProjection.projectedStats.ops = batterProjection.projectedStats.obp + batterProjection.projectedStats.slg;
-          } catch (e) {
-            console.error(`Failed to calculate TFR for batter ${playerId}:`, e);
-            return;
-          }
-        }
+        batterProjection = this.buildBatterFallbackFromCanonical(player);
+      }
+      if (!batterProjection) {
+        console.warn(`No canonical batter snapshot available for player ${playerId}`);
+        return;
       }
 
       state.tradingBatters.push(batterProjection);
@@ -2141,7 +1971,7 @@ export class TradeAnalyzerView {
             projectedWoba: b.projectedStats.woba,
             salary: contract ? contractService.getCurrentSalary(contract) : undefined,
             contractYears: contract ? contractService.getYearsRemaining(contract) : undefined,
-            isProspect: !this.allBatterProjections.has(b.playerId),
+            isProspect: this.isProspectBatter(b),
           });
         }
         return contexts;
@@ -2209,7 +2039,7 @@ export class TradeAnalyzerView {
   }
 
   private isProspectBatter(b: ProjectedBatter): boolean {
-    return !this.allBatterProjections.has(b.playerId);
+    return b.isProspect === true;
   }
 
   private calculateTeamWar(state: TradeTeamState): { current: number; future: number; total: number } {

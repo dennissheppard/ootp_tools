@@ -134,6 +134,8 @@ export interface MLBHitterPercentileDistribution {
   kPctValues: number[];   // Sorted ascending (lower is better)
   hrPctValues: number[];  // Sorted ascending (higher is better) - HR per PA
   avgValues: number[];    // Sorted ascending (higher is better)
+  doublesRateValues: number[]; // Sorted ascending (higher is better) - 2B per AB
+  triplesRateValues: number[]; // Sorted ascending (higher is better) - 3B per AB
   warValues: number[];    // Sorted ascending (higher is better) - WAR per 600 PA
 }
 
@@ -592,7 +594,7 @@ class HitterTrueFutureRatingService {
 
   /**
    * Build MLB percentile distributions from 2015-2020 peak-age batting data.
-   * Returns sorted arrays of BB%, K%, HR%, AVG for mapping prospect percentiles.
+   * Returns sorted arrays of BB%, K%, HR%, AVG, 2B/AB, 3B/AB for mapping prospect percentiles.
    *
    * Uses ages 25-29 only (peak years) to build distributions.
    * This ensures we're mapping prospect peaks to actual MLB peaks.
@@ -603,6 +605,8 @@ class HitterTrueFutureRatingService {
     const allKPct: number[] = [];
     const allHrPct: number[] = [];
     const allAvg: number[] = [];
+    const allDoublesRate: number[] = [];
+    const allTriplesRate: number[] = [];
     const allWar: number[] = [];
 
     // Use game-specific league averages (same as used for prospect WAR)
@@ -635,14 +639,19 @@ class HitterTrueFutureRatingService {
           const bbPct = (stat.bb / pa) * 100;
           const kPct = (stat.k / pa) * 100;
           const hrPct = (stat.hr / pa) * 100;  // HR% = HR per PA as percentage
+          const doublesRate = stat.ab > 0 ? (stat.d / stat.ab) : 0; // 2B per AB
+          const triplesRate = stat.ab > 0 ? (stat.t / stat.ab) : 0; // 3B per AB
 
           // Validate rates are reasonable (filter extreme outliers)
           if (bbPct >= 2 && bbPct <= 25 && kPct >= 5 && kPct <= 40 &&
-              hrPct >= 0 && hrPct <= 10 && stat.avg >= 0.150 && stat.avg <= 0.400) {
+              hrPct >= 0 && hrPct <= 10 && stat.avg >= 0.150 && stat.avg <= 0.400 &&
+              doublesRate >= 0 && doublesRate <= 0.15 && triplesRate >= 0 && triplesRate <= 0.03) {
             allBbPct.push(bbPct);
             allKPct.push(kPct);
             allHrPct.push(hrPct);
             allAvg.push(stat.avg);
+            allDoublesRate.push(doublesRate);
+            allTriplesRate.push(triplesRate);
 
             // Compute WAR per 600 PA from actual stats for MLB distribution
             const bbRate = stat.bb / pa;
@@ -674,6 +683,8 @@ class HitterTrueFutureRatingService {
     allKPct.sort((a, b) => a - b);   // Ascending: lower values = lower percentile (but lower is better)
     allHrPct.sort((a, b) => a - b);  // Ascending: lower values = lower percentile
     allAvg.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
+    allDoublesRate.sort((a, b) => a - b); // Ascending: lower values = lower percentile
+    allTriplesRate.sort((a, b) => a - b); // Ascending: lower values = lower percentile
     allWar.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
 
     console.log(`📊 Built MLB hitter distributions: ${allBbPct.length} peak-age hitters (ages 25-29) from 2015-2020`);
@@ -688,6 +699,8 @@ class HitterTrueFutureRatingService {
       kPctValues: allKPct,
       hrPctValues: allHrPct,
       avgValues: allAvg,
+      doublesRateValues: allDoublesRate,
+      triplesRateValues: allTriplesRate,
       warValues: allWar,
     };
   }
@@ -1035,7 +1048,7 @@ class HitterTrueFutureRatingService {
    * 1. Convert scout potential ratings to projected peak rate stats (100% scouting)
    * 2. Load MLB peak-age distributions
    * 3. For Eye/AvoidK/Power/Contact: find projected rate's percentile in MLB distribution
-   * 4. For Gap/Speed: rank among prospects (no MLB distribution available)
+   * 4. For Gap/Speed: map expected 2B/AB and 3B/AB into MLB peak distributions
    * 5. Calculate wOBA from projected rates
    * 6. True Ratings = 20 + (MLB percentile / 100) * 60
    * 7. Map WAR/600 to MLB peak-year distribution for final TFR star rating
@@ -1054,7 +1067,7 @@ class HitterTrueFutureRatingService {
     // Step 2: Load MLB distribution (pass league averages so WAR is on same scale as prospects)
     const mlbDist = await this.buildMLBHitterPercentileDistribution(leagueBattingAverages);
 
-    // Step 3: Rank Gap/Speed among prospects (no MLB distribution for these)
+    // Fallback only: if MLB doubles/triples distributions are empty, use prospect ranking.
     const prospectPercentiles = this.rankProspectsByComponent(componentResults);
 
     // Step 4: For each prospect, find blended rate's percentile in MLB distribution
@@ -1076,9 +1089,16 @@ class HitterTrueFutureRatingService {
       // Contact (AVG): higher is better
       const contactPercentile = this.findValuePercentileInDistribution(result.contactValue, mlbDist.avgValues, true);
 
-      // Gap/Speed: still ranked among prospects (no MLB distribution)
-      const gapPercentile = prospectPctls.gapPercentile;
-      const speedPercentile = prospectPctls.speedPercentile;
+      // Gap/Speed: map scouting-derived doubles/triples rates to MLB peak distributions.
+      // Fallback to prospect ranks only if distribution data is unavailable.
+      const expectedDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
+      const expectedTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+      const gapPercentile = mlbDist.doublesRateValues.length > 0
+        ? this.findValuePercentileInDistribution(expectedDoublesRate, mlbDist.doublesRateValues, true)
+        : prospectPctls.gapPercentile;
+      const speedPercentile = mlbDist.triplesRateValues.length > 0
+        ? this.findValuePercentileInDistribution(expectedTriplesRate, mlbDist.triplesRateValues, true)
+        : prospectPctls.speedPercentile;
 
       // Projected rates = blended rates directly (already MLB-calibrated)
       let projBbPct = result.eyeValue;
@@ -1143,9 +1163,8 @@ class HitterTrueFutureRatingService {
       const percentile = this.findValuePercentileInDistribution(result.projWar, mlbDist.warValues, true);
       const trueFutureRating = this.percentileToRating(percentile);
 
-      // True ratings from MLB percentiles: rating = 20 + (percentile / 100) * 60
-      // Eye/AvoidK/Power/Contact use MLB percentiles (direct comparison)
-      // Gap/Speed use prospect percentiles (no MLB distribution available)
+      // True ratings from percentiles: rating = 20 + (percentile / 100) * 60
+      // All components use MLB-based percentiles when distributions are available.
       const trueEye = Math.round(20 + (result.eyePercentile / 100) * 60);
       const trueAvoidK = Math.round(20 + (result.avoidKPercentile / 100) * 60);
       const truePower = Math.round(20 + (result.powerPercentile / 100) * 60);

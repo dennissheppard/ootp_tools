@@ -111,6 +111,8 @@ export interface RatedProspect {
     totalMinorIp?: number;
     /** TFR computed with each scout source as priority (for modal toggle) */
     tfrBySource?: { my?: PitcherTfrSourceData; osa?: PitcherTfrSourceData };
+    /** Farm-eligibility marker for unified pool filtering */
+    isFarmEligible?: boolean;
 }
 
 export interface FarmSystemRankings {
@@ -390,6 +392,7 @@ export interface TeamRatingResult {
 
 class TeamRatingsService {
   private _unifiedHitterCache = new Map<number, HitterFarmData>();
+  private _unifiedPitcherCache = new Map<number, FarmData>();
   private _pitcherFarmCache = new Map<number, FarmData>();
 
   /**
@@ -800,8 +803,12 @@ class TeamRatingsService {
     return labels[position] ?? 'Unknown';
   }
 
-  async getFarmData(year: number): Promise<FarmData> {
-      const cached = this._pitcherFarmCache.get(year);
+  /**
+   * Get unified pitcher TFR data for an expanded pool of players.
+   * Each result includes isFarmEligible for backward compat with Farm Rankings.
+   */
+  async getUnifiedPitcherTfrData(year: number): Promise<FarmData> {
+      const cached = this._unifiedPitcherCache.get(year);
       if (cached) return cached;
 
       // Fetch scouting data first to handle fallback logic
@@ -811,12 +818,13 @@ class TeamRatingsService {
           scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
       }
 
-      const [allPlayers, tfrResults, tfrResultsOsa, teams, contracts] = await Promise.all([
+      const [allPlayers, tfrResults, tfrResultsOsa, teams, contracts, careerMlbIpMap] = await Promise.all([
           playerService.getAllPlayers(),
           trueFutureRatingService.getProspectTrueFutureRatings(year),
           trueFutureRatingService.getProspectTrueFutureRatings(year, 'osa'),
           teamService.getAllTeams(),
-          contractService.getAllContracts()
+          contractService.getAllContracts(),
+          this.getCareerMlbIpMap(year),
       ]);
 
       // Build secondary TFR map (OSA priority) for tfrBySource
@@ -842,16 +850,8 @@ class TeamRatingsService {
           const team = teamMap.get(player.teamId);
           if (!team) return;
 
-          // Skip MLB-level teams (parentTeamId === 0 means root org)
-          // But allow IC players through (identified by contract leagueId === -200)
-          let orgId = team.parentTeamId;
-          if (orgId === 0) {
-              const contract = contracts.get(tfr.playerId);
-              if (!contract || contract.leagueId !== -200) return; // Skip MLB players
-              // IC player on a root-level team - use the team's own ID as org
-              // (IC teams are sometimes root orgs in OOTP)
-              orgId = team.id;
-          }
+          // Unified pool includes root org players too (young MLB + farm in one pool)
+          const orgId = team.parentTeamId !== 0 ? team.parentTeamId : team.id;
 
           processedCount++;
           const scouting = scoutingMap.get(tfr.playerId);
@@ -939,6 +939,8 @@ class TeamRatingsService {
           const levelLabel = (playerContract && playerContract.leagueId === -200)
               ? 'IC'
               : this.getLevelLabel(player.level);
+          const careerIp = careerMlbIpMap.get(tfr.playerId) ?? 0;
+          const isFarmEligible = careerIp <= 50;
 
           const prospect: RatedProspect = {
               playerId: tfr.playerId,
@@ -983,6 +985,7 @@ class TeamRatingsService {
               },
               rawStats: tfr.rawK9 !== undefined ? { k9: tfr.rawK9, bb9: tfr.rawBb9!, hr9: tfr.rawHr9! } : undefined,
               totalMinorIp: tfr.totalMinorIp,
+              isFarmEligible,
           };
 
           // Build tfrBySource from both TFR runs
@@ -1009,6 +1012,9 @@ class TeamRatingsService {
           prospect.developmentTR = prospectDevelopmentCurveService.calculatePitcherProspectTR(prospect);
 
           allProspects.push(prospect);
+
+          // Farm overview/rankings should stay farm-eligible only.
+          if (!isFarmEligible) return;
 
           if (!orgGroups.has(orgId)) {
               orgGroups.set(orgId, { rotation: [], bullpen: [] });
@@ -1113,6 +1119,23 @@ class TeamRatingsService {
           reports,
           systems: systems.sort((a, b) => b.totalWar - a.totalWar),
           prospects: sortedProspects
+      };
+      this._unifiedPitcherCache.set(year, result);
+      return result;
+  }
+
+  /**
+   * Get pitcher prospect farm data for all organizations.
+   * Delegates to getUnifiedPitcherTfrData() and filters to farm-eligible players only.
+   */
+  async getFarmData(year: number): Promise<FarmData> {
+      const cached = this._pitcherFarmCache.get(year);
+      if (cached) return cached;
+      const unified = await this.getUnifiedPitcherTfrData(year);
+      const result: FarmData = {
+          reports: unified.reports,
+          systems: unified.systems,
+          prospects: unified.prospects.filter(p => p.isFarmEligible),
       };
       this._pitcherFarmCache.set(year, result);
       return result;
@@ -1484,6 +1507,25 @@ class TeamRatingsService {
           systems: unified.systems,
           prospects: unified.prospects.filter(p => p.isFarmEligible),
       };
+  }
+
+  private async getCareerMlbIpMap(currentYear: number): Promise<Map<number, number>> {
+      const startYear = Math.max(2000, currentYear - 10);
+      const promises = [];
+      for (let y = startYear; y <= currentYear; y++) {
+          promises.push(trueRatingsService.getTruePitchingStats(y));
+      }
+
+      const results = await Promise.all(promises);
+      const map = new Map<number, number>();
+
+      results.flat().forEach(stat => {
+          const ip = trueRatingsService.parseIp(stat.ip);
+          const current = map.get(stat.player_id) ?? 0;
+          map.set(stat.player_id, current + ip);
+      });
+
+      return map;
   }
 
   private async getCareerMlbStatsMap(currentYear: number): Promise<Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }>> {

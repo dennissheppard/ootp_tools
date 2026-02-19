@@ -7,9 +7,11 @@ import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { scoutingDataService } from '../services/ScoutingDataService';
+import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { standingsService, ActualStanding } from '../services/StandingsService';
 import { hasComponentUpside } from '../utils/tfrUpside';
+import { renderDataSourceBadges, ScoutingDataMode, SeasonDataMode } from '../utils/dataSourceBadges';
 
 // WAR→Wins calibration constants
 // Recalibrated Feb 2026: piecewise projection-based calibration on 236 team-seasons (2005-2020).
@@ -51,6 +53,7 @@ export class TeamRatingsView {
   private actualStandingsMap: Map<string, ActualStanding> | null = null;
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private currentGameYear: number | null = null;
+  private scoutingDataMode: ScoutingDataMode = 'none';
   private batterProfileModal: BatterProfileModal;
   private playerRowLookup: Map<string, PlayerRowContext> = new Map();
   private teamResultLookup: Map<string, TeamRatingResult> = new Map();
@@ -113,7 +116,7 @@ export class TeamRatingsView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
-        
+        <div id="team-ratings-data-source-badges">${renderDataSourceBadges(this.getSeasonDataMode(), this.scoutingDataMode)}</div>
 
         <div class="true-ratings-controls">
           <div class="filter-bar">
@@ -242,6 +245,7 @@ export class TeamRatingsView {
         (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
         // Reload data
+        this.updateDataSourceBadges();
         this.showLoadingState();
         this.loadData();
       });
@@ -298,6 +302,7 @@ export class TeamRatingsView {
           b.setAttribute('aria-pressed', String(isActive));
         });
 
+        this.updateDataSourceBadges();
         this.showLoadingState();
         this.loadData();
       });
@@ -367,6 +372,8 @@ export class TeamRatingsView {
 
   private async loadData(): Promise<void> {
     try {
+        await this.refreshScoutingDataMode();
+        this.updateDataSourceBadges();
         if (this.isAllTime) {
             // All-Time mode: load power rankings for every year with progress
             this.viewMode = 'power-rankings';
@@ -409,6 +416,43 @@ export class TeamRatingsView {
         console.error(err);
         await this.renderNoData(err);
     }
+  }
+
+  private getSeasonDataMode(): SeasonDataMode {
+    return this.viewMode === 'projected' || this.viewMode === 'standings'
+      ? 'preseason-model'
+      : 'current-ytd';
+  }
+
+  private updateDataSourceBadges(): void {
+    const slot = this.container.querySelector<HTMLElement>('#team-ratings-data-source-badges');
+    if (!slot) return;
+    slot.innerHTML = renderDataSourceBadges(this.getSeasonDataMode(), this.scoutingDataMode);
+  }
+
+  private async refreshScoutingDataMode(): Promise<void> {
+    const currentYear = this.currentGameYear ?? await dateService.getCurrentYear().catch(() => new Date().getFullYear());
+    this.currentGameYear = currentYear;
+    const useCurrentScouting = this.viewMode === 'projected'
+      || this.viewMode === 'standings'
+      || (!this.isAllTime && this.selectedYear >= currentYear);
+
+    if (!useCurrentScouting) {
+      this.scoutingDataMode = 'none';
+      return;
+    }
+
+    const [pitcherFallback, hitterMy, hitterOsa] = await Promise.all([
+      scoutingDataFallbackService.getScoutingRatingsWithFallback(currentYear).catch(() => null),
+      hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
+      hitterScoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
+    ]);
+
+    const fromMyPitchers = pitcherFallback?.metadata.fromMyScout ?? 0;
+    const fromOsaPitchers = pitcherFallback?.metadata.fromOSA ?? 0;
+    const hasMy = (fromMyPitchers + hitterMy.length) > 0;
+    const hasOsa = (fromOsaPitchers + hitterOsa.length) > 0;
+    this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : 'none';
   }
 
   private renderLists(): void {

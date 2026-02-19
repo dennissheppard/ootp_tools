@@ -1,0 +1,356 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WBL Pipeline Map</title>
+  <style>
+    :root {
+      --bg: #f3f0e8;
+      --ink: #182018;
+      --muted: #4f5f53;
+      --line: #9aa89d;
+      --canon: #136f63;
+      --canon-soft: #d8efe7;
+      --pre: #b45309;
+      --pre-soft: #fde9cf;
+      --risk: #9f1239;
+      --risk-soft: #ffdce6;
+      --card: #fffdfa;
+      --chip-bg: #ffffff;
+      --node-bg: #fffdf8;
+      --notes-bg: rgba(255, 255, 255, .6);
+      --callout-line: #d18a9d;
+      --callout-ink: #7a0b2d;
+      --shadow: rgba(24, 32, 24, .06);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 2rem 1.25rem 3rem;
+      font-family: "Space Grotesk", "Segoe UI", Tahoma, sans-serif;
+      background:
+        radial-gradient(circle at 8% 12%, #ffffff 0, #f3f0e8 45%),
+        radial-gradient(circle at 86% 84%, #ece6d7 0, #f3f0e8 40%);
+      color: var(--ink);
+    }
+
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      margin: 0 0 .5rem;
+      font-size: clamp(1.4rem, 2.2vw, 2.2rem);
+      letter-spacing: .01em;
+    }
+
+    .subtitle {
+      margin: 0 0 1.25rem;
+      color: var(--muted);
+      font-size: .98rem;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: .5rem;
+      margin: 0 0 1.3rem;
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: var(--chip-bg);
+      font-size: .82rem;
+      padding: .35rem .62rem;
+    }
+
+    .dot {
+      width: .65rem;
+      height: .65rem;
+      border-radius: 50%;
+    }
+
+    .dot.canon { background: var(--canon); }
+    .dot.pre { background: var(--pre); }
+    .dot.risk { background: var(--risk); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+
+    .lane {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      overflow: hidden;
+      background: var(--card);
+      box-shadow: 0 8px 20px var(--shadow);
+    }
+
+    .lane-h {
+      padding: .7rem .9rem;
+      font-weight: 700;
+      letter-spacing: .01em;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .lane.canon .lane-h {
+      background: var(--canon-soft);
+      color: #0b3d35;
+    }
+
+    .lane.pre .lane-h {
+      background: var(--pre-soft);
+      color: #5f3207;
+    }
+
+    .lane-body {
+      padding: .8rem;
+      display: grid;
+      grid-template-columns: 1.25fr .9fr .9fr;
+      gap: .7rem;
+      align-items: start;
+    }
+
+    .block {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: .65rem .7rem;
+      background: var(--chip-bg);
+    }
+
+    .block h3 {
+      margin: 0 0 .45rem;
+      font-size: .88rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .05em;
+    }
+
+    .node {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: .45rem .52rem;
+      margin: .38rem 0;
+      background: var(--node-bg);
+      font-size: .84rem;
+      line-height: 1.28;
+    }
+
+    .node strong { display: block; font-size: .86rem; }
+
+    .arrow {
+      text-align: center;
+      font-weight: 700;
+      color: var(--muted);
+      font-size: .9rem;
+      margin: .25rem 0;
+    }
+
+    .callout {
+      margin-top: .8rem;
+      border: 1px solid var(--callout-line);
+      background: var(--risk-soft);
+      border-radius: 10px;
+      padding: .65rem .72rem;
+      font-size: .84rem;
+      line-height: 1.3;
+    }
+
+    .callout strong {
+      display: block;
+      margin-bottom: .2rem;
+      color: var(--callout-ink);
+    }
+
+    .notes {
+      margin-top: 1rem;
+      border: 1px dashed var(--line);
+      border-radius: 10px;
+      padding: .8rem .9rem;
+      background: var(--notes-bg);
+      font-size: .84rem;
+      line-height: 1.35;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1412;
+        --ink: #e5eee8;
+        --muted: #a9bbb0;
+        --line: #3a4a42;
+        --canon: #37b7a6;
+        --canon-soft: #133933;
+        --pre: #f3a24f;
+        --pre-soft: #4a2d10;
+        --risk: #ff6f9f;
+        --risk-soft: #3f1b2a;
+        --card: #18201c;
+        --chip-bg: #1e2923;
+        --node-bg: #202d26;
+        --notes-bg: rgba(26, 36, 31, .85);
+        --callout-line: #a95874;
+        --callout-ink: #ffc0d3;
+        --shadow: rgba(0, 0, 0, .35);
+      }
+
+      body {
+        background:
+          radial-gradient(circle at 8% 12%, #1a2320 0, #0f1412 45%),
+          radial-gradient(circle at 86% 84%, #111916 0, #0f1412 40%);
+      }
+
+      .lane.canon .lane-h {
+        color: #bdf3e8;
+      }
+
+      .lane.pre .lane-h {
+        color: #ffd5a7;
+      }
+    }
+
+    .notes h2 {
+      margin: 0 0 .45rem;
+      font-size: .95rem;
+      letter-spacing: .01em;
+    }
+
+    .notes ul {
+      margin: .1rem 0 0 1rem;
+      padding: 0;
+    }
+
+    .notes li { margin: .22rem 0; }
+
+    @media (max-width: 940px) {
+      .lane-body { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); display: inline-block; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>WBL Data Pipelines by View</h1>
+    <p class="subtitle">
+      Purpose: show which views are canonical-current vs pre-season/base-year projections, and where mismatches are expected.
+    </p>
+
+    <div class="legend">
+      <span class="chip"><span class="dot canon"></span>Canonical Current pipeline</span>
+      <span class="chip"><span class="dot pre"></span>Pre-season / Base-year projection pipeline</span>
+      <span class="chip"><span class="dot risk"></span>Known mismatch zone</span>
+    </div>
+
+    <div class="grid">
+      <section class="lane canon">
+        <div class="lane-h">Pipeline A: Canonical Current</div>
+        <div class="lane-body">
+          <div class="block">
+            <h3>Core Data Sources</h3>
+            <div class="node">
+              <strong>TrueRatingsService.getHitterTrueRatings(currentYear)</strong>
+              Canonical current TR + components + blended rates (hitter).
+            </div>
+            <div class="node">
+              <strong>TrueRatingsService.getPitcherTrueRatings(currentYear)</strong>
+              Canonical current TR + components + blended rates (pitcher).
+            </div>
+            <div class="node">
+              <strong>TeamRatingsService.getUnifiedHitterTfrData + getFarmData (pitcher)</strong>
+              Canonical TFR/prospect context (hitter has unified method; pitcher path is getFarmData).
+            </div>
+            <div class="node">
+              <strong>ModalDataService.resolveCanonical* + compute*Projection</strong>
+              Modal-equivalent current/peak projection presentation.
+            </div>
+          </div>
+
+          <div class="arrow">--&gt;</div>
+
+          <div class="block">
+            <h3>Main Consumers</h3>
+            <div class="node">
+              <strong>PlayerProfileModal / BatterProfileModal</strong>
+              Always re-resolve canonical current data.
+            </div>
+            <div class="node">
+              <strong>TrueRatingsView (ratings)</strong>
+              Uses canonical TR/TFR as source of truth.
+            </div>
+            <div class="node">
+              <strong>TeamPlanningView (ratings)</strong>
+              Uses canonical TR maps for MLB floor/authority.
+            </div>
+            <div class="node">
+              <strong>Explain Tool (now)</strong>
+              Modal-equivalent path for projection explanations.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="lane pre">
+        <div class="lane-h">Pipeline B: Pre-season / Base-year Projection</div>
+        <div class="lane-body">
+          <div class="block">
+            <h3>Core Data Sources</h3>
+            <div class="node">
+              <strong>ProjectionService.getProjections*(baseYear)</strong>
+              Pitcher batch projections for team/player tables.
+            </div>
+            <div class="node">
+              <strong>BatterProjectionService.getProjections*(baseYear)</strong>
+              Hitter batch projections from base-year context.
+            </div>
+            <div class="node">
+              <strong>TeamRatingsService.getProjectedTeamRatings(baseYear)</strong>
+              Combines pitcher/hitter projection outputs into projected team WAR/wins.
+            </div>
+          </div>
+
+          <div class="arrow">--&gt;</div>
+
+          <div class="block">
+            <h3>Main Consumers</h3>
+            <div class="node">
+              <strong>ProjectionsView</strong>
+              Intentionally pre-season/base-year projection surface.
+            </div>
+            <div class="node">
+              <strong>TeamRatingsView: projected + standings</strong>
+              Projection model outputs (not live standings feed).
+            </div>
+            <div class="node">
+              <strong>TradeAnalyzerView (current state)</strong>
+              Uses this for projection stats/WAR while rating badge is often canonical.
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="callout">
+      <strong>Mismatch Zone</strong>
+      A view can display canonical current rating badges and still use base-year projection stats/WAR.
+      That split is exactly why some profile modal values do not match list-row projection values.
+    </div>
+
+    <div class="notes">
+      <h2>Recommended Labels In UI</h2>
+      <ul>
+        <li><strong>Canonical Current</strong>: ratings/projections matched to modal canonical path.</li>
+        <li><strong>Pre-season Projection</strong>: base-year model projection outputs for scenario planning.</li>
+        <li>When opening a modal from a pre-season surface, show a small "Data mode differs" hint.</li>
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

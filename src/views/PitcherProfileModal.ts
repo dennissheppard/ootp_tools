@@ -285,7 +285,7 @@ export class PitcherProfileModal {
     // 2. Always fetch canonical TFR (for pitching prospects)
     let tfrEntry: import('../services/TeamRatingsService').RatedProspect | undefined;
     try {
-      const farmData = await teamRatingsService.getFarmData(currentYear);
+      const farmData = await teamRatingsService.getUnifiedPitcherTfrData(currentYear);
       if (generation !== this.showGeneration) return;
       tfrEntry = farmData.prospects.find(p => p.playerId === data.playerId);
     } catch { /* TFR data not available */ }

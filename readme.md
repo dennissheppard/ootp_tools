@@ -460,6 +460,7 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 
 ## Architecture Notes
 
+- **Pipeline map (view -> data path):** `docs/pipeline-map.html` (canonical-current vs pre-season projection pipelines)
 - **Single source of truth for TFR**: `TeamRatingsService.getHitterFarmData()` / `getFarmData()` — never call `calculateTrueFutureRatings()` independently. Use `prospect.trueFutureRating` (precomputed) — NEVER re-derive from `prospect.percentile`
 - **Single source of truth for TR**: `TrueRatingsService.getHitterTrueRatings(year)` / `getPitcherTrueRatings(year)` — every view MUST use these cached methods instead of calling `trueRatingsCalculationService.calculateTrueRatings()` directly
 - **Single source of truth for percentile→rating**: `PERCENTILE_TO_RATING` in `TrueFutureRatingService.ts` / `HitterTrueFutureRatingService.ts` — NEVER create local copies of this mapping (thresholds: 99→5.0, 97→4.5, 93→4.0, 75→3.5, 60→3.0, 35→2.5, 20→2.0, 10→1.5, 5→1.0, 0→0.5)

@@ -9,6 +9,7 @@
  *   npx tsx tools/explain-player.ts --playerId=1234 --type=pitcher --mode=projection --year=2026
  *   npx tsx tools/explain-player.ts --playerId=5678 --type=hitter --mode=rating --year=2026
  *   npx tsx tools/explain-player.ts --playerId=5678 --type=hitter --mode=all --year=2026 --format=markdown
+ *   npx tsx tools/explain-player.ts --playerId=5678 --type=hitter --mode=projection --projectionMode=peak
  */
 
 import { promises as fs } from 'node:fs';
@@ -237,6 +238,9 @@ async function explainHitterRating(playerId: number, year: number): Promise<any>
   const { trueRatingsService } = await import('../src/services/TrueRatingsService');
   const { hitterTrueRatingsCalculationService, getYearWeights } = await import('../src/services/HitterTrueRatingsCalculationService');
   const { hitterScoutingDataService } = await import('../src/services/HitterScoutingDataService');
+  const { hitterTrueFutureRatingService } = await import('../src/services/HitterTrueFutureRatingService');
+  const { HitterRatingEstimatorService } = await import('../src/services/HitterRatingEstimatorService');
+  const { teamRatingsService } = await import('../src/services/TeamRatingsService');
   const { playerService } = await import('../src/services/PlayerService');
   const { dateService } = await import('../src/services/DateService');
 
@@ -277,6 +281,29 @@ async function explainHitterRating(playerId: number, year: number): Promise<any>
   }, hitterTrueRatingsCalculationService.getDefaultLeagueAverages(), yearWeights, trace);
 
   const canonical = canonicalMap.get(playerId);
+  let tfrEntry: import('../src/services/TeamRatingsService').RatedHitterProspect | undefined;
+  let futureGapTrace: any = null;
+  try {
+    const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(year);
+    tfrEntry = unifiedData.prospects.find((p) => p.playerId === playerId);
+    if (tfrEntry) {
+      const mlbDist = await hitterTrueFutureRatingService.buildMLBHitterPercentileDistribution();
+      futureGapTrace = buildHitterFutureGapTrace({
+        scoutGap: scouting?.gap,
+        scoutSpeed: scouting?.speed,
+        trueGap: tfrEntry.trueRatings.gap,
+        trueSpeed: tfrEntry.trueRatings.speed,
+        doublesRateValues: mlbDist.doublesRateValues,
+        triplesRateValues: mlbDist.triplesRateValues,
+        findPercentile: (value, sortedValues, higherIsBetter) =>
+          hitterTrueFutureRatingService.findValuePercentileInDistribution(value, sortedValues, higherIsBetter),
+        expectedDoublesRate: (gap) => HitterRatingEstimatorService.expectedDoublesRate(gap),
+        expectedTriplesRate: (speed) => HitterRatingEstimatorService.expectedTriplesRate(speed),
+      });
+    }
+  } catch {
+    // optional
+  }
 
   return {
     playerId,
@@ -302,66 +329,168 @@ async function explainHitterRating(playerId: number, year: number): Promise<any>
         }
       : null,
     canonicalResult: canonical ?? null,
+    tfrAvailable: Boolean(tfrEntry),
+    canonicalFutureRatings: tfrEntry
+      ? {
+          power: tfrEntry.trueRatings.power,
+          eye: tfrEntry.trueRatings.eye,
+          avoidK: tfrEntry.trueRatings.avoidK,
+          contact: tfrEntry.trueRatings.contact,
+          gap: tfrEntry.trueRatings.gap,
+          speed: tfrEntry.trueRatings.speed,
+        }
+      : null,
+    futureGapTrace,
     singlePlayerResult: single,
     trace,
   };
 }
 
-async function explainPitcherProjection(playerId: number, year: number): Promise<any> {
+async function explainPitcherProjection(
+  playerId: number,
+  year: number,
+  projectionMode: 'current' | 'peak' = 'current'
+): Promise<any> {
   const { projectionService } = await import('../src/services/ProjectionService');
   const { trueRatingsService } = await import('../src/services/TrueRatingsService');
-  const { scoutingDataFallbackService } = await import('../src/services/ScoutingDataFallbackService');
+  const { scoutingDataService } = await import('../src/services/ScoutingDataService');
   const { playerService } = await import('../src/services/PlayerService');
-  const { leagueStatsService } = await import('../src/services/LeagueStatsService');
+  const { teamService } = await import('../src/services/TeamService');
+  const { fipWarService } = await import('../src/services/FipWarService');
+  const { teamRatingsService } = await import('../src/services/TeamRatingsService');
+  const { resolveCanonicalPitcherData, computePitcherProjection } = await import('../src/services/ModalDataService');
 
-  const [pitcherTRMap, scoutingFallback, allPlayers, yearlyStatsMap, yearPitchingStats] = await Promise.all([
+  const [pitcherTRMap, myScoutingAll, osaScoutingAll, allPlayers, allTeams, yearPitchingStats] = await Promise.all([
     trueRatingsService.getPitcherTrueRatings(year),
-    scoutingDataFallbackService.getScoutingRatingsWithFallback(year),
+    scoutingDataService.getLatestScoutingRatings('my'),
+    scoutingDataService.getLatestScoutingRatings('osa'),
     playerService.getAllPlayers(),
-    trueRatingsService.getMultiYearPitchingStats(year, 4),
+    teamService.getAllTeams(),
     trueRatingsService.getTruePitchingStats(year),
   ]);
 
-  const tr = pitcherTRMap.get(playerId);
-  if (!tr) {
-    throw new Error(`No pitcher TR found for player ${playerId} in ${year}`);
-  }
-
-  const player = allPlayers.find((p) => p.id === playerId);
-  const scouting = scoutingFallback.ratings.find((r) => r.playerId === playerId);
-  const currentYearStat = yearPitchingStats.find((s) => s.player_id === playerId);
-  const historicalStats = yearlyStatsMap.get(playerId) ?? [];
-
-  let leagueContext = { fipConstant: 3.47, avgFip: 4.2, runsPerWin: 8.5 };
+  let tfrEntry: import('../src/services/TeamRatingsService').RatedProspect | undefined;
   try {
-    const lg = await leagueStatsService.getLeagueStats(year);
-    leagueContext = { fipConstant: lg.fipConstant, avgFip: lg.avgFip, runsPerWin: 8.5 };
+    const farmData = await teamRatingsService.getFarmData(year);
+    tfrEntry = farmData.prospects.find((p) => p.playerId === playerId);
   } catch {
-    // use defaults
+    // optional
   }
 
-  const trace: import('../src/services/ProjectionService').ProjectionCalculationTrace = {};
-  const projection = await projectionService.calculateProjection(
-    { stuff: tr.estimatedStuff, control: tr.estimatedControl, hra: tr.estimatedHra },
-    player?.age ?? 27,
-    scouting?.pitches ? Object.values(scouting.pitches).filter((r) => r >= 25).length : 0,
-    currentYearStat?.gs ?? 0,
-    leagueContext,
-    scouting?.stamina,
-    scouting?.injuryProneness,
-    historicalStats.length > 0 ? historicalStats : undefined,
-    tr.trueRating,
-    scouting?.pitches,
-    trace
-  );
+  const tr = pitcherTRMap.get(playerId);
+  if (!tr && !tfrEntry) {
+    throw new Error(`No canonical pitcher TR/TFR found for player ${playerId} in ${year}`);
+  }
+
+  const myScouting = myScoutingAll.find((r) => r.playerId === playerId);
+  const osaScouting = osaScoutingAll.find((r) => r.playerId === playerId);
+  const scouting = myScouting ?? osaScouting;
+  const scoutingSource = myScouting ? 'my' : (osaScouting ? 'osa' : null);
+  const player = allPlayers.find((p) => p.id === playerId);
+  const yearStat = yearPitchingStats.find((s) => s.player_id === playerId);
+  const teamId = yearStat?.team_id ?? player?.teamId ?? 0;
+  const teamName = allTeams.find((t) => t.id === teamId)?.nickname ?? 'Unknown';
+  const name = tr?.playerName
+    ?? yearStat?.playerName
+    ?? (player ? `${player.firstName} ${player.lastName}` : `Player ${playerId}`);
+
+  const data: any = {
+    playerId,
+    playerName: name,
+    team: teamName,
+    parentTeam: teamName,
+    age: player?.age,
+    position: player?.position,
+    role: player?.role,
+    scoutStuff: scouting?.stuff,
+    scoutControl: scouting?.control,
+    scoutHra: scouting?.hra,
+    scoutStamina: scouting?.stamina,
+    scoutOvr: scouting?.ovr,
+    scoutPot: scouting?.pot,
+    injuryProneness: scouting?.injuryProneness,
+    pitchRatings: scouting?.pitches,
+  };
+  resolveCanonicalPitcherData(data, tr, tfrEntry);
+
+  let mlbStats: Array<{ year: number; level: string; ip: number; fip: number; k9: number; bb9: number; hr9: number; war: number; gs: number }> = [];
+  try {
+    const yearlyDetails = await trueRatingsService.getPlayerYearlyStats(playerId, year, 5);
+    mlbStats = yearlyDetails.map((s) => ({
+      year: s.year,
+      level: 'MLB',
+      ip: s.ip,
+      fip: s.fip,
+      k9: s.k9,
+      bb9: s.bb9,
+      hr9: s.hr9,
+      war: s.war,
+      gs: s.gs,
+    }));
+  } catch {
+    // optional
+  }
+
+  const historicalStats = mlbStats
+    .filter((s) => s.level === 'MLB')
+    .map((s) => ({ year: s.year, ip: s.ip, k9: s.k9, bb9: s.bb9, hr9: s.hr9, gs: s.gs }));
+
+  let projectedIpFromService: number | null = null;
+  if (data.projIp === undefined) {
+    try {
+      const currentRatings = {
+        stuff: data.estimatedStuff ?? scouting?.stuff ?? 50,
+        control: data.estimatedControl ?? scouting?.control ?? 50,
+        hra: data.estimatedHra ?? scouting?.hra ?? 50,
+      };
+      const latestMlb = historicalStats[0];
+      const projResult = await projectionService.calculateProjection(
+        currentRatings,
+        data.age ?? 27,
+        scouting?.pitches ? Object.values(scouting.pitches).filter((r) => r >= 25).length : 0,
+        latestMlb?.gs ?? 0,
+        { fipConstant: 3.47, avgFip: 4.2, runsPerWin: 8.5 },
+        scouting?.stamina ?? data.scoutStamina,
+        scouting?.injuryProneness ?? data.injuryProneness,
+        historicalStats.length > 0 ? historicalStats : undefined,
+        data.trueRating ?? 0,
+        scouting?.pitches ?? data.pitchRatings
+      );
+      projectedIpFromService = projResult.projectedStats.ip;
+    } catch {
+      // fallback in computePitcherProjection
+    }
+  }
+
+  const modalProjection = computePitcherProjection(data, mlbStats, {
+    projectionMode,
+    scoutingData: scouting ? {
+      stamina: scouting.stamina,
+      injuryProneness: scouting.injuryProneness,
+    } : null,
+    projectedIp: projectedIpFromService,
+    estimateIp: (stamina: number, injury?: string) => estimatePitcherIpLikeModal(stamina, injury),
+    calculateWar: (fip: number, ip: number) => fipWarService.calculateWar(fip, ip),
+  });
 
   return {
     playerId,
-    playerName: tr.playerName,
+    playerName: name,
     type: 'pitcher',
     mode: 'projection',
     year,
-    canonicalTrueRating: tr,
+    projectionSource: 'modal',
+    projectionMode,
+    canonicalTrueRating: tr ?? null,
+    canonicalCurrentRatings: tr
+      ? { stuff: tr.estimatedStuff, control: tr.estimatedControl, hra: tr.estimatedHra }
+      : null,
+    canonicalBlendedRates: tr
+      ? { k9: tr.blendedK9, bb9: tr.blendedBb9, hr9: tr.blendedHr9 }
+      : null,
+    tfrAvailable: Boolean(tfrEntry),
+    hasTfrUpside: data.hasTfrUpside === true,
+    scoutingSource,
     scoutingInput: scouting
       ? {
           stuff: scouting.stuff,
@@ -378,29 +507,261 @@ async function explainPitcherProjection(playerId: number, year: number): Promise
             : [],
         }
       : null,
-    projection,
-    trace,
+    projectedIpFromService,
+    historicalIpData: historicalStats,
+    modalProjection,
+    projection: {
+      projectedStats: {
+        ip: modalProjection.projIp,
+        k9: modalProjection.projK9,
+        bb9: modalProjection.projBb9,
+        hr9: modalProjection.projHr9,
+        fip: modalProjection.projFip,
+        war: modalProjection.projWar,
+      },
+      estimatedRatings: {
+        stuff: modalProjection.ratings.stuff,
+        control: modalProjection.ratings.control,
+        hra: modalProjection.ratings.hra,
+      },
+    },
   };
 }
 
-async function explainHitterProjection(playerId: number, year: number): Promise<any> {
-  const { batterProjectionService } = await import('../src/services/BatterProjectionService');
-  const traced = await batterProjectionService.getProjectionWithTrace(year, playerId);
-  if (!traced) {
-    throw new Error(`No hitter projection found for player ${playerId} in ${year}`);
+async function explainHitterProjection(
+  playerId: number,
+  year: number,
+  projectionMode: 'current' | 'peak' = 'current'
+): Promise<any> {
+  const { trueRatingsService } = await import('../src/services/TrueRatingsService');
+  const { hitterTrueFutureRatingService } = await import('../src/services/HitterTrueFutureRatingService');
+  const { playerService } = await import('../src/services/PlayerService');
+  const { teamService } = await import('../src/services/TeamService');
+  const { teamRatingsService } = await import('../src/services/TeamRatingsService');
+  const { hitterScoutingDataService } = await import('../src/services/HitterScoutingDataService');
+  const { leagueBattingAveragesService } = await import('../src/services/LeagueBattingAveragesService');
+  const { HitterRatingEstimatorService } = await import('../src/services/HitterRatingEstimatorService');
+  const { resolveCanonicalBatterData, computeBatterProjection } = await import('../src/services/ModalDataService');
+
+  const [hitterTRMap, myScoutingAll, osaScoutingAll, allPlayers, allTeams, yearBattingStats] = await Promise.all([
+    trueRatingsService.getHitterTrueRatings(year),
+    hitterScoutingDataService.getLatestScoutingRatings('my'),
+    hitterScoutingDataService.getLatestScoutingRatings('osa'),
+    playerService.getAllPlayers(),
+    teamService.getAllTeams(),
+    trueRatingsService.getTrueBattingStats(year),
+  ]);
+
+  let tfrEntry: import('../src/services/TeamRatingsService').RatedHitterProspect | undefined;
+  try {
+    const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(year);
+    tfrEntry = unifiedData.prospects.find((p) => p.playerId === playerId);
+  } catch {
+    // optional
   }
+
+  const tr = hitterTRMap.get(playerId);
+  if (!tr && !tfrEntry) {
+    throw new Error(`No canonical hitter TR/TFR found for player ${playerId} in ${year}`);
+  }
+
+  const myScouting = myScoutingAll.find((r) => r.playerId === playerId);
+  const osaScouting = osaScoutingAll.find((r) => r.playerId === playerId);
+  const scouting = myScouting ?? osaScouting;
+  const scoutingSource = myScouting ? 'my' : (osaScouting ? 'osa' : null);
+  let futureGapTrace: any = null;
+  if (tfrEntry) {
+    try {
+      const mlbDist = await hitterTrueFutureRatingService.buildMLBHitterPercentileDistribution();
+      futureGapTrace = buildHitterFutureGapTrace({
+        scoutGap: scouting?.gap,
+        scoutSpeed: scouting?.speed,
+        trueGap: tfrEntry.trueRatings.gap,
+        trueSpeed: tfrEntry.trueRatings.speed,
+        doublesRateValues: mlbDist.doublesRateValues,
+        triplesRateValues: mlbDist.triplesRateValues,
+        findPercentile: (value, sortedValues, higherIsBetter) =>
+          hitterTrueFutureRatingService.findValuePercentileInDistribution(value, sortedValues, higherIsBetter),
+        expectedDoublesRate: (gap) => HitterRatingEstimatorService.expectedDoublesRate(gap),
+        expectedTriplesRate: (speed) => HitterRatingEstimatorService.expectedTriplesRate(speed),
+      });
+    } catch {
+      // optional
+    }
+  }
+
+  const player = allPlayers.find((p) => p.id === playerId);
+  const yearStat = yearBattingStats.find((s) => s.player_id === playerId);
+  const teamId = yearStat?.team_id ?? player?.teamId ?? 0;
+  const teamName = allTeams.find((t) => t.id === teamId)?.nickname ?? 'Unknown';
+  const name = tr?.playerName
+    ?? yearStat?.playerName
+    ?? (player ? `${player.firstName} ${player.lastName}` : `Player ${playerId}`);
+
+  const data: any = {
+    playerId,
+    playerName: name,
+    team: teamName,
+    parentTeam: teamName,
+    age: player?.age,
+    position: player?.position,
+    scoutPower: scouting?.power,
+    scoutEye: scouting?.eye,
+    scoutAvoidK: scouting?.avoidK,
+    scoutContact: scouting?.contact,
+    scoutGap: scouting?.gap,
+    scoutSpeed: scouting?.speed,
+    scoutSR: scouting?.stealingAggressiveness,
+    scoutSTE: scouting?.stealingAbility,
+    scoutOvr: scouting?.ovr,
+    scoutPot: scouting?.pot,
+    injuryProneness: scouting?.injuryProneness,
+  };
+  resolveCanonicalBatterData(data, tr, tfrEntry);
+
+  const years = [year, year - 1, year - 2, year - 3, year - 4];
+  const yearlyStats = await Promise.all(
+    years.map((y) => trueRatingsService.getTrueBattingStats(y).catch(() => [] as any[]))
+  );
+  const mlbStats: Array<{ year: number; level: string; pa: number; avg: number; obp: number; slg: number; hr: number; d?: number; t?: number; rbi: number; sb: number; cs: number; bb: number; k: number; war?: number }> = [];
+  for (let i = 0; i < years.length; i++) {
+    const y = years[i];
+    const stat = yearlyStats[i].find((s) => s.player_id === playerId);
+    if (!stat) continue;
+    const singles = stat.h - stat.d - stat.t - stat.hr;
+    const slg = stat.ab > 0 ? (singles + 2 * stat.d + 3 * stat.t + 4 * stat.hr) / stat.ab : 0;
+    mlbStats.push({
+      year: y,
+      level: 'MLB',
+      pa: stat.pa,
+      avg: stat.avg,
+      obp: stat.obp,
+      slg: Math.round(slg * 1000) / 1000,
+      hr: stat.hr,
+      d: stat.d,
+      t: stat.t,
+      rbi: stat.rbi,
+      sb: stat.sb,
+      cs: stat.cs,
+      bb: stat.bb,
+      k: stat.k,
+      war: stat.war,
+    });
+  }
+
+  const leagueAvg = await leagueBattingAveragesService.getLeagueAverages(year - 1);
+  const modalProjection = computeBatterProjection(data, mlbStats, {
+    projectionMode,
+    projectionYear: year,
+    leagueAvg,
+    scoutingData: scouting
+      ? {
+          injuryProneness: scouting.injuryProneness,
+          stealingAggressiveness: scouting.stealingAggressiveness,
+          stealingAbility: scouting.stealingAbility,
+        }
+      : null,
+    expectedBbPct: (eye: number) => HitterRatingEstimatorService.expectedBbPct(eye),
+    expectedKPct: (avoidK: number) => HitterRatingEstimatorService.expectedKPct(avoidK),
+    expectedAvg: (contact: number) => HitterRatingEstimatorService.expectedAvg(contact),
+    expectedHrPct: (power: number) => HitterRatingEstimatorService.expectedHrPct(power),
+    expectedDoublesRate: (gap: number) => HitterRatingEstimatorService.expectedDoublesRate(gap),
+    expectedTriplesRate: (speed: number) => HitterRatingEstimatorService.expectedTriplesRate(speed),
+    getProjectedPa: (injury: string | undefined, age: number) => leagueBattingAveragesService.getProjectedPa(injury, age),
+    getProjectedPaWithHistory: (history: { year: number; pa: number }[], age: number, injury: string | undefined) =>
+      leagueBattingAveragesService.getProjectedPaWithHistory(history, age, injury),
+    calculateOpsPlus: (obp: number, slg: number, lg: any) => leagueBattingAveragesService.calculateOpsPlus(obp, slg, lg),
+    computeWoba: (bbRate: number, avg: number, doublesPerAb: number, triplesPerAb: number, hrPerAb: number) =>
+      computeWobaLikeModal(bbRate, avg, doublesPerAb, triplesPerAb, hrPerAb),
+    calculateBaserunningRuns: (sb: number, cs: number) => leagueBattingAveragesService.calculateBaserunningRuns(sb, cs),
+    calculateBattingWar: (woba: number, pa: number, lg: any, sbRuns: number) =>
+      leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns),
+    projectStolenBases: (sr: number, ste: number, pa: number) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
+  });
+
+  const historicalPaData = mlbStats
+    .filter((s) => s.level === 'MLB' && s.year < year)
+    .map((s) => ({ year: s.year, pa: s.pa }));
 
   return {
     playerId,
-    playerName: traced.projection.name,
+    playerName: name,
     type: 'hitter',
     mode: 'projection',
     year,
-    statsYearUsed: traced.statsYear,
-    usedFallbackStats: traced.usedFallbackStats,
-    projectionPoolSize: traced.projectionPoolSize,
-    projection: traced.projection,
-    trace: traced.trace,
+    projectionSource: 'modal',
+    projectionMode,
+    canonicalTrueRating: tr ?? null,
+    canonicalCurrentRatings: tr
+      ? {
+          power: tr.estimatedPower,
+          eye: tr.estimatedEye,
+          avoidK: tr.estimatedAvoidK,
+          contact: tr.estimatedContact,
+          gap: tr.estimatedGap,
+          speed: tr.estimatedSpeed,
+        }
+      : null,
+    canonicalFutureRatings: tfrEntry
+      ? {
+          power: tfrEntry.trueRatings.power,
+          eye: tfrEntry.trueRatings.eye,
+          avoidK: tfrEntry.trueRatings.avoidK,
+          contact: tfrEntry.trueRatings.contact,
+          gap: tfrEntry.trueRatings.gap,
+          speed: tfrEntry.trueRatings.speed,
+        }
+      : null,
+    canonicalBlendedRates: tr
+      ? { bbPct: tr.blendedBbPct, kPct: tr.blendedKPct, hrPct: tr.blendedHrPct, avg: tr.blendedAvg }
+      : null,
+    tfrAvailable: Boolean(tfrEntry),
+    hasTfrUpside: data.hasTfrUpside === true,
+    futureGapTrace,
+    scoutingSource,
+    scoutingInput: scouting
+      ? {
+          power: scouting.power,
+          eye: scouting.eye,
+          avoidK: scouting.avoidK,
+          contact: scouting.contact,
+          gap: scouting.gap,
+          speed: scouting.speed,
+          stealingAggressiveness: scouting.stealingAggressiveness ?? null,
+          stealingAbility: scouting.stealingAbility ?? null,
+          ovr: scouting.ovr ?? null,
+          pot: scouting.pot ?? null,
+          injuryProneness: scouting.injuryProneness ?? null,
+        }
+      : null,
+    leagueAverageYear: year - 1,
+    historicalPaData,
+    modalProjection,
+    projection: {
+      projectedStats: {
+        pa: modalProjection.projPa,
+        avg: Math.round(modalProjection.projAvg * 1000) / 1000,
+        obp: Math.round(modalProjection.projObp * 1000) / 1000,
+        slg: Math.round(modalProjection.projSlg * 1000) / 1000,
+        ops: Math.round(modalProjection.projOps * 1000) / 1000,
+        hr: modalProjection.projHr,
+        sb: modalProjection.projSb,
+        woba: Math.round(modalProjection.projWoba * 1000) / 1000,
+        war: Math.round(modalProjection.projWar * 10) / 10,
+        wrcPlus: modalProjection.projOpsPlus,
+        bbPct: Math.round(modalProjection.projBbPct * 10) / 10,
+        kPct: Math.round(modalProjection.projKPct * 10) / 10,
+        hrPct: Math.round(modalProjection.projHrPct * 10) / 10,
+      },
+      estimatedRatings: {
+        power: Math.round(modalProjection.ratings.power),
+        eye: Math.round(modalProjection.ratings.eye),
+        avoidK: Math.round(modalProjection.ratings.avoidK),
+        contact: Math.round(modalProjection.ratings.contact),
+        gap: Math.round(modalProjection.ratings.gap),
+        speed: Math.round(modalProjection.ratings.speed),
+      },
+    },
   };
 }
 
@@ -416,6 +777,43 @@ function signedDelta(after: unknown, before: unknown, digits: number = 1): strin
   return `${sign}${d.toFixed(digits)}`;
 }
 
+function computeWobaLikeModal(
+  bbRate: number,
+  avg: number,
+  doublesRate: number,
+  triplesRate: number,
+  hrRate: number
+): number {
+  const abRate = 1 - bbRate;
+  const singlesPerAb = Math.max(0, avg - doublesRate - triplesRate - hrRate);
+  return 0.69 * bbRate + abRate * (0.89 * singlesPerAb + 1.27 * doublesRate + 1.62 * triplesRate + 2.10 * hrRate);
+}
+
+function estimatePitcherIpLikeModal(stamina: number, injury?: string): number {
+  let baseIp: number;
+  if (stamina >= 65) {
+    baseIp = 180 + (stamina - 65) * 1.5;
+  } else if (stamina >= 50) {
+    baseIp = 120 + (stamina - 50) * 4;
+  } else if (stamina >= 35) {
+    baseIp = 65 + (stamina - 35) * 3.67;
+  } else {
+    baseIp = 40 + (stamina - 20) * 1.67;
+  }
+
+  const injuryMultiplier: Record<string, number> = {
+    Ironman: 1.15,
+    Durable: 1.10,
+    Normal: 1.0,
+    Wary: 0.95,
+    Fragile: 0.90,
+    Prone: 0.80,
+    Wrecked: 0.75,
+  };
+  const mult = injuryMultiplier[injury ?? 'Normal'] ?? 0.95;
+  return Math.round(baseIp * mult);
+}
+
 function formatYearWeights(traceInput: any): string {
   const years = (traceInput?.yearlyStats ?? []).map((s: any) => s.year);
   const weights = traceInput?.yearWeights ?? [];
@@ -425,6 +823,55 @@ function formatYearWeights(traceInput: any): string {
 
 function canonicalRatingBinsText(): string {
   return '97.7->5.0, 93.3->4.5, 84.1->4.0, 69.1->3.5, 50.0->3.0, 30.9->2.5, 15.9->2.0, 6.7->1.5, 2.3->1.0, else 0.5';
+}
+
+function buildHitterFutureGapTrace(args: {
+  scoutGap?: number;
+  scoutSpeed?: number;
+  trueGap?: number;
+  trueSpeed?: number;
+  doublesRateValues: number[];
+  triplesRateValues: number[];
+  findPercentile: (value: number, sortedValues: number[], higherIsBetter: boolean) => number;
+  expectedDoublesRate: (gap: number) => number;
+  expectedTriplesRate: (speed: number) => number;
+}): {
+  scoutGap: number;
+  scoutSpeed: number;
+  expectedDoublesRate: number;
+  expectedTriplesRate: number;
+  mlbDoublesPoolSize: number;
+  mlbTriplesPoolSize: number;
+  gapPercentileFromMlb: number;
+  speedPercentileFromMlb: number;
+  inferredPercentileFromTrueGap: number | null;
+  inferredPercentileFromTrueSpeed: number | null;
+  trueGap: number | null;
+  trueSpeed: number | null;
+} {
+  const scoutGap = args.scoutGap ?? 50;
+  const scoutSpeed = args.scoutSpeed ?? 50;
+  const expectedDoublesRate = args.expectedDoublesRate(scoutGap);
+  const expectedTriplesRate = args.expectedTriplesRate(scoutSpeed);
+  const gapPercentileFromMlb = args.findPercentile(expectedDoublesRate, args.doublesRateValues, true);
+  const speedPercentileFromMlb = args.findPercentile(expectedTriplesRate, args.triplesRateValues, true);
+  const trueGap = typeof args.trueGap === 'number' ? args.trueGap : null;
+  const trueSpeed = typeof args.trueSpeed === 'number' ? args.trueSpeed : null;
+
+  return {
+    scoutGap,
+    scoutSpeed,
+    expectedDoublesRate,
+    expectedTriplesRate,
+    mlbDoublesPoolSize: args.doublesRateValues.length,
+    mlbTriplesPoolSize: args.triplesRateValues.length,
+    gapPercentileFromMlb,
+    speedPercentileFromMlb,
+    inferredPercentileFromTrueGap: trueGap !== null ? ((trueGap - 20) / 60) * 100 : null,
+    inferredPercentileFromTrueSpeed: trueSpeed !== null ? ((trueSpeed - 20) / 60) * 100 : null,
+    trueGap,
+    trueSpeed,
+  };
 }
 
 function renderPitcherRatingExplanation(output: any): string {
@@ -467,6 +914,9 @@ function renderPitcherRatingExplanation(output: any): string {
   lines.push(`Step 5. Convert to rating outputs`);
   lines.push(`- Inverse conversion (rate -> 20-80-ish): Stuff=(K/9-2.10)/0.074, Control=(5.30-BB/9)/0.052, HRA=(2.18-HR/9)/0.024`);
   lines.push(`- Estimated stuff/control/hra = ${n(t.output?.estimatedStuff, 1)} / ${n(t.output?.estimatedControl, 1)} / ${n(t.output?.estimatedHra, 1)}`);
+  if (canonical) {
+    lines.push(`- Canonical component ratings (used by modal): stuff/control/hra = ${n(canonical.estimatedStuff, 1)} / ${n(canonical.estimatedControl, 1)} / ${n(canonical.estimatedHra, 1)}`);
+  }
   lines.push(`- FIP-like = ((13*HR/9 + 3*BB/9 - 2*K/9)/9) = ${n(t.output?.fipLike)}`);
 
   lines.push(`Step 6. Percentile -> star rating (pool-relative)`);
@@ -520,6 +970,9 @@ function renderHitterRatingExplanation(output: any): string {
   lines.push(`Step 5. Convert to offense outputs`);
   lines.push(`- wOBA uses linear weights: 0.69*BB + 0.89*1B + 1.27*2B + 1.62*3B + 2.10*HR (rate-based model).`);
   lines.push(`- Final blended wOBA=${n(t.output?.woba, 3)}`);
+  if (canonical) {
+    lines.push(`- Canonical component ratings (used by modal): power/eye/avoidK/contact/gap/speed = ${n(canonical.estimatedPower, 1)} / ${n(canonical.estimatedEye, 1)} / ${n(canonical.estimatedAvoidK, 1)} / ${n(canonical.estimatedContact, 1)} / ${n(canonical.estimatedGap, 1)} / ${n(canonical.estimatedSpeed, 1)}`);
+  }
 
   lines.push(`Step 6. Percentile -> star rating (pool-relative via WAR/600)`);
   lines.push(`- Canonical pool (from TrueRatingsService): batters with total multi-year PA >= 30 (years include entries with >= 10 PA).`);
@@ -530,10 +983,54 @@ function renderHitterRatingExplanation(output: any): string {
     lines.push(`- Canonical pool result not found for this player`);
   }
 
+  lines.push(`Step 7. Future Gap (TFR)`);
+  if (output.canonicalFutureRatings) {
+    lines.push(`- Future ratings (TFR) include gap=${n(output.canonicalFutureRatings.gap, 1)} and speed=${n(output.canonicalFutureRatings.speed, 1)}.`);
+  } else {
+    lines.push(`- No TFR entry available for this player/year, so Future Gap is not defined here.`);
+  }
+  if (output.futureGapTrace) {
+    const fg = output.futureGapTrace;
+    lines.push(`- TFR Gap/Speed source: scout gap/speed ${n(fg.scoutGap, 1)} / ${n(fg.scoutSpeed, 1)} converted to expected rates (2B/AB=${n(fg.expectedDoublesRate, 4)}, 3B/AB=${n(fg.expectedTriplesRate, 4)}).`);
+    lines.push(`- MLB peak-age distribution sizes used: doubles=${n(fg.mlbDoublesPoolSize, 0)}, triples=${n(fg.mlbTriplesPoolSize, 0)}.`);
+    lines.push(`- Percentiles in MLB distributions: gap=${n(fg.gapPercentileFromMlb, 1)}, speed=${n(fg.speedPercentileFromMlb, 1)}.`);
+    lines.push(`- Formula: trueGap = round(20 + (gapPercentile/100)*60) -> ${n(fg.trueGap, 0)} (inferred percentile from displayed trueGap=${n(fg.inferredPercentileFromTrueGap, 1)}).`);
+  }
+
   return lines.join('\n');
 }
 
 function renderPitcherProjectionExplanation(output: any): string {
+  if (output.projectionSource === 'modal') {
+    const p = output.projection?.projectedStats;
+    const modal = output.modalProjection ?? {};
+    const lines: string[] = [];
+
+    lines.push(`Pitcher Projection Explanation: ${output.playerName} (${output.playerId}), ${output.year}`);
+    lines.push(`Step 1. Modal-matched canonical inputs`);
+    lines.push(`- Source path mirrors profile modal: canonical TR/TFR override -> modal projection computation.`);
+    if (output.canonicalCurrentRatings) {
+      lines.push(`- Canonical current ratings (stuff/control/hra): ${n(output.canonicalCurrentRatings.stuff, 1)} / ${n(output.canonicalCurrentRatings.control, 1)} / ${n(output.canonicalCurrentRatings.hra, 1)}`);
+    }
+    if (output.canonicalBlendedRates) {
+      lines.push(`- Canonical blended rates (K/9, BB/9, HR/9): ${n(output.canonicalBlendedRates.k9)} / ${n(output.canonicalBlendedRates.bb9)} / ${n(output.canonicalBlendedRates.hr9)}`);
+    }
+    lines.push(`- Projection mode resolved by modal logic: ${modal.isPeakMode ? 'peak' : 'current'}; TR=${n(output.canonicalTrueRating?.trueRating, 1)}, TFR available=${output.tfrAvailable ? 'yes' : 'no'}, upside=${output.hasTfrUpside ? 'yes' : 'no'}`);
+
+    lines.push(`Step 2. Rates and ratings used in modal projection table`);
+    lines.push(`- Ratings used (stuff/control/hra): ${n(modal.ratings?.stuff, 1)} / ${n(modal.ratings?.control, 1)} / ${n(modal.ratings?.hra, 1)}`);
+    lines.push(`- Projected K/9=${n(modal.projK9)}, BB/9=${n(modal.projBb9)}, HR/9=${n(modal.projHr9)}, FIP=${n(modal.projFip)}`);
+
+    lines.push(`Step 3. Workload (IP) path`);
+    lines.push(`- Historical MLB IP inputs for ProjectionService IP precompute: ${(output.historicalIpData ?? []).map((s: any) => `${s.year}:${n(s.ip, 1)}`).join(', ') || 'n/a'}`);
+    lines.push(`- ProjectionService-derived IP used by modal when available: ${n(output.projectedIpFromService, 0)} (fallback is stamina/injury estimate)`);
+
+    lines.push(`Step 4. Final projected line (matches modal)`);
+    lines.push(`- IP=${n(p?.ip, 0)}, K/9=${n(p?.k9)}, BB/9=${n(p?.bb9)}, HR/9=${n(p?.hr9)}, FIP=${n(p?.fip)}, WAR=${n(p?.war, 1)}`);
+
+    return lines.join('\n');
+  }
+
   const t = output.trace ?? {};
   const ip = t.ipPipeline ?? {};
   const lines: string[] = [];
@@ -571,6 +1068,46 @@ function renderPitcherProjectionExplanation(output: any): string {
 }
 
 function renderHitterProjectionExplanation(output: any): string {
+  if (output.projectionSource === 'modal') {
+    const p = output.projection?.projectedStats;
+    const modal = output.modalProjection ?? {};
+    const lines: string[] = [];
+
+    lines.push(`Hitter Projection Explanation: ${output.playerName} (${output.playerId}), ${output.year}`);
+    lines.push(`Step 1. Modal-matched canonical inputs`);
+    lines.push(`- Source path mirrors profile modal: canonical TR/TFR override -> modal projection computation.`);
+    if (output.canonicalCurrentRatings) {
+      lines.push(`- Canonical current ratings (power/eye/avoidK/contact/gap/speed): ${n(output.canonicalCurrentRatings.power, 1)} / ${n(output.canonicalCurrentRatings.eye, 1)} / ${n(output.canonicalCurrentRatings.avoidK, 1)} / ${n(output.canonicalCurrentRatings.contact, 1)} / ${n(output.canonicalCurrentRatings.gap, 1)} / ${n(output.canonicalCurrentRatings.speed, 1)}`);
+    }
+    if (output.canonicalFutureRatings) {
+      lines.push(`- Canonical future ratings (TFR power/eye/avoidK/contact/gap/speed): ${n(output.canonicalFutureRatings.power, 1)} / ${n(output.canonicalFutureRatings.eye, 1)} / ${n(output.canonicalFutureRatings.avoidK, 1)} / ${n(output.canonicalFutureRatings.contact, 1)} / ${n(output.canonicalFutureRatings.gap, 1)} / ${n(output.canonicalFutureRatings.speed, 1)}`);
+    }
+    if (output.canonicalBlendedRates) {
+      lines.push(`- Canonical blended rates (BB%, K%, HR%, AVG): ${n(output.canonicalBlendedRates.bbPct)} / ${n(output.canonicalBlendedRates.kPct)} / ${n(output.canonicalBlendedRates.hrPct)} / ${n(output.canonicalBlendedRates.avg, 3)}`);
+    }
+    lines.push(`- Projection mode resolved by modal logic: ${modal.isPeakMode ? 'peak' : 'current'}; TR=${n(output.canonicalTrueRating?.trueRating, 1)}, TFR available=${output.tfrAvailable ? 'yes' : 'no'}, upside=${output.hasTfrUpside ? 'yes' : 'no'}`);
+
+    lines.push(`Step 2. Ratings and formulas used in modal projection table`);
+    lines.push(`- Ratings used (power/eye/avoidK/contact/gap/speed): ${n(modal.ratings?.power, 1)} / ${n(modal.ratings?.eye, 1)} / ${n(modal.ratings?.avoidK, 1)} / ${n(modal.ratings?.contact, 1)} / ${n(modal.ratings?.gap, 1)} / ${n(modal.ratings?.speed, 1)}`);
+    lines.push(`- Projected BB%=${n(p?.bbPct)}, K%=${n(p?.kPct)}, HR%=${n(p?.hrPct)}, AVG=${n(p?.avg, 3)}`);
+    if (output.futureGapTrace) {
+      const fg = output.futureGapTrace;
+      lines.push(`- Future Gap derivation: scout gap=${n(fg.scoutGap, 1)} -> expected 2B/AB=${n(fg.expectedDoublesRate, 4)} -> MLB doubles percentile=${n(fg.gapPercentileFromMlb, 1)} -> trueGap ${n(fg.trueGap, 0)} via round(20 + pct*0.60).`);
+    }
+
+    lines.push(`Step 3. Playing time and context`);
+    lines.push(`- League baseline year for OPS+/WAR context: ${output.leagueAverageYear ?? 'n/a'}`);
+    lines.push(`- Historical MLB PA inputs (<${output.year}): ${(output.historicalPaData ?? []).map((s: any) => `${s.year}:${s.pa}`).join(', ') || 'n/a'}`);
+    if (output.scoutingInput) {
+      lines.push(`- SB path inputs (from scouting when available): SR=${n(output.scoutingInput.stealingAggressiveness, 1)}, STE=${n(output.scoutingInput.stealingAbility, 1)}, injury=${output.scoutingInput.injuryProneness ?? 'n/a'}`);
+    }
+
+    lines.push(`Step 4. Final projected line (matches modal)`);
+    lines.push(`- PA=${n(p?.pa, 0)}, AVG=${n(p?.avg, 3)}, OBP=${n(p?.obp, 3)}, SLG=${n(p?.slg, 3)}, HR=${n(p?.hr, 0)}, SB=${n(p?.sb, 0)}, wOBA=${n(p?.woba, 3)}, WAR=${n(p?.war, 1)}`);
+
+    return lines.join('\n');
+  }
+
   const t = output.trace ?? {};
   const p = output.projection;
   const lines: string[] = [];
@@ -706,6 +1243,7 @@ async function main(): Promise<void> {
   const fallbackYear = await dateService.getCurrentYear();
   const year = Number(args.year ?? fallbackYear);
   const mode = (args.mode ?? 'all') as ExplainMode;
+  const projectionMode = args.projectionMode === 'peak' ? 'peak' : 'current';
   const playerType = await resolvePlayerType(playerId, args.type);
 
   await seedDefaultScouting(year);
@@ -722,9 +1260,9 @@ async function main(): Promise<void> {
 
   if (mode === 'projection' || mode === 'all') {
     if (playerType === 'pitcher') {
-      outputs.push(await explainPitcherProjection(playerId, year));
+      outputs.push(await explainPitcherProjection(playerId, year, projectionMode));
     } else {
-      outputs.push(await explainHitterProjection(playerId, year));
+      outputs.push(await explainHitterProjection(playerId, year, projectionMode));
     }
   }
 
@@ -734,6 +1272,7 @@ async function main(): Promise<void> {
     playerType,
     year,
     mode,
+    projectionMode,
     outputs,
   };
 
