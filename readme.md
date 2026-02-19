@@ -421,8 +421,9 @@ Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 |------|---------|-------|
 | `tools/validate-ratings.ts` | Automated TR validation (WAR correlation, distributions, stability) | `npx tsx tools/validate-ratings.ts --year=2020` |
 | `tools/investigate-pitcher-war.ts` | Investigate pitcher WAR projection gaps | `npx tsx tools/investigate-pitcher-war.ts` |
+| `tools/explain-player.ts` | Explains a player's TR/projection using the real services + opt-in trace output (supports text/json/markdown) | `npx tsx tools/explain-player.ts --playerId=1234 --type=pitcher --mode=all --year=2026 --format=markdown` |
 
-**Planned:** In-app "Explain This Rating" panel using instrumented service calls (Option B). The old `trace-rating.ts` CLI tool was deleted — it reimplemented all service math independently and drifted out of sync.
+The CLI explain flow uses instrumented service calls so output stays in sync with production math. A future in-app "Explain This Rating" panel can reuse the same trace objects.
 
 ### Calibration
 

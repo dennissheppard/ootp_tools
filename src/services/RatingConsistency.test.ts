@@ -22,6 +22,8 @@ import {
 import { HitterScoutingRatings } from '../models/ScoutingData';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { PotentialStatsService } from './PotentialStatsService';
+import { batterProjectionService } from './BatterProjectionService';
+import { LeagueBattingAverages } from './LeagueBattingAveragesService';
 
 // ============================================================================
 // Mock Data Fixtures
@@ -105,6 +107,18 @@ const speedHitterInput: HitterTrueRatingInput = {
 
 const VALID_TRUE_RATINGS = [0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0];
 
+const mockLeagueBattingAverages: LeagueBattingAverages = {
+  year: 2024,
+  lgObp: 0.320,
+  lgSlg: 0.410,
+  lgWoba: 0.315,
+  lgRpa: 0.115,
+  wobaScale: 1.20,
+  runsPerWin: 10.0,
+  totalPa: 200000,
+  totalRuns: 23000,
+};
+
 // ============================================================================
 // 1. Pitcher TR Determinism
 // ============================================================================
@@ -149,6 +163,29 @@ describe('Pitcher TR Determinism', () => {
     expect(inputs[0].yearlyStats).toEqual(inputSnapshot[0].yearlyStats);
     expect(inputs[0].playerId).toBe(inputSnapshot[0].playerId);
     expect(inputs[0].playerName).toBe(inputSnapshot[0].playerName);
+  });
+
+  test('pitcher trace captures intermediate calculation state', () => {
+    const trace: import('./TrueRatingsCalculationService').PitcherTrueRatingTrace = {};
+    const result = trueRatingsCalculationService.calculateSinglePitcher(
+      {
+        ...acePitcherInput,
+        scoutingRatings: {
+          playerId: 1,
+          stuff: 70,
+          control: 65,
+          hra: 60,
+          ovr: 4.0,
+          pot: 4.0,
+        },
+      },
+      undefined,
+      trace
+    );
+
+    expect(trace.weightedRates?.totalIp).toBeGreaterThan(0);
+    expect(trace.regression?.k9.regressedRate).toBeGreaterThan(0);
+    expect(trace.output?.fipLike).toBeCloseTo(result.fipLike, 1);
   });
 });
 
@@ -206,6 +243,93 @@ describe('Batter TR Determinism', () => {
     hitterTrueRatingsCalculationService.calculateTrueRatings(inputs);
 
     expect(inputs).toEqual(inputSnapshot);
+  });
+
+  test('hitter trace captures intermediate calculation state', () => {
+    const trace: import('./HitterTrueRatingsCalculationService').HitterTrueRatingTrace = {};
+    const result = hitterTrueRatingsCalculationService.calculateSingleHitter(
+      {
+        ...eliteHitterInput,
+        scoutingRatings: {
+          playerId: eliteHitterInput.playerId,
+          power: 65,
+          eye: 60,
+          avoidK: 55,
+          contact: 60,
+          gap: 55,
+          speed: 50,
+          ovr: 4.0,
+          pot: 4.5,
+        },
+      },
+      undefined,
+      undefined,
+      trace
+    );
+
+    expect(trace.weightedRates?.totalPa).toBeGreaterThan(0);
+    expect(trace.regression?.bbPct.regressedRate).toBeGreaterThan(0);
+    expect(trace.output?.woba).toBeCloseTo(result.woba, 2);
+  });
+
+  test('hitter projection trace captures intermediate calculation state', () => {
+    const trResult: HitterTrueRatingResult = {
+      playerId: 999,
+      playerName: 'Trace Hitter',
+      blendedBbPct: 9.2,
+      blendedKPct: 21.0,
+      blendedHrPct: 4.1,
+      blendedIso: 0.185,
+      blendedAvg: 0.272,
+      blendedDoublesRate: 0.050,
+      blendedTriplesRate: 0.006,
+      estimatedPower: 58,
+      estimatedEye: 56,
+      estimatedAvoidK: 54,
+      estimatedContact: 57,
+      estimatedGap: 52,
+      estimatedSpeed: 50,
+      woba: 0.342,
+      war: 3.1,
+      percentile: 73.0,
+      trueRating: 3.5,
+      totalPa: 620,
+    };
+
+    const trace: import('./BatterProjectionService').BatterProjectionCalculationTrace = {};
+    const projection = batterProjectionService.calculateProjectionFromTrueRating(
+      trResult,
+      {
+        age: 27,
+        teamId: 1,
+        teamName: 'Testers',
+        position: 8,
+        name: trResult.playerName,
+        scouting: {
+          playerId: trResult.playerId,
+          power: 60,
+          eye: 58,
+          avoidK: 55,
+          contact: 57,
+          gap: 52,
+          speed: 50,
+          stealingAggressiveness: 55,
+          stealingAbility: 60,
+          injuryProneness: 'Normal',
+          ovr: 3.5,
+          pot: 4.0,
+          source: 'my',
+        },
+        fromMyScout: true,
+      },
+      mockLeagueBattingAverages,
+      [{ year: 2024, pa: 610, ab: 540, h: 150, d: 30, t: 5, hr: 28, bb: 55, k: 120, sb: 10, cs: 4 }],
+      trace
+    );
+
+    expect(trace.projectedRates?.hrPct).toBeGreaterThan(0);
+    expect(trace.playingTime?.projectedPa).toBeGreaterThan(0);
+    expect(trace.output?.projectedStats.war).toBe(projection.projectedStats.war);
   });
 });
 

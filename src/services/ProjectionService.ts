@@ -53,6 +53,92 @@ export interface ProjectionContext {
   };
 }
 
+export interface ProjectionIpTrace {
+  input?: {
+    age: number;
+    playerRole: number;
+    trueRating: number;
+    hasRecentMlb: boolean;
+    projectedFip?: number;
+    scouting?: {
+      stamina?: number;
+      injuryProneness?: string;
+      pitchCount: number;
+      usablePitchCount: number;
+    };
+    currentStatsGs?: number;
+    historicalStats?: YearlyPitchingStats[];
+  };
+  roleDecision?: {
+    isSp: boolean;
+    reason: string;
+  };
+  baseIp?: {
+    source: 'percentile' | 'formula';
+    stamina: number;
+    staminaPercentile?: number;
+    preInjury: number;
+  };
+  injuryAdjustment?: {
+    applied: boolean;
+    injuryProneness: string;
+    modifier: number;
+    resultIp: number;
+  };
+  skillAdjustment?: {
+    projectedFip?: number;
+    modifier: number;
+    resultIp: number;
+  };
+  historicalBlend?: {
+    applied: boolean;
+    weightedHistoricalIp?: number;
+    blendMode?: string;
+    resultIp: number;
+  };
+  ageAdjustment?: {
+    applied: boolean;
+    factor: number;
+    resultIp: number;
+  };
+  ipCap?: {
+    applied: boolean;
+    cap: number;
+    resultIp: number;
+  };
+  eliteBoost?: {
+    applied: boolean;
+    boost: number;
+    resultIp: number;
+  };
+  output?: {
+    ip: number;
+    isSp: boolean;
+  };
+}
+
+export interface ProjectionCalculationTrace {
+  input?: {
+    currentRatings: { stuff: number; control: number; hra: number };
+    age: number;
+    pitchCount: number;
+    gs: number;
+    stamina?: number;
+    injuryProneness?: string;
+    trueRating: number;
+    pitchRatingsProvided: boolean;
+    historicalStats?: YearlyPitchingStats[];
+  };
+  projectedRatings?: { stuff: number; control: number; hra: number };
+  estimatedFipBeforeIp?: number;
+  inferredHasRecentMlb?: boolean;
+  ipPipeline?: ProjectionIpTrace;
+  output?: {
+    projectedStats: { k9: number; bb9: number; hr9: number; fip: number; war: number; ip: number };
+    projectedRatings: { stuff: number; control: number; hra: number };
+  };
+}
+
 const PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
   { threshold: 97.7, rating: 5.0 },
   { threshold: 93.3, rating: 4.5 },
@@ -413,7 +499,8 @@ class ProjectionService {
     injuryProneness?: string,
     historicalStats?: YearlyPitchingStats[],
     trueRating: number = 0,
-    pitchRatings?: Record<string, number>
+    pitchRatings?: Record<string, number>,
+    trace?: ProjectionCalculationTrace
   ): Promise<{
     projectedStats: { k9: number; bb9: number; hr9: number; fip: number; war: number; ip: number };
     projectedRatings: { stuff: number; control: number; hra: number };
@@ -425,6 +512,21 @@ class ProjectionService {
 
     // Apply aging to get projected ratings first
     const projectedRatings = agingService.applyAging(currentRatings, age);
+
+    if (trace) {
+      trace.input = {
+        currentRatings: { ...currentRatings },
+        age,
+        pitchCount,
+        gs,
+        stamina,
+        injuryProneness,
+        trueRating,
+        pitchRatingsProvided: !!pitchRatings,
+        historicalStats: historicalStats?.map((s) => ({ ...s })),
+      };
+      trace.projectedRatings = { ...projectedRatings };
+    }
 
     // DEBUG: Log for specific player only
     const isDebugPlayer = age === 21 && Math.abs(currentRatings.stuff - 61) < 1;
@@ -441,6 +543,9 @@ class ProjectionService {
         leagueContext
     );
     const estimatedFip = tempStats.fip;
+    if (trace) {
+      trace.estimatedFipBeforeIp = estimatedFip;
+    }
 
     // Construct dummy scouting object for IP calc
     const dummyScouting: Partial<PitcherScoutingRatings> = {
@@ -463,7 +568,11 @@ class ProjectionService {
     // Infer if player has MLB experience from historical stats
     const totalHistoricalIp = historicalStats?.reduce((sum, s) => sum + s.ip, 0) ?? 0;
     const hasRecentMlb = totalHistoricalIp > 20 || gs > 0;
+    if (trace) {
+      trace.inferredHasRecentMlb = hasRecentMlb;
+    }
 
+    const ipTrace: ProjectionIpTrace | undefined = trace ? {} : undefined;
     const ipResult = this.calculateProjectedIp(
         dummyScouting as PitcherScoutingRatings,
         dummyStats as TruePlayerStats,
@@ -472,8 +581,13 @@ class ProjectionService {
         0, // role
         trueRating,
         hasRecentMlb,
-        estimatedFip
+        estimatedFip,
+        ipTrace
     );
+
+    if (trace && ipTrace) {
+      trace.ipPipeline = ipTrace;
+    }
 
     // Calculate Stats (projectedRatings already calculated earlier)
     const potStats = PotentialStatsService.calculatePitchingStats(
@@ -482,17 +596,26 @@ class ProjectionService {
         leagueContext
     );
 
-    return {
-        projectedStats: {
-            k9: potStats.k9,
-            bb9: potStats.bb9,
-            hr9: potStats.hr9,
-            fip: potStats.fip,
-            war: potStats.war,
-            ip: ipResult.ip
-        },
-        projectedRatings
+    const result = {
+      projectedStats: {
+        k9: potStats.k9,
+        bb9: potStats.bb9,
+        hr9: potStats.hr9,
+        fip: potStats.fip,
+        war: potStats.war,
+        ip: ipResult.ip
+      },
+      projectedRatings
     };
+
+    if (trace) {
+      trace.output = {
+        projectedStats: { ...result.projectedStats },
+        projectedRatings: { ...projectedRatings },
+      };
+    }
+
+    return result;
   }
 
   /**
@@ -630,8 +753,29 @@ class ProjectionService {
     playerRole: number = 0,
     trueRating: number = 0,
     hasRecentMlb: boolean = true,
-    projectedFip?: number
+    projectedFip?: number,
+    trace?: ProjectionIpTrace
   ): { ip: number; isSp: boolean } {
+    if (trace) {
+      const pitchValues = Object.values(scouting?.pitches ?? {});
+      const usablePitchCount = pitchValues.filter((r) => r >= 25).length;
+      trace.input = {
+        age,
+        playerRole,
+        trueRating,
+        hasRecentMlb,
+        projectedFip,
+        scouting: {
+          stamina: scouting?.stamina,
+          injuryProneness: scouting?.injuryProneness,
+          pitchCount: pitchValues.length,
+          usablePitchCount,
+        },
+        currentStatsGs: currentStats?.gs,
+        historicalStats: historicalStats?.map((s) => ({ ...s })),
+      };
+    }
+
     // 1. Determine Role (SP vs RP)
     let isSp = false;
 
@@ -665,24 +809,36 @@ class ProjectionService {
         console.log(`[Role Check] Prospect has NO scouting data`);
     }
 
+    let roleReason = 'fallback';
     if (meetsProfile) {
         isSp = true;
+        roleReason = 'scouting-profile';
     } else if (playerRole === 11) {
         // Heuristic 2: Explicit Role (SP)
         isSp = true;
+        roleReason = 'ootp-role';
     } else {
         // Heuristic 3: History (Fallback)
         // Check Stats first (GS >= 5)
         if (currentStats && currentStats.gs >= 5) {
             isSp = true;
+            roleReason = 'current-stats-gs';
         } else if (historicalStats && historicalStats.length > 0) {
             // Check most recent season with significant IP
             // Assuming historicalStats is sorted recent first.
             const recent = historicalStats.find(s => trueRatingsService.parseIp(s.ip) > 10);
             if (recent && recent.gs >= 5) {
                 isSp = true;
+                roleReason = 'historical-gs';
             }
         }
+    }
+
+    if (trace) {
+      trace.roleDecision = {
+        isSp,
+        reason: roleReason,
+      };
     }
 
     // 2. Calculate Base IP using Percentile Approach
@@ -699,6 +855,14 @@ class ProjectionService {
 
         // Floor for prospects with good stamina (prevents unreasonably low projections)
         if (baseIp < 100) baseIp = 100;
+        if (trace) {
+          trace.baseIp = {
+            source: 'percentile',
+            stamina,
+            staminaPercentile,
+            preInjury: baseIp,
+          };
+        }
     } else {
         // Fallback to formula-based approach if distributions not available
         // Updated for peak projections: stamina 50 → 160 IP, 60 → 190 IP, 70 → 220 IP (before modifiers)
@@ -709,6 +873,13 @@ class ProjectionService {
         // Clamp - increased max for SP peak projections
         if (isSp) baseIp = Math.max(100, Math.min(280, baseIp));
         else baseIp = Math.max(30, Math.min(100, baseIp));
+        if (trace) {
+          trace.baseIp = {
+            source: 'formula',
+            stamina,
+            preInjury: baseIp,
+          };
+        }
     }
 
     // 3. Injury Modifier
@@ -717,8 +888,8 @@ class ProjectionService {
     // history shows fewer IP), so applying the modifier here would double-penalize durability.
     const proneness = scouting?.injuryProneness?.toLowerCase() ?? 'normal';
     const hasHistoricalData = historicalStats && historicalStats.length > 0 && historicalStats.some(s => s.ip >= (isSp ? 50 : 10));
+    let injuryMod = 1.0;
     if (!hasHistoricalData) {
-        let injuryMod = 1.0;
         switch (proneness) {
             case 'iron man': injuryMod = 1.15; break;
             case 'durable': injuryMod = 1.10; break;
@@ -727,6 +898,14 @@ class ProjectionService {
             case 'wrecked': injuryMod = 0.75; break;
         }
         baseIp *= injuryMod;
+    }
+    if (trace) {
+      trace.injuryAdjustment = {
+        applied: !hasHistoricalData,
+        injuryProneness: scouting?.injuryProneness ?? 'Normal',
+        modifier: injuryMod,
+        resultIp: baseIp,
+      };
     }
 
     // 4. Skill Modifier (managers give more IP to better pitchers)
@@ -748,6 +927,13 @@ class ProjectionService {
         }
     }
     baseIp *= skillMod;
+    if (trace) {
+      trace.skillAdjustment = {
+        projectedFip,
+        modifier: skillMod,
+        resultIp: baseIp,
+      };
+    }
 
     // 5. Historical Blend (Durability Evidence)
     // For established players, blend with historical data
@@ -757,6 +943,8 @@ class ProjectionService {
 
     // Use weighted average of last 3 years if available
     // Filter out incomplete seasons (< 50 IP for starters who normally throw 120+)
+    let historicalBlendMode: string | undefined;
+    let weightedIpForTrace: number | undefined;
     if (historicalStats && historicalStats.length > 0) {
         // For established starters, exclude seasons with very low IP (likely incomplete/injured)
         const minIpThreshold = isSp ? 50 : 10;
@@ -776,6 +964,7 @@ class ProjectionService {
 
         if (totalWeight > 0) {
             let weightedIp = totalWeightedIp / totalWeight;
+            weightedIpForTrace = weightedIp;
 
             // Breakout / Ramp-Up Detection
             // If the player just threw a full starter workload (>120 IP) and it was a massive jump
@@ -793,13 +982,16 @@ class ProjectionService {
             if (isLimitedExperience && hasStarterProfile) {
                 // 85% model, 15% limited history
                 baseIp = (baseIp * 0.85) + (weightedIp * 0.15);
+                historicalBlendMode = 'limited-experience-85-15';
             } else if (weightedIp > 50) {
                 // Established players: 55% history, 45% model
                 // Calibrated Feb 2026: shifted from 35/65 to 45/55 to reduce IP compression
                 baseIp = (baseIp * 0.45) + (weightedIp * 0.55);
+                historicalBlendMode = 'established-45-55';
             } else {
                 // Low IP players: 50/50 blend
                 baseIp = (baseIp * 0.50) + (weightedIp * 0.50);
+                historicalBlendMode = 'low-ip-50-50';
             }
         }
     } else if (currentStats) {
@@ -809,25 +1001,54 @@ class ProjectionService {
             const isYoungStarterCallup = rawIp < 80 && age < 28 && hasStarterProfile;
             if (isYoungStarterCallup) {
                 baseIp = (baseIp * 0.85) + (rawIp * 0.15);
+                historicalBlendMode = 'current-stats-young-85-15';
             } else {
                 baseIp = (baseIp * 0.50) + (rawIp * 0.50);
+                historicalBlendMode = 'current-stats-50-50';
             }
         }
     }
+    if (trace) {
+      trace.historicalBlend = {
+        applied: !!historicalBlendMode,
+        weightedHistoricalIp: weightedIpForTrace,
+        blendMode: historicalBlendMode,
+        resultIp: baseIp,
+      };
+    }
 
     // 6. Age Cliff (The "Geriatric Penalty")
+    let ageFactor = 1.0;
     if (age >= 46) {
         baseIp *= 0.10;
+        ageFactor = 0.10;
     } else if (age >= 43) {
         baseIp *= 0.40;
+        ageFactor = 0.40;
     } else if (age >= 40) {
         baseIp *= 0.75;
+        ageFactor = 0.75;
+    }
+    if (trace) {
+      trace.ageAdjustment = {
+        applied: ageFactor !== 1.0,
+        factor: ageFactor,
+        resultIp: baseIp,
+      };
     }
 
     // Apply cap at 105% of historical max (prevent unrealistic projections)
     const ipCap = Math.round(this.spMaxIp * 1.05);
-    if (isSp && baseIp > ipCap) {
+    const wasCapped = isSp && baseIp > ipCap;
+    if (wasCapped) {
         baseIp = ipCap;
+    }
+    if (trace) {
+      trace.ipCap = {
+        applied: wasCapped,
+        cap: ipCap,
+        resultIp: baseIp,
+      };
     }
 
     // Apply continuous sliding scale IP boost for elite pitchers
@@ -840,8 +1061,8 @@ class ProjectionService {
     //
     // This addresses OOTP's tendency to maintain/increase workload for top pitchers
     let finalIp = baseIp;
+    let ipBoost = 1.00;
     if (projectedFip !== undefined) {
-        let ipBoost = 1.00;
         if (projectedFip < 3.0) {
             ipBoost = 1.08;
         } else if (projectedFip < 3.5) {
@@ -857,6 +1078,17 @@ class ProjectionService {
         if (ipBoost > 1.00) {
             finalIp = baseIp * ipBoost;
         }
+    }
+    if (trace) {
+      trace.eliteBoost = {
+        applied: ipBoost > 1.0,
+        boost: ipBoost,
+        resultIp: finalIp,
+      };
+      trace.output = {
+        ip: Math.round(finalIp),
+        isSp,
+      };
     }
 
     return { ip: Math.round(finalIp), isSp };

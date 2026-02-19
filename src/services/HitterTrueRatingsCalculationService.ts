@@ -90,6 +90,71 @@ export interface HitterTrueRatingResult {
   totalPa: number;
 }
 
+export interface HitterRegressionTrace {
+  weightedRate: number;
+  totalPa: number;
+  leagueRate: number;
+  stabilizationK: number;
+  statType: 'bbPct' | 'kPct' | 'iso' | 'avg';
+  estimatedWoba: number;
+  targetOffset: number;
+  strengthMultiplier: number;
+  regressionTarget: number;
+  adjustedKBeforePaScale: number;
+  paScale: number;
+  adjustedKAfterPaScale: number;
+  regressedRate: number;
+}
+
+export interface HitterTrueRatingTrace {
+  input?: {
+    playerId: number;
+    playerName: string;
+    yearlyStats: YearlyHittingStats[];
+    yearWeights: number[];
+    hasScouting: boolean;
+  };
+  weightedRates?: {
+    bbPct: number;
+    kPct: number;
+    hrPct: number;
+    iso: number;
+    avg: number;
+    doublesRate: number;
+    triplesRate: number;
+    sbPerPa: number;
+    csPerPa: number;
+    totalPa: number;
+  };
+  rawWoba?: number;
+  regression?: {
+    bbPct: HitterRegressionTrace;
+    kPct: HitterRegressionTrace;
+    iso: HitterRegressionTrace;
+    avg: HitterRegressionTrace;
+  };
+  scoutingBlend?: {
+    effectiveDevRatio: number;
+    scoutingExpectedRates: { bbPct: number; kPct: number; hrPct: number; iso: number; avg: number };
+    weights: {
+      bbPct: { baseScoutWeight: number; scoutBoost: number; scoutWeight: number; confidencePa: number };
+      kPct: { baseScoutWeight: number; scoutBoost: number; scoutWeight: number; confidencePa: number };
+      hrPct: { baseScoutWeight: number; scoutBoost: number; scoutWeight: number; confidencePa: number };
+      avg: { baseScoutWeight: number; scoutBoost: number; scoutWeight: number; confidencePa: number };
+    };
+    regressedRates: { bbPct: number; kPct: number; hrPct: number; iso: number; avg: number };
+    blendedRates: { bbPct: number; kPct: number; hrPct: number; iso: number; avg: number };
+  };
+  output?: {
+    blendedBbPct: number;
+    blendedKPct: number;
+    blendedHrPct: number;
+    blendedIso: number;
+    blendedAvg: number;
+    woba: number;
+  };
+}
+
 /**
  * League average rates needed for regression
  */
@@ -323,10 +388,24 @@ class HitterTrueRatingsCalculationService {
   calculateSingleHitter(
     input: HitterTrueRatingInput,
     leagueAverages: HitterLeagueAverages = DEFAULT_LEAGUE_AVERAGES,
-    yearWeights?: number[]
+    yearWeights?: number[],
+    trace?: HitterTrueRatingTrace
   ): HitterTrueRatingResult {
+    const resolvedYearWeights = yearWeights ?? YEAR_WEIGHTS;
+
     // Step 1: Multi-year weighted average
-    const weighted = this.calculateWeightedRates(input.yearlyStats, yearWeights);
+    const weighted = this.calculateWeightedRates(input.yearlyStats, resolvedYearWeights);
+
+    if (trace) {
+      trace.input = {
+        playerId: input.playerId,
+        playerName: input.playerName,
+        yearlyStats: input.yearlyStats.map((s) => ({ ...s })),
+        yearWeights: [...resolvedYearWeights],
+        hasScouting: !!input.scoutingRatings,
+      };
+      trace.weightedRates = { ...weighted };
+    }
 
     // Step 2: Tier-aware regression (based on estimated wOBA performance)
     // First calculate raw wOBA to determine performance tier
@@ -334,11 +413,76 @@ class HitterTrueRatingsCalculationService {
       weighted.bbPct, weighted.kPct, weighted.iso, weighted.avg
     );
 
+    if (trace) {
+      trace.rawWoba = rawWoba;
+    }
+
+    const bbTrace: HitterRegressionTrace = {
+      weightedRate: 0,
+      totalPa: 0,
+      leagueRate: 0,
+      stabilizationK: 0,
+      statType: 'bbPct',
+      estimatedWoba: rawWoba,
+      targetOffset: 0,
+      strengthMultiplier: 0,
+      regressionTarget: 0,
+      adjustedKBeforePaScale: 0,
+      paScale: 0,
+      adjustedKAfterPaScale: 0,
+      regressedRate: 0,
+    };
+    const kTrace: HitterRegressionTrace = {
+      weightedRate: 0,
+      totalPa: 0,
+      leagueRate: 0,
+      stabilizationK: 0,
+      statType: 'kPct',
+      estimatedWoba: rawWoba,
+      targetOffset: 0,
+      strengthMultiplier: 0,
+      regressionTarget: 0,
+      adjustedKBeforePaScale: 0,
+      paScale: 0,
+      adjustedKAfterPaScale: 0,
+      regressedRate: 0,
+    };
+    const isoTrace: HitterRegressionTrace = {
+      weightedRate: 0,
+      totalPa: 0,
+      leagueRate: 0,
+      stabilizationK: 0,
+      statType: 'iso',
+      estimatedWoba: rawWoba,
+      targetOffset: 0,
+      strengthMultiplier: 0,
+      regressionTarget: 0,
+      adjustedKBeforePaScale: 0,
+      paScale: 0,
+      adjustedKAfterPaScale: 0,
+      regressedRate: 0,
+    };
+    const avgTrace: HitterRegressionTrace = {
+      weightedRate: 0,
+      totalPa: 0,
+      leagueRate: 0,
+      stabilizationK: 0,
+      statType: 'avg',
+      estimatedWoba: rawWoba,
+      targetOffset: 0,
+      strengthMultiplier: 0,
+      regressionTarget: 0,
+      adjustedKBeforePaScale: 0,
+      paScale: 0,
+      adjustedKAfterPaScale: 0,
+      regressedRate: 0,
+    };
+
     let regressedBbPct = this.regressToMeanTierAware(
-      weighted.bbPct, weighted.totalPa, leagueAverages.avgBbPct, STABILIZATION.bbPct, 'bbPct', rawWoba
+      weighted.bbPct, weighted.totalPa, leagueAverages.avgBbPct, STABILIZATION.bbPct, 'bbPct', rawWoba, trace ? bbTrace : undefined
     );
     let regressedKPct = this.regressToMeanTierAware(
-      weighted.kPct, weighted.totalPa, leagueAverages.avgKPct, STABILIZATION.kPct, 'kPct', rawWoba
+      weighted.kPct, weighted.totalPa, leagueAverages.avgKPct, STABILIZATION.kPct, 'kPct', rawWoba, trace ? kTrace : undefined
     );
     // DON'T regress HR% - the projection coefficient already handles regression
     // implicitly (it's calibrated to actual historical outcomes). Multi-year
@@ -346,11 +490,20 @@ class HitterTrueRatingsCalculationService {
     // "double regression" and under-projects elite power hitters by ~1% HR rate.
     let regressedHrPct = weighted.hrPct;
     let regressedIso = this.regressToMeanTierAware(
-      weighted.iso, weighted.totalPa, leagueAverages.avgIso, STABILIZATION.iso, 'iso', rawWoba
+      weighted.iso, weighted.totalPa, leagueAverages.avgIso, STABILIZATION.iso, 'iso', rawWoba, trace ? isoTrace : undefined
     );
     let regressedAvg = this.regressToMeanTierAware(
-      weighted.avg, weighted.totalPa, leagueAverages.avgAvg, STABILIZATION.avg, 'avg', rawWoba
+      weighted.avg, weighted.totalPa, leagueAverages.avgAvg, STABILIZATION.avg, 'avg', rawWoba, trace ? avgTrace : undefined
     );
+
+    if (trace) {
+      trace.regression = {
+        bbPct: bbTrace,
+        kPct: kTrace,
+        iso: isoTrace,
+        avg: avgTrace,
+      };
+    }
 
     // Step 3: OVR/POT-scaled scouting blend
     // Scouting component ratings are POTENTIAL (ceiling) values, not current ability.
@@ -365,14 +518,57 @@ class HitterTrueRatingsCalculationService {
     if (input.scoutingRatings) {
       const effectiveDevRatio = this.getEffectiveDevRatio(input.scoutingRatings, weighted.totalPa);
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings, effectiveDevRatio);
-      blendedBbPct = this.blendWithScouting(regressedBbPct, scoutExpected.bbPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.bbPct, effectiveDevRatio);
-      blendedKPct = this.blendWithScouting(regressedKPct, scoutExpected.kPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.kPct, effectiveDevRatio);
-      blendedHrPct = this.blendWithScouting(regressedHrPct, scoutExpected.hrPct, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.hrPct, effectiveDevRatio);
-      blendedAvg = this.blendWithScouting(regressedAvg, scoutExpected.avg, weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.avg, effectiveDevRatio);
+      const bbWeights = this.getScoutingBlendWeights(weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.bbPct, effectiveDevRatio);
+      const kWeights = this.getScoutingBlendWeights(weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.kPct, effectiveDevRatio);
+      const hrWeights = this.getScoutingBlendWeights(weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.hrPct, effectiveDevRatio);
+      const avgWeights = this.getScoutingBlendWeights(weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.avg, effectiveDevRatio);
+
+      blendedBbPct = (1 - bbWeights.scoutWeight) * regressedBbPct + bbWeights.scoutWeight * scoutExpected.bbPct;
+      blendedKPct = (1 - kWeights.scoutWeight) * regressedKPct + kWeights.scoutWeight * scoutExpected.kPct;
+      blendedHrPct = (1 - hrWeights.scoutWeight) * regressedHrPct + hrWeights.scoutWeight * scoutExpected.hrPct;
+      blendedAvg = (1 - avgWeights.scoutWeight) * regressedAvg + avgWeights.scoutWeight * scoutExpected.avg;
+
+      if (trace) {
+        trace.scoutingBlend = {
+          effectiveDevRatio,
+          scoutingExpectedRates: { ...scoutExpected },
+          weights: {
+            bbPct: { ...bbWeights, confidencePa: SCOUTING_BLEND_THRESHOLDS.bbPct },
+            kPct: { ...kWeights, confidencePa: SCOUTING_BLEND_THRESHOLDS.kPct },
+            hrPct: { ...hrWeights, confidencePa: SCOUTING_BLEND_THRESHOLDS.hrPct },
+            avg: { ...avgWeights, confidencePa: SCOUTING_BLEND_THRESHOLDS.avg },
+          },
+          regressedRates: {
+            bbPct: regressedBbPct,
+            kPct: regressedKPct,
+            hrPct: regressedHrPct,
+            iso: regressedIso,
+            avg: regressedAvg,
+          },
+          blendedRates: {
+            bbPct: blendedBbPct,
+            kPct: blendedKPct,
+            hrPct: blendedHrPct,
+            iso: blendedIso,
+            avg: blendedAvg,
+          },
+        };
+      }
     }
 
     // Step 4: Calculate wOBA from blended rates (using HR% directly, not ISO)
     const woba = this.calculateWobaFromRates(blendedBbPct, blendedKPct, blendedHrPct, blendedAvg);
+
+    if (trace) {
+      trace.output = {
+        blendedBbPct,
+        blendedKPct,
+        blendedHrPct,
+        blendedIso,
+        blendedAvg,
+        woba,
+      };
+    }
 
     // Note: Component ratings (Power, Eye, AvK, Contact, Gap, Speed) will be calculated
     // via percentile ranking in calculateComponentRatingsFromPercentiles()
@@ -511,7 +707,8 @@ class HitterTrueRatingsCalculationService {
     leagueRate: number,
     stabilizationK: number,
     statType: 'bbPct' | 'kPct' | 'iso' | 'avg',
-    estimatedWoba: number
+    estimatedWoba: number,
+    trace?: HitterRegressionTrace
   ): number {
     if (totalPa + stabilizationK === 0) {
       return leagueRate;
@@ -556,6 +753,7 @@ class HitterTrueRatingsCalculationService {
 
     // Apply tier-specific regression strength
     let adjustedK = stabilizationK * strengthMultiplier;
+    const adjustedKBeforePaScale = adjustedK;
 
     // PA-AWARE SCALING: Reduce regression strength for low-PA hitters
     // Low PA (100): paScale = 0.60 (40% reduction in regression)
@@ -566,7 +764,25 @@ class HitterTrueRatingsCalculationService {
     adjustedK = adjustedK * paScale;
 
     // Regression formula with tier-aware adjusted strength
-    return (weightedRate * totalPa + regressionTarget * adjustedK) / (totalPa + adjustedK);
+    const regressedRate = (weightedRate * totalPa + regressionTarget * adjustedK) / (totalPa + adjustedK);
+
+    if (trace) {
+      trace.weightedRate = weightedRate;
+      trace.totalPa = totalPa;
+      trace.leagueRate = leagueRate;
+      trace.stabilizationK = stabilizationK;
+      trace.statType = statType;
+      trace.estimatedWoba = estimatedWoba;
+      trace.targetOffset = targetOffset;
+      trace.strengthMultiplier = strengthMultiplier;
+      trace.regressionTarget = regressionTarget;
+      trace.adjustedKBeforePaScale = adjustedKBeforePaScale;
+      trace.paScale = paScale;
+      trace.adjustedKAfterPaScale = adjustedK;
+      trace.regressedRate = regressedRate;
+    }
+
+    return regressedRate;
   }
 
   /**
@@ -646,11 +862,19 @@ class HitterTrueRatingsCalculationService {
     confidencePa: number = SCOUTING_BLEND_CONFIDENCE_PA,
     effectiveDevRatio: number = 1.0,
   ): number {
+    const { scoutWeight } = this.getScoutingBlendWeights(totalPa, confidencePa, effectiveDevRatio);
+    return (1 - scoutWeight) * regressedRate + scoutWeight * scoutingExpectedRate;
+  }
+
+  private getScoutingBlendWeights(
+    totalPa: number,
+    confidencePa: number,
+    effectiveDevRatio: number
+  ): { baseScoutWeight: number; scoutBoost: number; scoutWeight: number } {
     const baseScoutWeight = confidencePa / (totalPa + confidencePa);
-    // Boost scouting weight for unproven players (effectiveDevRatio < 1.0)
     const scoutBoost = 1 - effectiveDevRatio;
     const scoutWeight = Math.min(0.95, baseScoutWeight + scoutBoost * (1 - baseScoutWeight));
-    return (1 - scoutWeight) * regressedRate + scoutWeight * scoutingExpectedRate;
+    return { baseScoutWeight, scoutBoost, scoutWeight };
   }
 
   /**

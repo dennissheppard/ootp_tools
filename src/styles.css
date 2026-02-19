@@ -7063,6 +7063,7 @@ th .stat-tooltip {
 .batter-profile-modal .chart-section-header .scout-source-toggle {
   position: absolute;
   left: 0;
+  margin-top: 2px;
 }
 
 .batter-profile-modal .ratings-layout {

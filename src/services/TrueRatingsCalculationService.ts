@@ -93,6 +93,72 @@ export interface TrueRatingResult {
   role?: PitcherRole;
 }
 
+export interface PitcherRegressionTrace {
+  weightedRate: number;
+  totalIp: number;
+  leagueRate: number;
+  stabilizationK: number;
+  statType: 'k9' | 'bb9' | 'hr9';
+  weightedFipLike?: number;
+  estimatedFip?: number;
+  targetOffset?: number;
+  strengthMultiplier?: number;
+  regressionRatio?: number;
+  regressionTarget: number;
+  adjustedKBeforeIpScale: number;
+  ipScale: number;
+  adjustedKAfterIpScale: number;
+  regressedRate: number;
+}
+
+export interface PitcherTrueRatingTrace {
+  input?: {
+    playerId: number;
+    playerName: string;
+    role?: PitcherRole;
+    yearlyStats: YearlyPitchingStats[];
+    yearWeights: number[];
+    hasScouting: boolean;
+  };
+  weightedRates?: {
+    k9: number;
+    bb9: number;
+    hr9: number;
+    totalIp: number;
+  };
+  tierContext?: {
+    role: PitcherRole;
+    leagueAverages: LeagueAverages;
+  };
+  regression?: {
+    k9: PitcherRegressionTrace;
+    bb9: PitcherRegressionTrace;
+    hr9: PitcherRegressionTrace;
+  };
+  scoutingBlend?: {
+    effectiveDevRatio: number;
+    scoutingExpectedRates: { k9: number; bb9: number; hr9: number };
+    weights: {
+      baseScoutWeight: number;
+      scoutBoost: number;
+      scoutWeight: number;
+      confidenceIp: number;
+    };
+    regressedRates: { k9: number; bb9: number; hr9: number };
+    blendedRates: { k9: number; bb9: number; hr9: number };
+  };
+  output?: {
+    blendedK9: number;
+    blendedBb9: number;
+    blendedHr9: number;
+    estimatedStuff: number;
+    estimatedControl: number;
+    estimatedHra: number;
+    fipLike: number;
+    role: PitcherRole;
+  };
+}
+
 /**
  * League average rates needed for regression
  */
@@ -385,25 +451,93 @@ class TrueRatingsCalculationService {
    */
   calculateSinglePitcher(
     input: TrueRatingInput,
-    yearWeights?: number[]
+    yearWeights?: number[],
+    trace?: PitcherTrueRatingTrace
   ): TrueRatingResult {
+    const resolvedYearWeights = yearWeights ?? YEAR_WEIGHTS;
+
     // Step 1: Multi-year weighted average
-    const weighted = this.calculateWeightedRates(input.yearlyStats, yearWeights);
+    const weighted = this.calculateWeightedRates(input.yearlyStats, resolvedYearWeights);
+
+    if (trace) {
+      trace.input = {
+        playerId: input.playerId,
+        playerName: input.playerName,
+        role: input.role,
+        yearlyStats: input.yearlyStats.map((s) => ({ ...s })),
+        yearWeights: [...resolvedYearWeights],
+        hasScouting: !!input.scoutingRatings,
+      };
+      trace.weightedRates = { ...weighted };
+    }
 
     // DEBUG: Log input for specific player
     // Use tier-based league averages (role-based if provided, else IP-based)
     const tierBasedAverages = getLeagueAveragesByRole(input.role, weighted.totalIp);
+    const tierRole = input.role ?? getRoleFromIp(weighted.totalIp);
+
+    if (trace) {
+      trace.tierContext = {
+        role: tierRole,
+        leagueAverages: { ...tierBasedAverages },
+      };
+    }
 
     // Step 2: Three-tier regression (role-based if provided, else IP-based)
+    const k9Trace: PitcherRegressionTrace = {
+      weightedRate: 0,
+      totalIp: 0,
+      leagueRate: 0,
+      stabilizationK: 0,
+      statType: 'k9',
+      regressionTarget: 0,
+      adjustedKBeforeIpScale: 0,
+      ipScale: 0,
+      adjustedKAfterIpScale: 0,
+      regressedRate: 0,
+    };
+    const bb9Trace: PitcherRegressionTrace = {
+      weightedRate: 0,
+      totalIp: 0,
+      leagueRate: 0,
+      stabilizationK: 0,
+      statType: 'bb9',
+      regressionTarget: 0,
+      adjustedKBeforeIpScale: 0,
+      ipScale: 0,
+      adjustedKAfterIpScale: 0,
+      regressedRate: 0,
+    };
+    const hr9Trace: PitcherRegressionTrace = {
+      weightedRate: 0,
+      totalIp: 0,
+      leagueRate: 0,
+      stabilizationK: 0,
+      statType: 'hr9',
+      regressionTarget: 0,
+      adjustedKBeforeIpScale: 0,
+      ipScale: 0,
+      adjustedKAfterIpScale: 0,
+      regressedRate: 0,
+    };
+
     let regressedK9 = this.regressToLeagueMean(
-      weighted.k9, weighted.totalIp, tierBasedAverages.avgK9, STABILIZATION.k9, 'k9', weighted, input.role
+      weighted.k9, weighted.totalIp, tierBasedAverages.avgK9, STABILIZATION.k9, 'k9', weighted, input.role, trace ? k9Trace : undefined
     );
     let regressedBb9 = this.regressToLeagueMean(
-      weighted.bb9, weighted.totalIp, tierBasedAverages.avgBb9, STABILIZATION.bb9, 'bb9', weighted, input.role
+      weighted.bb9, weighted.totalIp, tierBasedAverages.avgBb9, STABILIZATION.bb9, 'bb9', weighted, input.role, trace ? bb9Trace : undefined
     );
     let regressedHr9 = this.regressToLeagueMean(
-      weighted.hr9, weighted.totalIp, tierBasedAverages.avgHr9, STABILIZATION.hr9, 'hr9', weighted, input.role
+      weighted.hr9, weighted.totalIp, tierBasedAverages.avgHr9, STABILIZATION.hr9, 'hr9', weighted, input.role, trace ? hr9Trace : undefined
     );
+
+    if (trace) {
+      trace.regression = {
+        k9: k9Trace,
+        bb9: bb9Trace,
+        hr9: hr9Trace,
+      };
+    }
 
     // Step 3: Optional scouting blend
     let blendedK9 = regressedK9;
@@ -413,9 +547,32 @@ class TrueRatingsCalculationService {
     if (input.scoutingRatings) {
       const effectiveDevRatio = this.getEffectiveDevRatio(input.scoutingRatings, weighted.totalIp);
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings, effectiveDevRatio);
-      blendedK9 = this.blendWithScouting(regressedK9, scoutExpected.k9, weighted.totalIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
-      blendedBb9 = this.blendWithScouting(regressedBb9, scoutExpected.bb9, weighted.totalIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
-      blendedHr9 = this.blendWithScouting(regressedHr9, scoutExpected.hr9, weighted.totalIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
+      const blendWeights = this.getScoutingBlendWeights(weighted.totalIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
+
+      blendedK9 = (1 - blendWeights.scoutWeight) * regressedK9 + blendWeights.scoutWeight * scoutExpected.k9;
+      blendedBb9 = (1 - blendWeights.scoutWeight) * regressedBb9 + blendWeights.scoutWeight * scoutExpected.bb9;
+      blendedHr9 = (1 - blendWeights.scoutWeight) * regressedHr9 + blendWeights.scoutWeight * scoutExpected.hr9;
+
+      if (trace) {
+        trace.scoutingBlend = {
+          effectiveDevRatio,
+          scoutingExpectedRates: { ...scoutExpected },
+          weights: {
+            ...blendWeights,
+            confidenceIp: SCOUTING_BLEND_CONFIDENCE_IP,
+          },
+          regressedRates: {
+            k9: regressedK9,
+            bb9: regressedBb9,
+            hr9: regressedHr9,
+          },
+          blendedRates: {
+            k9: blendedK9,
+            bb9: blendedBb9,
+            hr9: blendedHr9,
+          },
+        };
+      }
     }
 
     // Estimate ratings from blended rates (using inverse formulas)
@@ -427,7 +584,20 @@ class TrueRatingsCalculationService {
     const fipLike = this.calculateFipLike(blendedK9, blendedBb9, blendedHr9);
 
     // Determine role: use provided role, or fall back to IP-based
-    const determinedRole = input.role ?? getRoleFromIp(weighted.totalIp);
+    const determinedRole = tierRole;
+
+    if (trace) {
+      trace.output = {
+        blendedK9,
+        blendedBb9,
+        blendedHr9,
+        estimatedStuff,
+        estimatedControl,
+        estimatedHra,
+        fipLike,
+        role: determinedRole,
+      };
+    }
 
     return {
       playerId: input.playerId,
@@ -541,7 +711,8 @@ class TrueRatingsCalculationService {
     stabilizationK: number,
     statType: 'k9' | 'bb9' | 'hr9' = 'k9',
     weightedRates?: WeightedRates,
-    role?: PitcherRole
+    role?: PitcherRole,
+    trace?: PitcherRegressionTrace
   ): number {
     if (totalIp + stabilizationK === 0) {
       return leagueRate;
@@ -591,7 +762,17 @@ class TrueRatingsCalculationService {
 
       // Apply tier-specific regression strength
       adjustedK = stabilizationK * strengthMultiplier;
+
+      if (trace) {
+        trace.weightedFipLike = fipLike;
+        trace.estimatedFip = estimatedFip;
+        trace.targetOffset = targetOffset;
+        trace.strengthMultiplier = strengthMultiplier;
+        trace.regressionRatio = regressionRatio;
+      }
     }
+
+    const adjustedKBeforeIpScale = adjustedK;
 
     // IP-AWARE SCALING: Reduce regression strength for low-IP pitchers
     // This addresses systematic over-projection of low-IP pitchers
@@ -603,7 +784,22 @@ class TrueRatingsCalculationService {
     adjustedK = adjustedK * ipScale;
 
     // Regression formula with quartile-aware adjusted strength
-    return (weightedRate * totalIp + regressionTarget * adjustedK) / (totalIp + adjustedK);
+    const regressedRate = (weightedRate * totalIp + regressionTarget * adjustedK) / (totalIp + adjustedK);
+
+    if (trace) {
+      trace.weightedRate = weightedRate;
+      trace.totalIp = totalIp;
+      trace.leagueRate = leagueRate;
+      trace.stabilizationK = stabilizationK;
+      trace.statType = statType;
+      trace.regressionTarget = regressionTarget;
+      trace.adjustedKBeforeIpScale = adjustedKBeforeIpScale;
+      trace.ipScale = ipScale;
+      trace.adjustedKAfterIpScale = adjustedK;
+      trace.regressedRate = regressedRate;
+    }
+
+    return regressedRate;
   }
 
   /**
@@ -629,11 +825,19 @@ class TrueRatingsCalculationService {
     confidenceIp: number = SCOUTING_BLEND_CONFIDENCE_IP,
     effectiveDevRatio: number = 1.0,
   ): number {
+    const { scoutWeight } = this.getScoutingBlendWeights(totalIp, confidenceIp, effectiveDevRatio);
+    return (1 - scoutWeight) * regressedRate + scoutWeight * scoutingExpectedRate;
+  }
+
+  private getScoutingBlendWeights(
+    totalIp: number,
+    confidenceIp: number,
+    effectiveDevRatio: number
+  ): { baseScoutWeight: number; scoutBoost: number; scoutWeight: number } {
     const baseScoutWeight = confidenceIp / (totalIp + confidenceIp);
-    // Boost scouting weight for unproven pitchers (effectiveDevRatio < 1.0)
     const scoutBoost = 1 - effectiveDevRatio;
     const scoutWeight = Math.min(0.95, baseScoutWeight + scoutBoost * (1 - baseScoutWeight));
-    return (1 - scoutWeight) * regressedRate + scoutWeight * scoutingExpectedRate;
+    return { baseScoutWeight, scoutBoost, scoutWeight };
   }
 
   /**

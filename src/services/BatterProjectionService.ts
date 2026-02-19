@@ -12,11 +12,17 @@ import { teamService } from './TeamService';
 import { Team } from '../models/Team';
 import { trueRatingsService, TruePlayerBattingStats } from './TrueRatingsService';
 import { hitterScoutingDataService } from './HitterScoutingDataService';
-import { hitterTrueRatingsCalculationService, HitterTrueRatingInput } from './HitterTrueRatingsCalculationService';
-import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
+import {
+  hitterTrueRatingsCalculationService,
+  HitterTrueRatingInput,
+  HitterTrueRatingResult,
+  YearlyHittingStats,
+} from './HitterTrueRatingsCalculationService';
+import { leagueBattingAveragesService, LeagueBattingAverages } from './LeagueBattingAveragesService';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { hitterAgingService } from './HitterAgingService';
 import { dateService } from './DateService';
+import { HitterScoutingRatings } from '../models/ScoutingData';
 
 export interface ProjectedBatter {
   playerId: number;
@@ -73,12 +79,91 @@ export interface BatterProjectionContext {
   };
 }
 
+export interface BatterProjectionCalculationTrace {
+  input?: {
+    playerId: number;
+    playerName: string;
+    age: number;
+    currentTrueRating: number;
+    percentile: number;
+    currentRatings: {
+      power: number;
+      eye: number;
+      avoidK: number;
+      contact: number;
+    };
+    hasScouting: boolean;
+    scoutingSource?: 'my' | 'osa';
+    scoutingInjuryProneness?: string;
+    historicalPaData: Array<{ year: number; pa: number }>;
+  };
+  projectedRatings?: {
+    power: number;
+    eye: number;
+    avoidK: number;
+    contact: number;
+  };
+  projectedRates?: {
+    bbPct: number;
+    kPct: number;
+    avg: number;
+    hrPct: number;
+  };
+  wobaComponents?: {
+    bbRate: number;
+    singleRate: number;
+    doubleRate: number;
+    tripleRate: number;
+    hrRate: number;
+    woba: number;
+    iso: number;
+    obp: number;
+    slg: number;
+    ops: number;
+  };
+  playingTime?: {
+    projectedPa: number;
+    injuryProneness?: string;
+    historicalPaData: Array<{ year: number; pa: number }>;
+  };
+  stolenBaseProjection?: {
+    method: 'scouting' | 'fallback';
+    sr?: number;
+    ste?: number;
+    sb: number;
+    cs: number;
+    sbRuns: number;
+  };
+  runValueOutput?: {
+    hasLeagueAverages: boolean;
+    wrcPlus: number;
+    war: number;
+  };
+  output?: {
+    projectedStats: ProjectedBatter['projectedStats'];
+    estimatedRatings: ProjectedBatter['estimatedRatings'];
+  };
+}
+
+interface BatterProjectionPlayerInfo {
+  age: number;
+  teamId: number;
+  teamName: string;
+  position: number;
+  name: string;
+  scouting?: HitterScoutingRatings;
+  fromMyScout: boolean;
+}
+
 const POSITION_LABELS: Record<number, string> = {
   1: 'P', 2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH',
 };
 
 class BatterProjectionService {
-  async getProjectionsWithContext(year: number): Promise<BatterProjectionContext> {
+  async getProjectionsWithContext(
+    year: number,
+    options?: { tracePlayerId?: number; trace?: BatterProjectionCalculationTrace }
+  ): Promise<BatterProjectionContext> {
     // Get all required data
     const [allPlayers, allTeams, scoutingList, leagueAvgCurrent, currentYear] = await Promise.all([
       playerService.getAllPlayers(),
@@ -137,7 +222,7 @@ class BatterProjectionService {
 
     // Build True Rating inputs for all batters with stats
     const trInputs: HitterTrueRatingInput[] = [];
-    const playerInfoMap = new Map<number, { age: number, teamId: number, teamName: string, position: number, name: string, scouting?: typeof scoutingList[0], fromMyScout: boolean }>();
+    const playerInfoMap = new Map<number, BatterProjectionPlayerInfo>();
     let fromMyScout = 0;
     let fromOSA = 0;
 
@@ -203,129 +288,18 @@ class BatterProjectionService {
       const info = playerInfoMap.get(trResult.playerId);
       if (!info) continue;
 
-      const { age, teamId, teamName, position, name, scouting } = info;
-
-      // Apply aging curve to estimated ratings for next season projection
-      const currentRatings = {
-        power: trResult.estimatedPower,
-        eye: trResult.estimatedEye,
-        avoidK: trResult.estimatedAvoidK,
-        contact: trResult.estimatedContact,
-      };
-
-      // Apply aging to get next season's projected ratings
-      const projectedRatings = hitterAgingService.applyAging(currentRatings, age);
-
-      // Calculate projected rate stats from aged ratings
-      const projBbPct = HitterRatingEstimatorService.expectedBbPct(projectedRatings.eye);
-      const projKPct = HitterRatingEstimatorService.expectedKPct(projectedRatings.avoidK);
-      const projAvg = HitterRatingEstimatorService.expectedAvg(projectedRatings.contact);
-      const projHrPct = HitterRatingEstimatorService.expectedHrPct(projectedRatings.power);
-
-      // Calculate wOBA from projected rate stats
-      const bbRate = projBbPct / 100;
-      const hitRate = projAvg * (1 - bbRate);
-      const hrRate = projHrPct / 100;
-
-      // Distribute remaining hits among 1B/2B/3B (non-HR hits)
-      const nonHrHitRate = Math.max(0, hitRate - hrRate);
-      const tripleRate = nonHrHitRate * 0.08;
-      const doubleRate = nonHrHitRate * 0.27;
-      const singleRate = nonHrHitRate * 0.65;
-
-      const projWoba = Math.max(0.200, Math.min(0.500,
-        0.69 * bbRate +
-        0.89 * singleRate +
-        1.27 * doubleRate +
-        1.62 * tripleRate +
-        2.10 * hrRate
-      ));
-
-      // Calculate ISO from HR% and hit distribution
-      const projIso = hrRate * 3 + doubleRate * 1 + tripleRate * 2;
-
-      // Calculate OBP and SLG from components
-      const projObp = Math.min(0.450, projAvg + (projBbPct / 100));
-      const projSlg = projAvg + projIso;
-      const projOps = projObp + projSlg;
-
-      // Calculate wRC+ and WAR using league averages
-      let wrcPlus = 100;
-      let projWar = 0;
-
-      // Get historical PA data for better projections
-      const playerHistoricalStats = multiYearStats.get(trResult.playerId) || [];
-      const historicalPaData = playerHistoricalStats.map(s => ({ year: s.year, pa: s.pa }));
-
-      const projPa = leagueBattingAveragesService.getProjectedPaWithHistory(
-        historicalPaData,
-        age,
-        scouting?.injuryProneness
+      const trace = options?.trace && options.tracePlayerId === trResult.playerId
+        ? options.trace
+        : undefined;
+      projections.push(
+        this.calculateProjectionFromTrueRating(
+          trResult,
+          info,
+          leagueAvg,
+          multiYearStats.get(trResult.playerId) || [],
+          trace
+        )
       );
-
-      // Estimate counting stats from rate stats using proper HR% coefficient
-      const projHr = Math.round(projPa * (projHrPct / 100)); // Use proper HR% from power rating
-      const projRbi = Math.round(projHr * 3.5 + projPa * 0.08); // Rough RBI estimate
-      // Use SR/STE scouting ratings for SB/CS projection when available
-      const sr = scouting?.stealingAggressiveness;
-      const ste = scouting?.stealingAbility;
-      let projSb: number;
-      let projCs: number;
-      if (sr !== undefined && ste !== undefined) {
-        const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-        projSb = sbProj.sb;
-        projCs = sbProj.cs;
-      } else {
-        projSb = Math.round(projPa * 0.02);
-        projCs = Math.round(projPa * 0.005);
-      }
-
-      // Include baserunning runs in WAR calculation
-      const sbRuns = leagueBattingAveragesService.calculateBaserunningRuns(projSb, projCs);
-      if (leagueAvg) {
-        wrcPlus = leagueBattingAveragesService.calculateWrcPlus(projWoba, leagueAvg);
-        projWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, leagueAvg, sbRuns);
-      }
-
-      projections.push({
-        playerId: trResult.playerId,
-        name,
-        teamId,
-        teamName,
-        position,
-        positionLabel: POSITION_LABELS[position] || 'UT',
-        age,
-        currentTrueRating: trResult.trueRating,
-        percentile: trResult.percentile,
-        projectedStats: {
-          woba: Math.round(projWoba * 1000) / 1000,
-          avg: Math.round(projAvg * 1000) / 1000,
-          obp: Math.round(projObp * 1000) / 1000,
-          slg: Math.round(projSlg * 1000) / 1000,
-          ops: Math.round(projOps * 1000) / 1000,
-          wrcPlus,
-          war: Math.round(projWar * 10) / 10,
-          pa: projPa,
-          hr: projHr,
-          rbi: projRbi,
-          sb: projSb,
-          hrPct: Math.round(projHrPct * 10) / 10,
-          bbPct: Math.round(projBbPct * 10) / 10,
-          kPct: Math.round(projKPct * 10) / 10,
-        },
-        estimatedRatings: {
-          power: Math.round(projectedRatings.power),
-          eye: Math.round(projectedRatings.eye),
-          avoidK: Math.round(projectedRatings.avoidK),
-          contact: Math.round(projectedRatings.contact),
-        },
-        scoutingRatings: scouting ? {
-          power: scouting.power,
-          eye: scouting.eye,
-          avoidK: scouting.avoidK,
-          contact: scouting.contact ?? 50,
-        } : undefined,
-      });
     }
 
     // Sort by WAR descending
@@ -353,6 +327,215 @@ class BatterProjectionService {
   async getProjections(year: number): Promise<ProjectedBatter[]> {
     const context = await this.getProjectionsWithContext(year);
     return context.projections;
+  }
+
+  async getProjectionWithTrace(
+    year: number,
+    playerId: number
+  ): Promise<{ projection: ProjectedBatter; trace: BatterProjectionCalculationTrace; statsYear: number; usedFallbackStats: boolean; projectionPoolSize: number } | null> {
+    const trace: BatterProjectionCalculationTrace = {};
+    const context = await this.getProjectionsWithContext(year, { tracePlayerId: playerId, trace });
+    const projection = context.projections.find((p) => p.playerId === playerId);
+    if (!projection) return null;
+    return {
+      projection,
+      trace,
+      statsYear: context.statsYear,
+      usedFallbackStats: context.usedFallbackStats,
+      projectionPoolSize: context.projections.length,
+    };
+  }
+
+  calculateProjectionFromTrueRating(
+    trResult: HitterTrueRatingResult,
+    info: BatterProjectionPlayerInfo,
+    leagueAvg: LeagueBattingAverages | null,
+    historicalStats: YearlyHittingStats[] = [],
+    trace?: BatterProjectionCalculationTrace
+  ): ProjectedBatter {
+    const { age, teamId, teamName, position, name, scouting, fromMyScout } = info;
+
+    const currentRatings = {
+      power: trResult.estimatedPower,
+      eye: trResult.estimatedEye,
+      avoidK: trResult.estimatedAvoidK,
+      contact: trResult.estimatedContact,
+    };
+
+    const historicalPaData = historicalStats.map((s) => ({ year: s.year, pa: s.pa }));
+    if (trace) {
+      trace.input = {
+        playerId: trResult.playerId,
+        playerName: name,
+        age,
+        currentTrueRating: trResult.trueRating,
+        percentile: trResult.percentile,
+        currentRatings: { ...currentRatings },
+        hasScouting: Boolean(scouting),
+        scoutingSource: scouting ? (fromMyScout ? 'my' : 'osa') : undefined,
+        scoutingInjuryProneness: scouting?.injuryProneness,
+        historicalPaData: [...historicalPaData],
+      };
+    }
+
+    const projectedRatings = hitterAgingService.applyAging(currentRatings, age);
+    if (trace) {
+      trace.projectedRatings = { ...projectedRatings };
+    }
+
+    const projBbPct = HitterRatingEstimatorService.expectedBbPct(projectedRatings.eye);
+    const projKPct = HitterRatingEstimatorService.expectedKPct(projectedRatings.avoidK);
+    const projAvg = HitterRatingEstimatorService.expectedAvg(projectedRatings.contact);
+    const projHrPct = HitterRatingEstimatorService.expectedHrPct(projectedRatings.power);
+    if (trace) {
+      trace.projectedRates = {
+        bbPct: projBbPct,
+        kPct: projKPct,
+        avg: projAvg,
+        hrPct: projHrPct,
+      };
+    }
+
+    const bbRate = projBbPct / 100;
+    const hitRate = projAvg * (1 - bbRate);
+    const hrRate = projHrPct / 100;
+    const nonHrHitRate = Math.max(0, hitRate - hrRate);
+    const tripleRate = nonHrHitRate * 0.08;
+    const doubleRate = nonHrHitRate * 0.27;
+    const singleRate = nonHrHitRate * 0.65;
+
+    const projWoba = Math.max(0.200, Math.min(0.500,
+      0.69 * bbRate +
+      0.89 * singleRate +
+      1.27 * doubleRate +
+      1.62 * tripleRate +
+      2.10 * hrRate
+    ));
+    const projIso = hrRate * 3 + doubleRate + (tripleRate * 2);
+    const projObp = Math.min(0.450, projAvg + (projBbPct / 100));
+    const projSlg = projAvg + projIso;
+    const projOps = projObp + projSlg;
+    if (trace) {
+      trace.wobaComponents = {
+        bbRate,
+        singleRate,
+        doubleRate,
+        tripleRate,
+        hrRate,
+        woba: projWoba,
+        iso: projIso,
+        obp: projObp,
+        slg: projSlg,
+        ops: projOps,
+      };
+    }
+
+    const projPa = leagueBattingAveragesService.getProjectedPaWithHistory(
+      historicalPaData,
+      age,
+      scouting?.injuryProneness
+    );
+    if (trace) {
+      trace.playingTime = {
+        projectedPa: projPa,
+        injuryProneness: scouting?.injuryProneness,
+        historicalPaData: [...historicalPaData],
+      };
+    }
+
+    const projHr = Math.round(projPa * (projHrPct / 100));
+    const projRbi = Math.round(projHr * 3.5 + projPa * 0.08);
+
+    const sr = scouting?.stealingAggressiveness;
+    const ste = scouting?.stealingAbility;
+    let projSb: number;
+    let projCs: number;
+    let sbMethod: 'scouting' | 'fallback';
+    if (sr !== undefined && ste !== undefined) {
+      const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+      projSb = sbProj.sb;
+      projCs = sbProj.cs;
+      sbMethod = 'scouting';
+    } else {
+      projSb = Math.round(projPa * 0.02);
+      projCs = Math.round(projPa * 0.005);
+      sbMethod = 'fallback';
+    }
+
+    const sbRuns = leagueBattingAveragesService.calculateBaserunningRuns(projSb, projCs);
+    if (trace) {
+      trace.stolenBaseProjection = {
+        method: sbMethod,
+        sr,
+        ste,
+        sb: projSb,
+        cs: projCs,
+        sbRuns,
+      };
+    }
+
+    let wrcPlus = 100;
+    let projWar = 0;
+    if (leagueAvg) {
+      wrcPlus = leagueBattingAveragesService.calculateWrcPlus(projWoba, leagueAvg);
+      projWar = leagueBattingAveragesService.calculateBattingWar(projWoba, projPa, leagueAvg, sbRuns);
+    }
+    if (trace) {
+      trace.runValueOutput = {
+        hasLeagueAverages: Boolean(leagueAvg),
+        wrcPlus,
+        war: projWar,
+      };
+    }
+
+    const projection: ProjectedBatter = {
+      playerId: trResult.playerId,
+      name,
+      teamId,
+      teamName,
+      position,
+      positionLabel: POSITION_LABELS[position] || 'UT',
+      age,
+      currentTrueRating: trResult.trueRating,
+      percentile: trResult.percentile,
+      projectedStats: {
+        woba: Math.round(projWoba * 1000) / 1000,
+        avg: Math.round(projAvg * 1000) / 1000,
+        obp: Math.round(projObp * 1000) / 1000,
+        slg: Math.round(projSlg * 1000) / 1000,
+        ops: Math.round(projOps * 1000) / 1000,
+        wrcPlus,
+        war: Math.round(projWar * 10) / 10,
+        pa: projPa,
+        hr: projHr,
+        rbi: projRbi,
+        sb: projSb,
+        hrPct: Math.round(projHrPct * 10) / 10,
+        bbPct: Math.round(projBbPct * 10) / 10,
+        kPct: Math.round(projKPct * 10) / 10,
+      },
+      estimatedRatings: {
+        power: Math.round(projectedRatings.power),
+        eye: Math.round(projectedRatings.eye),
+        avoidK: Math.round(projectedRatings.avoidK),
+        contact: Math.round(projectedRatings.contact),
+      },
+      scoutingRatings: scouting ? {
+        power: scouting.power,
+        eye: scouting.eye,
+        avoidK: scouting.avoidK,
+        contact: scouting.contact ?? 50,
+      } : undefined,
+    };
+
+    if (trace) {
+      trace.output = {
+        projectedStats: { ...projection.projectedStats },
+        estimatedRatings: { ...projection.estimatedRatings },
+      };
+    }
+
+    return projection;
   }
 }
 

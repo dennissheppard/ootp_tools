@@ -134,4 +134,25 @@ describe('ProjectionService', () => {
     // Should project close to proven 186 IP workload (blend of model + history)
     expect(result.projectedStats.ip).toBeGreaterThan(170);
   });
+
+  test('should populate projection trace when provided', async () => {
+    const trace: import('./ProjectionService').ProjectionCalculationTrace = {};
+    const result = await projectionService.calculateProjection(
+      mockRatings,
+      25,
+      3,
+      0,
+      mockLeagueContext,
+      60,
+      'Normal',
+      undefined,
+      3.0,
+      undefined,
+      trace
+    );
+
+    expect(trace.projectedRatings).toBeDefined();
+    expect(trace.ipPipeline?.output?.ip).toBe(result.projectedStats.ip);
+    expect(trace.output?.projectedStats.ip).toBe(result.projectedStats.ip);
+  });
 });
