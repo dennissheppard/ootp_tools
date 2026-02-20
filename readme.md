@@ -225,7 +225,7 @@ These are intentionally separate — numbers may differ between them and that's 
 | Team Ratings: Projections/Standings | Forecasting Model | Pre-season/Current Year Stats toggle controls stats year |
 | Projections view | Forecasting Model | Year selector, backtesting |
 | Data Management | Canonical Current | Infrastructure: data upload + cache priming |
-| Other views | — | DevTracker, Analytics, DraftBoard, Calculators, etc. — no pipeline dependency |
+| Other views | — | Analytics, DraftBoard, Calculators, etc. — no pipeline dependency |
 
 TeamRatingsView projections/standings force the selected season to the current game year, but remain model outputs (not literal in-season standings progression). The Pre-Season/Current Year Stats toggle controls whether projection services use prior-year-only data (pure pre-season) or allow current-year stats to influence projections.
 
@@ -262,7 +262,6 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `ContractService` | Contract parsing, salary schedules, years remaining, team control |
 | `TeamRatingsService` | Farm rankings, org depth, Farm Score, Power Rankings, team WAR projections |
 | `StandingsService` | Historical standings data (bundled CSVs, 2005-2020) |
-| `DevTrackerService` | Org development scoring |
 | `ProjectionService` | Future performance projections, IP projection pipeline |
 | `EnsembleProjectionService` | Three-model ensemble blending |
 | `AgingService` | Age-based rating adjustments |
@@ -281,7 +280,6 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `TeamRatingsView` | Power Rankings / Projections / Standings toggle |
 | `TeamPlanningView` | 6-year roster planning grid with prospects, contracts, trade market |
 | `TradeAnalyzerView` | Multi-asset trade evaluation (MLB + prospects + draft picks) |
-| `DevTrackerView` | Org-level development rankings |
 | `DataManagementView` | File uploads with header validation |
 | `PlayerProfileModal` / `BatterProfileModal` | Deep-dive with Ratings + Development tabs + player tags |
 
@@ -545,16 +543,3 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 - **Player level classification**: `src/utils/playerLevel.ts` — `classifyPlayer(lev, hsc)` returns `'mlb' | 'minors' | 'draftee' | 'freeAgent'` from scouting CSV fields. Contract freshness updates stale levels when game date > scouting date via `buildFreshnessUpdatedLevels()`. Falls back to `isProspect` when `Lev` column is absent
 - **ISO trap**: Never use deprecated `expectedIso(power)` — ignores Gap/Speed. Use pre-computed `tfrSlg` or component rates
 - **Forward/inverse intercept alignment**: Pitcher rating↔rate intercepts MUST match in both directions or round-trip bias is amplified by FIP weights
-
-## Session Rollout (2026-02-19, continued)
-
-- Finalized pipeline architecture: Canonical Current ("what is this player worth now?") vs Forecasting Model ("what does the model predict?"). See `docs/pipeline-map.html`.
-- Switched Trade Analyzer MLB outputs to canonical modal-equivalent snapshots via CanonicalCurrentProjectionService.
-- Added unified pitcher expanded-pool API parity (getUnifiedPitcherTfrData) with farm-only wrapper behavior preserved in getFarmData.
-- Added user-facing data source badges (season mode + scouting mode) in True Ratings, Trade Analyzer, Projections, and Team Ratings via src/utils/dataSourceBadges.ts.
-- Extended `tools/explain-player.ts` for modal-equivalent projection debugging (`--projectionMode=current|peak`) and richer canonical future component traces.
-- Updated hitter Future Gap/Speed derivation to MLB doubles/triples percentile mapping; legacy prospect-rank approach is fallback-only if MLB distributions are unavailable.
-- Added trade flags and need overrides to Team Planning: per-player tradeable/not-tradeable flags and per-position need overrides, set via cell edit modal, persisted in localStorage, reflected immediately in trade market analysis.
-- Renamed "2-Way" trade badge to "Trade Match"; restricted badge to surplus players only (tier 1-2) — general roster targets no longer show it regardless of team-level need overlap.
-- Fixed Trade Analyzer load time: `CanonicalCurrentProjectionService` rewritten with league-wide data cache (loaded once), synchronous IP projection via public `ProjectionService.calculateProjectedIp()`, and team-level cache tracking to skip already-processed teams. Per-team build is now fully synchronous after initial data load.
-- Removed leftover `[Role Check]` debug console.log calls from `ProjectionService.ts`.

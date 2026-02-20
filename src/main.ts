@@ -4,7 +4,7 @@ import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
 import { indexedDBService } from './services/IndexedDBService';
-import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
+import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, TeamPlanningView, TradeAnalyzerView } from './views';
 import { analyticsService } from './services/AnalyticsService';
 import { setApiCallTracker } from './services/ApiClient';
 import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
@@ -24,13 +24,10 @@ class App {
   private activeTabId = 'tab-true-ratings';
   private projectionsView?: ProjectionsView;
   private teamRatingsView?: TeamRatingsView;
-  private devTrackerView?: DevTrackerView;
   private teamPlanningView?: TeamPlanningView;
   private tradeAnalyzerView?: TradeAnalyzerView;
-  private aboutView!: AboutView;
   private projectionsContainer!: HTMLElement;
   private teamRatingsContainer!: HTMLElement;
-  private devTrackerContainer!: HTMLElement;
   private teamPlanningContainer!: HTMLElement;
   private tradeAnalyzerContainer!: HTMLElement;
 
@@ -207,10 +204,6 @@ class App {
           <div id="team-planning-container"></div>
         </section>
 
-        <section id="tab-dev-tracker" class="tab-panel" style="display:none;">
-          <div id="dev-tracker-container"></div>
-        </section>
-
         <section id="tab-trade-analyzer" class="tab-panel ${this.activeTabId === 'tab-trade-analyzer' ? 'active' : ''}">
           <div id="trade-analyzer-container"></div>
         </section>
@@ -233,7 +226,6 @@ class App {
     const projectionsContainer = document.querySelector<HTMLElement>('#projections-container')!;
     const farmRankingsContainer = document.querySelector<HTMLElement>('#farm-rankings-container')!;
     const teamRatingsContainer = document.querySelector<HTMLElement>('#team-ratings-container')!;
-    const devTrackerContainer = document.querySelector<HTMLElement>('#dev-tracker-container')!;
     const teamPlanningContainer = document.querySelector<HTMLElement>('#team-planning-container')!;
     const tradeAnalyzerContainer = document.querySelector<HTMLElement>('#trade-analyzer-container')!;
     const dataManagementContainer = document.querySelector<HTMLElement>('#data-management-container')!;
@@ -268,16 +260,12 @@ class App {
     this.projectionsContainer = projectionsContainer;
     new FarmRankingsView(farmRankingsContainer);
     this.teamRatingsContainer = teamRatingsContainer;
-    this.devTrackerContainer = devTrackerContainer;
     this.teamPlanningContainer = teamPlanningContainer;
     this.tradeAnalyzerContainer = tradeAnalyzerContainer;
     new DataManagementView(dataManagementContainer);
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
     this.rateLimitView = new ErrorView(rateLimitContainer);
-    this.aboutView = new AboutView();
-    this.setupAboutPageTrigger();
-
     // Initialize any views that are for the active tab (if they use lazy loading)
     if (this.activeTabId === 'tab-projections') {
       this.projectionsView = new ProjectionsView(this.projectionsContainer);
@@ -288,22 +276,8 @@ class App {
     if (this.activeTabId === 'tab-team-planning') {
       this.teamPlanningView = new TeamPlanningView(this.teamPlanningContainer);
     }
-    if (this.activeTabId === 'tab-dev-tracker') {
-      this.devTrackerView = new DevTrackerView(this.devTrackerContainer);
-    }
     if (this.activeTabId === 'tab-trade-analyzer') {
       this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
-    }
-  }
-
-  private setupAboutPageTrigger(): void {
-    const gameDateElement = document.querySelector<HTMLElement>('#game-date');
-    if (gameDateElement) {
-      gameDateElement.addEventListener('dblclick', () => {
-        this.aboutView.show();
-      });
-      gameDateElement.style.cursor = 'pointer';
-      gameDateElement.title = 'Double-click to view About page';
     }
   }
 
@@ -353,7 +327,7 @@ class App {
   }
 
   private static readonly TABS_WITHOUT_BADGES = new Set([
-    'tab-calculators', 'tab-data-management', 'tab-dev-tracker', 'tab-search', 'tab-draft',
+    'tab-calculators', 'tab-data-management', 'tab-search', 'tab-draft',
   ]);
 
   private setupHeaderBadges(): void {
@@ -375,7 +349,6 @@ class App {
     'tab-trade-analyzer': 'Trade Analyzer',
     'tab-calculators': 'Calculators',
     'tab-data-management': 'Data Management',
-    'tab-dev-tracker': 'Dev Tracker',
     'tab-search': 'Search',
   };
 
@@ -405,9 +378,6 @@ class App {
     }
     if (tabId === 'tab-team-planning' && !this.teamPlanningView) {
       this.teamPlanningView = new TeamPlanningView(this.teamPlanningContainer);
-    }
-    if (tabId === 'tab-dev-tracker' && !this.devTrackerView) {
-      this.devTrackerView = new DevTrackerView(this.devTrackerContainer);
     }
     if (tabId === 'tab-trade-analyzer' && !this.tradeAnalyzerView) {
       this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
