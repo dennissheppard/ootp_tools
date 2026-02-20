@@ -291,6 +291,12 @@
               Batches the above per-team for Trade Analyzer.
               Builds ProjectedPlayer/ProjectedBatter snapshots using modal-equivalent path.
             </div>
+            <div class="node">
+              <strong>ProjectionService (IP utility only)</strong>
+              calculateProjectedIp &mdash; shared utility for innings-pitched estimation.
+              Used by CanonicalCurrentProjectionService and PitcherProfileModal.
+              <em>Not</em> used for full projections or ensemble math within this pipeline.
+            </div>
           </div>
 
           <div class="arrow">&rarr;</div>
@@ -322,6 +328,10 @@
             <div class="node">
               <strong>Team Ratings: Power Rankings</strong>
               Canonical TR for weighted-average team strength.
+            </div>
+            <div class="node">
+              <strong>Global Search</strong>
+              Canonical TR + TFR pools for player search results and modal launch.
             </div>
             <div class="node">
               <strong>Explain Tool</strong>
@@ -430,9 +440,24 @@
           <td>Per-player forward projections, backtesting</td>
         </tr>
         <tr>
+          <td>Global Search</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>Player search results with canonical TR + TFR context</td>
+        </tr>
+        <tr>
           <td>Explain Tool (CLI)</td>
           <td><span class="tag canon">Canonical</span></td>
           <td>Debug modal-equivalent projection traces</td>
+        </tr>
+        <tr>
+          <td>Data Management</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>Data upload + cache priming (infrastructure, not analytical)</td>
+        </tr>
+        <tr>
+          <td>Other views<br><small style="color:var(--muted)">DevTracker, Analytics, DraftBoard, Calculators, About, Onboarding, PotentialStats, RatingEstimator</small></td>
+          <td>&mdash;</td>
+          <td>No pipeline service dependency</td>
         </tr>
       </tbody>
     </table>
@@ -445,6 +470,7 @@
         <li><strong>Modal parity guarantee.</strong> Any view tagged Canonical should show the same ratings and projection numbers as opening that player's profile modal. CanonicalCurrentProjectionService exists to batch this for Trade Analyzer.</li>
         <li><strong>Forecasting Model is self-contained.</strong> It computes its own TR from arbitrary-year stats, uses ensemble math, supports backtesting and pre-season mode. It doesn't depend on TrueRatingsService and that's intentional &mdash; it needs to work for any historical year.</li>
         <li><strong>Team Ratings splits intentionally.</strong> Power Rankings mode uses Canonical (current team strength). Projections/Standings modes use Forecasting (model predictions). Different tabs, different questions.</li>
+        <li><strong>Shared utility exception.</strong> ProjectionService.calculateProjectedIp() is used by canonical consumers (PitcherProfileModal, CanonicalCurrentProjectionService) for innings-pitched estimation only. This is a stateless utility call, not a full-projection dependency &mdash; no ensemble math, no TR computation, no forecasting output crosses the pipeline boundary.</li>
       </ul>
     </div>
   </div>

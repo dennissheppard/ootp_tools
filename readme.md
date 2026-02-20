@@ -208,7 +208,7 @@ Three-model ensemble:
 
 Two pipelines that answer different questions (see `docs/pipeline-map.html`):
 
-- **Canonical Current**: "What is this player worth right now?" Uses authoritative TR from `TrueRatingsService`, resolves TFR/prospect data, runs modal-equivalent projection math via `ModalDataService`. Every current-truth view shows the same numbers as the profile modal.
+- **Canonical Current**: "What is this player worth right now?" Uses authoritative TR from `TrueRatingsService`, resolves TFR/prospect data, runs modal-equivalent projection math via `ModalDataService`. Every current-truth view shows the same numbers as the profile modal. `ProjectionService.calculateProjectedIp()` is used as a shared utility for IP estimation (not full projections).
 - **Forecasting Model**: "What does the model predict for next season?" (`ProjectionService` / `BatterProjectionService`). Computes its own TR from arbitrary-year stats, uses ensemble projection math (40% optimistic, 30% neutral, 30% pessimistic), supports backtesting and year selection.
 
 These are intentionally separate — numbers may differ between them and that's correct.
@@ -220,9 +220,12 @@ These are intentionally separate — numbers may differ between them and that's 
 | True Ratings | Canonical Current | TR/TFR maps as source of truth |
 | Farm Rankings | Canonical Current | TFR pools for prospect rankings |
 | Team Planning | Canonical Current | TR maps + TFR for roster construction |
+| Global Search | Canonical Current | Canonical TR + TFR pools for search results |
 | Team Ratings: Power Rankings | Canonical Current | Weighted-average TR |
 | Team Ratings: Projections/Standings | Forecasting Model | Pre-season/Current Year Stats toggle controls stats year |
 | Projections view | Forecasting Model | Year selector, backtesting |
+| Data Management | Canonical Current | Infrastructure: data upload + cache priming |
+| Other views | — | DevTracker, Analytics, DraftBoard, Calculators, etc. — no pipeline dependency |
 
 TeamRatingsView projections/standings force the selected season to the current game year, but remain model outputs (not literal in-season standings progression). The Pre-Season/Current Year Stats toggle controls whether projection services use prior-year-only data (pure pre-season) or allow current-year stats to influence projections.
 
@@ -528,7 +531,8 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 
 ## Architecture Notes
 
-- **Pipeline map (view -> data path):** `docs/pipeline-map.html` (Canonical Current vs Forecasting Model)
+- **Pipeline map (view -> data path):** `docs/pipeline-map.html` (Canonical Current vs Forecasting Model). Audited 2026-02-20: all views verified against documented pipeline assignments
+- **Shared IP utility exception**: `ProjectionService.calculateProjectedIp()` is used by canonical consumers (`PitcherProfileModal`, `CanonicalCurrentProjectionService`) for innings-pitched estimation only — not full projections. This is a stateless utility call; no ensemble math or forecasting output crosses the pipeline boundary
 - **Single source of truth for TFR**: use unified pools `TeamRatingsService.getUnifiedHitterTfrData()` / `getUnifiedPitcherTfrData()` for mixed MLB+prospect contexts; `getHitterFarmData()` / `getFarmData()` are farm-only wrappers. Never call `calculateTrueFutureRatings()` independently. Use `prospect.trueFutureRating` (precomputed) — NEVER re-derive from `prospect.percentile`
 - **Single source of truth for TR**: `TrueRatingsService.getHitterTrueRatings(year)` / `getPitcherTrueRatings(year)` — every view MUST use these cached methods instead of calling `trueRatingsCalculationService.calculateTrueRatings()` directly
 - **Single source of truth for percentile→rating**: `PERCENTILE_TO_RATING` in `TrueFutureRatingService.ts` / `HitterTrueFutureRatingService.ts` — NEVER create local copies of this mapping (thresholds: 99→5.0, 97→4.5, 93→4.0, 75→3.5, 60→3.0, 35→2.5, 20→2.0, 10→1.5, 5→1.0, 0→0.5)

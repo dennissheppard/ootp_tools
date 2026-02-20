@@ -928,7 +928,7 @@ export class DataManagementView {
 
           <ul style="line-height: 1.8; margin: 1rem 0;">
             <li><strong>OSA ratings are included by default</strong> - ${osaCount > 0 ? `We've loaded ${osaCount.toLocaleString()} OSA ratings!` : 'Ready to import when available'}</li>
-            <li><strong>Upload your personal scout ratings</strong> (optional) - If you have custom scouting reports, upload them below</li>
+            <li><strong>Upload your personal scout ratings</strong> (optional) - If you have custom scouting reports, you can upload them from the Data Management screen</li>
             <li><strong>The app works without custom scouting data</strong> - We'll use OSA ratings as a fallback</li>
             <li><strong>Toggle between "My Scout" and "OSA"</strong> to compare different rating sources</li>
             <li><strong>Keep OSA data current</strong> - Upload updated CSV files as your league progresses</li>
@@ -938,9 +938,14 @@ export class DataManagementView {
             💡 <strong>Pro tip:</strong> The toggle below defaults to "My Scout" - this will show your custom ratings when available, and fall back to OSA when not.
           </p>
 
-          <button id="onboarding-done-btn" class="btn btn-primary" style="margin-top: 2rem;">
-            Got it, let's go!
-          </button>
+          <div style="display: flex; gap: 1rem; margin-top: 2rem;">
+            <button id="onboarding-done-btn" class="btn btn-primary">
+              Got it, let's go!
+            </button>
+            <button id="onboarding-upload-btn" class="btn btn-secondary">
+              Upload My Scouting Data
+            </button>
+          </div>
         </div>
       </div>
     `;
@@ -956,6 +961,16 @@ export class DataManagementView {
         this.fetchGameDate();
         // Navigate to True Ratings view
         window.dispatchEvent(new CustomEvent('wbl:navigate-tab', { detail: { tabId: 'tab-true-ratings' } }));
+      });
+    }
+
+    const uploadBtn = this.container.querySelector('#onboarding-upload-btn');
+    if (uploadBtn) {
+      uploadBtn.addEventListener('click', () => {
+        this.selectedScoutingSource = 'my';
+        this.render();
+        this.refreshExistingDataList();
+        this.fetchGameDate();
       });
     }
   }
