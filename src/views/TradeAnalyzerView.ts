@@ -20,6 +20,7 @@ import { markdownToHtml } from '../services/AIScoutingService';
 import { hasComponentUpside } from '../utils/tfrUpside';
 import { canonicalCurrentProjectionService } from '../services/CanonicalCurrentProjectionService';
 import { emitDataSourceBadges } from '../utils/dataSourceBadges';
+import { teamLogoImg } from '../utils/teamLogos';
 
 interface DraftPick {
   id: string;
@@ -581,9 +582,12 @@ export class TradeAnalyzerView {
         <!-- Left Column: Team 1 -->
         <div class="trade-column trade-column-left">
           <div class="trade-team-header">
-            <select class="trade-team-select" data-team="1">
-              <option value="">Select Team 1...</option>
-            </select>
+            <div class="trade-team-dropdown filter-dropdown" data-team="1" data-selected-id="">
+              <button class="filter-dropdown-btn trade-team-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                <span class="trade-team-display">Select Team 1...</span> ▾
+              </button>
+              <div class="filter-dropdown-menu trade-team-menu"></div>
+            </div>
           </div>
 
           <div class="trade-level-selector">
@@ -631,9 +635,12 @@ export class TradeAnalyzerView {
         <!-- Right Column: Team 2 -->
         <div class="trade-column trade-column-right">
           <div class="trade-team-header">
-            <select class="trade-team-select" data-team="2">
-              <option value="">Select Team 2...</option>
-            </select>
+            <div class="trade-team-dropdown filter-dropdown" data-team="2" data-selected-id="">
+              <button class="filter-dropdown-btn trade-team-dropdown-btn" aria-haspopup="true" aria-expanded="false">
+                <span class="trade-team-display">Select Team 2...</span> ▾
+              </button>
+              <div class="filter-dropdown-menu trade-team-menu"></div>
+            </div>
           </div>
 
           <div class="trade-level-selector">
@@ -667,8 +674,32 @@ export class TradeAnalyzerView {
     emitDataSourceBadges('current-ytd', this.scoutingDataMode);
   }
 
+  public syncTeamSelection(): void {
+    const saved = localStorage.getItem('wbl-selected-team');
+    if (!saved) return;
+
+    const dropdown = this.container.querySelector<HTMLElement>('.trade-team-dropdown[data-team="1"]');
+    if (!dropdown) return;
+
+    const item = dropdown.querySelector<HTMLElement>(`.filter-dropdown-item[data-nickname="${saved}"]`);
+    if (!item) return;
+
+    // Already selected
+    if (item.classList.contains('selected')) return;
+
+    const id = item.dataset.value ?? '';
+    dropdown.dataset.selectedId = id;
+
+    const display = dropdown.querySelector<HTMLElement>('.trade-team-display');
+    if (display) display.innerHTML = `${teamLogoImg(saved, 'team-btn-logo')}${saved}`;
+
+    dropdown.querySelectorAll('.filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+    item.classList.add('selected');
+
+    this.onTeamChange(1);
+  }
+
   private populateTeamDropdowns(): void {
-    // Only include MLB parent teams that actually have players assigned
     const teamsWithPlayers = new Set<number>();
     this.allPlayers.forEach(p => {
       if (p.teamId) teamsWithPlayers.add(p.teamId);
@@ -678,27 +709,37 @@ export class TradeAnalyzerView {
       .filter(t => t.parentTeamId === 0 && teamsWithPlayers.has(t.id))
       .sort((a, b) => a.nickname.localeCompare(b.nickname));
 
-    ['1', '2'].forEach(teamStr => {
-      const teamNum = parseInt(teamStr) as 1 | 2;
-      const select = this.container.querySelector<HTMLSelectElement>(`.trade-team-select[data-team="${teamNum}"]`);
-      if (!select) return;
+    ([1, 2] as const).forEach(teamNum => {
+      const dropdown = this.container.querySelector<HTMLElement>(`.trade-team-dropdown[data-team="${teamNum}"]`);
+      const menu = dropdown?.querySelector<HTMLElement>('.trade-team-menu');
+      if (!dropdown || !menu) return;
 
-      mainTeams.forEach(team => {
-        const option = document.createElement('option');
-        option.value = team.id.toString();
-        option.textContent = team.nickname;
-        select.appendChild(option);
-      });
+      menu.innerHTML = mainTeams.map(team => {
+        const logoHtml = teamLogoImg(team.nickname, 'team-dropdown-logo');
+        return `<div class="filter-dropdown-item" data-value="${team.id}" data-nickname="${team.nickname}">${logoHtml}${team.nickname}</div>`;
+      }).join('');
 
-      select.addEventListener('change', () => {
-        // Save team 1 selection globally
-        if (teamNum === 1) {
-          const selectedOption = select.options[select.selectedIndex];
-          if (selectedOption?.textContent) {
-            try { localStorage.setItem('wbl-selected-team', selectedOption.textContent); } catch { /* ignore */ }
+      menu.querySelectorAll<HTMLElement>('.filter-dropdown-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const id = item.dataset.value ?? '';
+          const nickname = item.dataset.nickname ?? '';
+          dropdown.dataset.selectedId = id;
+
+          const display = dropdown.querySelector<HTMLElement>('.trade-team-display');
+          if (display) {
+            const logoHtml = teamLogoImg(nickname, 'team-btn-logo');
+            display.innerHTML = `${logoHtml}${nickname}`;
           }
-        }
-        this.onTeamChange(teamNum);
+
+          menu.querySelectorAll('.filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+          item.classList.add('selected');
+          dropdown.classList.remove('open');
+
+          if (teamNum === 1) {
+            try { localStorage.setItem('wbl-selected-team', nickname); } catch { /* ignore */ }
+          }
+          this.onTeamChange(teamNum);
+        });
       });
 
       // Restore saved team for Team 1
@@ -707,7 +748,13 @@ export class TradeAnalyzerView {
         if (savedTeam) {
           const match = mainTeams.find(t => t.nickname === savedTeam);
           if (match) {
-            select.value = match.id.toString();
+            dropdown.dataset.selectedId = match.id.toString();
+            const display = dropdown.querySelector<HTMLElement>('.trade-team-display');
+            if (display) {
+              const logoHtml = teamLogoImg(match.nickname, 'team-btn-logo');
+              display.innerHTML = `${logoHtml}${match.nickname}`;
+            }
+            menu.querySelector<HTMLElement>(`.filter-dropdown-item[data-value="${match.id}"]`)?.classList.add('selected');
             this.onTeamChange(1);
           }
         }
@@ -716,14 +763,6 @@ export class TradeAnalyzerView {
   }
 
   private setupEventHandlers(): void {
-    // Team select handlers
-    this.container.querySelectorAll('.trade-team-select').forEach(select => {
-      select.addEventListener('change', () => {
-        const teamNum = parseInt((select as HTMLSelectElement).dataset.team!) as 1 | 2;
-        this.onTeamChange(teamNum);
-      });
-    });
-
     // Level select handlers
     this.container.querySelectorAll('.trade-level-select').forEach(select => {
       select.addEventListener('change', () => {
@@ -747,6 +786,24 @@ export class TradeAnalyzerView {
         const teamNum = parseInt((btn as HTMLElement).dataset.team!) as 1 | 2;
         this.clearTeamTrade(teamNum);
       });
+    });
+
+    // Trade team dropdown open/close
+    this.container.querySelectorAll('.trade-team-dropdown-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const dropdown = btn.closest('.trade-team-dropdown');
+        this.container.querySelectorAll('.trade-team-dropdown').forEach(d => {
+          if (d !== dropdown) d.classList.remove('open');
+        });
+        dropdown?.classList.toggle('open');
+      });
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('.trade-team-dropdown')) {
+        this.container.querySelectorAll('.trade-team-dropdown').forEach(d => d.classList.remove('open'));
+      }
     });
 
     // Middle column as drop target
@@ -807,10 +864,10 @@ export class TradeAnalyzerView {
   }
 
   private async onTeamChange(teamNum: 1 | 2): Promise<void> {
-    const select = this.container.querySelector<HTMLSelectElement>(`.trade-team-select[data-team="${teamNum}"]`);
-    if (!select) return;
+    const dropdown = this.container.querySelector<HTMLElement>(`.trade-team-dropdown[data-team="${teamNum}"]`);
+    if (!dropdown) return;
 
-    const teamId = parseInt(select.value);
+    const teamId = parseInt(dropdown.dataset.selectedId ?? '');
     const state = teamNum === 1 ? this.team1State : this.team2State;
     state.teamId = teamId;
     state.tradingPlayers = [];

@@ -1949,6 +1949,8 @@ td.player-cell.player-name {
   border-radius: 0;
 }
 
+.trade-team-dropdown-btn { border-right: none; }
+
 .filter-dropdown-btn:hover {
   background-color: var(--color-bg-hover);
 }
@@ -1990,6 +1992,24 @@ td.player-cell.player-name {
   cursor: pointer;
   transition: background-color 0.15s;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.team-dropdown-logo {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.team-btn-logo {
+  width: 18px;
+  height: 18px;
+  object-fit: contain;
+  vertical-align: middle;
+  margin-right: 4px;
 }
 
 .filter-dropdown-item:hover {
@@ -5353,26 +5373,22 @@ th .stat-tooltip {
   gap: 0.5rem;
 }
 
-.trade-team-select {
+.trade-team-dropdown {
   flex: 1;
-  padding: 0.75rem;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background-color: var(--color-surface);
-  color: var(--color-text);
+}
+
+.trade-team-dropdown-btn {
+  width: 100%;
+  padding: 0.75rem 1rem;
   font-size: 0.95rem;
   font-weight: 600;
-  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
-.trade-team-select:hover {
-  border-color: var(--color-primary);
-}
-
-.trade-team-select:focus {
-  outline: none;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 2px rgba(29, 155, 240, 0.2);
+.trade-team-dropdown .filter-dropdown-menu {
+  width: 100%;
 }
 
 .trade-level-selector {
@@ -10151,6 +10167,9 @@ th .stat-tooltip {
 }
 
 .market-org-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: 0.75rem;
   color: var(--color-text-muted);
   margin-left: auto;

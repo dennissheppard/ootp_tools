@@ -15,6 +15,7 @@ import { Player, getPositionLabel } from '../models/Player';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
+import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 
 // --- Types ---
 
@@ -276,8 +277,12 @@ export class TeamPlanningView {
     if (!match || match.id === this.selectedTeamId) return;
 
     this.selectedTeamId = match.id;
-    const display = this.container.querySelector('#tp-team-display');
-    if (display) display.textContent = match.nickname;
+    const display = this.container.querySelector('#tp-team-display') as HTMLElement | null;
+    if (display) {
+      const logoUrl = getTeamLogoUrl(match.nickname);
+      const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+      display.innerHTML = `${logoHtml}${match.nickname}`;
+    }
 
     const menu = this.container.querySelector<HTMLElement>('#tp-team-menu');
     if (menu) {
@@ -479,21 +484,28 @@ export class TeamPlanningView {
       this.teamLookup.set(t.id, t);
     }
 
-    menu.innerHTML = mainTeams.map(t =>
-      `<div class="filter-dropdown-item" data-value="${t.id}">${t.nickname}</div>`
-    ).join('');
+    menu.innerHTML = mainTeams.map(t => {
+      const logoUrl = getTeamLogoUrl(t.nickname);
+      const logoHtml = logoUrl ? `<img class="team-dropdown-logo" src="${logoUrl}" alt="">` : '';
+      return `<div class="filter-dropdown-item" data-value="${t.id}" data-nickname="${t.nickname}">${logoHtml}${t.nickname}</div>`;
+    }).join('');
 
     menu.querySelectorAll('.filter-dropdown-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        const el = e.target as HTMLElement;
+      item.addEventListener('click', () => {
+        const el = item as HTMLElement;
         const value = el.dataset.value;
+        const nickname = el.dataset.nickname || '';
         if (!value) return;
 
         this.selectedTeamId = parseInt(value, 10);
-        try { localStorage.setItem('wbl-selected-team', el.textContent?.trim() || value); } catch { /* ignore */ }
+        try { localStorage.setItem('wbl-selected-team', nickname); } catch { /* ignore */ }
 
-        const display = this.container.querySelector('#tp-team-display');
-        if (display) display.textContent = el.textContent || '';
+        const display = this.container.querySelector('#tp-team-display') as HTMLElement | null;
+        if (display) {
+          const logoUrl = getTeamLogoUrl(nickname);
+          const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+          display.innerHTML = `${logoHtml}${nickname}`;
+        }
 
         menu.querySelectorAll('.filter-dropdown-item').forEach(i => i.classList.remove('selected'));
         el.classList.add('selected');
@@ -511,8 +523,12 @@ export class TeamPlanningView {
       const match = mainTeams.find(t => t.nickname === savedTeam);
       if (match) {
         this.selectedTeamId = match.id;
-        const display = this.container.querySelector('#tp-team-display');
-        if (display) display.textContent = match.nickname;
+        const display = this.container.querySelector('#tp-team-display') as HTMLElement | null;
+        if (display) {
+          const logoUrl = getTeamLogoUrl(match.nickname);
+          const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+          display.innerHTML = `${logoHtml}${match.nickname}`;
+        }
         menu.querySelector(`.filter-dropdown-item[data-value="${match.id}"]`)?.classList.add('selected');
         this.loadOverrides().then(() => this.buildAndRenderGrid());
       }
@@ -3396,7 +3412,7 @@ export class TeamPlanningView {
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)} TFR</span>
-          <span class="market-org-label">${p.orgName}</span>
+          <span class="market-org-label">${teamLogoImg(p.orgName, 'team-btn-logo')}${p.orgName}</span>
           <span class="market-detail">${p.level}, Age ${p.age}</span>
           ${matchBadge}
         </div>`;
@@ -3407,7 +3423,7 @@ export class TeamPlanningView {
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)} TR</span>
-          <span class="market-org-label">${p.orgName}</span>
+          <span class="market-org-label">${teamLogoImg(p.orgName, 'team-btn-logo')}${p.orgName}</span>
           <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
           ${matchBadge}
         </div>`;

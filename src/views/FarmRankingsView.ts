@@ -18,6 +18,7 @@ import { hitterScoutingDataService } from '../services/HitterScoutingDataService
 import { getPositionLabel, getFullName, isPitcher } from '../models/Player';
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
+import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 
 interface FarmColumn {
   key: string;
@@ -205,7 +206,7 @@ export class FarmRankingsView {
                 </div>
               </div>
 
-              <button class="toggle-btn" data-view-mode="reports" aria-pressed="false" style="border-right: none; border-top-right-radius: var(--border-radius); border-bottom-right-radius: var(--border-radius);">Reports</button>
+              <button class="toggle-btn" data-view-mode="reports" aria-pressed="false" style="border-right: none; border-top-right-radius: var(--border-radius); border-bottom-right-radius: var(--border-radius);">Depth Rankings</button>
               <button class="toggle-btn" id="export-tfr-btn" title="Export TFR data for automated testing" style="display: none;">Export for Testing</button>
             </div>
           </div>
@@ -411,17 +412,25 @@ export class FarmRankingsView {
       }
 
       const items = ['all', ...sortedTeams].map(t => {
-          const label = t === 'all' ? 'All' : t;
           const selectedClass = t === this.selectedTeam ? 'selected' : '';
-          return `<div class="filter-dropdown-item ${selectedClass}" data-value="${t}">${label}</div>`;
+          if (t === 'all') return `<div class="filter-dropdown-item ${selectedClass}" data-value="all">All</div>`;
+          const logoUrl = getTeamLogoUrl(t);
+          const logoHtml = logoUrl ? `<img class="team-dropdown-logo" src="${logoUrl}" alt="">` : '';
+          return `<div class="filter-dropdown-item ${selectedClass}" data-value="${t}">${logoHtml}${t}</div>`;
       }).join('');
 
       menu.innerHTML = items;
 
-      // Update display text
-      const displaySpan = this.container.querySelector('#selected-team-display');
+      // Update display
+      const displaySpan = this.container.querySelector('#selected-team-display') as HTMLElement | null;
       if (displaySpan) {
-          displaySpan.textContent = this.selectedTeam === 'all' ? 'All' : this.selectedTeam;
+          if (this.selectedTeam === 'all') {
+              displaySpan.textContent = 'All';
+          } else {
+              const logoUrl = getTeamLogoUrl(this.selectedTeam);
+              const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+              displaySpan.innerHTML = `${logoHtml}${this.selectedTeam}`;
+          }
       }
 
       this.bindTeamDropdownListeners();
@@ -430,25 +439,31 @@ export class FarmRankingsView {
 
   private bindTeamDropdownListeners(): void {
       this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(item => {
-          item.addEventListener('click', (e) => {
-              const value = (e.target as HTMLElement).dataset.value;
+          item.addEventListener('click', () => {
+              const value = (item as HTMLElement).dataset.value;
               if (!value) return;
 
               this.selectedTeam = value;
               try { localStorage.setItem('wbl-selected-team', value); } catch { /* ignore */ }
 
-              // Update display text
-              const displaySpan = this.container.querySelector('#selected-team-display');
+              // Update display
+              const displaySpan = this.container.querySelector('#selected-team-display') as HTMLElement | null;
               if (displaySpan) {
-                  displaySpan.textContent = value === 'all' ? 'All' : value;
+                  if (value === 'all') {
+                      displaySpan.textContent = 'All';
+                  } else {
+                      const logoUrl = getTeamLogoUrl(value);
+                      const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+                      displaySpan.innerHTML = `${logoHtml}${value}`;
+                  }
               }
 
               // Update selected state
               this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
-              (e.target as HTMLElement).classList.add('selected');
+              (item as HTMLElement).classList.add('selected');
 
               // Close dropdown
-              (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+              (item as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
               this.renderView();
           });
@@ -645,7 +660,7 @@ export class FarmRankingsView {
                         <td style="font-weight: 600; text-align: left;">
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
-                                ${sys.teamName}
+                                ${teamLogoImg(sys.teamName, 'team-btn-logo')}${sys.teamName}
                             </div>
                         </td>`;
                   case 'totalWar':
@@ -985,7 +1000,7 @@ export class FarmRankingsView {
                         <td style="font-weight: 600; text-align: left;">
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
-                                ${sys.teamName}
+                                ${teamLogoImg(sys.teamName, 'team-btn-logo')}${sys.teamName}
                             </div>
                         </td>`;
                   case 'totalWar':
@@ -1223,7 +1238,7 @@ export class FarmRankingsView {
                   case 'name':
                       return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}" title="ID: ${p.playerId}">${p.name}</button></td>`;
                   case 'team':
-                      return `<td data-col-key="team" style="text-align: left;">${p.team}</td>`;
+                      return `<td data-col-key="team" style="text-align: left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(p.team, 'team-btn-logo')}${p.team}</div></td>`;
                   case 'trueFutureRating':
                       return `<td data-col-key="trueFutureRating" style="text-align: center;">${this.renderRatingBadge(p.tfr)}</td>`;
                   case 'peakWar':
@@ -1636,8 +1651,10 @@ export class FarmRankingsView {
                     return `<td data-col-key="position" style="text-align: center;">${this.renderPositionBadge(null, true)}</td>`;
                 case 'name':
                     return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}" title="ID: ${p.playerId}">${p.name}</button></td>`;
-                case 'team':
-                    return `<td data-col-key="team" style="text-align: left;">${this.getTeamName(p.orgId)}</td>`;
+                case 'team': {
+                    const tn = this.getTeamName(p.orgId);
+                    return `<td data-col-key="team" style="text-align: left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(tn, 'team-btn-logo')}${tn}</div></td>`;
+                }
                 case 'trueFutureRating':
                     return `<td data-col-key="trueFutureRating" style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>`;
                 case 'peakWar':
@@ -1738,8 +1755,10 @@ export class FarmRankingsView {
                     return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}" title="ID: ${p.playerId}">${p.name}</button></td>`;
                 case 'position':
                     return `<td data-col-key="position" style="text-align: center;">${this.renderPositionBadge(p.position)}</td>`;
-                case 'team':
-                    return `<td data-col-key="team" style="text-align: left;">${this.getTeamName(p.orgId)}</td>`;
+                case 'team': {
+                    const tn = this.getTeamName(p.orgId);
+                    return `<td data-col-key="team" style="text-align: left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(tn, 'team-btn-logo')}${tn}</div></td>`;
+                }
                 case 'trueFutureRating':
                     return `<td data-col-key="trueFutureRating" style="text-align: center;">${this.renderRatingBadge(p.trueFutureRating)}</td>`;
                 case 'projWoba':
@@ -1933,7 +1952,7 @@ export class FarmRankingsView {
     return `
       <div class="team-preview-row">
         <span class="team-preview-rank">#${rank}</span>
-        <span class="team-preview-name">${team.teamName}</span>
+        <span class="team-preview-name" style="display:inline-flex;align-items:center;gap:0.35rem;">${teamLogoImg(team.teamName, 'team-btn-logo')}${team.teamName}</span>
         <span class="badge ${scoreClass} team-preview-score">${team.totalScore.toFixed(1)}</span>
       </div>
     `;
@@ -1948,7 +1967,7 @@ export class FarmRankingsView {
           <div class="team-header" data-team-key="${teamKey}" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 0.5rem;">
               <div style="display: flex; align-items: center; gap: 1rem;">
                   <span style="font-weight: bold; color: var(--color-text-muted); width: 20px;">#${rank}</span>
-                  <span style="font-weight: 600;">${team.teamName}</span>
+                  <span style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">${teamLogoImg(team.teamName, 'team-btn-logo')}${team.teamName}</span>
               </div>
               <div style="display: flex; align-items: center; gap: 1rem;">
                    <span class="badge ${scoreClass}" style="font-size: 1.1em;">${team.totalScore.toFixed(1)}</span>
@@ -2151,7 +2170,7 @@ export class FarmRankingsView {
       return `
         <div class="team-preview-row">
           <span class="team-preview-rank">#${rank}</span>
-          <span class="team-preview-name">${team.teamName}</span>
+          <span class="team-preview-name" style="display:inline-flex;align-items:center;gap:0.35rem;">${teamLogoImg(team.teamName, 'team-btn-logo')}${team.teamName}</span>
           <span class="badge ${scoreClass} team-preview-score">${score.toFixed(1)}</span>
         </div>
       `;
@@ -2167,7 +2186,7 @@ export class FarmRankingsView {
             <div class="team-header" data-team-key="${teamKey}" style="cursor: pointer; display: flex; justify-content: space-between; align-items: center; padding: 0.75rem; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 0.5rem;">
                 <div style="display: flex; align-items: center; gap: 1rem;">
                     <span style="font-weight: bold; color: var(--color-text-muted); width: 20px;">#${rank}</span>
-                    <span style="font-weight: 600;">${team.teamName}</span>
+                    <span style="display: inline-flex; align-items: center; gap: 0.35rem; font-weight: 600;">${teamLogoImg(team.teamName, 'team-btn-logo')}${team.teamName}</span>
                 </div>
                 <div style="display: flex; align-items: center; gap: 1rem;">
                      <span class="badge ${scoreClass}" style="font-size: 1.1em;">${score.toFixed(1)}</span>

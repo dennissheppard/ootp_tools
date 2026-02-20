@@ -12,6 +12,7 @@ import { hitterScoutingDataService } from '../services/HitterScoutingDataService
 import { standingsService, ActualStanding } from '../services/StandingsService';
 import { hasComponentUpside } from '../utils/tfrUpside';
 import { emitDataSourceBadges, ScoutingDataMode, SeasonDataMode } from '../utils/dataSourceBadges';
+import { teamLogoImg } from '../utils/teamLogos';
 
 // WAR→Wins calibration constants
 // Recalibrated Feb 2026: piecewise projection-based calibration on 236 team-seasons (2005-2020).
@@ -583,7 +584,7 @@ export class TeamRatingsView {
                         <td style="font-weight: 600; text-align: left;" data-col-key="${col.key}">
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
-                                ${team.teamName}
+                                ${teamLogoImg(team.teamName, 'team-btn-logo')}${team.teamName}
                             </div>
                         </td>`;
                   case 'total':
@@ -1017,7 +1018,7 @@ export class TeamRatingsView {
                   case 'rank':
                       return `<td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>`;
                   case 'teamName':
-                      return `<td style="font-weight: 600; text-align: left;" data-col-key="${col.key}">${team.teamName}</td>`;
+                      return `<td style="font-weight: 600; text-align: left;" data-col-key="${col.key}"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(team.teamName, 'team-btn-logo')}${team.teamName}</div></td>`;
                   case 'wins':
                       return `<td style="text-align: center;" data-col-key="${col.key}"><span class="standings-record standings-wins">${projWins}</span></td>`;
                   case 'losses':
@@ -1164,7 +1165,7 @@ export class TeamRatingsView {
               return `
                 <tr>
                   <td style="font-weight: bold; color: var(--color-text-muted);">${idx + 1}</td>
-                  <td style="font-weight: 600; text-align: left;">${t.team.teamName}</td>
+                  <td style="font-weight: 600; text-align: left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(t.team.teamName, 'team-btn-logo')}${t.team.teamName}</div></td>
                   <td style="text-align: center;"><span class="standings-record standings-wins">${t.projWins}</span></td>
                   <td style="text-align: center;"><span class="standings-record standings-losses">${t.projLosses}</span></td>
                   <td style="text-align: center;">${t.winPct.toFixed(3).replace(/^0/, '')}</td>
@@ -1499,6 +1500,7 @@ export class TeamRatingsView {
       const rows = this.powerRankings.map((team, idx) => {
           const teamKey = this.isAllTime ? `pr-${team.teamId}-${team.seasonYear}` : `pr-${team.teamId}`;
           const displayName = this.isAllTime ? `${team.teamName} <span style="color: var(--color-text-muted); font-weight: 400;">(${team.seasonYear})</span>` : team.teamName;
+          const prLogoHtml = teamLogoImg(team.teamName, 'team-btn-logo');
 
           const cells = this.powerRankingsColumns.map(col => {
               switch (col.key) {
@@ -1509,7 +1511,7 @@ export class TeamRatingsView {
                         <td style="font-weight: 600; text-align: left;" data-col-key="${col.key}">
                             <div style="display: flex; align-items: center; gap: 0.5rem;">
                                 <span class="toggle-icon" style="font-size: 0.8em; width: 12px;">▶</span>
-                                ${displayName}
+                                ${prLogoHtml}${displayName}
                             </div>
                         </td>`;
                   case 'teamRating': {

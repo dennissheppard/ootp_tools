@@ -15,6 +15,7 @@ import { projectionAnalysisService, AggregateAnalysisReport } from '../services/
 import { batterProjectionAnalysisService, BatterAggregateAnalysisReport } from '../services/BatterProjectionAnalysisService';
 import { standingsService } from '../services/StandingsService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
+import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import type { Player } from '../models/Player';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
@@ -1894,26 +1895,32 @@ export class ProjectionsView {
 
   private bindTeamDropdownListeners(): void {
       this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(item => {
-          item.addEventListener('click', (e) => {
-              const value = (e.target as HTMLElement).dataset.value;
+          item.addEventListener('click', () => {
+              const value = (item as HTMLElement).dataset.value;
               if (!value) return;
 
               this.selectedTeam = value;
               this.currentPage = 1;
               try { localStorage.setItem('wbl-selected-team', value); } catch { /* ignore */ }
 
-              // Update display text
-              const displaySpan = this.container.querySelector('#selected-team-display');
+              // Update display
+              const displaySpan = this.container.querySelector('#selected-team-display') as HTMLElement | null;
               if (displaySpan) {
-                  displaySpan.textContent = value === 'all' ? 'All' : value;
+                  if (value === 'all') {
+                      displaySpan.textContent = 'All';
+                  } else {
+                      const logoUrl = getTeamLogoUrl(value);
+                      const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+                      displaySpan.innerHTML = `${logoHtml}${value}`;
+                  }
               }
 
               // Update selected state
               this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
-              (e.target as HTMLElement).classList.add('selected');
+              (item as HTMLElement).classList.add('selected');
 
               // Close dropdown
-              (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+              (item as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
               this.filterAndRender();
           });
@@ -2043,17 +2050,25 @@ export class ProjectionsView {
       }
 
       const items = ['all', ...this.teamOptions].map(t => {
-          const label = t === 'all' ? 'All' : t;
           const selectedClass = t === this.selectedTeam ? 'selected' : '';
-          return `<div class="filter-dropdown-item ${selectedClass}" data-value="${t}">${label}</div>`;
+          if (t === 'all') return `<div class="filter-dropdown-item ${selectedClass}" data-value="all">All</div>`;
+          const logoUrl = getTeamLogoUrl(t);
+          const logoHtml = logoUrl ? `<img class="team-dropdown-logo" src="${logoUrl}" alt="">` : '';
+          return `<div class="filter-dropdown-item ${selectedClass}" data-value="${t}">${logoHtml}${t}</div>`;
       }).join('');
-      
+
       menu.innerHTML = items;
-      
-      // Update display text
-      const displaySpan = this.container.querySelector('#selected-team-display');
+
+      // Update display
+      const displaySpan = this.container.querySelector('#selected-team-display') as HTMLElement | null;
       if (displaySpan) {
-          displaySpan.textContent = this.selectedTeam === 'all' ? 'All' : this.selectedTeam;
+          if (this.selectedTeam === 'all') {
+              displaySpan.textContent = 'All';
+          } else {
+              const logoUrl = getTeamLogoUrl(this.selectedTeam);
+              const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+              displaySpan.innerHTML = `${logoHtml}${this.selectedTeam}`;
+          }
       }
       
       this.bindTeamDropdownListeners();
@@ -2205,6 +2220,10 @@ export class ProjectionsView {
   /**
    * Render team name with level label for minor leaguers.
    */
+  private shouldShowTeamColumn(): boolean {
+    return this.selectedTeam === 'all' || this.showMinorLeaguers;
+  }
+
   private renderTeamWithLevel(teamId: number, playerId: number, fallbackName: string): string {
     const player = this.playerLookup.get(playerId);
     if (!player) return fallbackName;
@@ -2212,18 +2231,27 @@ export class ProjectionsView {
     const team = this.teamLookup.get(teamId);
     if (!team) return fallbackName;
 
+    const addLogo = this.selectedTeam === 'all';
+    const withLogo = (nick: string, display: string) => {
+      if (!addLogo) return display;
+      const logo = teamLogoImg(nick, 'team-btn-logo');
+      return logo ? `<span style="display:inline-flex;align-items:center;gap:0.35rem;">${logo}${display}</span>` : display;
+    };
+
     // Minor league player: show parent org + level badge
     if (player.parentTeamId !== 0) {
       const parent = this.teamLookup.get(team.parentTeamId || player.parentTeamId);
       if (parent) {
         const levelLabel = this.getLevelLabelFromId(player.level);
-        return levelLabel
+        const display = levelLabel
           ? `${parent.nickname} <span class="league-level">${levelLabel}</span>`
           : parent.nickname;
+        return withLogo(parent.nickname, display);
       }
     }
 
-    return team.nickname ?? fallbackName;
+    const nick = team.nickname ?? fallbackName;
+    return withLogo(nick, nick);
   }
 
   private sortStats(): void {
@@ -2260,14 +2288,15 @@ export class ProjectionsView {
       // Populate lookup for modal access
       this.playerRowLookup = new Map(pageData.map(p => [p.playerId, p]));
 
-      const headerHtml = this.columns.map(col => {
+      const visibleCols = this.columns.filter(c => c.key !== 'teamName' || this.shouldShowTeamColumn());
+      const headerHtml = visibleCols.map(col => {
           const sortKey = String(col.sortKey ?? col.key);
           const isActive = this.sortKey === sortKey;
           return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
       }).join('');
 
       const rowsHtml = pageData.map(p => {
-          const cells = this.columns.map(col => {
+          const cells = visibleCols.map(col => {
               const val = col.accessor ? col.accessor(p) : (p as any)[col.key];
               const columnKey = String(col.key);
 
@@ -2325,7 +2354,8 @@ export class ProjectionsView {
       // Populate lookup for modal access
       this.batterRowLookup = new Map(pageData.map(b => [b.playerId, b]));
 
-      const headerHtml = this.batterColumns.map(col => {
+      const visibleBatterCols = this.batterColumns.filter(c => c.key !== 'teamName' || this.shouldShowTeamColumn());
+      const headerHtml = visibleBatterCols.map(col => {
           const sortKey = String(col.sortKey ?? col.key);
           const isActive = this.sortKey === sortKey;
           return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
@@ -2333,7 +2363,7 @@ export class ProjectionsView {
 
       const batterBarColumns = new Set(['projWoba', 'projWrcPlus', 'projWAR', 'projHrPct', 'bbPct', 'kPct', 'projAvg', 'projObp', 'projSlg']);
       const rowsHtml = pageData.map(b => {
-          const cells = this.batterColumns.map(col => {
+          const cells = visibleBatterCols.map(col => {
               const val = col.accessor ? col.accessor(b) : (b as any)[col.key];
               const columnKey = String(col.key);
 

@@ -22,6 +22,7 @@ class App {
   private errorView!: ErrorView;
   private rateLimitView!: ErrorView;
   private activeTabId = 'tab-true-ratings';
+  private trueRatingsView!: TrueRatingsView;
   private projectionsView?: ProjectionsView;
   private teamRatingsView?: TeamRatingsView;
   private teamPlanningView?: TeamPlanningView;
@@ -256,7 +257,7 @@ class App {
 
     new CalculatorsView(calculatorsContainer);
     new DraftBoardView(draftBoardContainer);
-    new TrueRatingsView(trueRatingsContainer);
+    this.trueRatingsView = new TrueRatingsView(trueRatingsContainer);
     this.projectionsContainer = projectionsContainer;
     new FarmRankingsView(farmRankingsContainer);
     this.teamRatingsContainer = teamRatingsContainer;
@@ -370,6 +371,9 @@ class App {
       panel.classList.toggle('active', panel.id === tabId);
     });
 
+    if (tabId === 'tab-true-ratings') {
+      this.trueRatingsView.syncTeamSelection();
+    }
     if (tabId === 'tab-projections' && !this.projectionsView) {
       this.projectionsView = new ProjectionsView(this.projectionsContainer);
     }
@@ -379,8 +383,12 @@ class App {
     if (tabId === 'tab-team-planning' && !this.teamPlanningView) {
       this.teamPlanningView = new TeamPlanningView(this.teamPlanningContainer);
     }
-    if (tabId === 'tab-trade-analyzer' && !this.tradeAnalyzerView) {
-      this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
+    if (tabId === 'tab-trade-analyzer') {
+      if (!this.tradeAnalyzerView) {
+        this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
+      } else {
+        this.tradeAnalyzerView.syncTeamSelection();
+      }
     }
 
     // Update header badges — hide for tabs that don't have badge state, request re-emit for others

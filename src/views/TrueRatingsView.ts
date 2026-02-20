@@ -23,6 +23,7 @@ import { hasComponentUpside } from '../utils/tfrUpside';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { PlayerCategory, classifyPlayer, buildFreshnessUpdatedLevels } from '../utils/playerLevel';
+import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -236,29 +237,21 @@ export class TrueRatingsView {
     const tabPanel = this.container.closest<HTMLElement>('.tab-panel');
     const isCurrentlyActive = tabPanel?.classList.contains('active');
 
-    if (!isCurrentlyActive) {
-      // Set up observer to detect when tab becomes active
+    if (!isCurrentlyActive && tabPanel) {
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
           if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
             const target = mutation.target as HTMLElement;
-            if (target.classList.contains('active')) {
-              // Tab just became active - load data if not already loaded
-              if (!this.hasLoadedData) {
-                this.fetchAndRenderStats();
-                this.hasLoadedData = true;
-              }
-              // Stop observing once data is loaded
+            if (target.classList.contains('active') && !this.hasLoadedData) {
+              this.fetchAndRenderStats();
+              this.hasLoadedData = true;
               observer.disconnect();
               break;
             }
           }
         }
       });
-
-      if (tabPanel) {
-        observer.observe(tabPanel, { attributes: true });
-      }
+      observer.observe(tabPanel, { attributes: true });
     }
   }
 
@@ -1258,20 +1251,34 @@ export class TrueRatingsView {
     this.ensureSortKeyForView();
   }
 
+  private shouldShowTeamColumn(): boolean {
+    return this.selectedTeam === 'all' || this.showMinorLeaguers;
+  }
+
   private getPitcherColumnsForView(): PitcherColumn[] {
+    const pitcherTeamCol: PitcherColumn = {
+      key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay',
+      accessor: (row: PitcherRow) => {
+        const display = row.teamDisplay ?? '';
+        if (!display) return display;
+        if (this.selectedTeam === 'all') {
+          const logo = teamLogoImg(row.teamFilter ?? '', 'team-btn-logo');
+          return logo ? `<span style="display:inline-flex;align-items:center;gap:0.35rem;">${logo}${display}</span>` : display;
+        }
+        return display;
+      }
+    };
+
     if (this.mode !== 'pitchers') {
       const [posColumn, nameColumn, ageColumn, ...rest] = RAW_PITCHER_COLUMNS;
-      return [
-        posColumn,
-        nameColumn,
-        ageColumn,
-        { key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' },
-        ...rest
-      ];
+      const cols: PitcherColumn[] = [posColumn, nameColumn, ageColumn];
+      if (this.shouldShowTeamColumn()) cols.push(pitcherTeamCol);
+      cols.push(...rest);
+      return cols;
     }
 
     const [posColumn, nameColumn, ageColumn, ...rest] = RAW_PITCHER_COLUMNS;
-    
+
     // Use tier badge styling for position column
     const styledPosColumn = {
       ...posColumn,
@@ -1279,9 +1286,9 @@ export class TrueRatingsView {
     };
 
     const columns: PitcherColumn[] = [styledPosColumn, nameColumn, ageColumn];
-    
+
     // Add Team column
-    columns.push({ key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' });
+    if (this.shouldShowTeamColumn()) columns.push(pitcherTeamCol);
 
     if (this.showTrueRatings) {
       columns.push(...this.getTrueRatingColumns());
@@ -2585,8 +2592,22 @@ export class TrueRatingsView {
         }
       },
       { key: 'age', label: 'Age', sortKey: 'age' },
-      { key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay' },
     ];
+
+    if (this.shouldShowTeamColumn()) {
+      baseColumns.push({
+        key: 'teamDisplay', label: 'Team', sortKey: 'teamDisplay',
+        accessor: (row) => {
+          const display = row.teamDisplay ?? '';
+          if (!display) return display;
+          if (this.selectedTeam === 'all') {
+            const logo = teamLogoImg(row.teamFilter ?? '', 'team-btn-logo');
+            return logo ? `<span style="display:inline-flex;align-items:center;gap:0.35rem;">${logo}${display}</span>` : display;
+          }
+          return display;
+        }
+      });
+    }
 
     // Show True Ratings columns when showTrueRatings is on (mutually exclusive with showRawStats)
     if (this.showTrueRatings) {
@@ -3782,10 +3803,44 @@ export class TrueRatingsView {
     await batterProfileModal.show(profileData, this.selectedYear);
   }
 
+  private renderTeamButtonDisplay(span: HTMLElement, value: string): void {
+    if (value === 'all') {
+      span.textContent = 'All Teams';
+    } else if (value === 'freeAgents') {
+      span.textContent = 'Free Agents';
+    } else {
+      const logoUrl = getTeamLogoUrl(value);
+      const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+      span.innerHTML = `${logoHtml}${value}`;
+    }
+  }
+
+  public syncTeamSelection(): void {
+    const saved = localStorage.getItem('wbl-selected-team') ?? 'all';
+    if (saved === this.selectedTeam) return;
+
+    const item = this.container.querySelector<HTMLElement>(
+      `#team-dropdown-menu .filter-dropdown-item[data-value="${saved}"]`
+    );
+    if (!item) return; // team not available in current options
+
+    this.selectedTeam = saved;
+    this.currentPage = 1;
+    this.saveFilterPreferences();
+
+    const displaySpan = this.container.querySelector('#selected-team-display');
+    if (displaySpan) this.renderTeamButtonDisplay(displaySpan as HTMLElement, saved);
+
+    this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+    item.classList.add('selected');
+
+    this.applyFiltersAndRender();
+  }
+
   private bindTeamDropdownListeners(): void {
     this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        const value = (e.target as HTMLElement).dataset.value;
+      item.addEventListener('click', () => {
+        const value = (item as HTMLElement).dataset.value;
         if (!value) return;
 
         this.selectedTeam = value;
@@ -3795,19 +3850,18 @@ export class TrueRatingsView {
 
         analyticsService.trackTeamSelected(value, 'true-ratings');
 
-        // Update display text
+        // Update display
         const displaySpan = this.container.querySelector('#selected-team-display');
-        const itemText = (e.target as HTMLElement).textContent;
-        if (displaySpan && itemText) {
-          displaySpan.textContent = itemText;
+        if (displaySpan) {
+          this.renderTeamButtonDisplay(displaySpan as HTMLElement, value);
         }
 
         // Update selected state
         this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(i => i.classList.remove('selected'));
-        (e.target as HTMLElement).classList.add('selected');
+        (item as HTMLElement).classList.add('selected');
 
         // Close dropdown
-        (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
+        (item as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
         this.applyFiltersAndRender();
       });
@@ -3897,17 +3951,22 @@ export class TrueRatingsView {
       this.selectedTeam = 'all';
     }
 
+    const teamItemHtml = (team: string, selected: boolean) => {
+      const logoUrl = getTeamLogoUrl(team);
+      const logoHtml = logoUrl ? `<img class="team-dropdown-logo" src="${logoUrl}" alt="">` : '';
+      return `<div class="filter-dropdown-item ${selected ? 'selected' : ''}" data-value="${team}">${logoHtml}${team}</div>`;
+    };
+
     menu.innerHTML = [
       `<div class="filter-dropdown-item ${this.selectedTeam === 'all' ? 'selected' : ''}" data-value="all">All Teams</div>`,
-      ...this.teamOptions.map(team => `<div class="filter-dropdown-item ${team === this.selectedTeam ? 'selected' : ''}" data-value="${team}">${team}</div>`),
+      ...this.teamOptions.map(team => teamItemHtml(team, team === this.selectedTeam)),
       ...(hasFreeAgents ? [`<div class="filter-dropdown-item ${this.selectedTeam === 'freeAgents' ? 'selected' : ''}" data-value="freeAgents">Free Agents</div>`] : []),
     ].join('');
 
-    // Update display text
+    // Update display
     const displaySpan = this.container.querySelector('#selected-team-display');
     if (displaySpan) {
-      const selectedItem = menu.querySelector('.filter-dropdown-item.selected');
-      displaySpan.textContent = selectedItem?.textContent || 'All Teams';
+      this.renderTeamButtonDisplay(displaySpan as HTMLElement, this.selectedTeam);
     }
 
     // Re-bind event listeners after updating the menu

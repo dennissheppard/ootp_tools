@@ -5,6 +5,7 @@ module.exports = {
   testEnvironment: 'node',
   moduleNameMapper: {
     '^(\.{1,2}/.*)\\.js$': '$1',
+    '.*teamLogos.*': '<rootDir>/src/utils/__mocks__/teamLogos.ts',
   },
   transform: {
     // '^.+\.[tj]sx?$' to process js/ts with `ts-jest`
