@@ -6,6 +6,9 @@ export class AnalyticsDashboardView {
   private dailyChart: ApexCharts | null = null;
   private tabChart: ApexCharts | null = null;
   private teamChart: ApexCharts | null = null;
+  private apiCallsChart: ApexCharts | null = null;
+  private apiPeriod: 'day' | 'week' | 'month' = 'day';
+  private cachedApiEvents: AnalyticsEvent[] = [];
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -61,6 +64,44 @@ export class AnalyticsDashboardView {
               <div id="chart-team-popularity" style="min-height: 220px;"></div>
             </div>
           </div>
+
+          <!-- StatsPlus API Usage Section -->
+          <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
+            <h3 class="form-title" style="margin-bottom: 1rem;">StatsPlus API Usage</h3>
+            <div class="analytics-cards" id="api-summary-cards" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+              <div class="analytics-card">
+                <div class="analytics-card-value" id="api-stat-calls">-</div>
+                <div class="analytics-card-label">Total Calls (30d)</div>
+              </div>
+              <div class="analytics-card">
+                <div class="analytics-card-value" id="api-stat-bandwidth">-</div>
+                <div class="analytics-card-label">Bandwidth (30d)</div>
+              </div>
+              <div class="analytics-card">
+                <div class="analytics-card-value" id="api-stat-avg-duration">-</div>
+                <div class="analytics-card-label">Avg Response (30d)</div>
+              </div>
+              <div class="analytics-card">
+                <div class="analytics-card-value" id="api-stat-errors">-</div>
+                <div class="analytics-card-label">Errors / Rate Limits (30d)</div>
+              </div>
+            </div>
+            <div style="margin-bottom: 1.5rem;">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem;">
+                <h4 style="margin: 0; font-size: 0.9em; color: var(--color-text-muted);">Calls &amp; Bandwidth Over Time</h4>
+                <div class="toggle-group" style="display: flex; gap: 4px;">
+                  <button class="toggle-btn api-period-btn active" data-period="day">Day</button>
+                  <button class="toggle-btn api-period-btn" data-period="week">Week</button>
+                  <button class="toggle-btn api-period-btn" data-period="month">Month</button>
+                </div>
+              </div>
+              <div id="chart-api-calls" style="min-height: 240px;"></div>
+            </div>
+            <div>
+              <h4 style="margin: 0 0 0.5rem 0; font-size: 0.9em; color: var(--color-text-muted);">Endpoints (30d)</h4>
+              <div id="api-endpoint-table" style="max-height: 300px; overflow-y: auto;"></div>
+            </div>
+          </div>
         </div>
         <div id="analytics-disabled" style="display: none; text-align: center; padding: 1rem; color: var(--color-text-muted);">
           Analytics is disabled. Set <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code> in your environment to enable.
@@ -105,7 +146,8 @@ export class AnalyticsDashboardView {
       return;
     }
 
-    const events = await analyticsService.fetchEvents(30);
+    // Fetch 90 days to support monthly API usage view
+    const events = await analyticsService.fetchEvents(90);
 
     // Container may have been detached during the await (e.g. onboarding replaced the DOM)
     if (!this.container.isConnected) return;
@@ -119,14 +161,20 @@ export class AnalyticsDashboardView {
     }
 
     const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const recent = events.filter(e => new Date(e.created_at) >= sevenDaysAgo);
+    const last30 = events.filter(e => new Date(e.created_at) >= thirtyDaysAgo);
 
     this.renderSummaryCards(recent);
-    this.renderDailyVisitsChart(events);
+    this.renderDailyVisitsChart(last30);
     this.renderTabPopularityChart(recent);
     this.renderTopPlayers(recent);
     this.renderTeamPopularityChart(recent);
+
+    // API usage section
+    this.cachedApiEvents = events.filter(e => e.event_type === 'api_call');
+    this.renderApiUsageSection(this.cachedApiEvents);
   }
 
   private renderSummaryCards(events: AnalyticsEvent[]): void {
@@ -396,6 +444,209 @@ export class AnalyticsDashboardView {
     this.teamChart.render();
   }
 
+  private renderApiUsageSection(apiEvents: AnalyticsEvent[]): void {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const recent30 = apiEvents.filter(e => new Date(e.created_at) >= thirtyDaysAgo);
+
+    // Summary cards
+    const totalCalls = recent30.length;
+    const bytesArr = recent30.map(e => e.event_data.bytes as number | undefined).filter((b): b is number => typeof b === 'number' && b > 0);
+    const totalBytes = bytesArr.reduce((a, b) => a + b, 0);
+    const durArr = recent30.map(e => e.event_data.duration_ms as number | undefined).filter((d): d is number => typeof d === 'number');
+    const avgDuration = durArr.length > 0 ? Math.round(durArr.reduce((a, b) => a + b, 0) / durArr.length) : undefined;
+    const errorCount = recent30.filter(e => {
+      const s = e.event_data.status as number | undefined;
+      return s !== undefined && (s >= 400 || s === 429);
+    }).length;
+
+    const callsEl = this.container.querySelector('#api-stat-calls');
+    const bwEl = this.container.querySelector('#api-stat-bandwidth');
+    const durEl = this.container.querySelector('#api-stat-avg-duration');
+    const errEl = this.container.querySelector('#api-stat-errors');
+    if (callsEl) callsEl.textContent = totalCalls.toLocaleString();
+    if (bwEl) bwEl.textContent = bytesArr.length > 0 ? this.formatBytes(totalBytes) : '—';
+    if (durEl) durEl.textContent = avgDuration !== undefined ? `${avgDuration} ms` : '—';
+    if (errEl) errEl.textContent = errorCount > 0 ? errorCount.toLocaleString() : '0';
+
+    // Bind period toggle buttons
+    const periodBtns = this.container.querySelectorAll<HTMLElement>('.api-period-btn');
+    periodBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        periodBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        this.apiPeriod = btn.dataset.period as 'day' | 'week' | 'month';
+        this.renderApiCallsChart(this.cachedApiEvents, this.apiPeriod);
+      });
+    });
+
+    this.renderApiCallsChart(apiEvents, this.apiPeriod);
+    this.renderEndpointTable(recent30);
+  }
+
+  private renderApiCallsChart(apiEvents: AnalyticsEvent[], period: 'day' | 'week' | 'month'): void {
+    const el = this.container.querySelector('#chart-api-calls');
+    if (!el) return;
+
+    // Determine lookback and bucket key function
+    let bucketCount: number;
+    let labelFn: (key: string) => string;
+    let keyFn: (date: Date) => string;
+
+    if (period === 'day') {
+      bucketCount = 30;
+      keyFn = (d) => d.toISOString().split('T')[0];
+      labelFn = (k) => { const p = k.split('-'); return `${p[1]}/${p[2]}`; };
+    } else if (period === 'week') {
+      bucketCount = 12;
+      // ISO week key: YYYY-Www
+      keyFn = (d) => {
+        const jan4 = new Date(d.getFullYear(), 0, 4);
+        const week = Math.ceil(((d.getTime() - jan4.getTime()) / 86400000 + jan4.getDay() + 1) / 7);
+        return `${d.getFullYear()}-W${String(week).padStart(2, '0')}`;
+      };
+      labelFn = (k) => k.replace('-W', ' W');
+    } else {
+      bucketCount = 6;
+      keyFn = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      labelFn = (k) => { const p = k.split('-'); return `${p[0]}/${p[1]}`; };
+    }
+
+    // Build buckets going back bucketCount periods
+    const now = new Date();
+    const callBuckets = new Map<string, number>();
+    const byteBuckets = new Map<string, number>();
+
+    for (let i = bucketCount - 1; i >= 0; i--) {
+      let d: Date;
+      if (period === 'day') {
+        d = new Date(now.getTime() - i * 86400000);
+      } else if (period === 'week') {
+        d = new Date(now.getTime() - i * 7 * 86400000);
+      } else {
+        d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      }
+      const key = keyFn(d);
+      callBuckets.set(key, 0);
+      byteBuckets.set(key, 0);
+    }
+
+    for (const e of apiEvents) {
+      const key = keyFn(new Date(e.created_at));
+      if (!callBuckets.has(key)) continue;
+      callBuckets.set(key, (callBuckets.get(key) ?? 0) + 1);
+      const bytes = e.event_data.bytes as number | undefined;
+      if (typeof bytes === 'number' && bytes > 0) {
+        byteBuckets.set(key, (byteBuckets.get(key) ?? 0) + bytes);
+      }
+    }
+
+    const categories = Array.from(callBuckets.keys());
+    const callData = categories.map(k => callBuckets.get(k) ?? 0);
+    const byteData = categories.map(k => byteBuckets.get(k) ?? 0);
+    const labels = categories.map(labelFn);
+
+    const hasBandwidth = byteData.some(b => b > 0);
+
+    this.apiCallsChart?.destroy();
+    this.apiCallsChart = new ApexCharts(el, {
+      chart: {
+        type: 'line',
+        height: 240,
+        background: 'transparent',
+        toolbar: { show: false },
+        zoom: { enabled: false },
+      },
+      series: [
+        { name: 'API Calls', data: callData },
+        ...(hasBandwidth ? [{ name: 'Bandwidth (KB)', data: byteData.map(b => Math.round(b / 1024)) }] : []),
+      ],
+      xaxis: {
+        categories: labels,
+        labels: { rotate: -45, style: { colors: '#888', fontSize: '10px' } },
+        tickAmount: Math.min(categories.length, 10),
+      },
+      yaxis: hasBandwidth ? [
+        { title: { text: 'Calls', style: { color: '#a78bfa' } }, labels: { style: { colors: '#888' } }, min: 0, forceNiceScale: true },
+        { opposite: true, title: { text: 'KB', style: { color: '#34d399' } }, labels: { style: { colors: '#888' } }, min: 0, forceNiceScale: true },
+      ] : [
+        { labels: { style: { colors: '#888' } }, min: 0, forceNiceScale: true },
+      ],
+      colors: ['#a78bfa', '#34d399'],
+      stroke: { curve: 'smooth', width: 2 },
+      markers: { size: 3 },
+      dataLabels: { enabled: false },
+      grid: { borderColor: 'rgba(255,255,255,0.1)' },
+      legend: { labels: { colors: '#ccc' } },
+      theme: { mode: 'dark' },
+      tooltip: {
+        theme: 'dark',
+        y: hasBandwidth ? [
+          { formatter: (v: number) => `${v} calls` },
+          { formatter: (v: number) => `${v} KB` },
+        ] : [{ formatter: (v: number) => `${v} calls` }],
+      },
+    });
+    this.apiCallsChart.render();
+  }
+
+  private renderEndpointTable(apiEvents: AnalyticsEvent[]): void {
+    const el = this.container.querySelector('#api-endpoint-table');
+    if (!el) return;
+
+    const endpointMap = new Map<string, { calls: number; bytes: number; hasBandwidth: boolean; durations: number[] }>();
+    for (const e of apiEvents) {
+      const ep = (e.event_data.endpoint as string) ?? '/unknown';
+      const existing = endpointMap.get(ep) ?? { calls: 0, bytes: 0, hasBandwidth: false, durations: [] };
+      existing.calls += 1;
+      const bytes = e.event_data.bytes as number | undefined;
+      if (typeof bytes === 'number' && bytes > 0) { existing.bytes += bytes; existing.hasBandwidth = true; }
+      const dur = e.event_data.duration_ms as number | undefined;
+      if (typeof dur === 'number') existing.durations.push(dur);
+      endpointMap.set(ep, existing);
+    }
+
+    const sorted = Array.from(endpointMap.entries()).sort((a, b) => b[1].calls - a[1].calls);
+
+    if (sorted.length === 0) {
+      el.innerHTML = '<p style="color: var(--color-text-muted); text-align: center; padding: 1rem;">No API calls tracked yet. Will populate as users load data.</p>';
+      return;
+    }
+
+    const hasBandwidthAny = sorted.some(([, v]) => v.hasBandwidth);
+    el.innerHTML = `
+      <table class="stats-table" style="width: 100%; text-align: left; font-size: 0.85em;">
+        <thead>
+          <tr>
+            <th style="text-align: left;">Endpoint</th>
+            <th style="text-align: right;">Calls</th>
+            ${hasBandwidthAny ? '<th style="text-align: right;">Total BW</th>' : ''}
+            <th style="text-align: right;">Avg Duration</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sorted.map(([ep, { calls, bytes, hasBandwidth, durations }]) => {
+            const avgDur = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : undefined;
+            return `
+              <tr>
+                <td style="font-family: monospace; font-size: 0.8em;">${this.escapeHtml(ep)}</td>
+                <td style="text-align: right;">${calls.toLocaleString()}</td>
+                ${hasBandwidthAny ? `<td style="text-align: right;">${hasBandwidth ? this.formatBytes(bytes) : '—'}</td>` : ''}
+                <td style="text-align: right;">${avgDur !== undefined ? `${avgDur} ms` : '—'}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
+  }
+
+  private formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
   private escapeHtml(text: string): string {
     const div = document.createElement('div');
     div.textContent = text;
@@ -406,5 +657,6 @@ export class AnalyticsDashboardView {
     this.dailyChart?.destroy();
     this.tabChart?.destroy();
     this.teamChart?.destroy();
+    this.apiCallsChart?.destroy();
   }
 }

@@ -46,7 +46,19 @@ export class AnalyticsService {
    */
   track(eventType: string, eventData: Record<string, unknown> = {}): void {
     if (!this.trackingEnabled) return;
+    this.post(eventType, eventData);
+  }
 
+  /**
+   * Like track() but skips the localhost/excluded filter — used for infra
+   * metrics (e.g. StatsPlus API calls) that should always be recorded.
+   */
+  private trackAlways(eventType: string, eventData: Record<string, unknown> = {}): void {
+    if (!this.configured) return;
+    this.post(eventType, eventData);
+  }
+
+  private post(eventType: string, eventData: Record<string, unknown>): void {
     const url = `${this.supabaseUrl}/rest/v1/analytics_events`;
     const body = JSON.stringify({
       session_id: this.sessionId,
@@ -114,6 +126,10 @@ export class AnalyticsService {
 
   trackSearchPerformed(query: string, resultCount: number): void {
     this.track('search_performed', { query, result_count: resultCount });
+  }
+
+  trackApiCall(endpoint: string, bytes: number | undefined, status: number, duration_ms: number): void {
+    this.trackAlways('api_call', { endpoint, bytes, status, duration_ms });
   }
 
   // --- Query methods for dashboard ---

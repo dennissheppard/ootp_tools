@@ -1,3 +1,5 @@
+import { analyticsService } from './AnalyticsService';
+
 const DEFAULT_RATE_LIMIT_WAIT_MS = 4000;
 const MAX_RATE_LIMIT_RETRIES = 3;
 const MIN_RATE_LIMIT_WAIT_MS = 2000;
@@ -43,13 +45,28 @@ function notifyRateLimitClear(): void {
   window.dispatchEvent(new CustomEvent('wbl:rate-limit-clear'));
 }
 
+function normalizeEndpoint(url: string): string {
+  try {
+    return new URL(url, 'http://localhost').pathname;
+  } catch {
+    return url;
+  }
+}
+
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   let attempt = 0;
   let hadRateLimit = false;
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+  const endpoint = normalizeEndpoint(url);
 
   while (true) {
+    const start = performance.now();
     const response = await fetch(input, init);
+    const duration_ms = Math.round(performance.now() - start);
+
+    const contentLength = response.headers.get('content-length');
+    const bytes = contentLength !== null ? parseInt(contentLength, 10) : undefined;
+    analyticsService.trackApiCall(endpoint, bytes, response.status, duration_ms);
 
     if (response.status !== 429) {
       if (hadRateLimit) {
