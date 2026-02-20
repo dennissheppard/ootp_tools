@@ -116,6 +116,7 @@ interface TeamTradeProfile {
 }
 
 interface TradeMatchDetail {
+  playerId: number;
   name: string;
   positionLabel: string;
   rating: number;
@@ -3022,6 +3023,14 @@ export class TeamPlanningView {
       return needSlot.canPlay.includes(parseInt(playerPosCode, 10));
     };
 
+    /** Age-proximity bonus: prefer prospects who will be MLB-ready age at the target year. */
+    const ageProximityBonus = (ageAtTarget: number): number => {
+      if (ageAtTarget >= 24) return 8;
+      if (ageAtTarget === 23) return 5;
+      if (ageAtTarget === 22) return 2;
+      return 0;
+    };
+
     for (const need of myProfile.needs) {
       const targets: TradeTarget[] = [];
 
@@ -3040,7 +3049,7 @@ export class TeamPlanningView {
                 const key = `${ourSurplus.playerId}`;
                 if (!seen.has(key)) {
                   seen.add(key);
-                  details.push({ name: ourSurplus.name, positionLabel: ourSurplus.positionLabel, rating: ourSurplus.tfr, isProspect: true });
+                  details.push({ playerId: ourSurplus.playerId, name: ourSurplus.name, positionLabel: ourSurplus.positionLabel, rating: ourSurplus.tfr, isProspect: true });
                 }
               }
             }
@@ -3049,7 +3058,7 @@ export class TeamPlanningView {
                 const key = `${ourSurplus.playerId}`;
                 if (!seen.has(key)) {
                   seen.add(key);
-                  details.push({ name: ourSurplus.name, positionLabel: ourSurplus.positionLabel, rating: ourSurplus.trueRating, isProspect: false });
+                  details.push({ playerId: ourSurplus.playerId, name: ourSurplus.name, positionLabel: ourSurplus.positionLabel, rating: ourSurplus.trueRating, isProspect: false });
                 }
               }
             }
@@ -3068,12 +3077,17 @@ export class TeamPlanningView {
           const eta = this.estimateETA({ level: prospect.level, trueFutureRating: prospect.tfr });
           if (eta > yearOffset + 1) continue;
 
+          // Age filter: prospect must be at least 22 at the target year to fill a real need
+          const ageAtTarget = prospect.age + yearOffset;
+          if (ageAtTarget < 22) continue;
+
           const matchDetails = collectMatchDetails();
           const complementary = matchDetails.length > 0;
 
           const matchScore = prospect.tfr * 10
             + (complementary ? 20 : 0)
-            + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0);
+            + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0)
+            + ageProximityBonus(ageAtTarget);
 
           seenPlayerIds.add(prospect.playerId);
           targets.push({
@@ -3216,11 +3230,15 @@ export class TeamPlanningView {
               const eta = this.estimateETA({ level: prospect.level, trueFutureRating: prospect.trueFutureRating });
               if (eta > yearOffset + 1) continue;
 
+              const ageAtTarget = prospect.age + yearOffset;
+              if (ageAtTarget < 22) continue;
+
               const matchDetails = collectMatchDetails();
               const complementary = matchDetails.length > 0;
               const matchScore = prospect.trueFutureRating * 10
                 + (complementary ? 20 : 0)
-                + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0);
+                + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0)
+                + ageProximityBonus(ageAtTarget);
 
               seenPlayerIds.add(prospect.playerId);
               targets.push({
@@ -3256,11 +3274,15 @@ export class TeamPlanningView {
               const eta = this.estimateETA({ level: prospect.level, trueFutureRating: prospect.trueFutureRating });
               if (eta > yearOffset + 1) continue;
 
+              const ageAtTarget = prospect.age + yearOffset;
+              if (ageAtTarget < 22) continue;
+
               const matchDetails = collectMatchDetails();
               const complementary = matchDetails.length > 0;
               const matchScore = prospect.trueFutureRating * 10
                 + (complementary ? 20 : 0)
-                + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0);
+                + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0)
+                + ageProximityBonus(ageAtTarget);
 
               seenPlayerIds.add(prospect.playerId);
               targets.push({
@@ -3455,6 +3477,23 @@ export class TeamPlanningView {
         if (playerId) this.openPlayerProfile(playerId);
       });
     });
+
+    // Bind trade target card clicks → open Trade Analyzer pre-populated
+    container.querySelectorAll<HTMLElement>('.market-target-clickable').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).closest('.cell-name-link')) return;
+        const playerId = parseInt(card.dataset.tradePlayerId ?? '');
+        const orgId = parseInt(card.dataset.tradeOrgId ?? '');
+        const isProspect = card.dataset.isProspect === 'true';
+        if (!playerId || !orgId || !this.selectedTeamId) return;
+        const matchPlayerIdStr = card.dataset.matchPlayerId ?? '';
+        const matchPlayerId = matchPlayerIdStr ? parseInt(matchPlayerIdStr) : undefined;
+        const matchPlayerIsProspect = card.dataset.matchPlayerIsProspect === 'true';
+        window.dispatchEvent(new CustomEvent('wbl:open-trade-analyzer', {
+          detail: { myTeamId: this.selectedTeamId, targetTeamId: orgId, targetPlayerId: playerId, targetIsProspect: isProspect, matchPlayerId, matchPlayerIsProspect, scrollY: window.scrollY }
+        }));
+      });
+    });
   }
 
   private renderTradeTargetCard(target: TradeTarget): string {
@@ -3464,13 +3503,20 @@ export class TeamPlanningView {
       ? `<span class="market-match-badge" title="${target.matchDetails.map(d => `${d.positionLabel} ${this.abbreviateName(d.name)} (${d.rating.toFixed(1)})`).join(', ')}">Trade Match: send ${this.abbreviateName(target.matchDetails[0].name)} (${target.matchDetails[0].rating.toFixed(1)})</span>`
       : '';
 
+    const matchPlayerId = target.complementary && target.matchDetails.length > 0 ? target.matchDetails[0].playerId : '';
+    const matchPlayerIsProspect = target.complementary && target.matchDetails.length > 0 ? target.matchDetails[0].isProspect : false;
+
     if (target.isProspect) {
       const p = target.player as SurplusProspect;
       return `
-        <div class="market-player-card market-prospect-card${matchClass}${generalClass}">
+        <div class="market-player-card market-prospect-card${matchClass}${generalClass} market-target-clickable"
+             data-trade-player-id="${p.playerId}" data-trade-org-id="${p.orgId}" data-is-prospect="true"
+             data-match-player-id="${matchPlayerId}" data-match-player-is-prospect="${matchPlayerIsProspect}"
+             title="Click to analyze trade in Trade Analyzer">
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)} TFR</span>
+          <span class="market-target-cta">Analyze →</span>
           <span class="market-org-label">${teamLogoImg(p.orgName, 'team-btn-logo')}${p.orgName}</span>
           <span class="market-detail">${p.level}, Age ${p.age}</span>
           ${matchBadge}
@@ -3478,10 +3524,14 @@ export class TeamPlanningView {
     } else {
       const p = target.player as SurplusMlbPlayer;
       return `
-        <div class="market-player-card market-mlb-card${matchClass}${generalClass}">
+        <div class="market-player-card market-mlb-card${matchClass}${generalClass} market-target-clickable"
+             data-trade-player-id="${p.playerId}" data-trade-org-id="${p.orgId}" data-is-prospect="false"
+             data-match-player-id="${matchPlayerId}" data-match-player-is-prospect="${matchPlayerIsProspect}"
+             title="Click to analyze trade in Trade Analyzer">
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)} TR</span>
+          <span class="market-target-cta">Analyze →</span>
           <span class="market-org-label">${teamLogoImg(p.orgName, 'team-btn-logo')}${p.orgName}</span>
           <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
           ${matchBadge}

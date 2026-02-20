@@ -337,7 +337,9 @@ rawWins = 81 + deviation × slope
 - Year selector shifts analysis to future years
 - Sections: Your Situation (needs + trade chips) | Trade Targets by Position
 - Blocked prospects: TFR≥3.0 blocked by incumbent TR≥3.5 with 3+ years remaining
-- Scoring: `rating×10` + trade-match bonus + proximity bonus
+- Scoring: `rating×10` + trade-match bonus + level bonus (AAA+5, AA+3) + age-proximity bonus (age≥24 at target year +8, 23 +5, 22 +2)
+- **Prospect age gate**: prospects must be ≥22 at the target year to appear as trade targets — younger prospects can't realistically fill a near-term need
+- **Clickable trade target rows**: clicking a row navigates to Trade Analyzer with Team 1 = my team, Team 2 = target's org, target player pre-added to Team 2; trade-match player (if any) pre-added to Team 1. Dispatches `wbl:open-trade-analyzer` event handled by `main.ts` → `TradeAnalyzerView.initWithTrade()`
 - **Trade-match badge** (renamed from "2-Way"): only shown on surplus players (tier 1-2), never on general roster targets
 - **Trade flags** (per-player, localStorage): "Tradeable" forces a player into trade chips; "Not Tradeable" removes them. Set via cell edit modal.
 - **Need overrides** (per-position, localStorage): "Mark as Position of Need" forces a position into the needs list regardless of auto-detection. Set via cell edit modal footer.
@@ -370,6 +372,7 @@ Three-column layout: Team 1 | Analysis | Team 2. `src/views/TradeAnalyzerView.ts
 - Team impact: clones power ranking roster, applies trade, recalculates with 40/40/15/5 weights
 - Farm Impact tab: prospects lost/gained with tier summary
 - AI analysis via `AITradeAnalysisService` (gpt-4o-mini, cached in IndexedDB)
+- **`initWithTrade(myTeamId, targetTeamId, targetPlayerId, targetIsProspect, scrollY?, matchPlayerId?, matchPlayerIsProspect?)`**: public method for pre-populating from Trade Market. Awaits `this.initPromise` (async init) before touching the DOM — critical because `populateTeamDropdowns()` runs at the end of `initialize()`, not synchronously in the constructor. Adds a "← Back to Trade Market" button that restores saved scroll position.
 
 ### Player Development Tracker
 

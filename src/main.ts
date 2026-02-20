@@ -317,6 +317,16 @@ class App {
       }
     });
 
+    window.addEventListener('wbl:open-trade-analyzer', async (event) => {
+      const { myTeamId, targetTeamId, targetPlayerId, targetIsProspect, matchPlayerId, matchPlayerIsProspect, scrollY } =
+        (event as CustomEvent<{ myTeamId: number; targetTeamId: number; targetPlayerId: number; targetIsProspect: boolean; matchPlayerId?: number; matchPlayerIsProspect: boolean; scrollY: number }>).detail;
+      if (!this.tradeAnalyzerView) {
+        this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
+      }
+      this.setActiveTab('tab-trade-analyzer');
+      await this.tradeAnalyzerView.initWithTrade(myTeamId, targetTeamId, targetPlayerId, targetIsProspect, scrollY, matchPlayerId, matchPlayerIsProspect);
+    });
+
     // Double-click logo to toggle analytics dashboard
     const logo = document.querySelector<HTMLImageElement>('.app-logo');
     if (logo) {
