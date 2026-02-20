@@ -2,7 +2,6 @@ import { Player, getFullName, getPositionLabel, isPitcher } from '../models/Play
 import { pitcherProfileModal } from './PitcherProfileModal';
 import type { PlayerProfileData } from './PlayerRatingsCard';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
-import { OnboardingView } from './OnboardingView';
 import { playerService } from '../services/PlayerService';
 import { dateService } from '../services/DateService';
 import { trueRatingsService, TruePlayerBattingStats } from '../services/TrueRatingsService';
@@ -28,14 +27,12 @@ export class GlobalSearchBar {
   private selectedIndex = -1;
   private debounceTimer?: number;
   private batterProfileModal: BatterProfileModal;
-  private onboardingView: OnboardingView;
 
   constructor(container: HTMLElement, options: GlobalSearchBarOptions) {
     this.container = container;
     this.onSearch = options.onSearch;
     this.onLoading = options.onLoading;
     this.batterProfileModal = new BatterProfileModal();
-    this.onboardingView = new OnboardingView();
     this.render();
     this.attachEventListeners();
   }
@@ -137,16 +134,6 @@ export class GlobalSearchBar {
   }
 
   private handleSearch(query: string): void {
-    // Check for special "aboutTR" query to show onboarding guide
-    if (query.toLowerCase() === 'abouttr') {
-      this.closeDropdown();
-      this.onboardingView.show();
-      if (this.onLoading) {
-        this.onLoading(false);
-      }
-      return;
-    }
-
     if (this.onLoading) {
       this.onLoading(true);
     }
