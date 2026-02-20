@@ -21,7 +21,8 @@ import { teamRatingsService, HitterFarmData, FarmData } from '../services/TeamRa
 import { analyticsService } from '../services/AnalyticsService';
 import { hasComponentUpside } from '../utils/tfrUpside';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
-import { renderDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
+import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
+import { PlayerCategory, classifyPlayer, buildFreshnessUpdatedLevels } from '../utils/playerLevel';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -52,6 +53,8 @@ interface TrueRatingFields {
   tfrHra?: number;
   /** Flag indicating this is a prospect without MLB stats */
   isProspect?: boolean;
+  /** Level-based player category */
+  playerCategory?: PlayerCategory;
   /** Pitcher role (SP/SW/RP) */
   role?: PitcherRole;
   /** Star gap (POT - OVR) for prospects */
@@ -90,6 +93,8 @@ interface HitterTrueRatingFields {
   tfrEye?: number;
   /** Flag indicating this is a prospect without MLB stats */
   isProspect?: boolean;
+  /** Level-based player category */
+  playerCategory?: PlayerCategory;
   /** Star gap (POT - OVR) for prospects */
   starGap?: number;
   prospectHasStats?: boolean;
@@ -184,9 +189,9 @@ export class TrueRatingsView {
   private mode: StatsMode = 'pitchers';
   private showTrueRatings = true;
   private showRawStats = false;
-  private showProspects = true;
+  private showMinorLeaguers = true;
   private showMlbPlayers = true;
-  private showUndraftedPlayers = false;
+  private showDraftees = false;
   private allStats: TableRow[] = [];
   private readonly prefKey = 'wbl-prefs';
   private preferences: Record<string, unknown> = {};
@@ -220,6 +225,10 @@ export class TrueRatingsView {
 
     // Listen for tab activation to load data on first view
     this.setupLazyLoading();
+
+    window.addEventListener('wbl:request-data-source-badges', () => {
+      if (this.container.closest('.tab-panel.active')) this.updateDataSourceBadges();
+    });
   }
 
   private setupLazyLoading(): void {
@@ -287,8 +296,11 @@ export class TrueRatingsView {
       this.itemsPerPageSelection = this.preferences.itemsPerPageSelection;
       this.itemsPerPage = this.itemsPerPageSelection === 'all' ? 999999 : parseInt(this.itemsPerPageSelection, 10);
     }
-    if (typeof this.preferences.showProspects === 'boolean') {
-      this.showProspects = this.preferences.showProspects;
+    // Migrate old preference keys → new keys
+    if (typeof this.preferences.showMinorLeaguers === 'boolean') {
+      this.showMinorLeaguers = this.preferences.showMinorLeaguers;
+    } else if (typeof this.preferences.showProspects === 'boolean') {
+      this.showMinorLeaguers = this.preferences.showProspects;
     }
     if (typeof this.preferences.showMlbPlayers === 'boolean') {
       this.showMlbPlayers = this.preferences.showMlbPlayers;
@@ -299,8 +311,10 @@ export class TrueRatingsView {
     if (typeof this.preferences.showRawStats === 'boolean') {
       this.showRawStats = this.preferences.showRawStats;
     }
-    if (typeof this.preferences.showUndraftedPlayers === 'boolean') {
-      this.showUndraftedPlayers = this.preferences.showUndraftedPlayers;
+    if (typeof this.preferences.showDraftees === 'boolean') {
+      this.showDraftees = this.preferences.showDraftees;
+    } else if (typeof this.preferences.showUndraftedPlayers === 'boolean') {
+      this.showDraftees = this.preferences.showUndraftedPlayers;
     }
     if (typeof this.preferences.currentPage === 'number') {
       this.currentPage = this.preferences.currentPage;
@@ -319,11 +333,11 @@ export class TrueRatingsView {
       selectedTeam: this.selectedTeam,
       selectedPosition: this.selectedPosition,
       itemsPerPageSelection: this.itemsPerPageSelection,
-      showProspects: this.showProspects,
+      showMinorLeaguers: this.showMinorLeaguers,
       showMlbPlayers: this.showMlbPlayers,
       showTrueRatings: this.showTrueRatings,
       showRawStats: this.showRawStats,
-      showUndraftedPlayers: this.showUndraftedPlayers,
+      showDraftees: this.showDraftees,
       mode: this.mode,
       currentPage: this.currentPage,
       sortKey: this.sortKey,
@@ -336,7 +350,6 @@ export class TrueRatingsView {
       <div class="true-ratings-content">
         
           <p class="section-subtitle">A blend of historical stats and scouting ratings produces True Ratings. This blend varies based on player experience, age, position, moon phase, etc.</p>
-          <div id="true-ratings-data-source-badges">${renderDataSourceBadges('current-ytd', this.scoutingDataMode)}</div>
         
         <div class="true-ratings-controls">
           <div class="filter-bar" id="ratings-view-toggle">
@@ -366,18 +379,15 @@ export class TrueRatingsView {
                   ${this.renderPositionDropdownItems()}
                 </div>
               </div>
+              <button class="toggle-btn ${this.showMlbPlayers ? 'active' : ''}" data-player-toggle="mlb" aria-pressed="${this.showMlbPlayers}">MLB Players</button>
+              <button class="toggle-btn ${this.showMinorLeaguers ? 'active' : ''}" data-player-toggle="minors" aria-pressed="${this.showMinorLeaguers}">Minor Leaguers</button>
+              <button class="toggle-btn ${this.showDraftees ? 'active' : ''}" data-player-toggle="draftee" aria-pressed="${this.showDraftees}">Future Draftees</button>
               <button class="toggle-btn ${this.showRawStats ? 'active' : ''}" data-ratings-toggle="raw" aria-pressed="${this.showRawStats}">Raw Stats</button>
               <button class="toggle-btn ${this.showTrueRatings ? 'active' : ''}" data-ratings-toggle="true" aria-pressed="${this.showTrueRatings}">True Ratings</button>
-              <button class="toggle-btn ${this.showMlbPlayers ? 'active' : ''}" data-player-toggle="mlb" aria-pressed="${this.showMlbPlayers}">MLB Players</button>
-              <button class="toggle-btn ${this.showProspects ? 'active' : ''}" data-player-toggle="prospect" aria-pressed="${this.showProspects}">Prospects</button>
-              <button class="toggle-btn ${this.showUndraftedPlayers ? 'active' : ''}" data-player-toggle="undrafted" aria-pressed="${this.showUndraftedPlayers}">Undrafted Players</button>
             </div>
           </div>
         </div>
         
-        <div class="scout-upload-notice" id="scouting-notice" style="display: none; margin-bottom: 1rem;">
-            No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
-        </div>
 
         <div id="true-ratings-table-container"></div>
         <div class="pagination-controls">
@@ -422,14 +432,11 @@ export class TrueRatingsView {
 
     try {
       const dateStr = await dateService.getCurrentDateWithFallback();
-      const [yearPart, monthPart, dayPart] = dateStr.split('-');
+      const [yearPart] = dateStr.split('-');
       const gameYear = parseInt(yearPart, 10) || new Date().getFullYear();
-      const gameMonth = parseInt(monthPart, 10) || 1;
-      const gameDay = parseInt(dayPart, 10) || 1;
-      
-      // Default to current year only if we are past April 5th (Season Start)
-      const isPastSeasonStart = gameMonth > 4 || (gameMonth === 4 && gameDay > 5);
-      const defaultYear = isPastSeasonStart ? gameYear : gameYear - 1;
+
+      // Always default to the current game year (scouting/prospect data is available year-round)
+      const defaultYear = gameYear;
       
       this.currentGameYear = gameYear;
 
@@ -477,29 +484,29 @@ export class TrueRatingsView {
     const disableProspects = this.selectedYear < currentYear;
 
     if (disableProspects) {
-      this.showProspects = false;
-      this.showUndraftedPlayers = false;
+      this.showMinorLeaguers = false;
+      this.showDraftees = false;
       if (!this.showMlbPlayers) {
         this.showMlbPlayers = true;
       }
     }
 
-    const prospectToggle = this.container.querySelector<HTMLButtonElement>('[data-player-toggle="prospect"]');
-    if (prospectToggle) {
+    const minorsToggle = this.container.querySelector<HTMLButtonElement>('[data-player-toggle="minors"]');
+    if (minorsToggle) {
       // Use class instead of disabled attr so native title tooltip still fires
-      prospectToggle.classList.toggle('toggle-btn-disabled', disableProspects);
-      prospectToggle.setAttribute('aria-disabled', String(disableProspects));
-      prospectToggle.title = disableProspects
-        ? 'Prospect ratings from prior years are not available'
+      minorsToggle.classList.toggle('toggle-btn-disabled', disableProspects);
+      minorsToggle.setAttribute('aria-disabled', String(disableProspects));
+      minorsToggle.title = disableProspects
+        ? 'Minor leaguer ratings from prior years are not available'
         : '';
     }
 
-    const undraftedToggle = this.container.querySelector<HTMLButtonElement>('[data-player-toggle="undrafted"]');
-    if (undraftedToggle) {
-      undraftedToggle.classList.toggle('toggle-btn-disabled', disableProspects);
-      undraftedToggle.setAttribute('aria-disabled', String(disableProspects));
-      undraftedToggle.title = disableProspects
-        ? 'Undrafted player ratings from prior years are not available'
+    const drafteeToggle = this.container.querySelector<HTMLButtonElement>('[data-player-toggle="draftee"]');
+    if (drafteeToggle) {
+      drafteeToggle.classList.toggle('toggle-btn-disabled', disableProspects);
+      drafteeToggle.setAttribute('aria-disabled', String(disableProspects));
+      drafteeToggle.title = disableProspects
+        ? 'Future draftee ratings from prior years are not available'
         : '';
     }
 
@@ -635,8 +642,8 @@ export class TrueRatingsView {
           // Make Raw Stats and True Ratings mutually exclusive
           if (this.showRawStats) {
             this.showTrueRatings = false;
-            this.showProspects = false;
-            this.showUndraftedPlayers = false;
+            this.showMinorLeaguers = false;
+            this.showDraftees = false;
             // Ensure MLB players are visible since they are the only ones with stats
             if (!this.showMlbPlayers) {
               this.showMlbPlayers = true;
@@ -688,24 +695,24 @@ export class TrueRatingsView {
         const toggle = button.dataset.playerToggle;
         let ratingsViewChanged = false;
 
-        if (toggle === 'prospect') {
-          const nextProspects = !this.showProspects;
-          if (!nextProspects && !this.showMlbPlayers && !this.showUndraftedPlayers) return;
-          this.showProspects = nextProspects;
-          if (this.showProspects && this.showRawStats) {
+        if (toggle === 'minors') {
+          const next = !this.showMinorLeaguers;
+          if (!next && !this.showMlbPlayers && !this.showDraftees) return;
+          this.showMinorLeaguers = next;
+          if (this.showMinorLeaguers && this.showRawStats) {
             this.showRawStats = false;
             this.showTrueRatings = true;
             ratingsViewChanged = true;
           }
         } else if (toggle === 'mlb') {
           const nextMlb = !this.showMlbPlayers;
-          if (!nextMlb && !this.showProspects && !this.showUndraftedPlayers) return;
+          if (!nextMlb && !this.showMinorLeaguers && !this.showDraftees) return;
           this.showMlbPlayers = nextMlb;
-        } else if (toggle === 'undrafted') {
-          const nextUndrafted = !this.showUndraftedPlayers;
-          if (!nextUndrafted && !this.showProspects && !this.showMlbPlayers) return;
-          this.showUndraftedPlayers = nextUndrafted;
-          if (this.showUndraftedPlayers && this.showRawStats) {
+        } else if (toggle === 'draftee') {
+          const next = !this.showDraftees;
+          if (!next && !this.showMinorLeaguers && !this.showMlbPlayers) return;
+          this.showDraftees = next;
+          if (this.showDraftees && this.showRawStats) {
             this.showRawStats = false;
             this.showTrueRatings = true;
             ratingsViewChanged = true;
@@ -717,7 +724,7 @@ export class TrueRatingsView {
         this.saveFilterPreferences();
         this.updatePlayerToggleButtons();
         this.updateRatingsToggleButtons(); // Sync raw stats button state
-        this.updatePitcherColumns(); // Refresh columns (e.g., TFR columns depend on showProspects)
+        this.updatePitcherColumns(); // Refresh columns (e.g., TFR columns depend on showMinorLeaguers)
 
         // If we changed from Raw Stats to True Ratings, we need to refetch the data
         if (ratingsViewChanged) {
@@ -734,12 +741,12 @@ export class TrueRatingsView {
     buttons.forEach(btn => {
       const key = btn.dataset.playerToggle;
       let isActive = false;
-      if (key === 'prospect') {
-        isActive = this.showProspects;
+      if (key === 'minors') {
+        isActive = this.showMinorLeaguers;
       } else if (key === 'mlb') {
         isActive = this.showMlbPlayers;
-      } else if (key === 'undrafted') {
-        isActive = this.showUndraftedPlayers;
+      } else if (key === 'draftee') {
+        isActive = this.showDraftees;
       }
       btn.classList.toggle('active', isActive);
       btn.setAttribute('aria-pressed', String(isActive));
@@ -750,8 +757,8 @@ export class TrueRatingsView {
     // Show/hide ratings toggles (Raw Stats is pitcher-only, True Ratings is for both)
     const rawStatsBtn = this.container.querySelector<HTMLElement>('[data-ratings-toggle="raw"]');
     const trueRatingsBtn = this.container.querySelector<HTMLElement>('[data-ratings-toggle="true"]');
-    const undraftedBtn = this.container.querySelector<HTMLElement>('[data-player-toggle="undrafted"]');
-    const prospectBtn = this.container.querySelector<HTMLElement>('[data-player-toggle="prospect"]');
+    const drafteeBtn = this.container.querySelector<HTMLElement>('[data-player-toggle="draftee"]');
+    const minorsBtn = this.container.querySelector<HTMLElement>('[data-player-toggle="minors"]');
 
     // Raw Stats is available for both pitchers and batters
     if (rawStatsBtn) rawStatsBtn.style.display = '';
@@ -759,21 +766,21 @@ export class TrueRatingsView {
     // True Ratings is available for both pitchers and batters
     if (trueRatingsBtn) trueRatingsBtn.style.display = '';
 
-    // Prospects toggle is available for both pitchers and batters
-    if (prospectBtn) {
-      prospectBtn.style.display = '';
+    // Minor Leaguers toggle is available for both pitchers and batters
+    if (minorsBtn) {
+      minorsBtn.style.display = '';
     }
 
-    // Disable undrafted toggle if a specific team is selected or year is in the past
-    if (undraftedBtn) {
-      const isTeamSelected = this.selectedTeam !== 'all';
+    // Disable draftee toggle if a specific team is selected or year is in the past
+    if (drafteeBtn) {
+      const isTeamSelected = this.selectedTeam !== 'all' && this.selectedTeam !== 'freeAgents';
       const isPastYear = this.currentGameYear != null && this.selectedYear < this.currentGameYear;
       const isDisabled = isTeamSelected || isPastYear;
-      (undraftedBtn as HTMLButtonElement).disabled = isDisabled;
-      undraftedBtn.style.opacity = isDisabled ? '0.5' : '1';
-      undraftedBtn.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
-      undraftedBtn.title = isPastYear
-        ? 'Undrafted players are only available for the current season.'
+      (drafteeBtn as HTMLButtonElement).disabled = isDisabled;
+      drafteeBtn.style.opacity = isDisabled ? '0.5' : '1';
+      drafteeBtn.style.cursor = isDisabled ? 'not-allowed' : 'pointer';
+      drafteeBtn.title = isPastYear
+        ? 'Future draftees are only available for the current season.'
         : isTeamSelected ? 'Filter only available when viewing "All Teams"' : '';
     }
   }
@@ -816,6 +823,7 @@ export class TrueRatingsView {
         // Note: Column visibility is controlled by getBatterColumnsForView() based on toggles
       }
       this.allStats = [...this.stats];
+      await this.assignPlayerCategories(this.allStats);
       this.updateTeamOptions();
       this.applyFilters();
       this.updateRatingsControlsVisibility();
@@ -1001,24 +1009,31 @@ export class TrueRatingsView {
 
   private applyFilters(): void {
     this.stats = this.allStats.filter(row => {
-      if (this.mode === 'pitchers') {
-        const isProspect = Boolean((row as PitcherRow).isProspect);
-        if (isProspect && !this.showProspects) return false;
+      // Level-based category filtering
+      const cat = (row as any).playerCategory as PlayerCategory | undefined;
+      if (cat) {
+        if (cat === 'mlb' && !this.showMlbPlayers) return false;
+        if (cat === 'minors' && !this.showMinorLeaguers) return false;
+        if (cat === 'draftee' && !this.showDraftees) return false;
+        // Free agents only visible when explicitly selected in team dropdown
+        if (cat === 'freeAgent' && this.selectedTeam !== 'freeAgents') return false;
+      } else {
+        // Fallback for rows without playerCategory (legacy isProspect)
+        const isProspect = Boolean((row as any).isProspect);
+        if (isProspect && !this.showMinorLeaguers) return false;
         if (!isProspect && !this.showMlbPlayers) return false;
+        const teamValue = (row as TeamInfoFields).teamFilter ?? '';
+        if (teamValue === '' && this.selectedTeam !== 'freeAgents') return false;
       }
-
-      if (this.mode === 'batters') {
-        const isProspect = Boolean((row as BatterRow).isProspect);
-        if (isProspect && !this.showProspects) return false;
-        if (!isProspect && !this.showMlbPlayers) return false;
-      }
-
-      // Filter out undrafted players (those without a team) unless showUndraftedPlayers is true
-      const teamValue = (row as TeamInfoFields).teamFilter ?? '';
-      if (!this.showUndraftedPlayers && teamValue === '') return false;
 
       // Filter by team
-      if (this.selectedTeam !== 'all' && teamValue !== this.selectedTeam) return false;
+      const teamValue = (row as TeamInfoFields).teamFilter ?? '';
+      if (this.selectedTeam === 'freeAgents') {
+        // When "Free Agents" is selected, only show free agents
+        if (cat !== 'freeAgent') return false;
+      } else if (this.selectedTeam !== 'all' && teamValue !== this.selectedTeam) {
+        return false;
+      }
 
       // Filter by position
       if (this.selectedPosition !== 'all-pitchers' && this.selectedPosition !== 'all-batters') {
@@ -1050,6 +1065,138 @@ export class TrueRatingsView {
     this.ensureSortKeyForView();
     this.sortStats();
     this.renderStats();
+  }
+
+  /**
+   * Assign playerCategory to all rows based on scouting lev/hsc fields.
+   * Builds a combined lev/hsc map from both pitcher and hitter scouting data,
+   * applies contract freshness updates if game date > scouting date, then classifies.
+   */
+  private async assignPlayerCategories(rows: TableRow[]): Promise<void> {
+    // Build combined lev/hsc lookup from scouting data
+    const levMap = new Map<number, { lev?: string; hsc?: string }>();
+
+    // Pitcher scouting (already loaded in this.scoutingRatings)
+    for (const s of this.scoutingRatings) {
+      if (s.playerId > 0) {
+        levMap.set(s.playerId, { lev: s.lev, hsc: s.hsc });
+      }
+    }
+
+    // Hitter scouting (load from service)
+    try {
+      const [myHitters, osaHitters] = await Promise.all([
+        hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
+        hitterScoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
+      ]);
+      // my takes priority over osa
+      for (const s of osaHitters) {
+        if (s.playerId > 0 && !levMap.has(s.playerId)) {
+          levMap.set(s.playerId, { lev: s.lev, hsc: s.hsc });
+        }
+      }
+      for (const s of myHitters) {
+        if (s.playerId > 0) {
+          levMap.set(s.playerId, { lev: s.lev, hsc: s.hsc });
+        }
+      }
+    } catch { /* scouting unavailable — fall through to isProspect fallback */ }
+
+    // Check if lev data is actually available (backward compat: if no Lev column, skip)
+    const hasLevData = Array.from(levMap.values()).some(v => v.lev && v.lev !== '');
+
+    if (!hasLevData) {
+      // No Lev column in CSV — fall back to isProspect-based assignment
+      for (const row of rows) {
+        const r = row as any;
+        if (r.isProspect) {
+          const teamValue = (row as TeamInfoFields).teamFilter ?? '';
+          r.playerCategory = teamValue === '' ? 'freeAgent' : 'minors';
+        } else {
+          r.playerCategory = 'mlb';
+        }
+      }
+      return;
+    }
+
+    // Contract freshness: update levels if game date > scouting file date
+    try {
+      const gameDate = await dateService.getCurrentDate().catch(() => '');
+      if (gameDate) {
+        // Get scouting dates from available snapshots
+        const [pitcherSnapshots, hitterSnapshots] = await Promise.all([
+          scoutingDataService.getAvailableScoutingSnapshots(this.selectedYear, 'my').catch(() => []),
+          hitterScoutingDataService.getAvailableScoutingSnapshots(this.selectedYear, 'my').catch(() => []),
+        ]);
+        const latestScoutDate = [...pitcherSnapshots, ...hitterSnapshots]
+          .map(s => s.date)
+          .sort()
+          .pop() || '';
+
+        if (latestScoutDate && gameDate > latestScoutDate) {
+          const contracts = await contractService.getAllContracts();
+          const updatedLevels = buildFreshnessUpdatedLevels(levMap, contracts);
+          for (const [playerId, newLev] of updatedLevels) {
+            const existing = levMap.get(playerId);
+            if (existing) {
+              existing.lev = newLev;
+            } else {
+              levMap.set(playerId, { lev: newLev });
+            }
+          }
+        }
+      }
+    } catch { /* freshness check failed — use scouting levels as-is */ }
+
+    // Assign categories and update draftee level display
+    for (const row of rows) {
+      const r = row as any;
+      const playerId = r.player_id;
+      const scoutInfo = levMap.get(playerId);
+
+      if (scoutInfo?.lev) {
+        r.playerCategory = classifyPlayer(scoutInfo.lev, scoutInfo.hsc);
+
+        // For minor leaguers, ensure the level label from scouting Lev is shown
+        if (r.playerCategory === 'minors' && r.isProspect && r.teamDisplay) {
+          const currentDisplay = r.teamDisplay as string;
+          // If teamDisplay doesn't already have a league-level label, add one from scouting Lev
+          if (!currentDisplay.includes('league-level')) {
+            const teamName = (row as TeamInfoFields).teamFilter ?? '';
+            if (teamName) {
+              r.teamDisplay = `${teamName} <span class="league-level">(${scoutInfo.lev})</span>`;
+            }
+          } else {
+            // Replace existing level label with the scouting Lev value
+            r.teamDisplay = currentDisplay.replace(
+              /<span class="league-level">\([^)]*\)<\/span>/,
+              `<span class="league-level">(${scoutInfo.lev})</span>`
+            );
+          }
+        }
+
+        // For draftees, show HSC value as their level label
+        if (r.playerCategory === 'draftee' && scoutInfo.hsc && scoutInfo.hsc !== '-') {
+          r.teamDisplay = `<span class="league-level">${scoutInfo.hsc}</span>`;
+        }
+
+        // For free agents, show 'FA' if no team display
+        if (r.playerCategory === 'freeAgent' && (!r.teamDisplay || r.teamDisplay === '')) {
+          r.teamDisplay = 'FA';
+        }
+      } else {
+        // Player not in scouting data — derive from isProspect/team
+        if (r.isProspect) {
+          const teamValue = (row as TeamInfoFields).teamFilter ?? '';
+          r.playerCategory = teamValue === '' ? 'freeAgent' : 'minors';
+          if (r.playerCategory === 'freeAgent' && (!r.teamDisplay || r.teamDisplay === '')) {
+            r.teamDisplay = 'FA';
+          }
+        } else {
+          r.playerCategory = 'mlb';
+        }
+      }
+    }
   }
 
   private updateItemsPerPageForFilter(): void {
@@ -1136,7 +1283,7 @@ export class TrueRatingsView {
     if (this.showTrueRatings) {
       columns.push(...this.getTrueRatingColumns());
       columns.push(...this.getEstimatedRatingColumns());
-      if (this.showProspects) {
+      if (this.showMinorLeaguers || this.showDraftees) {
         columns.push(...this.getTfrComponentColumns());
       }
     }
@@ -1398,8 +1545,12 @@ export class TrueRatingsView {
     // Find prospects (scouting entries without MLB stats)
     const prospects = await this.buildProspectRows(mlbPlayerIds);
 
-    // Merge MLB pitchers with prospects
-    const allPitchers = [...enrichedPitchers, ...prospects];
+    // Build scouting-only rows for draftees/FAs not in farm pipeline
+    const existingIds = new Set([...mlbPlayerIds, ...prospects.map(p => p.player_id)]);
+    const scoutingOnlyRows = this.buildScoutingOnlyPitcherRows(existingIds);
+
+    // Merge MLB pitchers with prospects and scouting-only rows
+    const allPitchers = [...enrichedPitchers, ...prospects, ...scoutingOnlyRows];
 
     // Build player row lookup for modal access
     this.playerRowLookup = new Map(allPitchers.map(p => [p.player_id, p]));
@@ -1450,8 +1601,12 @@ export class TrueRatingsView {
     const mlbPlayerIds = new Set(battersWithStats.map(b => b.player_id));
     const prospects = await this.buildBatterProspectRows(mlbPlayerIds);
 
-    // Merge MLB batters with prospects
-    const allBatters = [...enrichedBatters, ...prospects];
+    // Build scouting-only rows for draftees/FAs not in farm pipeline
+    const existingIds = new Set([...mlbPlayerIds, ...prospects.map(p => p.player_id)]);
+    const scoutingOnlyRows = await this.buildScoutingOnlyBatterRows(existingIds);
+
+    // Merge MLB batters with prospects and scouting-only rows
+    const allBatters = [...enrichedBatters, ...prospects, ...scoutingOnlyRows];
 
     // Build batter row lookup for modal access (used for PlayerProfileModal)
     this._batterRowLookup = new Map(allBatters.map(b => [b.player_id, b]));
@@ -1809,6 +1964,181 @@ export class TrueRatingsView {
     }
 
     return prospectRows;
+  }
+
+  /**
+   * Parse a DOB string (e.g. '02/26/2001' or '2001-02-26') into age relative to the selected year.
+   */
+  private ageFromDob(dob?: string): number | undefined {
+    if (!dob) return undefined;
+    // Try MM/DD/YYYY format first
+    const slashMatch = dob.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (slashMatch) {
+      const birthYear = parseInt(slashMatch[3], 10);
+      return (this.selectedYear || new Date().getFullYear()) - birthYear;
+    }
+    // Try YYYY-MM-DD format
+    const dashMatch = dob.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (dashMatch) {
+      const birthYear = parseInt(dashMatch[1], 10);
+      return (this.selectedYear || new Date().getFullYear()) - birthYear;
+    }
+    return undefined;
+  }
+
+  /**
+   * Convert a position label string (e.g. 'LF', 'SS') to numeric Position enum value.
+   */
+  private static positionLabelToNumber(label?: string): number {
+    if (!label) return 0;
+    const map: Record<string, number> = {
+      'P': 1, 'C': 2, '1B': 3, '2B': 4, '3B': 5,
+      'SS': 6, 'LF': 7, 'CF': 8, 'RF': 9, 'DH': 10,
+    };
+    return map[label.toUpperCase()] ?? 0;
+  }
+
+  /**
+   * Build pitcher rows for players in scouting data that aren't in the farm pipeline
+   * (draftees and free agents with no stats/contract).
+   */
+  private buildScoutingOnlyPitcherRows(existingIds: Set<number>): PitcherRow[] {
+    const rows: PitcherRow[] = [];
+
+    for (const scouting of this.scoutingRatings) {
+      if (scouting.playerId <= 0 || existingIds.has(scouting.playerId)) continue;
+      // Only include players with lev='-' (draftees/FAs) — others should already be in farm pipeline
+      if (scouting.lev && scouting.lev !== '-') continue;
+
+      const scoutOverall = this.averageRating(scouting.stuff, scouting.control, scouting.hra);
+      const age = scouting.age ?? this.ageFromDob(scouting.dob);
+
+      rows.push({
+        player_id: scouting.playerId,
+        playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
+        ip: '0',
+        k: 0,
+        bb: 0,
+        hra: 0,
+        r: 0,
+        er: 0,
+        war: 0,
+        ra9war: 0,
+        wpa: 0,
+        gs: 0,
+        position: 1,
+        ipOuts: 0,
+        kPer9: 0,
+        bbPer9: 0,
+        hraPer9: 0,
+        fip: 0,
+        age,
+        teamDisplay: 'FA',
+        teamFilter: '',
+        teamIsMajor: false,
+        estimatedStuff: scouting.stuff,
+        estimatedControl: scouting.control,
+        estimatedHra: scouting.hra,
+        tfrStuff: scouting.stuff,
+        tfrControl: scouting.control,
+        tfrHra: scouting.hra,
+        trueFutureRating: scouting.pot,
+        scoutOverall,
+        starGap: Math.max(0, ((scouting.pot ?? scoutOverall) - scoutOverall)),
+        isProspect: true,
+        prospectHasStats: false,
+        hasStats: false,
+      } as unknown as PitcherRow);
+    }
+
+    return rows;
+  }
+
+  /**
+   * Build batter rows for players in hitter scouting data that aren't in the farm pipeline
+   * (draftees and free agents with no stats/contract).
+   */
+  private async buildScoutingOnlyBatterRows(existingIds: Set<number>): Promise<BatterRow[]> {
+    // Load hitter scouting data (my takes priority over osa)
+    const [myHitters, osaHitters] = await Promise.all([
+      hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
+      hitterScoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
+    ]);
+    const hitterScoutMap = new Map(osaHitters.map(s => [s.playerId, s]));
+    for (const s of myHitters) {
+      hitterScoutMap.set(s.playerId, s);
+    }
+
+    const rows: BatterRow[] = [];
+
+    for (const [playerId, scouting] of hitterScoutMap) {
+      if (playerId <= 0 || existingIds.has(playerId)) continue;
+      // Only include players with lev='-' (draftees/FAs)
+      if (scouting.lev && scouting.lev !== '-') continue;
+
+      const age = scouting.age ?? this.ageFromDob(scouting.dob);
+      const position = TrueRatingsView.positionLabelToNumber(scouting.pos);
+
+      rows.push({
+        player_id: playerId,
+        playerName: scouting.playerName ?? `Player ${playerId}`,
+        id: 0,
+        year: this.selectedYear,
+        team_id: 0,
+        game_id: 0,
+        league_id: 0,
+        level_id: 0,
+        split_id: 0,
+        position,
+        ab: 0,
+        h: 0,
+        k: 0,
+        pa: 0,
+        pitches_seen: 0,
+        g: 0,
+        gs: 0,
+        d: 0,
+        t: 0,
+        hr: 0,
+        r: 0,
+        rbi: 0,
+        sb: 0,
+        cs: 0,
+        bb: 0,
+        ibb: 0,
+        gdp: 0,
+        sh: 0,
+        sf: 0,
+        hp: 0,
+        ci: 0,
+        wpa: 0,
+        stint: 0,
+        ubr: 0,
+        war: 0,
+        avg: 0,
+        obp: 0,
+        age,
+        teamDisplay: 'FA',
+        teamFilter: '',
+        teamIsMajor: false,
+        estimatedPower: scouting.power,
+        estimatedEye: scouting.eye,
+        estimatedAvoidK: scouting.avoidK,
+        estimatedContact: scouting.contact,
+        estimatedGap: scouting.gap,
+        estimatedSpeed: scouting.speed,
+        trueFutureRating: scouting.pot,
+        tfrContact: scouting.contact,
+        tfrPower: scouting.power,
+        tfrEye: scouting.eye,
+        starGap: Math.max(0, (scouting.pot ?? scouting.ovr) - scouting.ovr),
+        isProspect: true,
+        prospectHasStats: false,
+        hasStats: false,
+      } as unknown as BatterRow);
+    }
+
+    return rows;
   }
 
   private getHighestMinorLeagueStats(
@@ -2278,8 +2608,8 @@ export class TrueRatingsView {
 
       const columns = [...baseColumns, ...trueRatingColumns];
 
-      // Add TFR component columns when prospects are visible
-      if (this.showProspects) {
+      // Add TFR component columns when minor leaguers or draftees are visible
+      if (this.showMinorLeaguers || this.showDraftees) {
         columns.push(
           { key: 'tfrContact', label: 'Future Contact', sortKey: 'tfrContact' },
           { key: 'tfrPower', label: 'Future Pow', sortKey: 'tfrPower' },
@@ -2963,70 +3293,12 @@ export class TrueRatingsView {
     this.updateScoutingStatus();
   }
 
-  private updateScoutingUploadVisibility(): void {
-    const notice = this.container.querySelector<HTMLElement>('#scouting-notice');
-    if (!notice) return;
-
-    const currentYear = this.currentGameYear ?? new Date().getFullYear();
-    const allowScouting = this.selectedYear >= currentYear;
-
-    if (this.mode === 'pitchers' && allowScouting) {
-      if (this.scoutingMetadata) {
-        const { hasMyScoutData, fromOSA, fromMyScout } = this.scoutingMetadata;
-
-        if (!hasMyScoutData && fromOSA > 0) {
-          // Using OSA fallback
-          notice.innerHTML = `
-            <span class="banner-icon">ℹ️</span>
-            Using OSA scouting data (${fromOSA} players).
-            <button class="btn-link" data-tab-target="tab-data-management" type="button">Upload your scout reports</button> for custom scouting.
-          `;
-          notice.style.display = 'block';
-          notice.className = 'info-banner osa-fallback';
-        } else if (hasMyScoutData && fromOSA > 0) {
-          // Using both sources
-          notice.innerHTML = `
-            <span class="banner-icon">📊</span>
-            ${fromMyScout} players from My Scout, ${fromOSA} from OSA.
-          `;
-          notice.style.display = 'block';
-          notice.className = 'info-banner mixed-sources';
-        } else if (!hasMyScoutData && fromOSA === 0) {
-          // No scouting at all
-          notice.innerHTML = `
-            No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
-          `;
-          notice.style.display = 'block';
-          notice.className = 'scout-upload-notice';
-        } else {
-          notice.style.display = 'none';
-        }
-      } else if (this.scoutingRatings.length === 0) {
-        // Legacy fallback for old code
-        notice.innerHTML = `
-          No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
-        `;
-        notice.style.display = 'block';
-        notice.className = 'scout-upload-notice';
-      } else {
-        notice.style.display = 'none';
-      }
-    } else {
-      notice.style.display = 'none';
-    }
-  }
-
   private updateScoutingStatus(): void {
-    // This function used to update the upload status text. 
-    // Now it primarily serves to check missing players if data exists, or trigger visibility updates.
-    this.updateScoutingUploadVisibility();
     void this.refreshDataSourceBadges();
   }
 
   private updateDataSourceBadges(): void {
-    const slot = this.container.querySelector<HTMLElement>('#true-ratings-data-source-badges');
-    if (!slot) return;
-    slot.innerHTML = renderDataSourceBadges('current-ytd', this.scoutingDataMode);
+    emitDataSourceBadges('current-ytd', this.scoutingDataMode);
   }
 
   private async refreshDataSourceBadges(): Promise<void> {
@@ -3590,7 +3862,6 @@ export class TrueRatingsView {
 
         // Update visibility of controls based on mode
         this.updateRatingsControlsVisibility();
-        this.updateScoutingUploadVisibility();
 
         // If mode changed, we need to fetch new data
         if (previousMode !== this.mode) {
@@ -3615,13 +3886,18 @@ export class TrueRatingsView {
     });
 
     this.teamOptions = Array.from(options).sort((a, b) => a.localeCompare(b));
-    if (this.selectedTeam !== 'all' && !this.teamOptions.includes(this.selectedTeam)) {
+
+    // Check if there are any free agents in the data
+    const hasFreeAgents = this.allStats.some(row => (row as any).playerCategory === 'freeAgent');
+
+    if (this.selectedTeam !== 'all' && this.selectedTeam !== 'freeAgents' && !this.teamOptions.includes(this.selectedTeam)) {
       this.selectedTeam = 'all';
     }
 
     menu.innerHTML = [
       `<div class="filter-dropdown-item ${this.selectedTeam === 'all' ? 'selected' : ''}" data-value="all">All Teams</div>`,
-      ...this.teamOptions.map(team => `<div class="filter-dropdown-item ${team === this.selectedTeam ? 'selected' : ''}" data-value="${team}">${team}</div>`)
+      ...this.teamOptions.map(team => `<div class="filter-dropdown-item ${team === this.selectedTeam ? 'selected' : ''}" data-value="${team}">${team}</div>`),
+      ...(hasFreeAgents ? [`<div class="filter-dropdown-item ${this.selectedTeam === 'freeAgents' ? 'selected' : ''}" data-value="freeAgents">Free Agents</div>`] : []),
     ].join('');
 
     // Update display text

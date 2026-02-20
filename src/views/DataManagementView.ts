@@ -802,6 +802,11 @@ export class DataManagementView {
       await Promise.all(apiPromises);
       console.log(`✅ Current year API data loaded`);
 
+      // Notify other views that scouting data is now available
+      if (totalOsaCount > 0) {
+        window.dispatchEvent(new CustomEvent('scoutingDataUpdated', { detail: { source: 'osa' } }));
+      }
+
       // All done - show onboarding explanation
       this.showOnboardingComplete(totalOsaCount, mlbBundleResult.loaded + bundleResult.loaded + battingBundleResult.loaded);
     } catch (error) {
@@ -843,6 +848,16 @@ export class DataManagementView {
 
     this.container.innerHTML = onboardingHtml;
     this.rotateOnboardingMessages();
+
+    // Block all clicks outside the onboarding container during loading
+    this.onboardingClickBlocker = (e: MouseEvent) => {
+      const onboardingContainer = document.getElementById('onboarding-container');
+      if (onboardingContainer && !onboardingContainer.contains(e.target as Node)) {
+        e.stopPropagation();
+        e.preventDefault();
+      }
+    };
+    document.addEventListener('click', this.onboardingClickBlocker, true);
   }
 
   private rotateOnboardingMessages(): void {
@@ -879,13 +894,22 @@ export class DataManagementView {
   }
 
   private onboardingMessageInterval?: number;
+  private onboardingClickBlocker?: (e: MouseEvent) => void;
 
 
+
+  private removeClickBlocker(): void {
+    if (this.onboardingClickBlocker) {
+      document.removeEventListener('click', this.onboardingClickBlocker, true);
+      this.onboardingClickBlocker = undefined;
+    }
+  }
 
   private async showOnboardingComplete(osaCount: number = 0, totalLoaded: number = 0): Promise<void> {
     if (this.onboardingMessageInterval) {
       clearInterval(this.onboardingMessageInterval);
     }
+    this.removeClickBlocker();
 
     const currentYear = await dateService.getCurrentYear();
     const yearCount = currentYear - LEAGUE_START_YEAR + 1;
@@ -930,6 +954,8 @@ export class DataManagementView {
         this.render();
         this.refreshExistingDataList();
         this.fetchGameDate();
+        // Navigate to True Ratings view
+        window.dispatchEvent(new CustomEvent('wbl:navigate-tab', { detail: { tabId: 'tab-true-ratings' } }));
       });
     }
   }
@@ -938,6 +964,7 @@ export class DataManagementView {
     if (this.onboardingMessageInterval) {
       clearInterval(this.onboardingMessageInterval);
     }
+    this.removeClickBlocker();
 
     this.container.innerHTML = `
       <div style="text-align: center; padding: 2rem;">

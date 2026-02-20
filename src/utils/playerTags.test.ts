@@ -1,3 +1,4 @@
+import { describe, test, expect } from 'vitest';
 import {
   computeBatterTags,
   computePitcherTags,
@@ -247,28 +248,150 @@ describe('Blocked tag', () => {
 });
 
 // ============================================================================
-// Workhorse
+// Workhorse / Full-Time Starter / Innings Eater (batter + pitcher)
 // ============================================================================
 
-describe('Workhorse tag', () => {
-  test('batter: applied when projPa >= 650', () => {
+describe('Batter Workhorse tag', () => {
+  test('applied when projPa >= 650', () => {
     expect(computeBatterTags(makeBatterData({ projPa: 660 }), emptyCtx)
       .find(t => t.id === 'workhorse')).toBeDefined();
   });
 
-  test('batter: not applied when projPa < 650', () => {
+  test('not applied when projPa < 650', () => {
     expect(computeBatterTags(makeBatterData({ projPa: 600 }), emptyCtx)
       .find(t => t.id === 'workhorse')).toBeUndefined();
   });
+});
 
-  test('pitcher: applied when projIp >= 190', () => {
-    expect(computePitcherTags(makePitcherData({ projIp: 200 }), emptyCtx)
-      .find(t => t.id === 'workhorse')).toBeDefined();
+describe('Pitcher workload tags', () => {
+  test('Workhorse: projIp >= 230 and Durable injury', () => {
+    const tags = computePitcherTags(
+      makePitcherData({ projIp: 240, injuryProneness: 'Durable' }),
+      { currentSalary: 0, fipPercentile: 70 },
+    );
+    expect(tags.find(t => t.id === 'workhorse')).toBeDefined();
+    expect(tags.find(t => t.id === 'full-time-starter')).toBeUndefined();
   });
 
-  test('pitcher: not applied when projIp < 190', () => {
-    expect(computePitcherTags(makePitcherData({ projIp: 170 }), emptyCtx)
-      .find(t => t.id === 'workhorse')).toBeUndefined();
+  test('Workhorse: projIp >= 230 and Iron Man injury', () => {
+    const tags = computePitcherTags(
+      makePitcherData({ projIp: 250, injuryProneness: 'Iron Man' }),
+      { currentSalary: 0, fipPercentile: 80 },
+    );
+    expect(tags.find(t => t.id === 'workhorse')).toBeDefined();
+  });
+
+  test('Workhorse not applied with Normal injury even at 240 IP', () => {
+    const tags = computePitcherTags(
+      makePitcherData({ projIp: 240, injuryProneness: 'Normal' }),
+      { currentSalary: 0, fipPercentile: 70 },
+    );
+    expect(tags.find(t => t.id === 'workhorse')).toBeUndefined();
+    expect(tags.find(t => t.id === 'full-time-starter')).toBeDefined();
+  });
+
+  test('Full-Time Starter: projIp >= 180 and FIP >= 40th pct', () => {
+    const tags = computePitcherTags(
+      makePitcherData({ projIp: 195 }),
+      { currentSalary: 0, fipPercentile: 55 },
+    );
+    expect(tags.find(t => t.id === 'full-time-starter')).toBeDefined();
+    expect(tags.find(t => t.id === 'innings-eater')).toBeUndefined();
+  });
+
+  test('Innings Eater: projIp >= 180, FIP 30th-59th pct, below 40th', () => {
+    const tags = computePitcherTags(
+      makePitcherData({ projIp: 190 }),
+      { currentSalary: 0, fipPercentile: 35 },
+    );
+    expect(tags.find(t => t.id === 'innings-eater')).toBeDefined();
+    expect(tags.find(t => t.id === 'full-time-starter')).toBeUndefined();
+  });
+
+  test('No workload tag when projIp < 180', () => {
+    const tags = computePitcherTags(
+      makePitcherData({ projIp: 170 }),
+      { currentSalary: 0, fipPercentile: 50 },
+    );
+    expect(tags.find(t => t.id === 'workhorse')).toBeUndefined();
+    expect(tags.find(t => t.id === 'full-time-starter')).toBeUndefined();
+    expect(tags.find(t => t.id === 'innings-eater')).toBeUndefined();
+  });
+
+  test('No workload tag when FIP below 30th percentile', () => {
+    const tags = computePitcherTags(
+      makePitcherData({ projIp: 200 }),
+      { currentSalary: 0, fipPercentile: 20 },
+    );
+    expect(tags.find(t => t.id === 'full-time-starter')).toBeUndefined();
+    expect(tags.find(t => t.id === 'innings-eater')).toBeUndefined();
+  });
+});
+
+// ============================================================================
+// Batter: 3-Outcomes, Gap Hitter, Triples Machine
+// ============================================================================
+
+describe('3-Outcomes tag', () => {
+  test('applied when all thresholds met', () => {
+    const tags = computeBatterTags(makeBatterData({
+      projAvg: 0.230, projKPct: 22, projBbPct: 12, projHrPct: 4.5,
+    }), emptyCtx);
+    expect(tags.find(t => t.id === 'three-outcomes')).toBeDefined();
+  });
+
+  test('not applied when avg >= .250', () => {
+    const tags = computeBatterTags(makeBatterData({
+      projAvg: 0.260, projKPct: 22, projBbPct: 12, projHrPct: 4.5,
+    }), emptyCtx);
+    expect(tags.find(t => t.id === 'three-outcomes')).toBeUndefined();
+  });
+
+  test('not applied when HR% too low', () => {
+    const tags = computeBatterTags(makeBatterData({
+      projAvg: 0.230, projKPct: 22, projBbPct: 12, projHrPct: 3.0,
+    }), emptyCtx);
+    expect(tags.find(t => t.id === 'three-outcomes')).toBeUndefined();
+  });
+});
+
+describe('Gap Hitter tag', () => {
+  test('applied when gap >= 65 and power <= 40', () => {
+    const tags = computeBatterTags(makeBatterData({
+      estimatedGap: 68, estimatedPower: 35,
+    }), emptyCtx);
+    expect(tags.find(t => t.id === 'gap-hitter')).toBeDefined();
+  });
+
+  test('not applied when power > 40', () => {
+    const tags = computeBatterTags(makeBatterData({
+      estimatedGap: 68, estimatedPower: 50,
+    }), emptyCtx);
+    expect(tags.find(t => t.id === 'gap-hitter')).toBeUndefined();
+  });
+});
+
+describe('Triples Machine tag', () => {
+  test('applied when gap >= 70 and speed >= 60', () => {
+    const tags = computeBatterTags(makeBatterData({
+      estimatedGap: 72, estimatedSpeed: 65,
+    }), emptyCtx);
+    expect(tags.find(t => t.id === 'triples-machine')).toBeDefined();
+  });
+
+  test('not applied when speed < 60', () => {
+    const tags = computeBatterTags(makeBatterData({
+      estimatedGap: 72, estimatedSpeed: 50,
+    }), emptyCtx);
+    expect(tags.find(t => t.id === 'triples-machine')).toBeUndefined();
+  });
+
+  test('can coexist with Gap Hitter', () => {
+    const tags = computeBatterTags(makeBatterData({
+      estimatedGap: 72, estimatedPower: 35, estimatedSpeed: 65,
+    }), emptyCtx);
+    expect(tags.find(t => t.id === 'gap-hitter')).toBeDefined();
+    expect(tags.find(t => t.id === 'triples-machine')).toBeDefined();
   });
 });
 

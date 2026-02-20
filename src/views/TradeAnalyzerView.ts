@@ -19,7 +19,7 @@ import { aiTradeAnalysisService, TradeContext, TradePlayerContext, TradePickCont
 import { markdownToHtml } from '../services/AIScoutingService';
 import { hasComponentUpside } from '../utils/tfrUpside';
 import { canonicalCurrentProjectionService } from '../services/CanonicalCurrentProjectionService';
-import { renderDataSourceBadges } from '../utils/dataSourceBadges';
+import { emitDataSourceBadges } from '../utils/dataSourceBadges';
 
 interface DraftPick {
   id: string;
@@ -103,6 +103,10 @@ export class TradeAnalyzerView {
     this.container = container;
     this.batterProfileModal = new BatterProfileModal();
     this.initialize();
+
+    window.addEventListener('wbl:request-data-source-badges', () => {
+      if (this.container.closest('.tab-panel.active')) this.updateDataSourceBadges();
+    });
   }
 
   private async openPlayerProfile(playerId: number): Promise<void> {
@@ -578,7 +582,6 @@ export class TradeAnalyzerView {
     this.container.innerHTML = `
       <div class="view-header">
         <p class="section-subtitle">Fill in potential trades to view projected war swappage</p>
-        <div id="trade-data-source-badges">${renderDataSourceBadges('current-ytd', this.scoutingDataMode)}</div>
       </div>
 
       <div class="trade-analyzer-container">
@@ -668,9 +671,7 @@ export class TradeAnalyzerView {
   }
 
   private updateDataSourceBadges(): void {
-    const slot = this.container.querySelector<HTMLElement>('#trade-data-source-badges');
-    if (!slot) return;
-    slot.innerHTML = renderDataSourceBadges('current-ytd', this.scoutingDataMode);
+    emitDataSourceBadges('current-ytd', this.scoutingDataMode);
   }
 
   private populateTeamDropdowns(): void {

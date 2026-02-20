@@ -11,7 +11,7 @@ import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackSer
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { standingsService, ActualStanding } from '../services/StandingsService';
 import { hasComponentUpside } from '../utils/tfrUpside';
-import { renderDataSourceBadges, ScoutingDataMode, SeasonDataMode } from '../utils/dataSourceBadges';
+import { emitDataSourceBadges, ScoutingDataMode, SeasonDataMode } from '../utils/dataSourceBadges';
 
 // WAR→Wins calibration constants
 // Recalibrated Feb 2026: piecewise projection-based calibration on 236 team-seasons (2005-2020).
@@ -48,6 +48,7 @@ export class TeamRatingsView {
   private isAllTime: boolean = false;
   private viewMode: 'projected' | 'power-rankings' | 'standings' = (localStorage.getItem('wbl-teamratings-viewMode') as 'projected' | 'power-rankings' | 'standings') || 'power-rankings';
   private showByDivision: boolean = false;
+  private statsMode: 'preseason' | 'current' = (localStorage.getItem('wbl-teamratings-statsMode') as 'preseason' | 'current') || 'preseason';
   private results: TeamRatingResult[] = [];
   private powerRankings: TeamPowerRanking[] = [];
   private actualStandingsMap: Map<string, ActualStanding> | null = null;
@@ -101,6 +102,10 @@ export class TeamRatingsView {
     this.container = container;
     this.batterProfileModal = new BatterProfileModal();
     this.init();
+
+    window.addEventListener('wbl:request-data-source-badges', () => {
+      if (this.container.closest('.tab-panel.active')) this.updateDataSourceBadges();
+    });
   }
 
   private async init(): Promise<void> {
@@ -116,8 +121,6 @@ export class TeamRatingsView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
-        <div id="team-ratings-data-source-badges">${renderDataSourceBadges(this.getSeasonDataMode(), this.scoutingDataMode)}</div>
-
         <div class="true-ratings-controls">
           <div class="filter-bar">
             <label>Filters:</label>
@@ -160,6 +163,21 @@ export class TeamRatingsView {
                       aria-pressed="${this.showByDivision}">
                 By Division
               </button>
+              <span id="stats-mode-toggle"
+                    class="stats-mode-toggle"
+                    style="${this.viewMode === 'projected' || this.viewMode === 'standings' ? '' : 'display: none;'}">
+                <div class="filter-separator"></div>
+                <button class="toggle-btn ${this.statsMode === 'preseason' ? 'active' : ''}"
+                        data-stats-mode="preseason"
+                        aria-pressed="${this.statsMode === 'preseason'}">
+                  Pre-Season
+                </button>
+                <button class="toggle-btn ${this.statsMode === 'current' ? 'active' : ''}"
+                        data-stats-mode="current"
+                        aria-pressed="${this.statsMode === 'current'}">
+                  Current Year Stats
+                </button>
+              </span>
             </div>
           </div>
         </div>
@@ -274,6 +292,12 @@ export class TeamRatingsView {
           divToggle.setAttribute('aria-pressed', String(this.showByDivision));
         }
 
+        // Show/hide stats mode toggle
+        const statsModeToggle = this.container.querySelector('#stats-mode-toggle') as HTMLElement;
+        if (statsModeToggle) {
+          statsModeToggle.style.display = (mode === 'projected' || mode === 'standings') ? '' : 'none';
+        }
+
         // All-Time is only available in power-rankings mode — switch off if going to projections/standings
         if (this.isAllTime && (mode === 'projected' || mode === 'standings')) {
           this.isAllTime = false;
@@ -318,6 +342,29 @@ export class TeamRatingsView {
         this.renderLists();
       });
     }
+
+    // Stats mode toggle (Pre-Season vs Current Year Stats)
+    this.container.querySelectorAll('[data-stats-mode]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const mode = (e.target as HTMLElement).dataset.statsMode as 'preseason' | 'current';
+        if (mode === this.statsMode) return;
+
+        this.statsMode = mode;
+        try { localStorage.setItem('wbl-teamratings-statsMode', mode); } catch { /* ignore */ }
+
+        // Update button active states
+        this.container.querySelectorAll('[data-stats-mode]').forEach(b => {
+          const el = b as HTMLElement;
+          const isActive = el.dataset.statsMode === mode;
+          el.classList.toggle('active', isActive);
+          el.setAttribute('aria-pressed', String(isActive));
+        });
+
+        this.updateDataSourceBadges();
+        this.showLoadingState();
+        this.loadData();
+      });
+    });
   }
 
   private showLoadingState(): void {
@@ -397,7 +444,7 @@ export class TeamRatingsView {
                 console.error('getProjectedTeamRatings is missing on teamRatingsService!', teamRatingsService);
                 throw new Error('Service method missing. Please refresh the page.');
             }
-            this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear);
+            this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear, { preSeasonOnly: this.statsMode === 'preseason' });
             this.powerRankings = [];
         }
 
@@ -419,15 +466,14 @@ export class TeamRatingsView {
   }
 
   private getSeasonDataMode(): SeasonDataMode {
-    return this.viewMode === 'projected' || this.viewMode === 'standings'
-      ? 'preseason-model'
-      : 'current-ytd';
+    if (this.viewMode === 'projected' || this.viewMode === 'standings') {
+      return this.statsMode === 'current' ? 'current-ytd' : 'preseason-model';
+    }
+    return 'current-ytd';
   }
 
   private updateDataSourceBadges(): void {
-    const slot = this.container.querySelector<HTMLElement>('#team-ratings-data-source-badges');
-    if (!slot) return;
-    slot.innerHTML = renderDataSourceBadges(this.getSeasonDataMode(), this.scoutingDataMode);
+    emitDataSourceBadges(this.getSeasonDataMode(), this.scoutingDataMode);
   }
 
   private async refreshScoutingDataMode(): Promise<void> {
@@ -570,7 +616,8 @@ export class TeamRatingsView {
       // Render full table spanning both grid columns
       const tableHtml = `
         <div class="stats-table-container">
-            <h3 class="section-title">Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3><span class="note-text">This uses a blend of past seasons to project, so even at the end of this season it won't be 100% correct.</span>
+            <h3 class="section-title">Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3>
+            <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">Total is a weighted composite: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench. Uses a blend of past seasons to project, so even at the end of this season it won't be 100% correct.</p>
             <table class="stats-table projections-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>
@@ -761,10 +808,10 @@ export class TeamRatingsView {
   // ── Standings Mode ──────────────────────────────────────────────
 
   private calculateRawTeamWar(team: TeamRatingResult): number {
-      return team.rotationWar
-           + (team.lineupWar ?? 0)
-           + team.bullpenWar
-           + (team.benchWar ?? 0);
+      // Use totalWar from service (rotation + bullpen + lineup, no bench)
+      // Bench WAR excluded: bench slots 10-13 are near-replacement players
+      // whose WAR inflates deep teams disproportionately
+      return team.totalWar ?? (team.rotationWar + (team.lineupWar ?? 0) + team.bullpenWar);
   }
 
   private calculateProjectedWins(rawWar: number, medianWar: number): number {

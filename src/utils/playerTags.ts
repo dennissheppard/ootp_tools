@@ -29,6 +29,8 @@ export interface TagContext {
   blockingPlayer?: string;
   blockingRating?: number;
   blockingYears?: number;
+  /** FIP percentile (0-100, higher = better pitcher). Pitcher-only. */
+  fipPercentile?: number;
 }
 
 // ============================================================================
@@ -94,6 +96,35 @@ export function computeBatterTags(data: BatterProfileData, ctx: TagContext): Pla
     });
   }
 
+  // Three-Outcomes: low avg, high K%, high BB%, high HR%
+  if (data.projAvg !== undefined && data.projKPct !== undefined &&
+      data.projBbPct !== undefined && data.projHrPct !== undefined &&
+      data.projAvg < 0.250 && data.projKPct > 16 && data.projBbPct > 9 && data.projHrPct > 3.7) {
+    tags.push({
+      id: 'three-outcomes', label: '3-Outcomes', color: 'amber',
+      tooltip: `Walk, strikeout, or homer \u2014 .${Math.round(data.projAvg * 1000)} AVG, ${data.projKPct.toFixed(1)}% K, ${data.projBbPct.toFixed(1)}% BB, ${data.projHrPct.toFixed(1)}% HR`,
+    });
+  }
+
+  // Gap Hitter: true gap power without raw power
+  const gap = data.estimatedGap;
+  const power = data.estimatedPower;
+  const speed = data.estimatedSpeed;
+  if (gap !== undefined && gap >= 65 && power !== undefined && power <= 40) {
+    tags.push({
+      id: 'gap-hitter', label: 'Gap Hitter', color: 'green',
+      tooltip: `Gap ${Math.round(gap)} with Power ${Math.round(power)} \u2014 drives the ball into the gaps without over-the-fence power`,
+    });
+  }
+
+  // Triples Machine: high gap and speed
+  if (gap !== undefined && gap >= 70 && speed !== undefined && speed >= 60) {
+    tags.push({
+      id: 'triples-machine', label: 'Triples Machine', color: 'green',
+      tooltip: `Gap ${Math.round(gap)} + Speed ${Math.round(speed)} \u2014 legs out extra bases`,
+    });
+  }
+
   return tags;
 }
 
@@ -148,11 +179,23 @@ export function computePitcherTags(data: PitcherProfileData, ctx: TagContext): P
     });
   }
 
-  // Workhorse (pitcher: projIp >= 190)
-  if (data.projIp !== undefined && data.projIp >= 190) {
+  // Workload tags (mutually exclusive: Workhorse > Full-Time Starter > Innings Eater)
+  const ip = data.projIp;
+  const fipPct = ctx.fipPercentile;
+  if (ip !== undefined && ip >= 230 && (data.injuryProneness === 'Durable' || data.injuryProneness === 'Iron Man')) {
     tags.push({
       id: 'workhorse', label: 'Workhorse', color: 'green',
-      tooltip: 'Projected for a full-time workload',
+      tooltip: `${Math.round(ip)} projected IP with durable frame \u2014 true workhorse starter`,
+    });
+  } else if (ip !== undefined && ip >= 180 && fipPct !== undefined && fipPct >= 40) {
+    tags.push({
+      id: 'full-time-starter', label: 'Full-Time Starter', color: 'green',
+      tooltip: `${Math.round(ip)} projected IP, FIP at ${fipPct}th percentile`,
+    });
+  } else if (ip !== undefined && ip >= 180 && fipPct !== undefined && fipPct >= 30 && fipPct < 60) {
+    tags.push({
+      id: 'innings-eater', label: 'Innings Eater', color: 'amber',
+      tooltip: `${Math.round(ip)} projected IP but mediocre FIP (${fipPct}th percentile)`,
     });
   }
 

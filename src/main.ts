@@ -7,6 +7,7 @@ import { indexedDBService } from './services/IndexedDBService';
 import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
 import type { SendToEstimatorPayload } from './views/StatsView';
 import { analyticsService } from './services/AnalyticsService';
+import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
 
 class App {
   private controller: PlayerController;
@@ -51,6 +52,7 @@ class App {
     this.initializeViews();
     this.setupRateLimitHandling();
     this.setupTabs();
+    this.setupHeaderBadges();
     this.bindController();
     this.preloadPlayers();
 
@@ -128,6 +130,7 @@ class App {
         <div class="app-header-date">
           <span class="game-date-label">Game Date</span>
           <span class="game-date-value" id="game-date">Loading...</span>
+          <div id="header-data-source-badges"></div>
         </div>
       </header>
       <div id="rate-limit-container"></div>
@@ -352,6 +355,20 @@ class App {
     }
   }
 
+  private static readonly TABS_WITHOUT_BADGES = new Set([
+    'tab-calculators', 'tab-data-management', 'tab-dev-tracker', 'tab-search', 'tab-draft',
+  ]);
+
+  private setupHeaderBadges(): void {
+    window.addEventListener('wbl:data-source-badges-changed', (event) => {
+      const { seasonMode, scoutingMode } = (event as CustomEvent<{ seasonMode: SeasonDataMode; scoutingMode: ScoutingDataMode }>).detail;
+      const slot = document.getElementById('header-data-source-badges');
+      if (!slot) return;
+      slot.innerHTML = renderDataSourceBadges(seasonMode, scoutingMode);
+      slot.style.display = '';
+    });
+  }
+
   private static readonly TAB_NAMES: Record<string, string> = {
     'tab-true-ratings': 'True Ratings',
     'tab-projections': 'Projections',
@@ -397,6 +414,16 @@ class App {
     }
     if (tabId === 'tab-trade-analyzer' && !this.tradeAnalyzerView) {
       this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
+    }
+
+    // Update header badges — hide for tabs that don't have badge state, request re-emit for others
+    const badgeSlot = document.getElementById('header-data-source-badges');
+    if (badgeSlot) {
+      if (App.TABS_WITHOUT_BADGES.has(tabId)) {
+        badgeSlot.style.display = 'none';
+      } else {
+        window.dispatchEvent(new CustomEvent('wbl:request-data-source-badges'));
+      }
     }
   }
 

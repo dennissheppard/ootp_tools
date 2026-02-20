@@ -3,7 +3,7 @@ import { indexedDBService } from './IndexedDBService';
 import { ScoutingSource } from './ScoutingDataService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 
-type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'contact' | 'gap' | 'speed' | 'stealingAggressiveness' | 'stealingAbility' | 'injuryProneness' | 'age' | 'ovr' | 'pot' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence';
+type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'contact' | 'gap' | 'speed' | 'stealingAggressiveness' | 'stealingAbility' | 'injuryProneness' | 'age' | 'ovr' | 'pot' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence' | 'pos' | 'lev' | 'hsc' | 'dob';
 
 const STORAGE_KEY_PREFIX = 'wbl_hitter_scouting_ratings_';
 const USE_INDEXEDDB = true;
@@ -29,6 +29,10 @@ const HEADER_ALIASES: Record<HitterScoutingHeaderKey, string[]> = {
   greed: ['fin', 'greed', 'greedy'],
   workEthic: ['we', 'workethic'],
   intelligence: ['int', 'intelligence'],
+  pos: ['pos', 'position'],
+  lev: ['lev', 'level'],
+  hsc: ['hsc', 'highschoolcollege'],
+  dob: ['dob', 'dateofbirth', 'birthdate'],
 };
 // Note: Hit Tool (HT P) is NOT mapped - Contact is used instead for AVG prediction (r=0.97 vs r=0.82)
 
@@ -81,6 +85,12 @@ class HitterScoutingDataService {
         const workEthic = this.getPersonalityTrait(cells, indexMap.workEthic);
         const intelligence = this.getPersonalityTrait(cells, indexMap.intelligence);
 
+        // Parse position, level, high school/college, and DOB
+        const pos = this.getStringFromIndex(cells, indexMap.pos) || undefined;
+        const lev = this.getStringFromIndex(cells, indexMap.lev) || undefined;
+        const hsc = this.getStringFromIndex(cells, indexMap.hsc) || undefined;
+        const dob = this.getStringFromIndex(cells, indexMap.dob) || undefined;
+
         // Require power, eye, avoidK, ovr, and pot
         if (!this.isNumber(power) || !this.isNumber(eye) || !this.isNumber(avoidK) ||
             !this.isNumber(ovr) || !this.isNumber(pot)) {
@@ -108,6 +118,10 @@ class HitterScoutingDataService {
           greed,
           workEthic,
           intelligence,
+          pos,
+          lev,
+          hsc,
+          dob,
           source,
         });
       } else {

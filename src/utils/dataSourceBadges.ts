@@ -12,6 +12,19 @@ function scoutingLabel(mode: ScoutingDataMode): string {
   return 'Unavailable';
 }
 
+function scoutingTooltip(mode: ScoutingDataMode): string {
+  if (mode === 'osa') return 'Using OSA scouting data. Click to upload your scout reports for custom scouting.';
+  if (mode === 'mixed') return 'Using your scout reports with OSA fallback for remaining players. Click to manage scouting data.';
+  if (mode === 'none') return 'No scouting data found. Click to upload scouting reports.';
+  return 'Using your uploaded scout reports. Click to manage scouting data.';
+}
+
+export function emitDataSourceBadges(seasonMode: SeasonDataMode, scoutingMode: ScoutingDataMode): void {
+  window.dispatchEvent(new CustomEvent('wbl:data-source-badges-changed', {
+    detail: { seasonMode, scoutingMode }
+  }));
+}
+
 export function renderDataSourceBadges(
   seasonMode: SeasonDataMode,
   scoutingMode: ScoutingDataMode
@@ -29,7 +42,7 @@ export function renderDataSourceBadges(
   return `
     <div class="data-source-badges">
       <span class="data-source-chip ${seasonClass}">Season Data: ${seasonLabel(seasonMode)}</span>
-      <span class="data-source-chip ${scoutClass}">Scouting: ${scoutingLabel(scoutingMode)}</span>
+      <span class="data-source-chip ${scoutClass} scouting-chip-link" title="${scoutingTooltip(scoutingMode)}" data-tab-target="tab-data-management" role="button" tabindex="0">Scouting: ${scoutingLabel(scoutingMode)}</span>
     </div>
   `;
 }

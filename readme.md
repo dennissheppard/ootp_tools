@@ -105,10 +105,11 @@ A **pure peak/ceiling projection system** — projects what a prospect's age-27 
 **Algorithm:**
 1. Convert scout potential ratings to projected peak rates (100% scouting)
 2. Apply ceiling boost: `ceilingValue = meanValue + (meanValue - avgAtRating50) × 0.35`
-3. Eye/AvoidK/Power/Contact percentiles from MLB distribution (2015-2020, ages 25-29, 300+ PA); Gap/Speed ranked among prospects
-4. Calculate wOBA: `0.69×BB + 0.89×1B + 1.27×2B + 1.62×3B + 2.10×HR`
-5. Compute WAR per 600 PA (includes SB runs)
-6. Map WAR to MLB peak-year distribution for final TFR (0.5-5.0 scale)
+3. Eye/AvoidK/Power/Contact percentiles from MLB distribution (2015-2020, ages 25-29, 300+ PA)
+4. Gap/Speed mapped to expected 2B/AB and 3B/AB, then percentile-ranked in MLB doubles/triples distributions from the same peak-age sample (prospect-rank fallback only if MLB arrays are unavailable)
+5. Calculate wOBA: `0.69×BB + 0.89×1B + 1.27×2B + 1.62×3B + 2.10×HR`
+6. Compute WAR per 600 PA (includes SB runs)
+7. Map WAR to MLB peak-year distribution for final TFR (0.5-5.0 scale)
 
 ### Prospect True Rating (Development Curves)
 
@@ -152,17 +153,39 @@ Instead of proxy thresholds, the actual ratings comparison determines display:
 
 ### Player Tags
 
-Contextual pill badges in the profile modal tab bar (right-aligned, next to Ratings/Career/Development tabs). Computed by `src/utils/playerTags.ts`.
+Contextual pill badges in the profile modal tab bar (right-aligned, next to Ratings/Career/Development tabs). Computed by `src/utils/playerTags.ts`. Currently calculated on-the-fly at modal launch (not pre-indexed); future work could batch-compute for searchability.
+
+**Shared tags (pitchers & batters):**
 
 | Tag | Color | Condition |
-|-----|-------|-----------|
+|-|-|
 | Overperformer | amber | Overall TR > TFR |
 | Underperformer | amber | devRatio ≥ 0.8, TFR − TR ≥ 0.5 |
 | Expensive | amber | salary ≥ $3M, WAR > 0.5, $/WAR in bottom 1/3 of league |
 | Bargain | green | salary ≥ $3M, WAR > 0.5, $/WAR in top 1/3 of league |
 | Ready for Promotion | green | prospect, devRatio ≥ 0.5, MiLB PA ≥ 300 (batters) or IP ≥ 100 (pitchers) |
 | Blocked | red | prospect, TFR ≥ 3.0, incumbent TR ≥ 3.5 with 3+ years remaining |
-| Workhorse | green | projPa ≥ 650 (batters) or projIp ≥ 190 (pitchers) |
+
+**Pitcher workload tags (mutually exclusive, priority order):**
+
+| Tag | Color | Condition |
+|-|-|
+| Workhorse | green | projIP ≥ 230 AND injury = Durable or Iron Man |
+| Full-Time Starter | green | projIP ≥ 180 AND FIP ≥ 40th percentile |
+| Innings Eater | amber | projIP ≥ 180 AND FIP 30th–59th percentile (below Full-Time Starter threshold) |
+
+FIP percentile: higher = better pitcher (% of league with worse FIP). Computed from league distribution (50+ IP qualifiers).
+
+**Batter workload & profile tags:**
+
+| Tag | Color | Condition |
+|-|-|
+| Workhorse | green | projPA ≥ 650 |
+| 3-Outcomes | amber | projAVG < .250, K% > 16%, BB% > 9%, HR% > 3.7% |
+| Gap Hitter | green | True Gap ≥ 65, True Power ≤ 40 |
+| Triples Machine | green | True Gap ≥ 70, Speed ≥ 60 |
+
+Gap Hitter and Triples Machine can coexist. All use True Rating (20-80) values from `estimatedGap`/`estimatedPower`/`estimatedSpeed`.
 
 ### Projections
 
@@ -180,6 +203,22 @@ Three-model ensemble:
 6. Rating→Rate conversion (forward formulas)
 
 **Rating ranges:** Internal calculations use 0-100 (prevents artificial capping at extremes); UI displays 20-80.
+
+### Pipeline Modes (Canonical vs Pre-season)
+
+Two distinct pipelines are first-class and intentionally labeled in UI:
+
+- **Canonical Current**: current game-year canonical TR/TFR resolution + modal-equivalent projection compute path (ModalDataService helpers)
+- **Pre-season Model**: batch projection services (ProjectionService, BatterProjectionService) for forward-looking model views
+
+Current view usage:
+- **Profile modals**: Canonical Current (always re-resolve canonical values for current game year)
+- **Trade Analyzer (MLB players)**: Canonical Current via CanonicalCurrentProjectionService
+- **True Ratings view**: Canonical Current
+- **Projections view**: Pre-season Model
+- **Team Ratings view**: Power Rankings = Canonical Current; Projections/Standings = Pre-season Model
+
+TeamRatingsView projections/standings force the selected season to the current game year, but remain model outputs (not literal in-season standings progression).
 
 ## Key Services
 
@@ -210,6 +249,7 @@ Three-model ensemble:
 | Service | Purpose |
 |---------|---------|
 | `ModalDataService` | Pure functions for modal data resolution and projection computation (extracted from profile modals for testability) |
+| `CanonicalCurrentProjectionService` | Builds cached modal-equivalent MLB projection snapshots for current-year canonical pipeline consumers (Trade Analyzer) |
 | `ContractService` | Contract parsing, salary schedules, years remaining, team control |
 | `TeamRatingsService` | Farm rankings, org depth, Farm Score, Power Rankings, team WAR projections |
 | `StandingsService` | Historical standings data (bundled CSVs, 2005-2020) |
@@ -226,7 +266,7 @@ Three-model ensemble:
 
 | View | Purpose |
 |------|---------|
-| `TrueRatingsView` | MLB pitcher/batter dashboard with TR/projections |
+| `TrueRatingsView` | Pitcher/batter dashboard with TR/projections; level-based filtering (MLB / Minor Leaguers / Future Draftees / Free Agents) via scouting `Lev`/`HSC` columns |
 | `FarmRankingsView` | Top 100 prospects, org rankings with Farm Score |
 | `ProjectionsView` | Future performance projections with 3-model ensemble |
 | `TeamRatingsView` | Power Rankings / Projections / Standings toggle |
@@ -308,7 +348,8 @@ Elite: TFR≥4.5 (10pts), Good: 3.5-4.4 (5pts), Average: 2.5-3.4 (1pt). Depth bo
 Three-column layout: Team 1 | Analysis | Team 2. `src/views/TradeAnalyzerView.ts` (~2100 lines).
 
 **Key points:**
-- Data from precomputed farm data (`pitcherProspectMap`/`hitterProspectMap`) — single source of truth for TFR
+- MLB player projections come from `CanonicalCurrentProjectionService` (modal-equivalent current pipeline)
+- Prospect/farm context comes from unified TFR pools (`getUnifiedPitcherTfrData` / `getUnifiedHitterTfrData`)
 - WAR split into Current (MLB) and Future (prospects + picks)
 - Trade archetypes: Roster swap (>70% current both sides), Win-now vs future (>50% ratio difference), Prospect swap (>70% future both sides)
 - Team impact: clones power ranking roster, applies trade, recalculates with 40/40/15/5 weights
@@ -360,7 +401,7 @@ Attempts (per 600 PA, 3-segment piecewise):
 Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 ```
 
-**Doubles/Triples:** `doublesRate = 0.01 + (gap-20) × 0.0008`, `triplesRate = expectedTriplesRate(speed)`
+**Doubles/Triples:** `doublesRate = -0.012627 + 0.001086 × gap`, `triplesRate = -0.001657 + 0.000083 × speed(20-200 converted)`
 
 **Level-Weighted IP/PA:** `(AAA × 1.0) + (AA × 0.7) + (A × 0.4) + (R × 0.2)`
 
@@ -374,10 +415,19 @@ Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 
 *Pitcher Scouting:* `player_id, name, stuff, control, hra [, age, ovr, pot, pitches...]`
 
+*Shared Columns (both pitcher and batter scouting):*
+
+| Column | Maps To | Notes |
+|-|-|-|
+| `Lev` | lev | Player level: `MLB`, `AAA`, `AA`, `A`, `R`, `INT`, `-` |
+| `HSC` | hsc | High school/college status (e.g. `HS Senior`, `CO Junior`). Only present in hitter CSVs |
+| `DOB` | dob | Date of birth (`MM/DD/YYYY`). Used for age when `Age` column absent |
+| `POS` | pos | Position label (hitter CSVs only): `LF`, `SS`, `C`, etc. |
+
 *Batter Scouting:*
 
 | Column | Maps To | Notes |
-|--------|---------|-------|
+|-|-|-|
 | `POW P` | power | HR% |
 | `EYE P` | eye | Plate discipline |
 | `K P` | avoidK | Avoid strikeout |
@@ -400,7 +450,7 @@ Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 | Pitcher ceiling boost | 0.30 | `TrueFutureRatingService.ts` |
 | Full confidence IP | 150 | Pitchers |
 | Pitcher MLB distribution | 2015-2020, ages 25-29, 50+ IP | TFR |
-| Batter MLB distribution | 2015-2021, 300+ PA | TFR |
+| Batter MLB distribution | 2015-2020, ages 25-29, 300+ PA | TFR |
 
 ## IndexedDB Schema (v7)
 
@@ -421,9 +471,10 @@ Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 |------|---------|-------|
 | `tools/validate-ratings.ts` | Automated TR validation (WAR correlation, distributions, stability) | `npx tsx tools/validate-ratings.ts --year=2020` |
 | `tools/investigate-pitcher-war.ts` | Investigate pitcher WAR projection gaps | `npx tsx tools/investigate-pitcher-war.ts` |
-| `tools/explain-player.ts` | Explains a player's TR/projection using the real services + opt-in trace output (supports text/json/markdown) | `npx tsx tools/explain-player.ts --playerId=1234 --type=pitcher --mode=all --year=2026 --format=markdown` |
+| `tools/report-hitter-gap-speed-deltas.mjs` | Offline delta report for Gap/Speed migration (MLB-mapped vs legacy prospect-rank midpoint) | `node tools/report-hitter-gap-speed-deltas.mjs --playerId=14422 --top=20` |
+| `tools/explain-player.ts` | Explains a player's TR/projection using real services + trace output (text/json/markdown), including modal-equivalent current projection path and `--projectionMode=current|peak` | `npx tsx tools/explain-player.ts --playerId=1234 --type=hitter --mode=all --year=2026 --projectionMode=current --format=markdown` |
 
-The CLI explain flow uses instrumented service calls so output stays in sync with production math. A future in-app "Explain This Rating" panel can reuse the same trace objects.
+The CLI explain flow uses instrumented service calls so output stays in sync with production math. It now emits canonical future component context (including Future Gap/Speed derivation) to debug modal-equivalent outputs. A future in-app "Explain This Rating" panel can reuse the same trace objects.
 
 ### Calibration
 
@@ -452,7 +503,7 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 | File | Tests | Coverage |
 |------|-------|----------|
 | `RatingConsistency.test.ts` | 36 | TR/TFR determinism, cross-service consistency, hitter round-trips, data contracts, pool sensitivity, TFR display logic, scouting blend dev-ratio scaling |
-| `playerTags.test.ts` | 30 | All 7 player tags (overperformer, underperformer, expensive, bargain, ready for promotion, blocked, workhorse) + edge cases |
+| `playerTags.test.ts` | 43 | Player tags: shared (overperformer, underperformer, expensive, bargain, ready for promotion, blocked), pitcher workload (workhorse, full-time starter, innings eater), batter profile (workhorse, 3-outcomes, gap hitter, triples machine) + edge cases |
 | `ModalDataService.test.ts` | 17 | Resolve and projection functions across prospect/MLB player archetypes (batter and pitcher) |
 | `RatingEstimatorService.test.ts` | 20 | Pitcher rating estimation with confidence intervals |
 | `ProjectionService.test.ts` | 8 | IP projection pipeline |
@@ -461,12 +512,25 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 ## Architecture Notes
 
 - **Pipeline map (view -> data path):** `docs/pipeline-map.html` (canonical-current vs pre-season projection pipelines)
-- **Single source of truth for TFR**: `TeamRatingsService.getHitterFarmData()` / `getFarmData()` — never call `calculateTrueFutureRatings()` independently. Use `prospect.trueFutureRating` (precomputed) — NEVER re-derive from `prospect.percentile`
+- **Single source of truth for TFR**: use unified pools `TeamRatingsService.getUnifiedHitterTfrData()` / `getUnifiedPitcherTfrData()` for mixed MLB+prospect contexts; `getHitterFarmData()` / `getFarmData()` are farm-only wrappers. Never call `calculateTrueFutureRatings()` independently. Use `prospect.trueFutureRating` (precomputed) — NEVER re-derive from `prospect.percentile`
 - **Single source of truth for TR**: `TrueRatingsService.getHitterTrueRatings(year)` / `getPitcherTrueRatings(year)` — every view MUST use these cached methods instead of calling `trueRatingsCalculationService.calculateTrueRatings()` directly
 - **Single source of truth for percentile→rating**: `PERCENTILE_TO_RATING` in `TrueFutureRatingService.ts` / `HitterTrueFutureRatingService.ts` — NEVER create local copies of this mapping (thresholds: 99→5.0, 97→4.5, 93→4.0, 75→3.5, 60→3.0, 35→2.5, 20→2.0, 10→1.5, 5→1.0, 0→0.5)
 - **Modal canonical override**: Both profile modals override caller-provided TR/TFR data with canonical values, guaranteeing consistency regardless of which view opens them
+- **Trade Analyzer MLB parity**: `CanonicalCurrentProjectionService` snapshots are modal-equivalent and should be preferred over base-year projection maps for current-context analysis
+- **Data-source clarity**: use `renderDataSourceBadges()` from `src/utils/dataSourceBadges.ts` when a view mixes season/scouting modes (Current YTD vs Pre-season Model, My/OSA/Fallback)
 - **Rating display rule**: Any view showing a player rating MUST use canonical TR/TFR values, not projection-derived or locally-computed alternatives. `ProjectionService` overlays canonical TR onto `currentTrueRating` after building projections (its internal TR is only used for aging/ensemble inputs)
 - **Modal projectionOverride trap**: `projectedRatings` MUST use `trueRatings` values (not scouting), or True Rating bars show scouting values instead of TFR-derived
 - **Injury values** in CSV `Prone` column: `Iron Man, Durable, Normal, Fragile, Wrecked` (NOT `Wary`/`Prone` as ScoutingData.ts comments incorrectly say)
+- **Player level classification**: `src/utils/playerLevel.ts` — `classifyPlayer(lev, hsc)` returns `'mlb' | 'minors' | 'draftee' | 'freeAgent'` from scouting CSV fields. Contract freshness updates stale levels when game date > scouting date via `buildFreshnessUpdatedLevels()`. Falls back to `isProspect` when `Lev` column is absent
 - **ISO trap**: Never use deprecated `expectedIso(power)` — ignores Gap/Speed. Use pre-computed `tfrSlg` or component rates
 - **Forward/inverse intercept alignment**: Pitcher rating↔rate intercepts MUST match in both directions or round-trip bias is amplified by FIP weights
+
+## Session Rollout (2026-02-19)
+
+- Finalized explicit pipeline labels: Canonical Current vs Pre-season Model.
+- Switched Trade Analyzer MLB outputs to canonical modal-equivalent snapshots via CanonicalCurrentProjectionService.
+- Added unified pitcher expanded-pool API parity (getUnifiedPitcherTfrData) with farm-only wrapper behavior preserved in getFarmData.
+- Added user-facing data source badges (season mode + scouting mode) in True Ratings, Trade Analyzer, Projections, and Team Ratings via src/utils/dataSourceBadges.ts.
+- Extended `tools/explain-player.ts` for modal-equivalent projection debugging (`--projectionMode=current|peak`) and richer canonical future component traces.
+- Updated hitter Future Gap/Speed derivation to MLB doubles/triples percentile mapping; legacy prospect-rank approach is fallback-only if MLB distributions are unavailable.
+- Added/updated pipeline documentation artifacts: docs/pipeline-map.html and docs/modal-equivalent-rollout-handoff.md.

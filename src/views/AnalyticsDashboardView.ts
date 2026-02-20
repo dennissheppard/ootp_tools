@@ -107,6 +107,9 @@ export class AnalyticsDashboardView {
 
     const events = await analyticsService.fetchEvents(30);
 
+    // Container may have been detached during the await (e.g. onboarding replaced the DOM)
+    if (!this.container.isConnected) return;
+
     if (loadingEl) (loadingEl as HTMLElement).style.display = 'none';
     if (contentEl) (contentEl as HTMLElement).style.display = 'block';
 

@@ -17,6 +17,7 @@ import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { getPositionLabel, getFullName, isPitcher } from '../models/Player';
 import { PitcherScoutingRatings } from '../models/ScoutingData';
+import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 
 interface FarmColumn {
   key: string;
@@ -92,6 +93,7 @@ export class FarmRankingsView {
   ];
 
   private isDraggingColumn = false;
+  private scoutingDataMode: ScoutingDataMode = 'none';
 
   private hasLoadedData = false; // Track if data has been loaded (for lazy loading)
 
@@ -101,6 +103,10 @@ export class FarmRankingsView {
 
     // Defer data loading until tab is activated (lazy loading)
     this.setupLazyLoading();
+
+    window.addEventListener('wbl:request-data-source-badges', () => {
+      if (this.container.closest('.tab-panel.active')) this.emitBadges();
+    });
   }
 
   private setupLazyLoading(): void {
@@ -505,6 +511,7 @@ export class FarmRankingsView {
         }
 
         await Promise.all(loadPromises);
+        await this.refreshScoutingDataMode();
         this.updateTeamFilter();
         this.renderView();
     } catch (err) {
@@ -512,6 +519,23 @@ export class FarmRankingsView {
         const content = this.container.querySelector('#farm-content-area');
         if (content) content.innerHTML = '<p class="no-stats">Error loading farm data.</p>';
     }
+  }
+
+  private async refreshScoutingDataMode(): Promise<void> {
+    const [myHitters, osaHitters, myPitchers, osaPitchers] = await Promise.all([
+      hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
+      hitterScoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
+      scoutingDataService.getLatestScoutingRatings('my').catch(() => []),
+      scoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
+    ]);
+    const hasMy = myHitters.length > 0 || myPitchers.length > 0;
+    const hasOsa = osaHitters.length > 0 || osaPitchers.length > 0;
+    this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : 'none';
+    this.emitBadges();
+  }
+
+  private emitBadges(): void {
+    emitDataSourceBadges('current-ytd', this.scoutingDataMode);
   }
 
   private renderView(): void {

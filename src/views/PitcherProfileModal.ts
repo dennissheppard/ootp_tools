@@ -1011,12 +1011,23 @@ export class PitcherProfileModal {
 
     // Compute player tags
     const currentSalary = this.contract ? contractService.getCurrentSalary(this.contract) : 0;
+    const projStats = this.computeProjectedStats(data);
+    let fipPercentile: number | undefined;
+    if (typeof projStats.projFip === 'number' && this.leagueFipDistribution.length > 0) {
+      const dist = this.leagueFipDistribution;
+      let betterThanCount = 0;
+      for (let i = 0; i < dist.length; i++) {
+        if (dist[i] >= projStats.projFip) { betterThanCount = dist.length - i; break; }
+      }
+      fipPercentile = Math.round((betterThanCount / dist.length) * 100);
+    }
     const tagCtx: TagContext = {
       currentSalary,
       leagueDollarPerWar: this.leagueDollarPerWar,
       blockingPlayer: this.blockingPlayer,
       blockingRating: this.blockingRating,
       blockingYears: this.blockingYears,
+      fipPercentile,
     };
     const tagsHtml = renderTagsHtml(computePitcherTags(data, tagCtx));
 
@@ -1577,7 +1588,7 @@ export class PitcherProfileModal {
             isPeakMode, showActualComparison, ratings } = proj;
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
-    const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB') : undefined;
+    const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;
 
     const formatStat = (val: number, decimals: number = 2) => val.toFixed(decimals);
 

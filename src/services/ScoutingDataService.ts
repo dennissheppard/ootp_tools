@@ -2,7 +2,7 @@ import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService } from './IndexedDBService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 
-type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence' | 'pitcherType' | 'babip';
+type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence' | 'pitcherType' | 'babip' | 'lev' | 'hsc' | 'dob';
 
 const STORAGE_KEY_PREFIX = 'wbl_scouting_ratings_';
 const USE_INDEXEDDB = true; // Feature flag to switch between localStorage and IndexedDB
@@ -26,6 +26,9 @@ const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   intelligence: ['int', 'intelligence'],
   pitcherType: ['gf', 'gb', 'groundball', 'pitchertype'],
   babip: ['pbabipp', 'pbabip', 'babip'],
+  lev: ['lev', 'level'],
+  hsc: ['hsc', 'highschoolcollege'],
+  dob: ['dob', 'dateofbirth', 'birthdate'],
 };
 
 /** Known pitch type column headers (normalized to lowercase alphanumeric) */
@@ -105,6 +108,11 @@ class ScoutingDataService {
         const pitcherType = this.getStringFromIndex(cells, indexMap.pitcherType);
         const babip = this.getStringFromIndex(cells, indexMap.babip);
 
+        // Parse level, high school/college, and DOB
+        const lev = this.getStringFromIndex(cells, indexMap.lev) || undefined;
+        const hsc = this.getStringFromIndex(cells, indexMap.hsc) || undefined;
+        const dob = this.getStringFromIndex(cells, indexMap.dob) || undefined;
+
         results.push({
           playerId,
           playerName: playerName || undefined,
@@ -125,6 +133,9 @@ class ScoutingDataService {
           intelligence,
           pitcherType: pitcherType || undefined,
           babip: babip || undefined,
+          lev,
+          hsc,
+          dob,
           source,
         });
       } else {

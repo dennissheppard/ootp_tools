@@ -1570,12 +1570,14 @@ class TeamRatingsService {
       }
   }
 
-  async getProjectedTeamRatings(baseYear: number): Promise<TeamRatingResult[]> {
+  async getProjectedTeamRatings(baseYear: number, options?: { preSeasonOnly?: boolean }): Promise<TeamRatingResult[]> {
+      const preSeasonOnly = options?.preSeasonOnly ?? false;
+      const leagueContextYear = preSeasonOnly ? baseYear - 1 : baseYear;
       const [pitcherProjections, leagueStats, batterProjectionsCtx, leagueBattingAvg] = await Promise.all([
-        projectionService.getProjections(baseYear, { forceRosterRefresh: false }),
-        leagueStatsService.getLeagueStats(baseYear),
-        batterProjectionService.getProjectionsWithContext(baseYear),
-        leagueBattingAveragesService.getLeagueAverages(baseYear)
+        projectionService.getProjections(baseYear, { forceRosterRefresh: false, preSeasonOnly }),
+        leagueStatsService.getLeagueStats(leagueContextYear),
+        batterProjectionService.getProjectionsWithContext(baseYear, { preSeasonOnly }),
+        leagueBattingAveragesService.getLeagueAverages(leagueContextYear)
       ]);
 
       const teamGroups = new Map<number, {

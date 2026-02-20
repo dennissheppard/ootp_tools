@@ -12,6 +12,9 @@ import { batterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { pitcherProfileModal, PitcherProfileData } from './PitcherProfileModal';
 import { Team } from '../models/Team';
 import { Player, getPositionLabel } from '../models/Player';
+import { scoutingDataService } from '../services/ScoutingDataService';
+import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
+import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 
 // --- Types ---
 
@@ -184,6 +187,7 @@ export class TeamPlanningView {
   private cellEditModal: CellEditModal;
   private messageModal: MessageModal;
   private hasLoadedData = false;
+  private scoutingDataMode: ScoutingDataMode = 'none';
   private viewMode: 'grid' | 'analysis' | 'market' = (localStorage.getItem('wbl-tp-viewMode') as 'grid' | 'analysis' | 'market') || 'grid';
   private collapsedSections: Set<string> = new Set();
 
@@ -223,6 +227,10 @@ export class TeamPlanningView {
     this.messageModal = new MessageModal();
     this.renderLayout();
     this.setupLazyLoading();
+
+    window.addEventListener('wbl:request-data-source-badges', () => {
+      if (this.container.closest('.tab-panel.active')) this.emitBadges();
+    });
   }
 
   private setupLazyLoading(): void {
@@ -406,6 +414,8 @@ export class TeamPlanningView {
       if (gridContainer) {
         gridContainer.innerHTML = '<p class="empty-text">Select a team to start planning your next championship</p>';
       }
+
+      this.refreshScoutingDataMode();
     } catch (err) {
       console.error('Failed to load team planning data:', err);
       const gridContainer = this.container.querySelector<HTMLElement>('#team-planning-grid-container');
@@ -413,6 +423,23 @@ export class TeamPlanningView {
         gridContainer.innerHTML = '<p class="empty-text">Failed to load data. Please try again.</p>';
       }
     }
+  }
+
+  private async refreshScoutingDataMode(): Promise<void> {
+    const [myHitters, osaHitters, myPitchers, osaPitchers] = await Promise.all([
+      hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
+      hitterScoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
+      scoutingDataService.getLatestScoutingRatings('my').catch(() => []),
+      scoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
+    ]);
+    const hasMy = myHitters.length > 0 || myPitchers.length > 0;
+    const hasOsa = osaHitters.length > 0 || osaPitchers.length > 0;
+    this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : 'none';
+    this.emitBadges();
+  }
+
+  private emitBadges(): void {
+    emitDataSourceBadges('current-ytd', this.scoutingDataMode);
   }
 
   private populateTeamDropdown(rosterTeamIds: Set<number>): void {

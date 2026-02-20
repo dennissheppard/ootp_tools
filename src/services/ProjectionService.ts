@@ -169,15 +169,16 @@ class ProjectionService {
     return 0.5;
   }
 
-  async getProjections(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean }): Promise<ProjectedPlayer[]> {
+  async getProjections(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean; preSeasonOnly?: boolean }): Promise<ProjectedPlayer[]> {
     const context = await this.getProjectionsWithContext(year, options);
     return context.projections;
   }
 
-  async getProjectionsWithContext(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean }): Promise<ProjectionContext> {
+  async getProjectionsWithContext(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean; preSeasonOnly?: boolean }): Promise<ProjectionContext> {
     // 1. Fetch Data
     const forceRosterRefresh = options?.forceRosterRefresh ?? false;
     const useEnsemble = options?.useEnsemble ?? true; // DEFAULT: Use ensemble (calibrated Jan 2026)
+    const preSeasonOnly = options?.preSeasonOnly ?? false;
     const [scoutingFallback, allPlayers, allTeams] = await Promise.all([
       scoutingDataFallbackService.getScoutingRatingsWithFallback(),
       playerService.getAllPlayers(forceRosterRefresh),
@@ -196,7 +197,12 @@ class ProjectionService {
     let usedFallbackStats = false;
     let pitchingStats = currentYearStats;
 
-    if (totalCurrentIp <= 0 && year > LEAGUE_START_YEAR) {
+    if (preSeasonOnly && year > LEAGUE_START_YEAR) {
+      // Pre-season mode: always use prior year stats
+      statsYear = year - 1;
+      usedFallbackStats = true;
+      pitchingStats = await this.safeGetPitchingStats(statsYear);
+    } else if (totalCurrentIp <= 0 && year > LEAGUE_START_YEAR) {
       statsYear = year - 1;
       usedFallbackStats = true;
       pitchingStats = await this.safeGetPitchingStats(statsYear);
@@ -204,7 +210,7 @@ class ProjectionService {
 
     // Build league IP distribution for percentile-based projections
     // Use previous year's stats if current season doesn't have meaningful starter workloads yet
-    const distributionYear = !hasStarterWorkloads && year > LEAGUE_START_YEAR ? year - 1 : year;
+    const distributionYear = (preSeasonOnly || !hasStarterWorkloads) && year > LEAGUE_START_YEAR ? year - 1 : year;
     const distributionStats = distributionYear !== year
       ? await this.safeGetPitchingStats(distributionYear)
       : currentYearStats;
@@ -285,6 +291,7 @@ class ProjectionService {
     for (const tr of trResults) {
         const player = playerMap.get(tr.playerId);
         if (!player) continue;
+        if (player.retired) continue;
 
         const ageInYear = this.calculateAgeAtYear(player, currentYear, statsYear);
         const currentStats = statsMap.get(tr.playerId);
@@ -328,11 +335,11 @@ class ProjectionService {
         if (!isMlbReady) continue;
         // -----------------------
 
-        // For projections, prefer current roster mapping from players endpoint.
-        // Fall back to stats team_id only if current team is unknown (0).
-        const teamId = player.teamId || currentStats?.team_id || 0;
+        // Prefer current roster team; fall back to stats team_id only if teamId is null/undefined.
+        // Use ?? so teamId=0 (free agent) is respected, not treated as falsy.
+        const teamId = player.teamId ?? currentStats?.team_id ?? 0;
         const team = teamMap.get(teamId);
-        const ipResult = this.calculateProjectedIp(scouting, currentStats, yearlyStats, ageInYear + 1, player.role, tr.trueRating, hasRecentMlb);
+        const ipResult = this.calculateProjectedIp(scouting, preSeasonOnly ? undefined : currentStats, yearlyStats, ageInYear + 1, player.role, tr.trueRating, hasRecentMlb);
 
         const currentRatings = {
             stuff: tr.estimatedStuff,

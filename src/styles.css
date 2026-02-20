@@ -143,6 +143,25 @@ body {
   font-style: italic;
 }
 
+#header-data-source-badges .data-source-badges {
+  justify-content: flex-end;
+  margin: 0;
+}
+
+#header-data-source-badges .data-source-chip {
+  font-size: 0.68rem;
+  padding: 0.15rem 0.4rem;
+}
+
+.scouting-chip-link {
+  cursor: pointer;
+  transition: filter 0.15s;
+}
+
+.scouting-chip-link:hover {
+  filter: brightness(1.25);
+}
+
 /* Global Search Bar */
 .app-header-search {
   flex: 1 1 300px;
@@ -1997,6 +2016,19 @@ td.player-cell.player-name {
   border-bottom-right-radius: var(--border-radius);
 }
 
+/* When the stats-mode-toggle (last child) is hidden, remove border/round the preceding visible button */
+.filter-group .toggle-btn:has(+ .stats-mode-toggle[style*="display: none"]) {
+  border-right: none;
+  border-top-right-radius: var(--border-radius);
+  border-bottom-right-radius: var(--border-radius);
+}
+/* …and also when the by-division toggle before it is hidden too */
+.filter-group .toggle-btn:has(+ #by-division-toggle[style*="display: none"] + .stats-mode-toggle[style*="display: none"]) {
+  border-right: none;
+  border-top-right-radius: var(--border-radius);
+  border-bottom-right-radius: var(--border-radius);
+}
+
 .filter-group > *:last-child,
 .filter-group > *:last-child .filter-dropdown-btn,
 .filter-group > *:last-child .toggle-btn {
@@ -2020,6 +2052,22 @@ td.player-cell.player-name {
 
 #prospect-type-toggles {
   display: contents !important;
+}
+
+.stats-mode-toggle {
+  display: contents;
+}
+
+/* Stats-mode buttons are mid-group; override last-child rounding inherited from parent */
+.filter-group .stats-mode-toggle .toggle-btn {
+  border-radius: 0;
+}
+
+/* Last button in the stats-mode group is the visual end of the filter bar */
+.filter-group .stats-mode-toggle .toggle-btn:last-child {
+  border-right: none;
+  border-top-right-radius: var(--border-radius);
+  border-bottom-right-radius: var(--border-radius);
 }
 
 .filter-separator {
@@ -3709,6 +3757,10 @@ th .stat-tooltip {
 
   .app-header-date {
     align-items: flex-start;
+  }
+
+  #header-data-source-badges .data-source-badges {
+    justify-content: flex-start;
   }
 
   .app-header-search {
@@ -7167,7 +7219,7 @@ th .stat-tooltip {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
   pointer-events: none;
   z-index: 2;
@@ -7224,25 +7276,21 @@ th .stat-tooltip {
 .batter-profile-modal .radar-axis-upper-right {
   top: 24%;
   right: 22%;
-  align-items: center;
 }
 
 .batter-profile-modal .radar-axis-lower-right {
   bottom: 4%;
   right: 28%;
-  align-items: center;
 }
 
 .batter-profile-modal .radar-axis-lower-left {
   bottom: 4%;
   left: 35%;
-  align-items: center;
 }
 
 .batter-profile-modal .radar-axis-upper-left {
   top: 24%;
   left: 26%;
-  align-items: center;
 }
 
 /* Running Radar Column */
@@ -7332,7 +7380,7 @@ th .stat-tooltip {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
   pointer-events: none;
   z-index: 2;
@@ -7345,7 +7393,7 @@ th .stat-tooltip {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
   pointer-events: none;
   z-index: 2;
@@ -7357,7 +7405,7 @@ th .stat-tooltip {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
   pointer-events: none;
   z-index: 2;
@@ -8857,7 +8905,7 @@ th .stat-tooltip {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: flex-start;
   gap: 2px;
   pointer-events: none;
   z-index: 2;
@@ -8903,6 +8951,7 @@ th .stat-tooltip {
   border: 1px solid rgba(139, 148, 158, 0.3);
 }
 
+
 /* 3-axis triangle positions for pitching chart (Stuff top, Control lower-right, HRA lower-left) */
 .pitcher-profile-modal .pitching-axis-top {
   top: -13%;
@@ -8913,13 +8962,11 @@ th .stat-tooltip {
 .pitcher-profile-modal .pitching-axis-lower-right {
   bottom: 20%;
   right: 7%;
-  align-items: center;
 }
 
 .pitcher-profile-modal .pitching-axis-lower-left {
   bottom: 20%;
   left: 19%;
-  align-items: center;
 }
 
 /* Projected stat badges */

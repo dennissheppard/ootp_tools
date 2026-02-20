@@ -1591,7 +1591,7 @@ export class BatterProfileModal {
             isPeakMode, showActualComparison, ratings } = proj;
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
-    const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB') : undefined;
+    const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;
     const lgObp = this.leagueAvg?.lgObp ?? 0.320;
     const lgSlg = this.leagueAvg?.lgSlg ?? 0.400;
     const hasSrSte = (this.scoutingData?.stealingAggressiveness !== undefined) || (data.scoutSR !== undefined);

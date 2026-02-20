@@ -164,14 +164,16 @@ const POSITION_LABELS: Record<number, string> = {
 class BatterProjectionService {
   async getProjectionsWithContext(
     year: number,
-    options?: { tracePlayerId?: number; trace?: BatterProjectionCalculationTrace }
+    options?: { tracePlayerId?: number; trace?: BatterProjectionCalculationTrace; preSeasonOnly?: boolean }
   ): Promise<BatterProjectionContext> {
+    const preSeasonOnly = options?.preSeasonOnly ?? false;
+    const leagueAvgYear = preSeasonOnly ? year - 1 : year;
     // Get all required data
     const [allPlayers, allTeams, scoutingList, leagueAvgCurrent, currentYear] = await Promise.all([
       playerService.getAllPlayers(),
       teamService.getAllTeams(),
       hitterScoutingDataService.getLatestScoutingRatings('osa'),
-      leagueBattingAveragesService.getLeagueAverages(year),
+      leagueBattingAveragesService.getLeagueAverages(leagueAvgYear),
       dateService.getCurrentYear(),
     ]);
 
@@ -194,17 +196,20 @@ class BatterProjectionService {
     // Use prior season to avoid contamination from partial current season data
     const multiYearStats = await trueRatingsService.getMultiYearBattingStats(year - 1);
 
-    // Get current-year batting stats to build stats-driven player pool
-    // This ensures we capture all players who batted, not just current roster
+    // Get batting stats to build stats-driven player pool
+    // Pre-season mode uses prior year only; current mode tries current year first
+    const battingStatsYear = preSeasonOnly ? year - 1 : year;
     let battingStats: TruePlayerBattingStats[] = [];
     try {
-      battingStats = await trueRatingsService.getTrueBattingStats(year);
+      battingStats = await trueRatingsService.getTrueBattingStats(battingStatsYear);
     } catch {
       // Fall back to prior year if current year stats unavailable
-      try {
-        battingStats = await trueRatingsService.getTrueBattingStats(year - 1);
-      } catch {
-        battingStats = [];
+      if (!preSeasonOnly) {
+        try {
+          battingStats = await trueRatingsService.getTrueBattingStats(year - 1);
+        } catch {
+          battingStats = [];
+        }
       }
     }
 
@@ -235,6 +240,7 @@ class BatterProjectionService {
 
       // Skip if no player record (can't determine age for aging curves)
       if (!player) continue;
+      if (player.retired) continue;
 
       // Determine position: prefer player record, fall back to stats
       const position = player.position || stat?.position || 0;
@@ -244,8 +250,9 @@ class BatterProjectionService {
       const scoutingInfo = scoutingMap.get(playerId);
       if ((!stats || stats.length === 0) && !scoutingInfo) continue;
 
-      // Use stats-year team_id (where they played), not current roster team
-      const teamId = stat?.team_id || player.teamId || 0;
+      // Prefer current roster team; fall back to stats team_id only if teamId is null/undefined.
+      // Use ?? so teamId=0 (free agent) is respected, not treated as falsy.
+      const teamId = player.teamId ?? stat?.team_id ?? 0;
       const team = teamMap.get(teamId);
       const teamName = team?.nickname || 'Unknown';
 

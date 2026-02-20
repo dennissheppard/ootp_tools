@@ -23,6 +23,12 @@ export interface PitcherScoutingRatings {
   pitcherType?: string;
   /** Pitcher BABIP tendency */
   babip?: string;
+  /** Player level: 'MLB' | 'AAA' | 'AA' | 'A' | 'R' | 'INT' | '-' */
+  lev?: string;
+  /** High School/College status: 'HS Senior' | 'CO Junior' | etc. | '-' */
+  hsc?: string;
+  /** Date of birth string from CSV (e.g. '02/26/2001') */
+  dob?: string;
   source?: 'my' | 'osa';
 }
 
@@ -59,5 +65,13 @@ export interface HitterScoutingRatings {
   greed?: 'H' | 'N' | 'L';
   workEthic?: 'H' | 'N' | 'L';
   intelligence?: 'H' | 'N' | 'L';
+  /** Position label from scouting CSV (e.g. 'LF', 'SS', 'C') */
+  pos?: string;
+  /** Player level: 'MLB' | 'AAA' | 'AA' | 'A' | 'R' | 'INT' | '-' */
+  lev?: string;
+  /** High School/College status: 'HS Senior' | 'CO Junior' | etc. | '-' */
+  hsc?: string;
+  /** Date of birth string from CSV (e.g. '02/26/2001') */
+  dob?: string;
   source?: 'my' | 'osa';
 }

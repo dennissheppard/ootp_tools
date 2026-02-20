@@ -14,7 +14,8 @@ import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { projectionAnalysisService, AggregateAnalysisReport } from '../services/ProjectionAnalysisService';
 import { batterProjectionAnalysisService, BatterAggregateAnalysisReport } from '../services/BatterProjectionAnalysisService';
 import { standingsService } from '../services/StandingsService';
-import { renderDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
+import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
+import type { Player } from '../models/Player';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -109,19 +110,26 @@ export class ProjectionsView {
   private batterColumns: BatterColumnConfig[] = [];
   private batterRowLookup: Map<number, ProjectedBatterWithActuals> = new Map();
   private hasBatterActualStats = false;
+  private showMlbPlayers = true;
+  private showMinorLeaguers = false;
+  private playerLookup: Map<number, Player> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.initColumns();
     this.renderLayout();
     this.initializeFromGameDate();
+
+    window.addEventListener('wbl:request-data-source-badges', () => {
+      if (this.container.closest('.tab-panel.active')) this.updateDataSourceBadges();
+    });
   }
 
   private initColumns(): void {
     const defaults: ColumnConfig[] = [
         { key: 'position', label: 'Pos', sortKey: 'position', accessor: p => this.renderPositionLabel(p) },
         { key: 'name', label: 'Name', accessor: p => this.renderPlayerName(p) },
-        { key: 'teamName', label: 'Team' },
+        { key: 'teamName', label: 'Team', accessor: p => this.renderTeamWithLevel(p.teamId, p.playerId, p.teamName) },
         { key: 'age', label: 'Age', accessor: p => this.renderAge(p) },
         { key: 'currentTrueRating', label: 'Current TR', sortKey: 'currentTrueRating', accessor: p => this.renderRatingBadge(p) },
         { key: 'projK9', label: 'Proj K/9', sortKey: 'projectedStats.k9', accessor: p => {
@@ -156,7 +164,7 @@ export class ProjectionsView {
     const batterDefaults: BatterColumnConfig[] = [
       { key: 'position', label: 'Pos', sortKey: 'position', accessor: b => this.renderBatterPositionBadge(b.position) },
       { key: 'name', label: 'Name', accessor: b => this.renderBatterName(b) },
-      { key: 'teamName', label: 'Team' },
+      { key: 'teamName', label: 'Team', accessor: b => this.renderTeamWithLevel(b.teamId, b.playerId, b.teamName) },
       { key: 'age', label: 'Age' },
       { key: 'currentTrueRating', label: 'TR', sortKey: 'currentTrueRating', accessor: b => this.renderBatterRatingBadge(b.currentTrueRating) },
       { key: 'projWoba', label: 'Proj wOBA', sortKey: 'projectedStats.woba', accessor: b => b.projectedStats.woba.toFixed(3) },
@@ -270,7 +278,6 @@ export class ProjectionsView {
     this.container.innerHTML = `
       <div class="true-ratings-content">        
         <p class="section-subtitle" id="projections-subtitle"></p>
-        <div id="projections-data-source-badges">${renderDataSourceBadges('preseason-model', this.scoutingDataMode)}</div>
         
         <div class="true-ratings-controls">
           <div class="filter-bar" id="projections-filter-bar">
@@ -292,6 +299,8 @@ export class ProjectionsView {
                   ${this.renderPositionDropdownItems()}
                 </div>
               </div>
+              <button class="toggle-btn ${this.showMlbPlayers ? 'active' : ''}" data-player-toggle="mlb" aria-pressed="${this.showMlbPlayers}">MLB Players</button>
+              <button class="toggle-btn ${this.showMinorLeaguers ? 'active' : ''}" data-player-toggle="minors" aria-pressed="${this.showMinorLeaguers}">Minor Leaguers</button>
               <div class="filter-dropdown" data-filter="year" id="proj-year-field" style="display: none;">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
                   Year: <span id="selected-year-display">${this.selectedYear}</span> ▾
@@ -304,8 +313,6 @@ export class ProjectionsView {
             </div>
           </div>
         </div>
-
-        <div class="scout-upload-notice" id="proj-scouting-notice" style="display: none; margin-bottom: 1rem;"></div>
 
         <div id="projections-table-container">
             ${this.renderTableLoadingState()}
@@ -426,7 +433,7 @@ export class ProjectionsView {
               if (!mode || mode === this.viewMode) return;
               this.viewMode = mode;
               this.updateModeControls();
-              
+
               if (this.viewMode === 'analysis') {
                   this.renderAnalysisLanding();
               } else {
@@ -435,6 +442,39 @@ export class ProjectionsView {
               }
           });
       });
+
+      // Player type toggle (MLB Players / Minor Leaguers)
+      this.container.querySelectorAll<HTMLButtonElement>('[data-player-toggle]').forEach(button => {
+          button.addEventListener('click', () => {
+              const toggle = button.dataset.playerToggle;
+              if (toggle === 'mlb') {
+                  const next = !this.showMlbPlayers;
+                  if (!next && !this.showMinorLeaguers) return; // At least one must stay active
+                  this.showMlbPlayers = next;
+              } else if (toggle === 'minors') {
+                  const next = !this.showMinorLeaguers;
+                  if (!next && !this.showMlbPlayers) return;
+                  this.showMinorLeaguers = next;
+              } else {
+                  return;
+              }
+              this.updatePlayerToggleButtons();
+              this.currentPage = 1;
+              this.filterAndRender();
+          });
+      });
+  }
+
+  private updatePlayerToggleButtons(): void {
+    const buttons = this.container.querySelectorAll<HTMLButtonElement>('[data-player-toggle]');
+    buttons.forEach(btn => {
+      const key = btn.dataset.playerToggle;
+      let isActive = false;
+      if (key === 'mlb') isActive = this.showMlbPlayers;
+      else if (key === 'minors') isActive = this.showMinorLeaguers;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', String(isActive));
+    });
   }
 
   private showLoadingState(): void {
@@ -551,8 +591,12 @@ export class ProjectionsView {
           this.initColumns();
 
           // Populate team filter - only include MLB teams (parent_team_id === 0)
-          const allTeams = await teamService.getAllTeams();
+          const [allTeams, rosterPlayers] = await Promise.all([
+            teamService.getAllTeams(),
+            playerService.getAllPlayers(),
+          ]);
           this.teamLookup = new Map(allTeams.map(t => [t.id, t]));
+          this.playerLookup = new Map(rosterPlayers.map(p => [p.id, p]));
 
           // Build set of MLB parent org names
           const mlbTeamNames = new Set<string>();
@@ -675,8 +719,12 @@ export class ProjectionsView {
           this.initColumns();
 
           // Populate team filter
-          const allTeams = await teamService.getAllTeams();
+          const [allTeams, rosterPlayers] = await Promise.all([
+            teamService.getAllTeams(),
+            playerService.getAllPlayers(),
+          ]);
           this.teamLookup = new Map(allTeams.map(t => [t.id, t]));
+          this.playerLookup = new Map(rosterPlayers.map(p => [p.id, p]));
 
           const mlbTeamNames = new Set<string>();
           for (const batter of this.allBatterStats) {
@@ -2019,6 +2067,14 @@ export class ProjectionsView {
 
       let filtered = [...this.allStats];
 
+      // Filter by MLB vs minor leaguers
+      filtered = filtered.filter(p => {
+        const isMinor = this.isMinorLeaguer(p.playerId);
+        if (isMinor && !this.showMinorLeaguers) return false;
+        if (!isMinor && !this.showMlbPlayers) return false;
+        return true;
+      });
+
       if (this.selectedTeam !== 'all') {
           filtered = filtered.filter(p => this.getParentOrgName(p.teamId) === this.selectedTeam);
       }
@@ -2042,6 +2098,14 @@ export class ProjectionsView {
 
   private filterAndRenderBatters(): void {
       let filtered = [...this.allBatterStats];
+
+      // Filter by MLB vs minor leaguers
+      filtered = filtered.filter(b => {
+        const isMinor = this.isMinorLeaguer(b.playerId);
+        if (isMinor && !this.showMinorLeaguers) return false;
+        if (!isMinor && !this.showMlbPlayers) return false;
+        return true;
+      });
 
       if (this.selectedTeam !== 'all') {
           filtered = filtered.filter(b => this.getParentOrgName(b.teamId) === this.selectedTeam);
@@ -2113,6 +2177,53 @@ export class ProjectionsView {
 
     // This is already an MLB team
     return team.nickname ?? null;
+  }
+
+  private getLevelLabelFromId(levelId: number): string {
+    switch (levelId) {
+      case 2: return 'AAA';
+      case 3: return 'AA';
+      case 4: return 'A';
+      case 5: return 'R';
+      case 7: return 'Ind';
+      case 8: case 9: return 'IC';
+      case 10: return 'Col';
+      case 11: return 'HS';
+      default: return '';
+    }
+  }
+
+  /**
+   * Check if a projected player is a minor leaguer based on their player record.
+   */
+  private isMinorLeaguer(playerId: number): boolean {
+    const player = this.playerLookup.get(playerId);
+    if (!player) return false;
+    return player.parentTeamId !== 0 && player.level !== 1;
+  }
+
+  /**
+   * Render team name with level label for minor leaguers.
+   */
+  private renderTeamWithLevel(teamId: number, playerId: number, fallbackName: string): string {
+    const player = this.playerLookup.get(playerId);
+    if (!player) return fallbackName;
+
+    const team = this.teamLookup.get(teamId);
+    if (!team) return fallbackName;
+
+    // Minor league player: show parent org + level badge
+    if (player.parentTeamId !== 0) {
+      const parent = this.teamLookup.get(team.parentTeamId || player.parentTeamId);
+      if (parent) {
+        const levelLabel = this.getLevelLabelFromId(player.level);
+        return levelLabel
+          ? `${parent.nickname} <span class="league-level">${levelLabel}</span>`
+          : parent.nickname;
+      }
+    }
+
+    return team.nickname ?? fallbackName;
   }
 
   private sortStats(): void {
@@ -3324,52 +3435,6 @@ export class ProjectionsView {
 
 
 
-  private updateScoutingBanner(): void {
-    const notice = this.container.querySelector<HTMLElement>('#proj-scouting-notice');
-    if (!notice) return;
-
-    // Only show banner in Projections mode (current/future context)
-    if (this.viewMode !== 'projections') {
-      notice.style.display = 'none';
-      return;
-    }
-
-    if (this.scoutingMetadata) {
-      const { fromMyScout, fromOSA } = this.scoutingMetadata;
-      const hasMyScoutData = fromMyScout > 0;
-
-      if (!hasMyScoutData && fromOSA > 0) {
-        // Using OSA fallback
-        notice.innerHTML = `
-          <span class="banner-icon">ℹ️</span>
-          Using OSA scouting data (${fromOSA} players).
-          <button class="btn-link" data-tab-target="tab-data-management" type="button">Upload your scout reports</button> for custom scouting.
-        `;
-        notice.style.display = 'block';
-        notice.className = 'info-banner osa-fallback';
-      } else if (hasMyScoutData && fromOSA > 0) {
-        // Using both sources
-        notice.innerHTML = `
-          <span class="banner-icon">📊</span>
-          ${fromMyScout} players from My Scout, ${fromOSA} from OSA.
-        `;
-        notice.style.display = 'block';
-        notice.className = 'info-banner mixed-sources';
-      } else if (!hasMyScoutData && fromOSA === 0) {
-        // No scouting at all
-        notice.innerHTML = `
-          No scouting data found. <button class="btn-link" data-tab-target="tab-data-management" type="button">Manage Data</button>
-        `;
-        notice.style.display = 'block';
-        notice.className = 'scout-upload-notice';
-      } else {
-        // Only My Scout (clean state) or hidden
-        notice.style.display = 'none';
-      }
-    } else {
-      notice.style.display = 'none';
-    }
-  }
   private updateSubtitle(): void {
     const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
     if (!subtitle) return;
@@ -3377,17 +3442,17 @@ export class ProjectionsView {
     const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : (this.yearOptions[0] ?? this.selectedYear);
     const baseYear = this.statsYearUsed ?? (targetYear - 1);
     
+    const poolNote = '<br><span class="note-text">Only players with MLB stats. For rookie projections, search for a player or see the True Ratings page.</span>';
     if (this.isOffseason) {
-      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings`;
+      subtitle.innerHTML = `Pre-season Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings${poolNote}`;
     } else {
       const fallbackNote = this.usedFallbackStats && baseYear !== (targetYear - 1)
         ? ` <span class="note-text">No ${targetYear - 1} stats yet&mdash;using ${baseYear} data.</span>`
         : '';
-      subtitle.innerHTML = `Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings ${fallbackNote}`;
+      subtitle.innerHTML = `Pre-season Projections for the <strong>${targetYear}</strong> season based on ${baseYear} True Ratings ${fallbackNote}${poolNote}`;
     }
 
     this.updateDataSourceBadges();
-    this.updateScoutingBanner();
   }
 
   private inferScoutingDataMode(): void {
@@ -3400,9 +3465,7 @@ export class ProjectionsView {
 
   private updateDataSourceBadges(): void {
     this.inferScoutingDataMode();
-    const slot = this.container.querySelector<HTMLElement>('#projections-data-source-badges');
-    if (!slot) return;
-    slot.innerHTML = renderDataSourceBadges('preseason-model', this.scoutingDataMode);
+    emitDataSourceBadges('preseason-model', this.scoutingDataMode);
   }
 
   private renderPowerQuartileRows(report: any): string {
