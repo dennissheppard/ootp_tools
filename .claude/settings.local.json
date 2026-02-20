@@ -57,7 +57,8 @@
       "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" diff HEAD~5 src/views/PitcherProfileModal.ts)",
       "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" show c61f471:src/views/PitcherProfileModal.ts)",
       "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" status)",
-      "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" diff src/services/AIScoutingService.ts)"
+      "Bash(git -C \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\" diff src/services/AIScoutingService.ts)",
+      "Bash(del \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\ui-fixes\\\\test-output.txt\")"
     ]
   }
 }

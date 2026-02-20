@@ -1,5 +1,3 @@
-import { analyticsService } from './AnalyticsService';
-
 const DEFAULT_RATE_LIMIT_WAIT_MS = 4000;
 const MAX_RATE_LIMIT_RETRIES = 3;
 const MIN_RATE_LIMIT_WAIT_MS = 2000;
@@ -45,6 +43,13 @@ function notifyRateLimitClear(): void {
   window.dispatchEvent(new CustomEvent('wbl:rate-limit-clear'));
 }
 
+type ApiCallTracker = (endpoint: string, bytes: number | undefined, status: number, duration_ms: number) => void;
+let _apiCallTracker: ApiCallTracker | null = null;
+
+export function setApiCallTracker(tracker: ApiCallTracker): void {
+  _apiCallTracker = tracker;
+}
+
 function normalizeEndpoint(url: string): string {
   try {
     return new URL(url, 'http://localhost').pathname;
@@ -66,7 +71,7 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
 
     const contentLength = response.headers.get('content-length');
     const bytes = contentLength !== null ? parseInt(contentLength, 10) : undefined;
-    analyticsService.trackApiCall(endpoint, bytes, response.status, duration_ms);
+    _apiCallTracker?.(endpoint, bytes, response.status, duration_ms);
 
     if (response.status !== 429) {
       if (hadRateLimit) {

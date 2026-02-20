@@ -6,7 +6,12 @@ import { dateService } from './services/DateService';
 import { indexedDBService } from './services/IndexedDBService';
 import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
 import { analyticsService } from './services/AnalyticsService';
+import { setApiCallTracker } from './services/ApiClient';
 import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
+
+setApiCallTracker((endpoint, bytes, status, duration_ms) =>
+  analyticsService.trackApiCall(endpoint, bytes, status, duration_ms)
+);
 
 class App {
   private controller: PlayerController;
