@@ -8186,6 +8186,31 @@ th .stat-tooltip {
   margin-top: 0.1rem;
 }
 
+.cell-salary-est-prefix {
+  opacity: 0.7;
+  font-style: italic;
+  margin-right: 0.05rem;
+}
+
+.cell-salary-overridden {
+  color: var(--color-accent);
+}
+
+.cell-salary-marker {
+  margin-left: 0.15rem;
+  font-size: 0.6rem;
+  opacity: 0.8;
+  vertical-align: middle;
+}
+
+.cell-dev-marker {
+  font-size: 0.5rem;
+  color: rgba(29, 155, 240, 0.7);
+  vertical-align: super;
+  margin-left: 0.1rem;
+  cursor: default;
+}
+
 /* Contract status colors */
 .cell-under-contract {
   background: rgba(0, 186, 124, 0.08);
@@ -9533,6 +9558,33 @@ th .stat-tooltip {
 .cell-edit-current-meta {
   font-size: 0.8rem;
   color: var(--color-text-muted);
+}
+
+.cell-edit-salary-section {
+  margin-top: 0.5rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid rgba(255,255,255,0.07);
+}
+
+.cell-edit-salary-label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.cell-edit-salary-est {
+  font-style: italic;
+  opacity: 0.7;
+  font-size: 0.7rem;
+}
+
+.cell-edit-salary-override-badge {
+  font-size: 0.65rem;
+  color: var(--color-accent);
+  font-style: italic;
+}
+
+.cell-edit-salary-options {
+  margin-top: 0.4rem;
 }
 
 .cell-edit-dev-btn {

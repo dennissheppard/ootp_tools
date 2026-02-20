@@ -4,7 +4,7 @@
  */
 
 const DB_NAME = 'wbl_database';
-const DB_VERSION = 11;
+const DB_VERSION = 12;
 const SCOUTING_STORE = 'scouting_ratings';
 const STATS_STORE = 'minor_league_stats';
 const METADATA_STORE = 'minor_league_metadata';
@@ -23,6 +23,7 @@ const HITTER_SCOUTING_STORE = 'hitter_scouting_ratings'; // Hitter scouting data
 const AI_SCOUTING_BLURB_STORE = 'ai_scouting_blurbs'; // v9: AI-generated scouting reports
 const TEAM_PLANNING_OVERRIDES_STORE = 'team_planning_overrides'; // v10: User cell overrides in team planning grid
 const PLAYER_DEV_OVERRIDES_STORE = 'player_dev_overrides'; // v11: Per-player development curve overrides
+const SALARY_OVERRIDES_STORE = 'salary_overrides'; // v12: Per-cell salary overrides in team planning grid
 
 export interface ScoutingRecord {
   key: string; // Format: "YYYY-MM-DD_source"
@@ -202,6 +203,14 @@ export interface PlayerDevOverrideRecord {
   effectiveFromYear: number; // grid year from which dev override applies (forward only)
 }
 
+export interface SalaryOverrideRecord {
+  key: string;             // "teamId_position_year"
+  teamId: number;
+  position: string;        // "C", "SP1", etc.
+  year: number;
+  salary: number;          // Annual salary in dollars
+}
+
 class IndexedDBService {
   private db: IDBDatabase | null = null;
   private initPromise: Promise<void> | null = null;
@@ -355,6 +364,13 @@ class IndexedDBService {
         if (!db.objectStoreNames.contains(PLAYER_DEV_OVERRIDES_STORE)) {
           db.createObjectStore(PLAYER_DEV_OVERRIDES_STORE, { keyPath: 'key' });
           console.log(`✅ Created player development overrides store`);
+        }
+
+        // Create salary overrides store (v12)
+        if (!db.objectStoreNames.contains(SALARY_OVERRIDES_STORE)) {
+          const salaryStore = db.createObjectStore(SALARY_OVERRIDES_STORE, { keyPath: 'key' });
+          salaryStore.createIndex('teamId', 'teamId', { unique: false });
+          console.log(`✅ Created salary overrides store`);
         }
 
         console.log(`✅ IndexedDB upgrade complete (now v${newVersion})`);
@@ -1643,6 +1659,60 @@ class IndexedDBService {
         // default to 2000 so old overrides continue to apply to all years.
         resolve(records.map(r => ({ playerId: r.playerId, effectiveFromYear: r.effectiveFromYear ?? 2000 })));
       };
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  // Salary override methods (v12)
+
+  async saveSalaryOverride(teamId: number, position: string, year: number, salary: number): Promise<void> {
+    await this.init();
+    if (!this.db) throw new Error('Database not initialized');
+
+    if (!this.db.objectStoreNames.contains(SALARY_OVERRIDES_STORE)) {
+      console.warn(`⚠️ Cannot save salary override - IndexedDB needs upgrade to v12. Close ALL browser tabs and reopen.`);
+      return;
+    }
+
+    const key = `${teamId}_${position}_${year}`;
+    const record: SalaryOverrideRecord = { key, teamId, position, year, salary };
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([SALARY_OVERRIDES_STORE], 'readwrite');
+      const store = transaction.objectStore(SALARY_OVERRIDES_STORE);
+      const request = store.put(record);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async deleteSalaryOverride(teamId: number, position: string, year: number): Promise<void> {
+    await this.init();
+    if (!this.db) return;
+
+    if (!this.db.objectStoreNames.contains(SALARY_OVERRIDES_STORE)) return;
+
+    const key = `${teamId}_${position}_${year}`;
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([SALARY_OVERRIDES_STORE], 'readwrite');
+      const store = transaction.objectStore(SALARY_OVERRIDES_STORE);
+      const request = store.delete(key);
+      request.onsuccess = () => resolve();
+      request.onerror = () => reject(request.error);
+    });
+  }
+
+  async getSalaryOverridesForTeam(teamId: number): Promise<SalaryOverrideRecord[]> {
+    await this.init();
+    if (!this.db) return [];
+
+    if (!this.db.objectStoreNames.contains(SALARY_OVERRIDES_STORE)) return [];
+
+    return new Promise((resolve, reject) => {
+      const transaction = this.db!.transaction([SALARY_OVERRIDES_STORE], 'readonly');
+      const store = transaction.objectStore(SALARY_OVERRIDES_STORE);
+      const index = store.index('teamId');
+      const request = index.getAll(IDBKeyRange.only(teamId));
+      request.onsuccess = () => resolve(request.result as SalaryOverrideRecord[]);
       request.onerror = () => reject(request.error);
     });
   }

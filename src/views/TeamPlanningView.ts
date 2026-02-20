@@ -39,6 +39,7 @@ interface GridCell {
   isMinContract?: boolean;
   isOverride?: boolean;
   overrideSourceType?: string;
+  isEstimatedSalary?: boolean;
   indicators?: CellIndicator[];
 }
 
@@ -202,6 +203,7 @@ export class TeamPlanningView {
   private contractMap: Map<number, Contract> = new Map();
   private overrides: Map<string, TeamPlanningOverrideRecord> = new Map();
   private devOverrides: Map<number, number> = new Map(); // playerId → effectiveFromYear
+  private salaryOverrides: Map<string, number> = new Map(); // "teamId_position_year" → salary
   private tradeFlags: Map<number, 'tradeable' | 'not-tradeable'> = new Map();
   private needOverrides: Set<string> = new Set();
   private playerRatingMap: Map<number, number> = new Map();
@@ -890,6 +892,7 @@ export class TeamPlanningView {
           contractStatus: 'prospect',
           level: prospect.level,
           isProspect: true,
+          isEstimatedSalary: true,
         });
       }
     }
@@ -957,7 +960,7 @@ export class TeamPlanningView {
           playerId: prospect.playerId, playerName: prospect.name,
           age: prospect.age + yi, rating: projected,
           salary: estimateTeamControlSalary(yi - eta + 1, prospect.trueFutureRating),
-          contractStatus: 'prospect', level: prospect.level, isProspect: true,
+          contractStatus: 'prospect', level: prospect.level, isProspect: true, isEstimatedSalary: true,
         });
       }
 
@@ -993,7 +996,7 @@ export class TeamPlanningView {
           playerId: prospect.playerId, playerName: prospect.name,
           age: prospect.age + yi, rating: projected,
           salary: estimateTeamControlSalary(yi - eta + 1, prospect.trueFutureRating),
-          contractStatus: 'prospect', level: prospect.level, isProspect: true,
+          contractStatus: 'prospect', level: prospect.level, isProspect: true, isEstimatedSalary: true,
         });
       }
     }
@@ -1114,6 +1117,7 @@ export class TeamPlanningView {
           salary,
           contractStatus,
           isMinContract: salary <= MIN_SALARY_THRESHOLD,
+          isEstimatedSalary: yearOffset >= contractYearsRemaining,
         });
       } else {
         cells.set(year, {
@@ -1530,6 +1534,15 @@ export class TeamPlanningView {
     const dataAttrs = `data-position="${position}" data-year="${year}"`;
     const overrideClass = cell?.isOverride ? ' cell-override' : '';
 
+    // Salary override lookup
+    const salaryKey = `${this.selectedTeamId}_${position}_${year}`;
+    const salaryOverrideValue = this.salaryOverrides.get(salaryKey);
+    const isSalaryOverride = salaryOverrideValue !== undefined;
+
+    // Dev override marker: active if player has dev override from this year onward
+    const devFromYear = cell?.playerId ? this.devOverrides.get(cell.playerId) : undefined;
+    const isDevOverrideActive = devFromYear !== undefined && devFromYear <= year;
+
     if (!cell || cell.contractStatus === 'empty') {
       const indicators = cell?.indicators ?? [];
       const indicatorHtml = this.renderIndicators(indicators);
@@ -1542,20 +1555,21 @@ export class TeamPlanningView {
     if (cell.isProspect) {
       const ratingClass = this.getRatingClass(cell.rating);
       const abbrevName = this.abbreviateName(cell.playerName);
-      const salaryStr = cell.salary > 0 ? this.formatSalary(cell.salary) : '';
       const indicatorHtml = this.renderIndicators(cell.indicators ?? []);
       const nameClickable = cell.playerId ? ` cell-name-link` : '';
       const nameDataAttr = cell.playerId ? ` data-profile-id="${cell.playerId}"` : '';
       const nameTitle = cell.playerId ? ` title="ID: ${cell.playerId}"` : '';
+      const devMarker = isDevOverrideActive ? ` <span class="cell-dev-marker" title="Development override active">◆</span>` : '';
+      const salaryHtml = this.renderCellSalary(cell, isSalaryOverride, salaryOverrideValue);
 
       return `
         <td class="grid-cell cell-minor-league${overrideClass}" ${dataAttrs}>
           <div class="cell-name${nameClickable}"${nameDataAttr}${nameTitle}>${abbrevName}</div>
           <div class="cell-meta">
             <span class="cell-age">Age: ${cell.age}</span>
-            <span class="badge ${ratingClass} cell-rating">${cell.rating.toFixed(1)}</span>
+            <span class="badge ${ratingClass} cell-rating">${cell.rating.toFixed(1)}</span>${devMarker}
           </div>
-          ${salaryStr ? `<div class="cell-salary">${salaryStr}</div>` : ''}
+          ${salaryHtml}
           ${indicatorHtml}
         </td>
       `;
@@ -1564,23 +1578,37 @@ export class TeamPlanningView {
     const statusClass = `cell-${cell.contractStatus}`;
     const ratingClass = this.getRatingClass(cell.rating);
     const abbrevName = this.abbreviateName(cell.playerName);
-    const salaryStr = cell.salary > 0 ? this.formatSalary(cell.salary) : '';
     const indicatorHtml = this.renderIndicators(cell.indicators ?? []);
     const nameClickable = cell.playerId ? ` cell-name-link` : '';
     const nameDataAttr = cell.playerId ? ` data-profile-id="${cell.playerId}"` : '';
     const nameTitle = cell.playerId ? ` title="ID: ${cell.playerId}"` : '';
+    const devMarker = isDevOverrideActive ? ` <span class="cell-dev-marker" title="Development override active">◆</span>` : '';
+    const salaryHtml = this.renderCellSalary(cell, isSalaryOverride, salaryOverrideValue);
 
     return `
       <td class="grid-cell ${statusClass}${overrideClass}" ${dataAttrs}>
         <div class="cell-name${nameClickable}"${nameDataAttr}${nameTitle}>${abbrevName}</div>
         <div class="cell-meta">
           <span class="cell-age">Age: ${cell.age}</span>
-          <span class="badge ${ratingClass} cell-rating">${cell.rating.toFixed(1)}</span>
+          <span class="badge ${ratingClass} cell-rating">${cell.rating.toFixed(1)}</span>${devMarker}
         </div>
-        ${salaryStr ? `<div class="cell-salary">${salaryStr}</div>` : ''}
+        ${salaryHtml}
         ${indicatorHtml}
       </td>
     `;
+  }
+
+  private renderCellSalary(cell: GridCell, isSalaryOverride: boolean, salaryOverrideValue: number | undefined): string {
+    const effectiveSalary = isSalaryOverride ? salaryOverrideValue! : cell.salary;
+    if (!effectiveSalary || effectiveSalary <= 0) return '';
+    const formatted = this.formatSalary(effectiveSalary);
+    if (isSalaryOverride) {
+      return `<div class="cell-salary cell-salary-overridden">${formatted}<span class="cell-salary-marker" title="Salary override">✎</span></div>`;
+    }
+    if (cell.isEstimatedSalary) {
+      return `<div class="cell-salary"><span class="cell-salary-est-prefix" title="Estimated salary">~</span>${formatted}</div>`;
+    }
+    return `<div class="cell-salary">${formatted}</div>`;
   }
 
   private renderIndicators(indicators: CellIndicator[]): string {
@@ -1948,15 +1976,20 @@ export class TeamPlanningView {
 
   private async loadOverrides(): Promise<void> {
     if (!this.selectedTeamId) return;
-    const [records, devPlayerIds] = await Promise.all([
+    const [records, devPlayerIds, salaryRecords] = await Promise.all([
       indexedDBService.getTeamPlanningOverrides(this.selectedTeamId),
       indexedDBService.getAllPlayerDevOverrides(),
+      indexedDBService.getSalaryOverridesForTeam(this.selectedTeamId),
     ]);
     this.overrides.clear();
     for (const rec of records) {
       this.overrides.set(rec.key, rec);
     }
     this.devOverrides = new Map(devPlayerIds.map(r => [r.playerId, r.effectiveFromYear]));
+    this.salaryOverrides.clear();
+    for (const rec of salaryRecords) {
+      this.salaryOverrides.set(rec.key, rec.salary);
+    }
     this.loadTradeFlags();
     this.loadNeedOverrides();
   }
@@ -2035,6 +2068,7 @@ export class TeamPlanningView {
         isProspect: override.isProspect,
         isOverride: true,
         overrideSourceType: override.sourceType,
+        isEstimatedSalary: override.contractStatus === 'arb-eligible' || override.isProspect === true,
       });
     }
   }
@@ -2252,6 +2286,12 @@ export class TeamPlanningView {
     const incumbentRatingForSalary = incumbentCell?.rating ?? 0;
     const estimatedExtensionSalary = Math.round(incumbentRatingForSalary * 1_000_000);
 
+    // Salary override context for the current cell
+    const salaryKey = `${this.selectedTeamId}_${position}_${year}`;
+    const salaryOverrideValue = this.salaryOverrides.get(salaryKey);
+    const rawCellSalary = currentCell?.salary ?? 0;
+    const currentSalary = salaryOverrideValue !== undefined ? salaryOverrideValue : rawCellSalary;
+
     const context: CellEditContext = {
       position,
       year,
@@ -2265,6 +2305,9 @@ export class TeamPlanningView {
       estimatedExtensionSalary,
       currentTradeFlag: currentPlayerId ? this.tradeFlags.get(currentPlayerId) : undefined,
       isNeedOverride: this.needOverrides.has(position),
+      currentSalary: currentSalary > 0 ? currentSalary : undefined,
+      currentSalaryIsEstimate: currentCell?.isEstimatedSalary ?? false,
+      hasSalaryOverride: salaryOverrideValue !== undefined,
     };
 
     // Build org player list sorted by TFR/TR (highest first)
@@ -2317,6 +2360,22 @@ export class TeamPlanningView {
     if (result.action === 'dev-override-remove' && result.devOverridePlayerId) {
       await indexedDBService.deletePlayerDevOverride(result.devOverridePlayerId);
       this.devOverrides.delete(result.devOverridePlayerId);
+      await this.buildAndRenderGrid();
+      return;
+    }
+
+    if (result.action === 'salary-override' && result.salaryOverride !== undefined) {
+      const key = `${this.selectedTeamId}_${position}_${year}`;
+      await indexedDBService.saveSalaryOverride(this.selectedTeamId, position, year, result.salaryOverride);
+      this.salaryOverrides.set(key, result.salaryOverride);
+      await this.buildAndRenderGrid();
+      return;
+    }
+
+    if (result.action === 'salary-override-remove') {
+      const key = `${this.selectedTeamId}_${position}_${year}`;
+      await indexedDBService.deleteSalaryOverride(this.selectedTeamId, position, year);
+      this.salaryOverrides.delete(key);
       await this.buildAndRenderGrid();
       return;
     }

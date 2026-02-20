@@ -343,7 +343,7 @@ rawWins = 81 + deviation × slope
 - **Need overrides** (per-position, localStorage): "Mark as Position of Need" forces a position into the needs list regardless of auto-detection. Set via cell edit modal footer.
 - Trade flags and need overrides are team-scoped (`wbl-tp-tradeFlags-{teamId}`, `wbl-tp-needOverrides-{teamId}`)
 
-**Cell Editing:** Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`). Dev curve overrides ("Set as fully developed"): skip growth phase, project at TFR with only aging decline — applied from the clicked cell's year forward only, not retroactively to prior grid years. Stored in `player_dev_overrides` IndexedDB store with `effectiveFromYear`.
+**Cell Editing:** Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`). Dev curve overrides ("Set as fully developed"): skip growth phase, project at TFR with only aging decline — applied from the clicked cell's year forward only, not retroactively to prior grid years. Stored in `player_dev_overrides` IndexedDB store with `effectiveFromYear`. Salary overrides: any cell salary can be overridden via the edit modal; stored in `salary_overrides` IndexedDB store (v12) keyed by `teamId_position_year`. Estimated salaries (arb/prospect) shown with `~` prefix; salary overrides shown with `✎` marker; active dev overrides shown with `◆` superscript on the rating badge.
 - **Canonical rating resolution:** Org picker and manual insert both use a shared best-known rating resolver (grid value, canonical TR, prospect current/TFR maps) to avoid stale `0.5` fallbacks.
 - **Single-slot invariant:** Manual player insert clears that player from any other slot in the same team/year before saving, preventing duplicate placements (e.g. `MR1` + `MR5` in one season).
 
@@ -470,7 +470,7 @@ Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 | Pitcher MLB distribution | 2015-2020, ages 25-29, 50+ IP | TFR |
 | Batter MLB distribution | 2015-2020, ages 25-29, 300+ PA | TFR |
 
-## IndexedDB Schema (v7)
+## IndexedDB Schema (v12)
 
 | Store | Purpose |
 |-------|---------|
@@ -480,6 +480,9 @@ Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 | `mlb_league_stats` | Full MLB data by year |
 | `player_development_snapshots` | Historical TR/TFR/scouting for dev tracking |
 | `players`, `teams` | Roster caches |
+| `team_planning_overrides` | Manual cell placements (player + salary) in team planning grid |
+| `player_dev_overrides` | Per-player "fully developed" override (effectiveFromYear) |
+| `salary_overrides` | Per-cell salary overrides in team planning grid (teamId_position_year) |
 
 ## Tools
 

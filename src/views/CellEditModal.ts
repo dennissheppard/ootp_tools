@@ -17,7 +17,7 @@ const POSITION_ELIGIBILITY: Record<string, number[]> = {
 
 // --- Types ---
 
-export type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select' | 'dev-override-set' | 'dev-override-remove' | 'trade-flag' | 'need-flag';
+export type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select' | 'dev-override-set' | 'dev-override-remove' | 'trade-flag' | 'need-flag' | 'salary-override' | 'salary-override-remove';
 export type OverrideSourceType = 'extend' | 'org' | 'trade-target' | 'fa-target';
 
 export interface CellEditResult {
@@ -31,6 +31,7 @@ export interface CellEditResult {
   devOverridePlayerId?: number;
   tradeFlag?: 'tradeable' | 'not-tradeable' | 'clear';
   needFlag?: boolean;
+  salaryOverride?: number;
 }
 
 export interface CellEditContext {
@@ -46,6 +47,17 @@ export interface CellEditContext {
   estimatedExtensionSalary?: number;
   currentTradeFlag?: 'tradeable' | 'not-tradeable';
   isNeedOverride?: boolean;
+  currentSalary?: number;
+  currentSalaryIsEstimate?: boolean;
+  hasSalaryOverride?: boolean;
+}
+
+function formatSalaryModal(salary: number): string {
+  if (salary >= 1_000_000) {
+    const m = salary / 1_000_000;
+    return `$${m % 1 === 0 ? m : m.toFixed(1)}M`;
+  }
+  return `$${Math.round(salary / 1000)}K`;
 }
 
 type OrgSortColumn = 'name' | 'position' | 'age' | 'rating';
@@ -120,6 +132,35 @@ export class CellEditModal {
           </div>`;
         }
 
+        let salaryHtml = '';
+        if (context.currentSalary && context.currentSalary > 0) {
+          const salaryDisplay = formatSalaryModal(context.currentSalary);
+          const salaryInputVal = (context.currentSalary / 1_000_000).toFixed(2).replace(/\.?0+$/, '');
+          if (context.hasSalaryOverride) {
+            salaryHtml = `
+              <div class="cell-edit-salary-section">
+                <div class="cell-edit-salary-label">Salary: ${salaryDisplay} <span class="cell-edit-salary-override-badge">overridden</span></div>
+                <button class="cell-edit-salary-remove-btn cell-edit-dev-btn cell-edit-dev-remove">Remove salary override</button>
+              </div>`;
+          } else {
+            const estBadge = context.currentSalaryIsEstimate ? ` <span class="cell-edit-salary-est">(est.)</span>` : '';
+            salaryHtml = `
+              <div class="cell-edit-salary-section">
+                <div class="cell-edit-salary-label">Salary: ${salaryDisplay}${estBadge}</div>
+                <button class="cell-edit-salary-btn cell-edit-dev-btn">Override salary</button>
+                <div class="cell-edit-salary-options" style="display:none;">
+                  <div class="extend-salary-row">
+                    <label class="extend-label">Salary ($M):</label>
+                    <input type="number" class="cell-edit-salary-input" value="${salaryInputVal}" min="0" step="0.5" />
+                  </div>
+                  <div class="extend-buttons">
+                    <button class="cell-edit-salary-save-btn">Save Override</button>
+                  </div>
+                </div>
+              </div>`;
+          }
+        }
+
         currentInfo = `
           <div class="cell-edit-current">
             <div class="cell-edit-current-label">Current occupant</div>
@@ -127,6 +168,7 @@ export class CellEditModal {
             <div class="cell-edit-current-meta">Age ${context.currentCell.age} | ${context.currentCell.rating.toFixed(1)} rating${tfrStr}</div>
             ${devBtn}
             ${tradeFlagHtml}
+            ${salaryHtml}
           </div>
         `;
       }
@@ -211,6 +253,33 @@ export class CellEditModal {
             action: isRemove ? 'dev-override-remove' : 'dev-override-set',
             devOverridePlayerId: playerId,
           });
+        });
+      }
+
+      // Salary override buttons
+      const salaryOverrideRemoveBtn = modal.querySelector<HTMLButtonElement>('.cell-edit-salary-remove-btn');
+      if (salaryOverrideRemoveBtn) {
+        salaryOverrideRemoveBtn.addEventListener('click', () => {
+          this.resolve({ action: 'salary-override-remove' });
+        });
+      }
+
+      const salaryOverrideBtn = modal.querySelector<HTMLButtonElement>('.cell-edit-salary-btn');
+      if (salaryOverrideBtn) {
+        salaryOverrideBtn.addEventListener('click', () => {
+          const opts = modal.querySelector<HTMLElement>('.cell-edit-salary-options');
+          if (opts) opts.style.display = opts.style.display === 'none' ? 'block' : 'none';
+        });
+      }
+
+      const salaryOverrideSaveBtn = modal.querySelector<HTMLButtonElement>('.cell-edit-salary-save-btn');
+      if (salaryOverrideSaveBtn) {
+        salaryOverrideSaveBtn.addEventListener('click', () => {
+          const input = modal.querySelector<HTMLInputElement>('.cell-edit-salary-input');
+          const salaryM = parseFloat(input?.value ?? '0') || 0;
+          if (salaryM > 0) {
+            this.resolve({ action: 'salary-override', salaryOverride: Math.round(salaryM * 1_000_000) });
+          }
         });
       }
 
