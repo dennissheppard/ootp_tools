@@ -53,8 +53,27 @@ describe('Overperformer tag', () => {
       .find(t => t.id === 'overperformer')).toBeUndefined();
   });
 
-  test('works for pitchers', () => {
+  test('works for pitchers when no FIP data', () => {
     const data = makePitcherData({ trueRating: 3.5, trueFutureRating: 3.0 });
+    expect(computePitcherTags(data, emptyCtx).find(t => t.id === 'overperformer')).toBeDefined();
+  });
+
+  test('pitcher: suppressed when actual FIP worse than projected FIP', () => {
+    // TR > TFR but actual production lags projections — not a real overperformer
+    const data = makePitcherData({
+      trueRating: 3.5, trueFutureRating: 3.0,
+      fipLike: 1.71, // fipLike + 3.47 = 5.18 (actual FIP)
+      projFip: 4.75, // projected FIP is better (lower) than actual
+    });
+    expect(computePitcherTags(data, emptyCtx).find(t => t.id === 'overperformer')).toBeUndefined();
+  });
+
+  test('pitcher: shown when actual FIP at or better than projected FIP', () => {
+    const data = makePitcherData({
+      trueRating: 3.5, trueFutureRating: 3.0,
+      fipLike: 0.78, // fipLike + 3.47 = 4.25 (actual FIP, better than projected)
+      projFip: 4.75,
+    });
     expect(computePitcherTags(data, emptyCtx).find(t => t.id === 'overperformer')).toBeDefined();
   });
 });

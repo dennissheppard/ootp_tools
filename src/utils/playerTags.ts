@@ -151,8 +151,8 @@ export function computePitcherTags(data: PitcherProfileData, ctx: TagContext): P
     });
   }
 
-  // Overperformer: overall TR star rating exceeds TFR
-  if (isOverperformer(data.trueRating, data.trueFutureRating)) {
+  // Overperformer: TR > TFR, and actual FIP isn't worse than projected FIP
+  if (isPitcherOverperformer(data.trueRating, data.trueFutureRating, data.fipLike, data.projFip)) {
     tags.push({
       id: 'overperformer', label: 'Overperformer', color: 'amber',
       tooltip: 'True ratings exceed future ratings \u2014 playing above expected ability',
@@ -251,6 +251,21 @@ function isOverperformer(
 ): boolean {
   if (tr === undefined || tfr === undefined) return false;
   return tr > tfr;
+}
+
+/**
+ * Pitcher overperformer: TR > TFR, but suppressed if actual FIP (fipLike + 3.47)
+ * exceeds projected FIP — actual production is lagging projections, not exceeding them.
+ */
+function isPitcherOverperformer(
+  tr: number | undefined,
+  tfr: number | undefined,
+  fipLike: number | undefined,
+  projFip: number | undefined,
+): boolean {
+  if (!isOverperformer(tr, tfr)) return false;
+  if (fipLike !== undefined && projFip !== undefined && fipLike + 3.47 > projFip) return false;
+  return true;
 }
 
 /**
