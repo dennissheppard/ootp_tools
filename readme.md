@@ -76,9 +76,9 @@ A **pure peak/ceiling projection system** — projects what a prospect's age-27 
 #### Pitcher TFR
 
 1. Convert scout potential ratings to projected peak rates (Stuff→K/9, Control→BB/9, HRA→HR/9)
-2. Apply ceiling boost: `ceilingValue = meanValue + (meanValue - avgAtRating50) × 0.30`
-3. Find each component's percentile in MLB distribution (2015-2020, ages 25-29, 50+ IP)
-4. Calculate FIP from mapped rates (K9: 3.0-13.0, BB9: 0.50-7.0, HR9: 0.15-2.5)
+2. Apply ceiling boost: `ceilingValue = meanValue + (meanValue - avgAtRating50) × 0.27`
+3. Find each component's percentile in MLB distribution (2015-2020, ages 25-32, 50+ IP)
+4. Calculate FIP from mapped rates (K9: 3.0-13.0, BB9: 0.50-7.0, HR9: 0.20-2.5)
 5. Map FIP to MLB peak-year FIP distribution for final TFR (0.5-5.0 scale)
 
 **Peak Workload:**
@@ -105,7 +105,7 @@ A **pure peak/ceiling projection system** — projects what a prospect's age-27 
 **Algorithm:**
 1. Convert scout potential ratings to projected peak rates (100% scouting)
 2. Apply ceiling boost: `ceilingValue = meanValue + (meanValue - avgAtRating50) × 0.35`
-3. Eye/AvoidK/Power/Contact percentiles from MLB distribution (2015-2020, ages 25-29, 300+ PA)
+3. Eye/AvoidK/Power/Contact percentiles from MLB distribution (2015-2020, ages 25-32, 300+ PA)
 4. Gap/Speed mapped to expected 2B/AB and 3B/AB, then percentile-ranked in MLB doubles/triples distributions from the same peak-age sample (prospect-rank fallback only if MLB arrays are unavailable)
 5. Calculate wOBA: `0.69×BB + 0.89×1B + 1.27×2B + 1.62×3B + 2.10×HR`
 6. Compute WAR per 600 PA (includes SB runs)
@@ -465,10 +465,10 @@ Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
 | replacementFip | avgFip + 1.00 | Dynamic (~5.20) |
 | runsPerWin | 8.5 | `FipWarService.ts` |
 | Batter ceiling boost | 0.35 | `HitterTrueFutureRatingService.ts` |
-| Pitcher ceiling boost | 0.30 | `TrueFutureRatingService.ts` |
+| Pitcher ceiling boost | 0.27 | `TrueFutureRatingService.ts` |
 | Full confidence IP | 150 | Pitchers |
-| Pitcher MLB distribution | 2015-2020, ages 25-29, 50+ IP | TFR |
-| Batter MLB distribution | 2015-2020, ages 25-29, 300+ PA | TFR |
+| Pitcher MLB distribution | 2015-2020, ages 25-32, 50+ IP | TFR |
+| Batter MLB distribution | 2015-2020, ages 25-32, 300+ PA | TFR |
 
 ## IndexedDB Schema (v12)
 

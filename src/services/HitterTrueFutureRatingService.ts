@@ -313,6 +313,9 @@ const COMPONENT_SCOUTING_WEIGHTS = {
 // ============================================================================
 
 class HitterTrueFutureRatingService {
+  private _mlbDistCache: MLBHitterPercentileDistribution | null = null;
+  private _mlbDistCacheKey: string | null = null;
+
   /**
    * Calculate scouting weight for a specific component based on PA.
    * Different components have different predictive validity from MiLB stats.
@@ -600,6 +603,9 @@ class HitterTrueFutureRatingService {
    * This ensures we're mapping prospect peaks to actual MLB peaks.
    */
   async buildMLBHitterPercentileDistribution(leagueBattingAverages?: LeagueBattingAverages): Promise<MLBHitterPercentileDistribution> {
+    const cacheKey = `${leagueBattingAverages?.lgWoba ?? 'def'}_${leagueBattingAverages?.wobaScale ?? 'def'}_${leagueBattingAverages?.runsPerWin ?? 'def'}`;
+    if (this._mlbDistCache && this._mlbDistCacheKey === cacheKey) return this._mlbDistCache;
+
     const years = [2015, 2016, 2017, 2018, 2019, 2020];
     const allBbPct: number[] = [];
     const allKPct: number[] = [];
@@ -623,7 +629,7 @@ class HitterTrueFutureRatingService {
       try {
         const mlbStats = await trueRatingsService.getTrueBattingStats(year);
 
-        // Extract rate stats from peak-age hitters only (25-29)
+        // Extract rate stats from peak-age hitters (25-32), matching pitcher distribution range
         for (const stat of mlbStats) {
           const pa = stat.pa;
 
@@ -633,7 +639,7 @@ class HitterTrueFutureRatingService {
 
           // Calculate age for this season
           const age = this.calculateAge(dobMap.get(stat.player_id), year);
-          if (!age || age < 25 || age > 29) continue; // Skip non-peak ages
+          if (!age || age < 25 || age > 32) continue; // Skip non-peak ages
 
           // Calculate rate stats
           const bbPct = (stat.bb / pa) * 100;
@@ -687,14 +693,14 @@ class HitterTrueFutureRatingService {
     allTriplesRate.sort((a, b) => a - b); // Ascending: lower values = lower percentile
     allWar.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
 
-    console.log(`📊 Built MLB hitter distributions: ${allBbPct.length} peak-age hitters (ages 25-29) from 2015-2020`);
+    console.log(`📊 Built MLB hitter distributions: ${allBbPct.length} peak-age hitters (ages 25-32) from 2015-2020`);
     console.log(`📊 WAR constants used: lgWoba=${lgWoba}, wobaScale=${wobaScale}, runsPerWin=${runsPerWin}`);
     if (allWar.length > 0) {
       const p = (pct: number) => allWar[Math.min(Math.floor(pct / 100 * allWar.length), allWar.length - 1)];
       console.log(`📊 MLB WAR/600 distribution: min=${allWar[0]}, p50=${p(50)}, p75=${p(75)}, p90=${p(90)}, p93=${p(93)}, p95=${p(95)}, p97=${p(97)}, p99=${p(99)}, max=${allWar[allWar.length - 1]}`);
     }
 
-    return {
+    this._mlbDistCache = {
       bbPctValues: allBbPct,
       kPctValues: allKPct,
       hrPctValues: allHrPct,
@@ -703,6 +709,8 @@ class HitterTrueFutureRatingService {
       triplesRateValues: allTriplesRate,
       warValues: allWar,
     };
+    this._mlbDistCacheKey = cacheKey;
+    return this._mlbDistCache;
   }
 
   /**

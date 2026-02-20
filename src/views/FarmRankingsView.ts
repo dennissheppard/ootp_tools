@@ -108,6 +108,25 @@ export class FarmRankingsView {
     window.addEventListener('wbl:request-data-source-badges', () => {
       if (this.container.closest('.tab-panel.active')) this.emitBadges();
     });
+
+    // Navigate to Top 100 with team filter cleared (triggered from profile modal tags)
+    window.addEventListener('wbl:farm-show-top100', () => {
+      this.selectedTeam = 'all';
+      this.viewMode = 'top-100';
+      this.container.querySelectorAll('[data-view-mode]').forEach(b => {
+        const isActive = (b as HTMLElement).dataset.viewMode === 'top-100';
+        b.classList.toggle('active', isActive);
+        b.setAttribute('aria-pressed', String(isActive));
+      });
+      const displaySpan = this.container.querySelector<HTMLElement>('#selected-team-display');
+      if (displaySpan) displaySpan.textContent = 'All';
+      this.container.querySelectorAll('#team-dropdown-menu .filter-dropdown-item').forEach(item => {
+        item.classList.toggle('selected', (item as HTMLElement).dataset.value === 'all');
+      });
+      if (this.data !== null || this.hitterData !== null) {
+        this.renderView();
+      }
+    });
   }
 
   private setupLazyLoading(): void {
@@ -1162,8 +1181,12 @@ export class FarmRankingsView {
           return '<p class="no-stats">No prospect data available.</p>';
       }
 
-      // Assign unified ranks by peak WAR desc
-      combined.sort((a, b) => (b.peakWar || 0) - (a.peakWar || 0));
+      // Assign unified ranks by TFR desc, then within-pool percentile as tiebreaker
+      combined.sort((a, b) => {
+          const tfrDiff = (b.tfr || 0) - (a.tfr || 0);
+          if (tfrDiff !== 0) return tfrDiff;
+          return (b.percentile || 0) - (a.percentile || 0);
+      });
       combined.forEach((p, idx) => { p.originalRank = idx + 1; });
 
       // Re-sort by user-selected column (if not the default percentile desc, list is already correct)

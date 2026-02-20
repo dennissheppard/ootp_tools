@@ -7975,6 +7975,14 @@ th .stat-tooltip {
   color: #60a5fa;
 }
 
+.player-tag[data-tag-id="top-100"] {
+  cursor: pointer;
+}
+
+.player-tag[data-tag-id="top-100"]:hover {
+  background: rgba(96, 165, 250, 0.3);
+}
+
 /* ========================================
    TEAM PLANNING VIEW STYLES
    ======================================== */

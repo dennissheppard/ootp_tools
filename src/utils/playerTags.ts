@@ -226,7 +226,7 @@ export function computePitcherTags(data: PitcherProfileData, ctx: TagContext): P
 export function renderTagsHtml(tags: PlayerTag[]): string {
   if (tags.length === 0) return '';
   const pills = tags.map(t =>
-    `<span class="player-tag tag-${t.color}" title="${t.tooltip}">${t.label}</span>`
+    `<span class="player-tag tag-${t.color}" data-tag-id="${t.id}" title="${t.tooltip}">${t.label}</span>`
   ).join('');
   return `<div class="player-tags-row">${pills}</div>`;
 }

@@ -255,6 +255,17 @@ export class BatterProfileModal {
       }
     });
 
+    // Top 100 tag — close modal and navigate to Farm Rankings > Top 100 with team filter cleared
+    this.overlay.addEventListener('click', (e) => {
+      const tag = (e.target as HTMLElement).closest<HTMLElement>('[data-tag-id="top-100"]');
+      if (!tag) return;
+      this.hide();
+      document.querySelector<HTMLElement>('[data-tab-target="tab-farm-rankings"]')?.click();
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent('wbl:farm-show-top100'));
+      }, 0);
+    });
+
     this.setupDragging();
   }
 

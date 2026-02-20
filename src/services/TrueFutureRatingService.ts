@@ -208,6 +208,8 @@ export interface MLBPercentileDistribution {
 // ============================================================================
 
 class TrueFutureRatingService {
+  private _mlbDistCache: MLBPercentileDistribution | null = null;
+
   /**
    * Calculate scouting weight based on level-weighted IP (experience).
    *
@@ -242,6 +244,8 @@ class TrueFutureRatingService {
    * This ensures we're mapping prospect peaks to actual MLB peaks
    */
   async buildMLBPercentileDistribution(): Promise<MLBPercentileDistribution> {
+    if (this._mlbDistCache) return this._mlbDistCache;
+
     const years = [2015, 2016, 2017, 2018, 2019, 2020];
     const allK9: number[] = [];
     const allBb9: number[] = [];
@@ -256,7 +260,9 @@ class TrueFutureRatingService {
       try {
         const mlbStats = await trueRatingsService.getTruePitchingStats(year);
 
-        // Extract rate stats from peak-age pitchers only (25-29)
+        // Extract rate stats from peak-age pitchers (25-32)
+        // WBL pitchers age gracefully; extending to 32 captures more elite seasons
+        // and prevents distribution sparsity at the top end.
         for (const stat of mlbStats) {
           const ip = trueRatingsService.parseIp(stat.ip);
 
@@ -266,7 +272,7 @@ class TrueFutureRatingService {
 
           // Calculate age for this season
           const age = this.calculateAge(dobMap.get(stat.player_id), year);
-          if (!age || age < 25 || age > 29) continue; // Skip non-peak ages
+          if (!age || age < 25 || age > 32) continue; // Skip non-peak ages
 
           // Calculate rate stats from counting stats
           const k9 = (stat.k / ip) * 9;
@@ -296,14 +302,20 @@ class TrueFutureRatingService {
     allHr9.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
     allFip.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
 
-    console.log(`📊 Built MLB distributions: ${allK9.length} peak-age pitchers (ages 25-29) from 2015-2020`);
+    console.log(`📊 Built MLB distributions: ${allK9.length} peak-age pitchers (ages 25-32) from 2015-2020`);
+    if (allFip.length > 0) {
+      const p = (pct: number) => allFip[Math.min(Math.floor(pct / 100 * allFip.length), allFip.length - 1)];
+      console.log(`📊 MLB FIP distribution: min=${allFip[0].toFixed(2)}, p5=${p(5).toFixed(2)}, p25=${p(25).toFixed(2)}, p50=${p(50).toFixed(2)}, p75=${p(75).toFixed(2)}, p97=${p(97).toFixed(2)}, max=${allFip[allFip.length - 1].toFixed(2)}`);
+      console.log(`📊 MLB HR9 distribution: min=${allHr9[0].toFixed(3)}, max=${allHr9[allHr9.length - 1].toFixed(3)}`);
+    }
 
-    return {
+    this._mlbDistCache = {
       k9Values: allK9,
       bb9Values: allBb9,
       hr9Values: allHr9,
       fipValues: allFip,
     };
+    return this._mlbDistCache;
   }
 
   /**
@@ -665,7 +677,7 @@ class TrueFutureRatingService {
 
     // K9: higher is better → boost UP above average
     // BB9/HR9: lower is better → boost DOWN below average (formula works naturally)
-    const CEILING_BOOST = .3;
+    const CEILING_BOOST = 0.27;
     const stuffValue = scoutRates.k9 + (scoutRates.k9 - avgRates.k9) * CEILING_BOOST;
     const controlValue = scoutRates.bb9 + (scoutRates.bb9 - avgRates.bb9) * CEILING_BOOST;
     const hraValue = scoutRates.hr9 + (scoutRates.hr9 - avgRates.hr9) * CEILING_BOOST;
@@ -722,9 +734,10 @@ class TrueFutureRatingService {
     // distributions instead of ranking among prospects (which washes out the ceiling boost).
     const resultsWithFip = componentResults.map(result => {
       // Use boosted component values directly as projected rates (with clamping)
+      // projHr9 floor is 0.20 to match MLB distribution minimum (filter: hr9 >= 0.2)
       let projK9 = Math.max(3.0, Math.min(13.0, result.stuffValue));
       let projBb9 = Math.max(0.50, Math.min(7.0, result.controlValue));
-      let projHr9 = Math.max(0.15, Math.min(2.5, result.hraValue));
+      let projHr9 = Math.max(0.20, Math.min(2.5, result.hraValue));
 
       // Find each component's percentile directly in the MLB distribution
       // Stuff (K9): higher is better
@@ -749,9 +762,21 @@ class TrueFutureRatingService {
       };
     });
 
+    // Log top-5 projected FIPs for calibration diagnostics
+    const topByFip = [...resultsWithFip].sort((a, b) => a.projFip - b.projFip).slice(0, 5);
+    for (const r of topByFip) {
+      console.log(`📊 [TFR pitcher] ${r.playerName}: projFIP=${r.projFip.toFixed(2)}, K9=${r.projK9}, BB9=${r.projBb9}, HR9=${r.projHr9} | scout boosts: K9=${r.stuffValue.toFixed(2)}, BB9=${r.controlValue.toFixed(2)}, HR9=${r.hraValue.toFixed(3)}`);
+    }
+
     // Step 4: Map FIP to MLB peak-year FIP distribution for final TFR rating
+    // Floor projFip at the distribution minimum to prevent 100th-percentile saturation.
+    // Some elite prospects (e.g. 80/75/80 profile) project below the historical minimum FIP
+    // even with no ceiling boost — their raw scouting already exceeds the distribution bounds.
+    // Flooring caps them at ~99.8th percentile instead of 100th, preserving differentiation.
+    const fipDistMin = mlbDist.fipValues.length > 0 ? mlbDist.fipValues[0] : 0;
     return resultsWithFip.map((result) => {
-      const percentile = this.findValuePercentileInDistribution(result.projFip, mlbDist.fipValues, false);
+      const effectiveFip = Math.max(fipDistMin, result.projFip);
+      const percentile = this.findValuePercentileInDistribution(effectiveFip, mlbDist.fipValues, false);
       const trueFutureRating = this.percentileToRating(percentile);
 
       // True ratings from MLB percentiles: rating = 20 + (percentile / 100) * 60
