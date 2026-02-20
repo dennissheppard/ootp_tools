@@ -476,15 +476,8 @@ export class TradeAnalyzerView {
     this.allPlayers = await playerService.getAllPlayers();
     this.allTeams = await teamService.getAllTeams();
 
-    // Load canonical modal-equivalent projection snapshots (current pipeline)
-    try {
-      const snapshot = await canonicalCurrentProjectionService.getSnapshot(this.currentYear);
-      this.allProjections = new Map(snapshot.pitchers);
-      this.allBatterProjections = new Map(snapshot.batters);
-      console.log(`Loaded canonical snapshots: pitchers=${this.allProjections.size}, batters=${this.allBatterProjections.size}`);
-    } catch (e) {
-      console.error('Failed to load canonical projection snapshots:', e);
-    }
+    // Projection snapshots are loaded lazily per-team in onTeamChange() to avoid
+    // computing projections for the entire league upfront.
 
     // Load scouting ratings for fallback (for players without projections)
     try {
@@ -813,7 +806,7 @@ export class TradeAnalyzerView {
     this.updatePlayerList(teamNum);
   }
 
-  private onTeamChange(teamNum: 1 | 2): void {
+  private async onTeamChange(teamNum: 1 | 2): Promise<void> {
     const select = this.container.querySelector<HTMLSelectElement>(`.trade-team-select[data-team="${teamNum}"]`);
     if (!select) return;
 
@@ -824,8 +817,37 @@ export class TradeAnalyzerView {
     state.tradingBatters = [];
     state.tradingPicks = [];
 
+    // Show skeleton placeholder while projections load
+    if (teamId > 0) {
+      this.showPlayerListSkeleton(teamNum);
+    }
+
+    // Load projections lazily for this team (merges into cache)
+    if (teamId > 0) {
+      try {
+        const snapshot = await canonicalCurrentProjectionService.getSnapshotForTeams(this.currentYear, [teamId]);
+        for (const [id, p] of snapshot.pitchers) this.allProjections.set(id, p);
+        for (const [id, b] of snapshot.batters) this.allBatterProjections.set(id, b);
+      } catch (e) {
+        console.warn('Failed to load projections for team:', e);
+      }
+    }
+
     this.updatePlayerList(teamNum);
     this.updateAnalysis();
+  }
+
+  private showPlayerListSkeleton(teamNum: 1 | 2): void {
+    const listContainer = this.container.querySelector<HTMLElement>(`.trade-player-list[data-team="${teamNum}"]`);
+    if (!listContainer) return;
+    const rows = Array.from({ length: 12 }, () =>
+      `<div class="trade-player-item trade-skeleton-row loading-skeleton">
+        <div class="player-position"><span class="skeleton-line xs"></span></div>
+        <div class="player-name"><span class="skeleton-line sm"></span></div>
+        <div class="player-rating"><span class="skeleton-line xs"></span></div>
+      </div>`
+    ).join('');
+    listContainer.innerHTML = rows;
   }
 
   private onLevelChange(teamNum: 1 | 2): void {

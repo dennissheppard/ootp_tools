@@ -1,4 +1,5 @@
 import { getFullName, getPositionLabel, isPitcher } from '../models/Player';
+import type { Player } from '../models/Player';
 import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { hitterScoutingDataService } from './HitterScoutingDataService';
 import { trueRatingsService } from './TrueRatingsService';
@@ -11,6 +12,8 @@ import { resolveCanonicalPitcherData, resolveCanonicalBatterData, computePitcher
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { fipWarService } from './FipWarService';
+import { PotentialStatsService } from './PotentialStatsService';
+import { agingService } from './AgingService';
 import type { PitcherProfileData } from '../views/PitcherProfileModal';
 import type { BatterProfileData } from '../views/BatterProfileModal';
 
@@ -32,7 +35,7 @@ function estimatePitcherIpLikeModal(stamina: number, injury?: string): number {
   }
 
   const injuryMultiplier: Record<string, number> = {
-    Ironman: 1.15,
+    'Iron Man': 1.15,
     Durable: 1.10,
     Normal: 1.0,
     Wary: 0.95,
@@ -56,26 +59,86 @@ function computeWobaLikeModal(
   return 0.69 * bbRate + abRate * (0.89 * singlesPerAb + 1.27 * doublesRate + 1.62 * triplesRate + 2.10 * hrRate);
 }
 
+/** Cached league-wide data that doesn't change between team selections */
+interface LeagueData {
+  allPlayers: Player[];
+  teamById: Map<number, any>;
+  pitcherTrMap: Map<number, any>;
+  batterTrMap: Map<number, any>;
+  pitcherTfrMap: Map<number, any>;
+  hitterTfrMap: Map<number, any>;
+  pitcherScoutMap: Map<number, any>;
+  hitterScoutMap: Map<number, any>;
+  leagueAvg: any;
+  pitcherStatsByYear: Map<number, Map<number, any>>;
+  battingStatsByYear: Map<number, Map<number, any>>;
+  pitcherYears: number[];
+  battingYearList: number[];
+}
+
 class CanonicalCurrentProjectionService {
   private cache = new Map<number, CanonicalCurrentProjectionSnapshot>();
-  private inFlight = new Map<number, Promise<CanonicalCurrentProjectionSnapshot>>();
+  private processedTeams = new Map<number, Set<number>>(); // year -> set of teamIds already built
+  private leagueData = new Map<number, LeagueData>(); // year -> cached league data
+  private leagueDataInFlight = new Map<number, Promise<LeagueData>>();
 
   async getSnapshot(year: number): Promise<CanonicalCurrentProjectionSnapshot> {
     const cached = this.cache.get(year);
     if (cached) return cached;
-
-    const pending = this.inFlight.get(year);
-    if (pending) return pending;
-
-    const buildPromise = this.buildSnapshot(year).finally(() => {
-      this.inFlight.delete(year);
-    });
-
-    this.inFlight.set(year, buildPromise);
-    return buildPromise;
+    return this.buildSnapshot(year);
   }
 
-  private async buildSnapshot(year: number): Promise<CanonicalCurrentProjectionSnapshot> {
+  /**
+   * Build projections for only the specified teams. Results are merged into
+   * the year-level cache so subsequent calls for other teams accumulate.
+   */
+  async getSnapshotForTeams(year: number, teamIds: number[]): Promise<CanonicalCurrentProjectionSnapshot> {
+    // Check which teams still need processing
+    const processed = this.processedTeams.get(year) ?? new Set<number>();
+    const unprocessedTeams = teamIds.filter(id => !processed.has(id));
+
+    // If all requested teams are already cached, return immediately
+    if (unprocessedTeams.length === 0) {
+      return this.cache.get(year) ?? { pitchers: new Map(), batters: new Map() };
+    }
+
+    const teamSet = new Set(unprocessedTeams);
+    const partial = await this.buildSnapshot(year, teamSet);
+
+    // Track these teams as processed
+    for (const id of unprocessedTeams) processed.add(id);
+    this.processedTeams.set(year, processed);
+
+    // Merge into the year-level cache
+    const existing = this.cache.get(year);
+    if (existing) {
+      for (const [id, p] of partial.pitchers) existing.pitchers.set(id, p);
+      for (const [id, b] of partial.batters) existing.batters.set(id, b);
+      return existing;
+    } else {
+      this.cache.set(year, partial);
+      return partial;
+    }
+  }
+
+  /** Load and cache league-wide data (players, TR, TFR, scouting, stats). Called once per year. */
+  private async ensureLeagueData(year: number): Promise<LeagueData> {
+    const cached = this.leagueData.get(year);
+    if (cached) return cached;
+
+    const pending = this.leagueDataInFlight.get(year);
+    if (pending) return pending;
+
+    const promise = this.loadLeagueData(year).then(data => {
+      this.leagueData.set(year, data);
+      this.leagueDataInFlight.delete(year);
+      return data;
+    });
+    this.leagueDataInFlight.set(year, promise);
+    return promise;
+  }
+
+  private async loadLeagueData(year: number): Promise<LeagueData> {
     const [
       allPlayers,
       allTeams,
@@ -110,6 +173,8 @@ class CanonicalCurrentProjectionService {
           trueRatingsService.getTrueBattingStats(y).catch(() => [])
         )
       ),
+      // Ensure IP distributions are loaded for synchronous calculateProjectedIp calls
+      projectionService.ensureDistributionsLoaded(),
     ]);
 
     const teamById = new Map(allTeams.map(t => [t.id, t]));
@@ -121,8 +186,8 @@ class CanonicalCurrentProjectionService {
     for (const r of osaHitterScout) hitterScoutMap.set(r.playerId, r);
     for (const r of myHitterScout) hitterScoutMap.set(r.playerId, r);
 
-    const pitcherStatsByYear = new Map<number, Map<number, any>>();
     const pitcherYears = [year, year - 1, year - 2, year - 3, year - 4];
+    const pitcherStatsByYear = new Map<number, Map<number, any>>();
     for (let i = 0; i < pitcherYears.length; i++) {
       pitcherStatsByYear.set(
         pitcherYears[i],
@@ -130,8 +195,8 @@ class CanonicalCurrentProjectionService {
       );
     }
 
-    const battingStatsByYear = new Map<number, Map<number, any>>();
     const battingYearList = [year, year - 1, year - 2, year - 3, year - 4];
+    const battingStatsByYear = new Map<number, Map<number, any>>();
     for (let i = 0; i < battingYearList.length; i++) {
       battingStatsByYear.set(
         battingYearList[i],
@@ -139,18 +204,39 @@ class CanonicalCurrentProjectionService {
       );
     }
 
+    return {
+      allPlayers,
+      teamById,
+      pitcherTrMap,
+      batterTrMap,
+      pitcherTfrMap,
+      hitterTfrMap,
+      pitcherScoutMap,
+      hitterScoutMap,
+      leagueAvg,
+      pitcherStatsByYear,
+      battingStatsByYear,
+      pitcherYears,
+      battingYearList,
+    };
+  }
+
+  private async buildSnapshot(year: number, teamFilter?: Set<number>): Promise<CanonicalCurrentProjectionSnapshot> {
+    const ld = await this.ensureLeagueData(year);
+
     const pitcherSnapshots = new Map<number, ProjectedPlayer>();
     const batterSnapshots = new Map<number, ProjectedBatter>();
 
-    for (const player of allPlayers) {
+    for (const player of ld.allPlayers) {
+      if (teamFilter && !teamFilter.has(player.teamId) && !teamFilter.has(player.parentTeamId)) continue;
       if (isPitcher(player)) {
-        const tr = pitcherTrMap.get(player.id);
-        const tfr = pitcherTfrMap.get(player.id);
+        const tr = ld.pitcherTrMap.get(player.id);
+        const tfr = ld.pitcherTfrMap.get(player.id);
         if (!tr && !tfr) continue;
 
-        const scouting = pitcherScoutMap.get(player.id);
+        const scouting = ld.pitcherScoutMap.get(player.id);
         const teamId = player.teamId;
-        const teamName = teamById.get(teamId)?.nickname ?? 'Unknown';
+        const teamName = ld.teamById.get(teamId)?.nickname ?? 'Unknown';
 
         const data: PitcherProfileData = {
           playerId: player.id,
@@ -172,8 +258,8 @@ class CanonicalCurrentProjectionService {
         resolveCanonicalPitcherData(data, tr, tfr);
 
         const mlbStats: Array<{ year: number; level: string; ip: number; k9: number; bb9: number; hr9: number; fip?: number; war?: number; gs: number }> = [];
-        for (const y of pitcherYears) {
-          const stat = pitcherStatsByYear.get(y)?.get(player.id);
+        for (const y of ld.pitcherYears) {
+          const stat = ld.pitcherStatsByYear.get(y)?.get(player.id);
           if (!stat) continue;
           const ip = trueRatingsService.parseIp(stat.ip);
           if (ip <= 0) continue;
@@ -194,6 +280,7 @@ class CanonicalCurrentProjectionService {
           });
         }
 
+        // Compute IP synchronously (distributions already loaded in ensureLeagueData)
         let projectedIpFromService: number | null = null;
         if (data.projIp === undefined) {
           try {
@@ -211,19 +298,43 @@ class CanonicalCurrentProjectionService {
               gs: st.gs,
             }));
             const latestMlb = historicalStats[0];
-            const calc = await projectionService.calculateProjection(
-              currentRatings,
-              data.age ?? 27,
-              scouting?.pitches ? Object.values(scouting.pitches).filter((r: any) => r >= 25).length : 0,
-              latestMlb?.gs ?? 0,
-              { fipConstant: 3.47, avgFip: 4.20, runsPerWin: 8.50 },
-              scouting?.stamina ?? data.scoutStamina,
-              scouting?.injuryProneness ?? data.injuryProneness,
-              historicalStats.length > 0 ? historicalStats : undefined,
-              data.trueRating ?? 0,
-              scouting?.pitches ?? data.pitchRatings,
+
+            // Replicate the FIP estimate from calculateProjection (dummy 150 IP)
+            const projectedRatings = agingService.applyAging(currentRatings, data.age ?? 27);
+            const tempStats = PotentialStatsService.calculatePitchingStats(
+              { ...projectedRatings, movement: 50, babip: 50 },
+              150,
+              { fipConstant: 3.47, avgFip: 4.20, runsPerWin: 8.50 }
             );
-            projectedIpFromService = calc.projectedStats.ip;
+            const estimatedFip = tempStats.fip;
+
+            // Build scouting object for IP calc (same as calculateProjection does)
+            const pitchRatings = scouting?.pitches ?? data.pitchRatings;
+            const pitchCount = pitchRatings
+              ? Object.values(pitchRatings).filter((r: any) => r >= 25).length
+              : 0;
+            const dummyScouting: any = {
+              stamina: scouting?.stamina ?? data.scoutStamina,
+              injuryProneness: scouting?.injuryProneness ?? data.injuryProneness,
+              pitches: pitchRatings || (pitchCount > 0 ? { 'Fastball': 50, 'Curveball': 50, 'Changeup': 50 } : undefined),
+            };
+
+            const gs = latestMlb?.gs ?? 0;
+            const dummyStats: any = gs > 0 ? { gs } : undefined;
+            const totalHistoricalIp = historicalStats.reduce((sum, s) => sum + s.ip, 0);
+            const hasRecentMlb = totalHistoricalIp > 20 || gs > 0;
+
+            const ipResult = projectionService.calculateProjectedIp(
+              dummyScouting,
+              dummyStats,
+              historicalStats,
+              (data.age ?? 27) + 1,
+              0,
+              data.trueRating ?? 0,
+              hasRecentMlb,
+              estimatedFip,
+            );
+            projectedIpFromService = ipResult.ip;
           } catch {
             projectedIpFromService = null;
           }
@@ -275,13 +386,13 @@ class CanonicalCurrentProjectionService {
           isProspect: data.isProspect === true,
         });
       } else {
-        const tr = batterTrMap.get(player.id);
-        const tfr = hitterTfrMap.get(player.id);
+        const tr = ld.batterTrMap.get(player.id);
+        const tfr = ld.hitterTfrMap.get(player.id);
         if (!tr && !tfr) continue;
 
-        const scouting = hitterScoutMap.get(player.id);
+        const scouting = ld.hitterScoutMap.get(player.id);
         const teamId = player.teamId;
-        const teamName = teamById.get(teamId)?.nickname ?? 'Unknown';
+        const teamName = ld.teamById.get(teamId)?.nickname ?? 'Unknown';
 
         const data: BatterProfileData = {
           playerId: player.id,
@@ -306,8 +417,8 @@ class CanonicalCurrentProjectionService {
         resolveCanonicalBatterData(data, tr, tfr);
 
         const mlbStats: Array<{ year: number; level: string; pa: number; avg: number; obp: number; slg: number; hr: number; d?: number; t?: number; rbi: number; sb: number; cs: number; bb: number; k: number; war?: number }> = [];
-        for (const y of battingYearList) {
-          const stat = battingStatsByYear.get(y)?.get(player.id);
+        for (const y of ld.battingYearList) {
+          const stat = ld.battingStatsByYear.get(y)?.get(player.id);
           if (!stat || stat.pa <= 0) continue;
           const singles = stat.h - stat.d - stat.t - stat.hr;
           const slg = stat.ab > 0 ? (singles + 2 * stat.d + 3 * stat.t + 4 * stat.hr) / stat.ab : 0;
@@ -333,7 +444,7 @@ class CanonicalCurrentProjectionService {
         const proj = computeBatterProjection(data, mlbStats, {
           projectionMode: 'current',
           projectionYear: year,
-          leagueAvg,
+          leagueAvg: ld.leagueAvg,
           scoutingData: scouting ? {
             injuryProneness: scouting.injuryProneness,
             stealingAggressiveness: scouting.stealingAggressiveness,

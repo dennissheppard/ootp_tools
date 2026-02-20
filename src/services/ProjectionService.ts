@@ -638,7 +638,7 @@ class ProjectionService {
   /**
    * Ensure distributions are loaded (lazy-load if needed)
    */
-  private async ensureDistributionsLoaded(): Promise<void> {
+  async ensureDistributionsLoaded(): Promise<void> {
     if (this.spStaminaDistribution.length > 0 && this.spIpDistribution.length > 0) {
       return; // Already loaded
     }
@@ -752,7 +752,7 @@ class ProjectionService {
     return distribution[clampedIndex];
   }
 
-  private calculateProjectedIp(
+  calculateProjectedIp(
     scouting: PitcherScoutingRatings | undefined,
     currentStats: TruePlayerStats | undefined,
     historicalStats: YearlyPitchingStats[] | undefined,
@@ -800,11 +800,6 @@ class ProjectionService {
         const usablePitches = pitchValues.filter(r => r >= 25).length;
         const stam = scouting.stamina ?? 0;
 
-        // Debug logging for role classification
-        if (console && typeof console.log === 'function') {
-            console.log(`[Role Check] usablePitches=${usablePitches}, stamina=${stam}, hasRecentMlb=${hasRecentMlb}, trueRating=${trueRating.toFixed(2)}, isSp=${meetsProfile || playerRole === 11}`);
-        }
-
         if (usablePitches >= 3 && stam >= 35) {
             // If prospect (no MLB experience), profile alone is enough
             // If established player, also require competent performance
@@ -812,8 +807,6 @@ class ProjectionService {
                 meetsProfile = true;
             }
         }
-    } else if (!hasRecentMlb && console && typeof console.log === 'function') {
-        console.log(`[Role Check] Prospect has NO scouting data`);
     }
 
     let roleReason = 'fallback';

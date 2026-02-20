@@ -4,8 +4,7 @@ import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
 import { indexedDBService } from './services/IndexedDBService';
-import { SearchView, PlayerListView, StatsView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
-import type { SendToEstimatorPayload } from './views/StatsView';
+import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, DevTrackerView, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
 import { analyticsService } from './services/AnalyticsService';
 import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
 
@@ -14,12 +13,10 @@ class App {
   private globalSearchBar!: GlobalSearchBar;
   private searchView!: SearchView;
   private playerListView!: PlayerListView;
-  private statsView!: StatsView;
   private loadingView!: LoadingView;
   private errorView!: ErrorView;
   private rateLimitView!: ErrorView;
   private activeTabId = 'tab-true-ratings';
-  private calculatorsView!: CalculatorsView;
   private projectionsView?: ProjectionsView;
   private teamRatingsView?: TeamRatingsView;
   private devTrackerView?: DevTrackerView;
@@ -175,7 +172,6 @@ class App {
           <div id="error-container"></div>
           <div id="search-container"></div>
           <div id="player-list-container"></div>
-          <div id="stats-container"></div>
         </section>
 
         <section id="tab-calculators" class="tab-panel ${this.activeTabId === 'tab-calculators' ? 'active' : ''}">
@@ -226,7 +222,6 @@ class App {
     const globalSearchContainer = document.querySelector<HTMLElement>('#global-search-container')!;
     const searchContainer = document.querySelector<HTMLElement>('#search-container')!;
     const playerListContainer = document.querySelector<HTMLElement>('#player-list-container')!;
-    const statsContainer = document.querySelector<HTMLElement>('#stats-container')!;
     const calculatorsContainer = document.querySelector<HTMLElement>('#calculators-container')!;
     const draftBoardContainer = document.querySelector<HTMLElement>('#draft-board-container')!;
     const trueRatingsContainer = document.querySelector<HTMLElement>('#true-ratings-container')!;
@@ -262,10 +257,7 @@ class App {
       onPlayerSelect: (player) => this.handlePlayerSelect(player),
     });
 
-    this.statsView = new StatsView(statsContainer, {
-      onSendToEstimator: (payload) => this.handleSendToEstimator(payload),
-    });
-    this.calculatorsView = new CalculatorsView(calculatorsContainer);
+    new CalculatorsView(calculatorsContainer);
     new DraftBoardView(draftBoardContainer);
     new TrueRatingsView(trueRatingsContainer);
     this.projectionsContainer = projectionsContainer;
@@ -437,20 +429,7 @@ class App {
         } else {
           // Legacy tab-based search
           this.playerListView.render(result.players, result.query);
-          // Clear stats when new search is performed
-          this.statsView.clear();
         }
-      },
-      onStats: (result) => {
-        this.statsView.render(
-          result.player,
-          result.pitchingStats,
-          result.battingStats,
-          result.minorLeagueStats,
-          result.year
-        );
-        // Clear player list after selection
-        this.playerListView.clear();
       },
       onError: (error) => {
         this.errorView.show(error);
@@ -478,17 +457,6 @@ class App {
 
   private handlePlayerSelect(player: Player): void {
     this.controller.getPlayerStats(player.id, this.selectedYear);
-  }
-
-  private async handleSendToEstimator(payload: SendToEstimatorPayload): Promise<void> {
-    this.setActiveTab('tab-calculators');
-    await this.calculatorsView.prefillEstimator({
-      ip: payload.ip,
-      k9: payload.k9,
-      bb9: payload.bb9,
-      hr9: payload.hr9,
-      year: payload.year,
-    });
   }
 
   private preloadPlayers(): void {

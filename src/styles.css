@@ -5453,6 +5453,10 @@ th .stat-tooltip {
   border-color: var(--color-primary);
   box-shadow: 0 2px 8px rgba(29, 155, 240, 0.1);
 }
+.trade-player-item.trade-skeleton-row {
+  cursor: default;
+  pointer-events: none;
+}
 
 .trade-player-item:active {
   opacity: 0.7;
@@ -9536,6 +9540,70 @@ th .stat-tooltip {
 }
 .cell-edit-dev-btn.cell-edit-dev-remove:hover {
   background: rgba(255, 152, 0, 0.25);
+}
+
+.cell-edit-trade-flags {
+  display: flex;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  align-items: center;
+}
+.cell-edit-trade-btn {
+  padding: 0.25rem 0.6rem;
+  font-size: 0.7rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.cell-edit-trade-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+.cell-edit-trade-btn[data-flag="tradeable"]:hover {
+  border-color: rgba(76, 175, 80, 0.6);
+  background: rgba(76, 175, 80, 0.1);
+  color: #81c784;
+}
+.cell-edit-trade-btn[data-flag="not-tradeable"]:hover {
+  border-color: rgba(244, 67, 54, 0.6);
+  background: rgba(244, 67, 54, 0.1);
+  color: #e57373;
+}
+.cell-edit-trade-status {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+}
+.cell-edit-trade-status.active-tradeable {
+  background: rgba(76, 175, 80, 0.15);
+  color: #81c784;
+}
+.cell-edit-trade-status.active-not-tradeable {
+  background: rgba(244, 67, 54, 0.15);
+  color: #e57373;
+}
+.cell-edit-need-toggle {
+  font-size: 0.75rem;
+  color: var(--color-accent);
+  border-color: rgba(29, 155, 240, 0.3);
+}
+.cell-edit-need-toggle:hover {
+  background: rgba(29, 155, 240, 0.1);
+  border-color: rgba(29, 155, 240, 0.5);
+  color: var(--color-accent);
+}
+.cell-edit-footer-right {
+  display: flex;
+  gap: 0.5rem;
+}
+.market-user-chip {
+  font-size: 0.65rem;
+  color: var(--color-text-muted);
+  font-style: italic;
 }
 
 .cell-edit-actions {

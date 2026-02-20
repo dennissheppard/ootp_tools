@@ -12,16 +12,12 @@
       --line: #9aa89d;
       --canon: #136f63;
       --canon-soft: #d8efe7;
-      --pre: #b45309;
-      --pre-soft: #fde9cf;
-      --risk: #9f1239;
-      --risk-soft: #ffdce6;
+      --forecast: #b45309;
+      --forecast-soft: #fde9cf;
       --card: #fffdfa;
       --chip-bg: #ffffff;
       --node-bg: #fffdf8;
       --notes-bg: rgba(255, 255, 255, .6);
-      --callout-line: #d18a9d;
-      --callout-ink: #7a0b2d;
       --shadow: rgba(24, 32, 24, .06);
     }
 
@@ -51,6 +47,7 @@
       margin: 0 0 1.25rem;
       color: var(--muted);
       font-size: .98rem;
+      line-height: 1.4;
     }
 
     .legend {
@@ -78,8 +75,7 @@
     }
 
     .dot.canon { background: var(--canon); }
-    .dot.pre { background: var(--pre); }
-    .dot.risk { background: var(--risk); }
+    .dot.forecast { background: var(--forecast); }
 
     .grid {
       display: grid;
@@ -107,8 +103,8 @@
       color: #0b3d35;
     }
 
-    .lane.pre .lane-h {
-      background: var(--pre-soft);
+    .lane.forecast .lane-h {
+      background: var(--forecast-soft);
       color: #5f3207;
     }
 
@@ -155,22 +151,6 @@
       margin: .25rem 0;
     }
 
-    .callout {
-      margin-top: .8rem;
-      border: 1px solid var(--callout-line);
-      background: var(--risk-soft);
-      border-radius: 10px;
-      padding: .65rem .72rem;
-      font-size: .84rem;
-      line-height: 1.3;
-    }
-
-    .callout strong {
-      display: block;
-      margin-bottom: .2rem;
-      color: var(--callout-ink);
-    }
-
     .notes {
       margin-top: 1rem;
       border: 1px dashed var(--line);
@@ -179,42 +159,6 @@
       background: var(--notes-bg);
       font-size: .84rem;
       line-height: 1.35;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #0f1412;
-        --ink: #e5eee8;
-        --muted: #a9bbb0;
-        --line: #3a4a42;
-        --canon: #37b7a6;
-        --canon-soft: #133933;
-        --pre: #f3a24f;
-        --pre-soft: #4a2d10;
-        --risk: #ff6f9f;
-        --risk-soft: #3f1b2a;
-        --card: #18201c;
-        --chip-bg: #1e2923;
-        --node-bg: #202d26;
-        --notes-bg: rgba(26, 36, 31, .85);
-        --callout-line: #a95874;
-        --callout-ink: #ffc0d3;
-        --shadow: rgba(0, 0, 0, .35);
-      }
-
-      body {
-        background:
-          radial-gradient(circle at 8% 12%, #1a2320 0, #0f1412 45%),
-          radial-gradient(circle at 86% 84%, #111916 0, #0f1412 40%);
-      }
-
-      .lane.canon .lane-h {
-        color: #bdf3e8;
-      }
-
-      .lane.pre .lane-h {
-        color: #ffd5a7;
-      }
     }
 
     .notes h2 {
@@ -230,6 +174,73 @@
 
     .notes li { margin: .22rem 0; }
 
+    .view-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+      font-size: .84rem;
+    }
+
+    .view-table th,
+    .view-table td {
+      text-align: left;
+      padding: .45rem .6rem;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .view-table th {
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      font-size: .78rem;
+    }
+
+    .view-table .tag {
+      display: inline-block;
+      border-radius: 4px;
+      padding: .15rem .4rem;
+      font-size: .78rem;
+      font-weight: 600;
+    }
+
+    .tag.canon {
+      background: var(--canon-soft);
+      color: #0b3d35;
+    }
+
+    .tag.forecast {
+      background: var(--forecast-soft);
+      color: #5f3207;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0f1412;
+        --ink: #e5eee8;
+        --muted: #a9bbb0;
+        --line: #3a4a42;
+        --canon: #37b7a6;
+        --canon-soft: #133933;
+        --forecast: #f3a24f;
+        --forecast-soft: #4a2d10;
+        --card: #18201c;
+        --chip-bg: #1e2923;
+        --node-bg: #202d26;
+        --notes-bg: rgba(26, 36, 31, .85);
+        --shadow: rgba(0, 0, 0, .35);
+      }
+
+      body {
+        background:
+          radial-gradient(circle at 8% 12%, #1a2320 0, #0f1412 45%),
+          radial-gradient(circle at 86% 84%, #111916 0, #0f1412 40%);
+      }
+
+      .lane.canon .lane-h, .tag.canon { color: #bdf3e8; }
+      .lane.forecast .lane-h, .tag.forecast { color: #ffd5a7; }
+    }
+
     @media (max-width: 940px) {
       .lane-body { grid-template-columns: 1fr; }
       .arrow { transform: rotate(90deg); display: inline-block; }
@@ -238,117 +249,202 @@
 </head>
 <body>
   <div class="wrap">
-    <h1>WBL Data Pipelines by View</h1>
+    <h1>WBL Data Pipelines</h1>
     <p class="subtitle">
-      Purpose: show which views are canonical-current vs pre-season/base-year projections, and where mismatches are expected.
+      Two pipelines that answer different questions.
+      <strong>Canonical Current</strong>: "What is this player worth right now?" &mdash;
+      <strong>Forecasting Model</strong>: "What does the model predict for next season?"
+      These are intentionally separate. Numbers may differ between them and that's correct.
     </p>
 
     <div class="legend">
-      <span class="chip"><span class="dot canon"></span>Canonical Current pipeline</span>
-      <span class="chip"><span class="dot pre"></span>Pre-season / Base-year projection pipeline</span>
-      <span class="chip"><span class="dot risk"></span>Known mismatch zone</span>
+      <span class="chip"><span class="dot canon"></span>Canonical Current &mdash; modal-equivalent truth</span>
+      <span class="chip"><span class="dot forecast"></span>Forecasting Model &mdash; ensemble projections</span>
     </div>
 
     <div class="grid">
+      <!-- ======== CANONICAL CURRENT ======== -->
       <section class="lane canon">
-        <div class="lane-h">Pipeline A: Canonical Current</div>
+        <div class="lane-h">Canonical Current &mdash; "What is this player worth right now?"</div>
         <div class="lane-body">
           <div class="block">
-            <h3>Core Data Sources</h3>
+            <h3>Data Sources</h3>
             <div class="node">
-              <strong>TrueRatingsService.getHitterTrueRatings(currentYear)</strong>
-              Canonical current TR + components + blended rates (hitter).
+              <strong>TrueRatingsService</strong>
+              getPitcherTrueRatings(year) / getHitterTrueRatings(year) &mdash;
+              authoritative TR, components, blended rates. Cached per year.
             </div>
             <div class="node">
-              <strong>TrueRatingsService.getPitcherTrueRatings(currentYear)</strong>
-              Canonical current TR + components + blended rates (pitcher).
+              <strong>TeamRatingsService (TFR pools)</strong>
+              getUnifiedPitcherTfrData / getUnifiedHitterTfrData &mdash;
+              canonical TFR, prospect context, development curves.
             </div>
             <div class="node">
-              <strong>TeamRatingsService.getUnifiedHitterTfrData + getFarmData (pitcher)</strong>
-              Canonical TFR/prospect context (hitter has unified method; pitcher path is getFarmData).
+              <strong>ModalDataService</strong>
+              resolveCanonicalPitcherData / resolveCanonicalBatterData &mdash;
+              TR/TFR override logic extracted from profile modals.<br>
+              computePitcherProjection / computeBatterProjection &mdash;
+              projection math extracted from modal renderProjectionContent().
             </div>
             <div class="node">
-              <strong>ModalDataService.resolveCanonical* + compute*Projection</strong>
-              Modal-equivalent current/peak projection presentation.
+              <strong>CanonicalCurrentProjectionService</strong>
+              Batches the above per-team for Trade Analyzer.
+              Builds ProjectedPlayer/ProjectedBatter snapshots using modal-equivalent path.
             </div>
           </div>
 
-          <div class="arrow">--&gt;</div>
+          <div class="arrow">&rarr;</div>
 
           <div class="block">
-            <h3>Main Consumers</h3>
+            <h3>Consumers</h3>
             <div class="node">
-              <strong>PlayerProfileModal / BatterProfileModal</strong>
-              Always re-resolve canonical current data.
+              <strong>Profile Modals</strong>
+              BatterProfileModal / PitcherProfileModal &mdash;
+              always re-resolve canonical data inline.
             </div>
             <div class="node">
-              <strong>TrueRatingsView (ratings)</strong>
-              Uses canonical TR/TFR as source of truth.
+              <strong>Trade Analyzer</strong>
+              Via CanonicalCurrentProjectionService.
+              Player ratings, projected WAR, trade evaluation all modal-equivalent.
             </div>
             <div class="node">
-              <strong>TeamPlanningView (ratings)</strong>
-              Uses canonical TR maps for MLB floor/authority.
+              <strong>True Ratings View</strong>
+              Canonical TR/TFR maps as source of truth for rating tables.
             </div>
             <div class="node">
-              <strong>Explain Tool (now)</strong>
-              Modal-equivalent path for projection explanations.
+              <strong>Team Planning</strong>
+              Canonical TR maps for MLB ratings. TFR pools for prospect ceilings.
+            </div>
+            <div class="node">
+              <strong>Farm Rankings</strong>
+              TFR pools for prospect rankings and Farm Score.
+            </div>
+            <div class="node">
+              <strong>Team Ratings: Power Rankings</strong>
+              Canonical TR for weighted-average team strength.
+            </div>
+            <div class="node">
+              <strong>Explain Tool</strong>
+              Modal-equivalent path for CLI projection traces.
             </div>
           </div>
         </div>
       </section>
 
-      <section class="lane pre">
-        <div class="lane-h">Pipeline B: Pre-season / Base-year Projection</div>
+      <!-- ======== FORECASTING MODEL ======== -->
+      <section class="lane forecast">
+        <div class="lane-h">Forecasting Model &mdash; "What does the model predict?"</div>
         <div class="lane-body">
           <div class="block">
-            <h3>Core Data Sources</h3>
+            <h3>Data Sources</h3>
             <div class="node">
-              <strong>ProjectionService.getProjections*(baseYear)</strong>
-              Pitcher batch projections for team/player tables.
+              <strong>ProjectionService</strong>
+              getProjections*(baseYear) &mdash;
+              computes own TR from scratch, 3-model ensemble
+              (40% optimistic, 30% neutral, 30% pessimistic),
+              IP projection pipeline. Supports arbitrary year + preSeasonOnly flag.
             </div>
             <div class="node">
-              <strong>BatterProjectionService.getProjections*(baseYear)</strong>
-              Hitter batch projections from base-year context.
+              <strong>BatterProjectionService</strong>
+              getProjectionsWithContext(baseYear) &mdash;
+              hitter batch projections with same ensemble approach.
             </div>
             <div class="node">
-              <strong>TeamRatingsService.getProjectedTeamRatings(baseYear)</strong>
-              Combines pitcher/hitter projection outputs into projected team WAR/wins.
+              <strong>TeamRatingsService.getProjectedTeamRatings()</strong>
+              Combines pitcher + hitter projection outputs
+              into team WAR, win projections, standings.
             </div>
           </div>
 
-          <div class="arrow">--&gt;</div>
+          <div class="arrow">&rarr;</div>
 
           <div class="block">
-            <h3>Main Consumers</h3>
+            <h3>Consumers</h3>
             <div class="node">
-              <strong>ProjectionsView</strong>
-              Intentionally pre-season/base-year projection surface.
+              <strong>Projections View</strong>
+              Player projection tables with year selector and backtesting.
             </div>
             <div class="node">
-              <strong>TeamRatingsView: projected + standings</strong>
-              Projection model outputs (not live standings feed).
+              <strong>Team Ratings: Projections + Standings</strong>
+              Team WAR projections, win projections, Pythagorean records.
+              Pre-season / Current Year Stats toggle controls stats year.
             </div>
             <div class="node">
-              <strong>TradeAnalyzerView (current state)</strong>
-              Uses this for projection stats/WAR while rating badge is often canonical.
+              <strong>Analysis Services</strong>
+              ProjectionAnalysisService, BatterProjectionAnalysisService &mdash;
+              internal analytical consumers.
             </div>
           </div>
         </div>
       </section>
     </div>
 
-    <div class="callout">
-      <strong>Mismatch Zone</strong>
-      A view can display canonical current rating badges and still use base-year projection stats/WAR.
-      That split is exactly why some profile modal values do not match list-row projection values.
-    </div>
+    <!-- ======== VIEW SUMMARY TABLE ======== -->
+    <table class="view-table">
+      <thead>
+        <tr>
+          <th>View / Mode</th>
+          <th>Pipeline</th>
+          <th>Question it answers</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Profile Modals</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>Deep dive on a player's current true level</td>
+        </tr>
+        <tr>
+          <td>Trade Analyzer</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>Evaluate trade assets at current true value</td>
+        </tr>
+        <tr>
+          <td>True Ratings</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>League-wide current ratings dashboard</td>
+        </tr>
+        <tr>
+          <td>Farm Rankings</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>Prospect rankings by TFR</td>
+        </tr>
+        <tr>
+          <td>Team Planning</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>Roster construction with current ratings</td>
+        </tr>
+        <tr>
+          <td>Team Ratings: Power Rankings</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>Current team strength via TR</td>
+        </tr>
+        <tr>
+          <td>Team Ratings: Projections &amp; Standings</td>
+          <td><span class="tag forecast">Forecast</span></td>
+          <td>Model-predicted season outcomes</td>
+        </tr>
+        <tr>
+          <td>Projections View</td>
+          <td><span class="tag forecast">Forecast</span></td>
+          <td>Per-player forward projections, backtesting</td>
+        </tr>
+        <tr>
+          <td>Explain Tool (CLI)</td>
+          <td><span class="tag canon">Canonical</span></td>
+          <td>Debug modal-equivalent projection traces</td>
+        </tr>
+      </tbody>
+    </table>
 
     <div class="notes">
-      <h2>Recommended Labels In UI</h2>
+      <h2>Key Design Decisions</h2>
       <ul>
-        <li><strong>Canonical Current</strong>: ratings/projections matched to modal canonical path.</li>
-        <li><strong>Pre-season Projection</strong>: base-year model projection outputs for scenario planning.</li>
-        <li>When opening a modal from a pre-season surface, show a small "Data mode differs" hint.</li>
+        <li><strong>Two pipelines, not a mismatch.</strong> Canonical Current and Forecasting Model answer different questions. A player's projected WAR may differ between them &mdash; that's expected, not a bug.</li>
+        <li><strong>Canonical TR is authoritative.</strong> TrueRatingsService is the single source of truth for current ratings. The Forecasting Model computes its own TR internally for ensemble inputs but does not expose those as player ratings.</li>
+        <li><strong>Modal parity guarantee.</strong> Any view tagged Canonical should show the same ratings and projection numbers as opening that player's profile modal. CanonicalCurrentProjectionService exists to batch this for Trade Analyzer.</li>
+        <li><strong>Forecasting Model is self-contained.</strong> It computes its own TR from arbitrary-year stats, uses ensemble math, supports backtesting and pre-season mode. It doesn't depend on TrueRatingsService and that's intentional &mdash; it needs to work for any historical year.</li>
+        <li><strong>Team Ratings splits intentionally.</strong> Power Rankings mode uses Canonical (current team strength). Projections/Standings modes use Forecasting (model predictions). Different tabs, different questions.</li>
       </ul>
     </div>
   </div>

@@ -204,19 +204,25 @@ Three-model ensemble:
 
 **Rating ranges:** Internal calculations use 0-100 (prevents artificial capping at extremes); UI displays 20-80.
 
-### Pipeline Modes (Canonical vs Pre-season)
+### Pipeline Modes
 
-Two distinct pipelines are first-class and intentionally labeled in UI:
+Two pipelines that answer different questions (see `docs/pipeline-map.html`):
 
-- **Canonical Current**: current game-year canonical TR/TFR resolution + modal-equivalent projection compute path (ModalDataService helpers)
-- **Pre-season Model**: batch projection services (ProjectionService, BatterProjectionService) for forward-looking model views
+- **Canonical Current**: "What is this player worth right now?" Uses authoritative TR from `TrueRatingsService`, resolves TFR/prospect data, runs modal-equivalent projection math via `ModalDataService`. Every current-truth view shows the same numbers as the profile modal.
+- **Forecasting Model**: "What does the model predict for next season?" (`ProjectionService` / `BatterProjectionService`). Computes its own TR from arbitrary-year stats, uses ensemble projection math (40% optimistic, 30% neutral, 30% pessimistic), supports backtesting and year selection.
 
-Current view usage:
-- **Profile modals**: Canonical Current (always re-resolve canonical values for current game year)
-- **Trade Analyzer (MLB players)**: Canonical Current via CanonicalCurrentProjectionService
-- **True Ratings view**: Canonical Current
-- **Projections view**: Pre-season Model
-- **Team Ratings view**: Power Rankings = Canonical Current; Projections/Standings = Pre-season Model (default) or Current Year Stats (toggle)
+These are intentionally separate — numbers may differ between them and that's correct.
+
+| View | Pipeline | Notes |
+|-|-|-|
+| Profile modals | Canonical Current | Always re-resolve canonical values |
+| Trade Analyzer | Canonical Current | Via `CanonicalCurrentProjectionService` |
+| True Ratings | Canonical Current | TR/TFR maps as source of truth |
+| Farm Rankings | Canonical Current | TFR pools for prospect rankings |
+| Team Planning | Canonical Current | TR maps + TFR for roster construction |
+| Team Ratings: Power Rankings | Canonical Current | Weighted-average TR |
+| Team Ratings: Projections/Standings | Forecasting Model | Pre-season/Current Year Stats toggle controls stats year |
+| Projections view | Forecasting Model | Year selector, backtesting |
 
 TeamRatingsView projections/standings force the selected season to the current game year, but remain model outputs (not literal in-season standings progression). The Pre-Season/Current Year Stats toggle controls whether projection services use prior-year-only data (pure pre-season) or allow current-year stats to influence projections.
 
@@ -330,7 +336,11 @@ rawWins = 81 + deviation × slope
 - Year selector shifts analysis to future years
 - Sections: Your Situation (needs + trade chips) | Trade Targets by Position
 - Blocked prospects: TFR≥3.0 blocked by incumbent TR≥3.5 with 3+ years remaining
-- Scoring: `rating×10` + complementary bonus + proximity bonus
+- Scoring: `rating×10` + trade-match bonus + proximity bonus
+- **Trade-match badge** (renamed from "2-Way"): only shown on surplus players (tier 1-2), never on general roster targets
+- **Trade flags** (per-player, localStorage): "Tradeable" forces a player into trade chips; "Not Tradeable" removes them. Set via cell edit modal.
+- **Need overrides** (per-position, localStorage): "Mark as Position of Need" forces a position into the needs list regardless of auto-detection. Set via cell edit modal footer.
+- Trade flags and need overrides are team-scoped (`wbl-tp-tradeFlags-{teamId}`, `wbl-tp-needOverrides-{teamId}`)
 
 **Cell Editing:** Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`). Dev curve overrides: skip growth phase, project at TFR with only aging decline.
 - **Canonical rating resolution:** Org picker and manual insert both use a shared best-known rating resolver (grid value, canonical TR, prospect current/TFR maps) to avoid stale `0.5` fallbacks.
@@ -374,6 +384,8 @@ Three-column layout: Team 1 | Analysis | Team 2. `src/views/TradeAnalyzerView.ts
 | `wbl-selected-team` | Global (shared across all views) |
 | `wbl-tp-viewMode` | Team Planning (grid/analysis/market) |
 | `wbl-tp-marketYear` | Team Planning year offset |
+| `wbl-tp-tradeFlags-{teamId}` | Team Planning per-player trade flags |
+| `wbl-tp-needOverrides-{teamId}` | Team Planning per-position need overrides |
 | `wbl-teamratings-viewMode` | Team Ratings mode |
 | `wbl-teamratings-statsMode` | Team Ratings pre-season vs current year stats |
 | `wbl-proj-position` / `wbl-proj-year` | Projections |
@@ -516,13 +528,13 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 
 ## Architecture Notes
 
-- **Pipeline map (view -> data path):** `docs/pipeline-map.html` (canonical-current vs pre-season projection pipelines)
+- **Pipeline map (view -> data path):** `docs/pipeline-map.html` (Canonical Current vs Forecasting Model)
 - **Single source of truth for TFR**: use unified pools `TeamRatingsService.getUnifiedHitterTfrData()` / `getUnifiedPitcherTfrData()` for mixed MLB+prospect contexts; `getHitterFarmData()` / `getFarmData()` are farm-only wrappers. Never call `calculateTrueFutureRatings()` independently. Use `prospect.trueFutureRating` (precomputed) — NEVER re-derive from `prospect.percentile`
 - **Single source of truth for TR**: `TrueRatingsService.getHitterTrueRatings(year)` / `getPitcherTrueRatings(year)` — every view MUST use these cached methods instead of calling `trueRatingsCalculationService.calculateTrueRatings()` directly
 - **Single source of truth for percentile→rating**: `PERCENTILE_TO_RATING` in `TrueFutureRatingService.ts` / `HitterTrueFutureRatingService.ts` — NEVER create local copies of this mapping (thresholds: 99→5.0, 97→4.5, 93→4.0, 75→3.5, 60→3.0, 35→2.5, 20→2.0, 10→1.5, 5→1.0, 0→0.5)
 - **Modal canonical override**: Both profile modals override caller-provided TR/TFR data with canonical values, guaranteeing consistency regardless of which view opens them
-- **Trade Analyzer MLB parity**: `CanonicalCurrentProjectionService` snapshots are modal-equivalent and should be preferred over base-year projection maps for current-context analysis
-- **Data-source clarity**: use `renderDataSourceBadges()` from `src/utils/dataSourceBadges.ts` when a view mixes season/scouting modes (Current YTD vs Pre-season Model, My/OSA/Fallback)
+- **Trade Analyzer MLB parity**: `CanonicalCurrentProjectionService` snapshots are modal-equivalent and should be preferred over base-year projection maps for current-context analysis. League-wide data (TR, TFR, scouting, stats) is loaded once and cached; per-team snapshots are built synchronously from cached data with team-level cache tracking to skip already-processed teams
+- **Data-source clarity**: use `renderDataSourceBadges()` from `src/utils/dataSourceBadges.ts` when a view mixes season/scouting modes (Current YTD vs Forecasting Model, My/OSA/Fallback)
 - **Rating display rule**: Any view showing a player rating MUST use canonical TR/TFR values, not projection-derived or locally-computed alternatives. `ProjectionService` overlays canonical TR onto `currentTrueRating` after building projections (its internal TR is only used for aging/ensemble inputs)
 - **Modal projectionOverride trap**: `projectedRatings` MUST use `trueRatings` values (not scouting), or True Rating bars show scouting values instead of TFR-derived
 - **Injury values** in CSV `Prone` column: `Iron Man, Durable, Normal, Fragile, Wrecked` (NOT `Wary`/`Prone` as ScoutingData.ts comments incorrectly say)
@@ -530,12 +542,15 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 - **ISO trap**: Never use deprecated `expectedIso(power)` — ignores Gap/Speed. Use pre-computed `tfrSlg` or component rates
 - **Forward/inverse intercept alignment**: Pitcher rating↔rate intercepts MUST match in both directions or round-trip bias is amplified by FIP weights
 
-## Session Rollout (2026-02-19)
+## Session Rollout (2026-02-19, continued)
 
-- Finalized explicit pipeline labels: Canonical Current vs Pre-season Model.
+- Finalized pipeline architecture: Canonical Current ("what is this player worth now?") vs Forecasting Model ("what does the model predict?"). See `docs/pipeline-map.html`.
 - Switched Trade Analyzer MLB outputs to canonical modal-equivalent snapshots via CanonicalCurrentProjectionService.
 - Added unified pitcher expanded-pool API parity (getUnifiedPitcherTfrData) with farm-only wrapper behavior preserved in getFarmData.
 - Added user-facing data source badges (season mode + scouting mode) in True Ratings, Trade Analyzer, Projections, and Team Ratings via src/utils/dataSourceBadges.ts.
 - Extended `tools/explain-player.ts` for modal-equivalent projection debugging (`--projectionMode=current|peak`) and richer canonical future component traces.
 - Updated hitter Future Gap/Speed derivation to MLB doubles/triples percentile mapping; legacy prospect-rank approach is fallback-only if MLB distributions are unavailable.
-- Added/updated pipeline documentation artifacts: docs/pipeline-map.html and docs/modal-equivalent-rollout-handoff.md.
+- Added trade flags and need overrides to Team Planning: per-player tradeable/not-tradeable flags and per-position need overrides, set via cell edit modal, persisted in localStorage, reflected immediately in trade market analysis.
+- Renamed "2-Way" trade badge to "Trade Match"; restricted badge to surplus players only (tier 1-2) — general roster targets no longer show it regardless of team-level need overlap.
+- Fixed Trade Analyzer load time: `CanonicalCurrentProjectionService` rewritten with league-wide data cache (loaded once), synchronous IP projection via public `ProjectionService.calculateProjectedIp()`, and team-level cache tracking to skip already-processed teams. Per-team build is now fully synchronous after initial data load.
+- Removed leftover `[Role Check]` debug console.log calls from `ProjectionService.ts`.

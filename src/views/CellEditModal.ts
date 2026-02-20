@@ -17,7 +17,7 @@ const POSITION_ELIGIBILITY: Record<string, number[]> = {
 
 // --- Types ---
 
-export type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select' | 'dev-override-set' | 'dev-override-remove';
+export type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select' | 'dev-override-set' | 'dev-override-remove' | 'trade-flag' | 'need-flag';
 export type OverrideSourceType = 'extend' | 'org' | 'trade-target' | 'fa-target';
 
 export interface CellEditResult {
@@ -29,6 +29,8 @@ export interface CellEditResult {
   rating?: number;
   level?: string;
   devOverridePlayerId?: number;
+  tradeFlag?: 'tradeable' | 'not-tradeable' | 'clear';
+  needFlag?: boolean;
 }
 
 export interface CellEditContext {
@@ -42,6 +44,8 @@ export interface CellEditContext {
   currentPlayerTfr?: number;
   currentPlayerDevOverride?: boolean;
   estimatedExtensionSalary?: number;
+  currentTradeFlag?: 'tradeable' | 'not-tradeable';
+  isNeedOverride?: boolean;
 }
 
 type OrgSortColumn = 'name' | 'position' | 'age' | 'rating';
@@ -101,12 +105,28 @@ export class CellEditModal {
           devBtn = `<button class="cell-edit-dev-btn" data-player-id="${context.currentCell.playerId}">Set as fully developed</button>`;
         }
 
+        let tradeFlagHtml = '';
+        if (context.currentTradeFlag) {
+          const flagLabel = context.currentTradeFlag === 'tradeable' ? 'Tradeable' : 'Not Tradeable';
+          const flagClass = context.currentTradeFlag === 'tradeable' ? 'active-tradeable' : 'active-not-tradeable';
+          tradeFlagHtml = `<div class="cell-edit-trade-flags">
+            <span class="cell-edit-trade-status ${flagClass}">${flagLabel}</span>
+            <button class="cell-edit-trade-btn cell-edit-trade-clear">Clear</button>
+          </div>`;
+        } else {
+          tradeFlagHtml = `<div class="cell-edit-trade-flags">
+            <button class="cell-edit-trade-btn" data-flag="tradeable">Tradeable</button>
+            <button class="cell-edit-trade-btn" data-flag="not-tradeable">Not Tradeable</button>
+          </div>`;
+        }
+
         currentInfo = `
           <div class="cell-edit-current">
             <div class="cell-edit-current-label">Current occupant</div>
             <div class="cell-edit-current-name">${context.currentCell.playerName}</div>
             <div class="cell-edit-current-meta">Age ${context.currentCell.age} | ${context.currentCell.rating.toFixed(1)} rating${tfrStr}</div>
             ${devBtn}
+            ${tradeFlagHtml}
           </div>
         `;
       }
@@ -166,8 +186,11 @@ export class CellEditModal {
           </div>
         </div>
         <div class="cell-edit-footer">
-          <button class="cell-edit-footer-btn cell-edit-clear-btn">Clear Cell</button>
-          <button class="cell-edit-footer-btn cell-edit-cancel-btn">Cancel</button>
+          <button class="cell-edit-footer-btn cell-edit-need-toggle">${context.isNeedOverride ? 'Remove Position of Need' : 'Mark as Position of Need'}</button>
+          <div class="cell-edit-footer-right">
+            <button class="cell-edit-footer-btn cell-edit-clear-btn">Clear Cell</button>
+            <button class="cell-edit-footer-btn cell-edit-cancel-btn">Cancel</button>
+          </div>
         </div>
       `;
 
@@ -190,6 +213,22 @@ export class CellEditModal {
           });
         });
       }
+
+      // Trade flag buttons
+      modal.querySelectorAll<HTMLButtonElement>('.cell-edit-trade-btn[data-flag]').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const flag = btn.dataset.flag as 'tradeable' | 'not-tradeable';
+          this.resolve({ action: 'trade-flag', tradeFlag: flag });
+        });
+      });
+      modal.querySelector('.cell-edit-trade-clear')?.addEventListener('click', () => {
+        this.resolve({ action: 'trade-flag', tradeFlag: 'clear' });
+      });
+
+      // Need toggle
+      modal.querySelector('.cell-edit-need-toggle')?.addEventListener('click', () => {
+        this.resolve({ action: 'need-flag', needFlag: !context.isNeedOverride });
+      });
 
       // Extend toggle
       modal.querySelector('[data-action="extend-toggle"]')?.addEventListener('click', () => {

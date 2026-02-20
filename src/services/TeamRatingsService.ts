@@ -879,7 +879,7 @@ class TeamRatingsService {
               else if (injury === 'Fragile') injuryFactor = 0.90; // Still capable of workhorse season
               else if (injury === 'Durable') injuryFactor = 1.10;
               else if (injury === 'Wrecked') injuryFactor = 0.75; // Significantly limits ceiling
-              else if (injury === 'Ironman') injuryFactor = 1.15;
+              else if (injury === 'Iron Man') injuryFactor = 1.15;
 
               projectedIp = Math.round(baseIp * injuryFactor);
 
@@ -909,7 +909,7 @@ class TeamRatingsService {
               else if (injury === 'Fragile') injuryFactor = 0.90;
               else if (injury === 'Durable') injuryFactor = 1.10;
               else if (injury === 'Wrecked') injuryFactor = 0.75;
-              else if (injury === 'Ironman') injuryFactor = 1.15;
+              else if (injury === 'Iron Man') injuryFactor = 1.15;
 
               projectedIp = Math.round(baseIp * injuryFactor);
 

@@ -127,7 +127,7 @@ interface TradeTarget {
   sourceTeamNeeds: TeamNeed[];
   complementary: boolean;
   matchDetails: TradeMatchDetail[];
-  targetTier: 1 | 2 | 3; // 1=complementary, 2=surplus, 3=general
+  targetTier: 1 | 2 | 3; // 1=trade-match, 2=surplus, 3=general
 }
 
 interface TradeMarketMatch {
@@ -201,6 +201,8 @@ export class TeamPlanningView {
   private contractMap: Map<number, Contract> = new Map();
   private overrides: Map<string, TeamPlanningOverrideRecord> = new Map();
   private devOverrides: Set<number> = new Set();
+  private tradeFlags: Map<number, 'tradeable' | 'not-tradeable'> = new Map();
+  private needOverrides: Set<string> = new Set();
   private playerRatingMap: Map<number, number> = new Map();
   private playerTfrMap: Map<number, number> = new Map();
   private prospectCurrentRatingMap: Map<number, number> = new Map();
@@ -1926,6 +1928,47 @@ export class TeamPlanningView {
       this.overrides.set(rec.key, rec);
     }
     this.devOverrides = new Set(devPlayerIds);
+    this.loadTradeFlags();
+    this.loadNeedOverrides();
+  }
+
+  private loadTradeFlags(): void {
+    this.tradeFlags.clear();
+    if (!this.selectedTeamId) return;
+    try {
+      const raw = localStorage.getItem(`wbl-tp-tradeFlags-${this.selectedTeamId}`);
+      if (raw) {
+        const entries: [number, 'tradeable' | 'not-tradeable'][] = JSON.parse(raw);
+        for (const [id, flag] of entries) this.tradeFlags.set(id, flag);
+      }
+    } catch { /* ignore */ }
+  }
+
+  private saveTradeFlags(): void {
+    if (!this.selectedTeamId) return;
+    try {
+      const entries = Array.from(this.tradeFlags.entries());
+      localStorage.setItem(`wbl-tp-tradeFlags-${this.selectedTeamId}`, JSON.stringify(entries));
+    } catch { /* ignore */ }
+  }
+
+  private loadNeedOverrides(): void {
+    this.needOverrides.clear();
+    if (!this.selectedTeamId) return;
+    try {
+      const raw = localStorage.getItem(`wbl-tp-needOverrides-${this.selectedTeamId}`);
+      if (raw) {
+        const positions: string[] = JSON.parse(raw);
+        for (const pos of positions) this.needOverrides.add(pos);
+      }
+    } catch { /* ignore */ }
+  }
+
+  private saveNeedOverrides(): void {
+    if (!this.selectedTeamId) return;
+    try {
+      localStorage.setItem(`wbl-tp-needOverrides-${this.selectedTeamId}`, JSON.stringify(Array.from(this.needOverrides)));
+    } catch { /* ignore */ }
   }
 
   private applyOverrides(): void {
@@ -2178,6 +2221,8 @@ export class TeamPlanningView {
       currentPlayerTfr,
       currentPlayerDevOverride,
       estimatedExtensionSalary,
+      currentTradeFlag: currentPlayerId ? this.tradeFlags.get(currentPlayerId) : undefined,
+      isNeedOverride: this.needOverrides.has(position),
     };
 
     // Build org player list sorted by TFR/TR (highest first)
@@ -2230,6 +2275,35 @@ export class TeamPlanningView {
       await indexedDBService.deletePlayerDevOverride(result.devOverridePlayerId);
       this.devOverrides.delete(result.devOverridePlayerId);
       await this.buildAndRenderGrid();
+      return;
+    }
+
+    if (result.action === 'trade-flag') {
+      const row = this.gridRows.find(r => r.position === position);
+      const cell = row?.cells.get(year);
+      const playerId = cell?.playerId;
+      if (playerId) {
+        if (result.tradeFlag === 'clear') {
+          this.tradeFlags.delete(playerId);
+        } else if (result.tradeFlag) {
+          this.tradeFlags.set(playerId, result.tradeFlag);
+        }
+        this.saveTradeFlags();
+        this.cachedTradeProfiles = this.buildAllTeamProfiles();
+        this.renderTradeMarket();
+      }
+      return;
+    }
+
+    if (result.action === 'need-flag') {
+      if (result.needFlag) {
+        this.needOverrides.add(position);
+      } else {
+        this.needOverrides.delete(position);
+      }
+      this.saveNeedOverrides();
+      this.cachedTradeProfiles = this.buildAllTeamProfiles();
+      this.renderTradeMarket();
       return;
     }
 
@@ -2565,6 +2639,25 @@ export class TeamPlanningView {
       }
     }
 
+    // --- Apply need overrides (selected team only) ---
+    if (isSelectedTeam) {
+      const existingNeedPositions = new Set(needs.map(n => n.position));
+      for (const pos of this.needOverrides) {
+        if (existingNeedPositions.has(pos)) continue;
+        // Look up the grid cell for this position to get current rating/player info
+        const row = this.gridRows.find(r => r.position === pos);
+        const cell = row ? row.cells.get(targetYear) : undefined;
+        const section = row?.section ?? (LINEUP_POSITIONS.includes(pos) ? 'lineup' as const : ROTATION_POSITIONS.includes(pos) ? 'rotation' as const : 'bullpen' as const);
+        needs.push({
+          position: pos,
+          section,
+          severity: 'moderate',
+          bestCurrentRating: cell?.rating ?? 0,
+          playerName: cell?.playerName ?? '',
+        });
+      }
+    }
+
     // --- Detect surplus prospects (TFR >= 3.0, blocked at natural position) ---
     // Build lineup map from current roster for blocking check (always uses current roster)
     const lineupByPosForSurplus = new Map<string, RatedBatter>();
@@ -2716,6 +2809,68 @@ export class TeamPlanningView {
           replacementTfr: bestReplacement.tfr,
         });
       }
+    }
+
+    // --- Apply trade flag overrides (selected team only) ---
+    if (isSelectedTeam) {
+      // Filter out not-tradeable players
+      const notTradeableIds = new Set<number>();
+      for (const [id, flag] of this.tradeFlags) {
+        if (flag === 'not-tradeable') notTradeableIds.add(id);
+      }
+      const filteredProspects = surplusProspects.filter(p => !notTradeableIds.has(p.playerId));
+      const filteredMlb = surplusMlbPlayers.filter(p => !notTradeableIds.has(p.playerId));
+
+      // Add tradeable-flagged players not already in surplus
+      const existingSurplusIds = new Set([
+        ...filteredProspects.map(p => p.playerId),
+        ...filteredMlb.map(p => p.playerId),
+      ]);
+
+      for (const [id, flag] of this.tradeFlags) {
+        if (flag !== 'tradeable' || existingSurplusIds.has(id)) continue;
+        // Find this player in the roster
+        const player = this.playerMap.get(id);
+        if (!player) continue;
+        const isPitcher = player.position === 1;
+        const tr = this.playerRatingMap.get(id) ?? 0;
+        const contract = this.contractMap.get(id);
+        const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
+
+        // Determine position label from the grid
+        let posLabel = '';
+        if (isPitcher) {
+          const spIdx = ranking.rotation.findIndex(p => p.playerId === id);
+          if (spIdx >= 0) posLabel = ROTATION_POSITIONS[spIdx];
+          else {
+            const bpIdx = ranking.bullpen.findIndex(p => p.playerId === id);
+            if (bpIdx >= 0) posLabel = BULLPEN_POSITIONS[bpIdx];
+          }
+        } else {
+          const batter = ranking.lineup.find(b => b.playerId === id);
+          posLabel = batter?.positionLabel ?? (POSITION_CODE_TO_LABEL[player.position] ?? 'DH');
+        }
+
+        filteredMlb.push({
+          playerId: id,
+          name: `${player.firstName} ${player.lastName}`,
+          positionLabel: posLabel,
+          trueRating: tr,
+          age: (player.age ?? 0) + yearOffset,
+          contractYearsRemaining: Math.max(0, yearsLeft - yearOffset),
+          isExpiring: yearsLeft - yearOffset <= 1,
+          orgId: teamId,
+          orgName: teamName,
+          isPitcher,
+          replacementName: '',
+          replacementTfr: 0,
+        });
+      }
+
+      surplusProspects.length = 0;
+      surplusProspects.push(...filteredProspects);
+      surplusMlbPlayers.length = 0;
+      surplusMlbPlayers.push(...filteredMlb);
     }
 
     return { teamId, teamName, needs, surplusProspects, surplusMlbPlayers };
@@ -2895,7 +3050,7 @@ export class TeamPlanningView {
                 sourceTeamNeeds: otherProfile.needs,
                 complementary,
                 matchDetails,
-                targetTier: complementary ? 1 : 3,
+                targetTier: 3,
               });
             }
           } else {
@@ -2935,7 +3090,7 @@ export class TeamPlanningView {
                 sourceTeamNeeds: otherProfile.needs,
                 complementary,
                 matchDetails,
-                targetTier: complementary ? 1 : 3,
+                targetTier: 3,
               });
             }
           }
@@ -2984,7 +3139,7 @@ export class TeamPlanningView {
                 sourceTeamNeeds: otherProfile.needs,
                 complementary,
                 matchDetails,
-                targetTier: complementary ? 1 : 3,
+                targetTier: 3,
               });
             }
           } else {
@@ -3024,7 +3179,7 @@ export class TeamPlanningView {
                 sourceTeamNeeds: otherProfile.needs,
                 complementary,
                 matchDetails,
-                targetTier: complementary ? 1 : 3,
+                targetTier: 3,
               });
             }
           }
@@ -3103,15 +3258,19 @@ export class TeamPlanningView {
       : '<p class="summary-empty">No blocked prospects.</p>';
 
     const surplusMlbHtml = myProfile.surplusMlbPlayers.length > 0
-      ? myProfile.surplusMlbPlayers.map(p =>
-        `<div class="market-player-card market-mlb-card">
+      ? myProfile.surplusMlbPlayers.map(p => {
+        const replacementStr = p.replacementName
+          ? `, replaced by ${this.abbreviateName(p.replacementName)} (${p.replacementTfr.toFixed(1)} TFR)`
+          : '';
+        const userChip = !p.replacementName && this.tradeFlags.get(p.playerId) === 'tradeable' ? ' <span class="market-user-chip">(user)</span>' : '';
+        return `<div class="market-player-card market-mlb-card">
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)}</span>
           <span class="market-pos-badge">${p.positionLabel}</span>
-          <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left</span>
-          <span class="market-block-info">${p.contractYearsRemaining <= 1 ? 'expiring' : `${p.contractYearsRemaining}yr left`}, replaced by ${this.abbreviateName(p.replacementName)} (${p.replacementTfr.toFixed(1)} TFR)</span>
-        </div>`
-      ).join('')
+          <span class="market-detail">Age ${p.age}, ${p.contractYearsRemaining}yr left${userChip}</span>
+          ${replacementStr ? `<span class="market-block-info">${p.contractYearsRemaining <= 1 ? 'expiring' : `${p.contractYearsRemaining}yr left`}${replacementStr}</span>` : ''}
+        </div>`;
+      }).join('')
       : '';
 
     // Section 2: Trade Targets by Position
@@ -3194,16 +3353,16 @@ export class TeamPlanningView {
   }
 
   private renderTradeTargetCard(target: TradeTarget): string {
-    const twoWayClass = target.complementary ? ' market-two-way' : '';
+    const matchClass = target.complementary && target.targetTier <= 2 ? ' market-two-way' : '';
     const generalClass = target.targetTier === 3 ? ' market-general' : '';
-    const matchBadge = target.complementary && target.matchDetails.length > 0
-      ? `<span class="market-match-badge" title="${target.matchDetails.map(d => `${d.positionLabel} ${this.abbreviateName(d.name)} (${d.rating.toFixed(1)})`).join(', ')}">2-Way: send ${this.abbreviateName(target.matchDetails[0].name)} (${target.matchDetails[0].rating.toFixed(1)})</span>`
+    const matchBadge = target.complementary && target.targetTier <= 2 && target.matchDetails.length > 0
+      ? `<span class="market-match-badge" title="${target.matchDetails.map(d => `${d.positionLabel} ${this.abbreviateName(d.name)} (${d.rating.toFixed(1)})`).join(', ')}">Trade Match: send ${this.abbreviateName(target.matchDetails[0].name)} (${target.matchDetails[0].rating.toFixed(1)})</span>`
       : '';
 
     if (target.isProspect) {
       const p = target.player as SurplusProspect;
       return `
-        <div class="market-player-card market-prospect-card${twoWayClass}${generalClass}">
+        <div class="market-player-card market-prospect-card${matchClass}${generalClass}">
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)} TFR</span>
@@ -3214,7 +3373,7 @@ export class TeamPlanningView {
     } else {
       const p = target.player as SurplusMlbPlayer;
       return `
-        <div class="market-player-card market-mlb-card${twoWayClass}${generalClass}">
+        <div class="market-player-card market-mlb-card${matchClass}${generalClass}">
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)} TR</span>

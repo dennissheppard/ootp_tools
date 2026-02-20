@@ -5,8 +5,7 @@ import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { OnboardingView } from './OnboardingView';
 import { playerService } from '../services/PlayerService';
 import { dateService } from '../services/DateService';
-import { trueRatingsService, TruePlayerStats, TruePlayerBattingStats } from '../services/TrueRatingsService';
-import { trueRatingsCalculationService } from '../services/TrueRatingsCalculationService';
+import { trueRatingsService, TruePlayerBattingStats } from '../services/TrueRatingsService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { teamService } from '../services/TeamService';
 import { teamRatingsService } from '../services/TeamRatingsService';
@@ -312,55 +311,18 @@ export class GlobalSearchBar {
       const myScoutMatch = this.resolveScoutingFromLookup(playerId, playerName, myScoutingLookup);
       const osaScoutMatch = this.resolveScoutingFromLookup(playerId, playerName, osaScoutingLookup);
 
-      // For calculations, use fallback (my > osa)
-      const scoutingLookup = myScoutingRatings.length > 0 ? myScoutingLookup : osaScoutingLookup;
       const scoutMatch = myScoutMatch || osaScoutMatch;
 
-      // Try to get True Rating from cached data
-      let allPitchers: TruePlayerStats[] = [];
-      try {
-        allPitchers = await trueRatingsService.getTruePitchingStats(year);
-      } catch (error) {
-        console.warn('No MLB pitching stats available for year:', year, error);
-      }
-      const playerStats = allPitchers.find(p => p.player_id === playerId);
-
+      // Use canonical pitcher TR (single source of truth)
       let playerResult: any = null;
       let isProspect = false;
       let tfrData: any = null;
 
-      // Only calculate True Ratings if we have stats and enough IP
-      if (playerStats) {
-        const ip = trueRatingsService.parseIp(playerStats.ip);
-        if (ip >= 10) {
-          // Get multi-year stats and league averages for True Rating calculation
-          const [multiYearStats, leagueAverages] = await Promise.all([
-            trueRatingsService.getMultiYearPitchingStats(year, 3),
-            trueRatingsService.getLeagueAverages(year),
-          ]);
-
-          // Calculate True Rating with all pitchers for percentile ranking
-          // Include scouting data for ALL pitchers to match TrueRatingsView calculation
-          const allInputs = allPitchers
-            .map(p => {
-              const scouting = this.resolveScoutingFromLookup(p.player_id, p.playerName, scoutingLookup);
-              return {
-                playerId: p.player_id,
-                playerName: p.playerName,
-                yearlyStats: multiYearStats.get(p.player_id) ?? [],
-                scoutingRatings: scouting ? {
-                  playerId: p.player_id,
-                  playerName: p.playerName,
-                  stuff: scouting.stuff,
-                  control: scouting.control,
-                  hra: scouting.hra,
-                } : undefined,
-              };
-            });
-
-          const results = trueRatingsCalculationService.calculateTrueRatings(allInputs, leagueAverages);
-          playerResult = results.find(r => r.playerId === playerId);
-        }
+      try {
+        const pitcherTrMap = await trueRatingsService.getPitcherTrueRatings(year);
+        playerResult = pitcherTrMap.get(playerId) ?? null;
+      } catch (error) {
+        console.warn('No canonical pitcher TR available for year:', year, error);
       }
 
       // Fetch pitcher farm data (single source of truth for TFR)

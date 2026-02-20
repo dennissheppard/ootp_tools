@@ -1,7 +1,6 @@
 export * from './SearchView';
 export * from './PlayerListView';
 export * from './GlobalSearchBar';
-export * from'./StatsView';
 export * from './PotentialStatsView';
 export * from './DraftBoardView';
 export * from './LoadingView';

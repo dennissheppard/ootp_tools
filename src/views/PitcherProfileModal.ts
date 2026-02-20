@@ -1348,7 +1348,7 @@ export class PitcherProfileModal {
 
     // Injury discount
     const injuryMultiplier: Record<string, number> = {
-      'Ironman': 1.15, 'Durable': 1.10, 'Normal': 1.0,
+      'Iron Man': 1.15, 'Durable': 1.10, 'Normal': 1.0,
       'Wary': 0.95, 'Fragile': 0.90, 'Prone': 0.80, 'Wrecked': 0.75,
     };
     const mult = injuryMultiplier[injury ?? 'Normal'] ?? 0.95;
