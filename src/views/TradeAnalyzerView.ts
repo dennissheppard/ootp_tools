@@ -79,6 +79,11 @@ export class TradeAnalyzerView {
   private canonicalPitcherTR: Map<number, TrueRatingResult> = new Map();
   private canonicalBatterTR: Map<number, HitterTrueRatingResult> = new Map();
 
+  // Initialization promise — awaited by initWithTrade to ensure data is ready
+  private initPromise: Promise<void> | null = null;
+  // Scroll position to restore when returning to Trade Market
+  private tradeMarketScrollY: number | null = null;
+
   private team1State: TradeTeamState = {
     teamId: 0,
     minorLevel: 'mlb',
@@ -103,7 +108,7 @@ export class TradeAnalyzerView {
   constructor(container: HTMLElement) {
     this.container = container;
     this.batterProfileModal = new BatterProfileModal();
-    this.initialize();
+    this.initPromise = this.initialize();
 
     window.addEventListener('wbl:request-data-source-badges', () => {
       if (this.container.closest('.tab-panel.active')) this.updateDataSourceBadges();
@@ -672,6 +677,78 @@ export class TradeAnalyzerView {
 
   private updateDataSourceBadges(): void {
     emitDataSourceBadges('current-ytd', this.scoutingDataMode);
+  }
+
+  public async initWithTrade(myTeamId: number, targetTeamId: number, targetPlayerId: number, targetIsProspect: boolean, scrollY?: number, matchPlayerId?: number, matchPlayerIsProspect?: boolean): Promise<void> {
+    // Wait for async initialization to complete before touching the DOM
+    if (this.initPromise) await this.initPromise;
+
+    this.tradeMarketScrollY = scrollY ?? null;
+    this.renderBackButton();
+
+    await this.setTeamById(1, myTeamId);
+    await this.setTeamById(2, targetTeamId);
+
+    if (targetIsProspect) {
+      const select = this.container.querySelector<HTMLSelectElement>('.trade-level-select[data-team="2"]');
+      if (select) {
+        select.value = 'all-prospects';
+        this.team2State.minorLevel = 'all-prospects';
+        const toggleContainer = this.container.querySelector<HTMLElement>('.trade-player-type-toggle[data-team="2"]');
+        if (toggleContainer) toggleContainer.style.display = 'flex';
+        this.updatePlayerList(2);
+      }
+    }
+
+    this.addPlayerToTrade(2, targetPlayerId);
+
+    // Add the trade-match player to Team 1 if present (two-way match)
+    if (matchPlayerId) {
+      if (matchPlayerIsProspect) {
+        const select = this.container.querySelector<HTMLSelectElement>('.trade-level-select[data-team="1"]');
+        if (select) {
+          select.value = 'all-prospects';
+          this.team1State.minorLevel = 'all-prospects';
+          const toggleContainer = this.container.querySelector<HTMLElement>('.trade-player-type-toggle[data-team="1"]');
+          if (toggleContainer) toggleContainer.style.display = 'flex';
+          this.updatePlayerList(1);
+        }
+      }
+      this.addPlayerToTrade(1, matchPlayerId);
+    }
+  }
+
+  private renderBackButton(): void {
+    const header = this.container.querySelector<HTMLElement>('.view-header');
+    if (!header) return;
+    // Remove any existing back button
+    header.querySelector('.trade-back-btn')?.remove();
+    const btn = document.createElement('button');
+    btn.className = 'trade-back-btn btn btn-ghost';
+    btn.textContent = '← Back to Trade Market';
+    btn.addEventListener('click', () => {
+      const scrollY = this.tradeMarketScrollY ?? 0;
+      window.dispatchEvent(new CustomEvent('wbl:navigate-tab', { detail: { tabId: 'tab-team-planning' } }));
+      // Restore scroll after the tab panel becomes visible
+      requestAnimationFrame(() => requestAnimationFrame(() => window.scrollTo({ top: scrollY, behavior: 'instant' })));
+    });
+    header.prepend(btn);
+  }
+
+  private async setTeamById(teamNum: 1 | 2, teamId: number): Promise<void> {
+    const dropdown = this.container.querySelector<HTMLElement>(`.trade-team-dropdown[data-team="${teamNum}"]`);
+    if (!dropdown) return;
+    const item = dropdown.querySelector<HTMLElement>(`.filter-dropdown-item[data-value="${teamId}"]`);
+    if (!item) return;
+
+    const nickname = item.dataset.nickname ?? '';
+    dropdown.dataset.selectedId = String(teamId);
+    const display = dropdown.querySelector<HTMLElement>('.trade-team-display');
+    if (display) display.innerHTML = `${teamLogoImg(nickname, 'team-btn-logo')}${nickname}`;
+    dropdown.querySelectorAll('.filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+    item.classList.add('selected');
+
+    await this.onTeamChange(teamNum);
   }
 
   public syncTeamSelection(): void {
@@ -1452,11 +1529,6 @@ export class TradeAnalyzerView {
     const teamImpactHtml = this.renderTeamImpact(team1Name, team2Name);
 
     contentDiv.innerHTML = `
-      <div class="analysis-summary">
-        <h4>${team1Name} vs ${team2Name}</h4>
-        <p class="analysis-description">${analysis.summary}</p>
-      </div>
-
       <div class="analysis-war-comparison">
         <div class="war-column war-column-1">
           <h5>${team1Name}</h5>
@@ -1508,7 +1580,7 @@ export class TradeAnalyzerView {
       ${teamImpactHtml}
 
       <div class="trade-ratings-comparison">
-        <h5>Player Ratings Comparison</h5>
+        <h5>Player Comparison</h5>
         ${this.renderRatingsTable()}
       </div>
 
@@ -1630,19 +1702,16 @@ export class TradeAnalyzerView {
       return '<p class="empty-text">Add players to view ratings</p>';
     }
 
-    // Multi-purpose columns for mixed player types
-    // Column headers adapt based on what players are in the trade
     return `
       <table class="trade-ratings-table">
         <thead>
           <tr>
             <th>Player</th>
-            <th>True Rating</th>
-            <th>FIP/wOBA</th>
-            <th>K/9 / K%</th>
-            <th>BB/9 / BB%</th>
-            <th>Stuff/Power</th>
-            <th>Control/Eye</th>
+            <th>TR</th>
+            <th>WAR</th>
+            <th title="Pitchers: K/9 · Batters: AVG">Stuff · Contact</th>
+            <th title="Pitchers: BB/9 · Batters: BB%">Control · Eye</th>
+            <th title="Pitchers: HR/9 · Batters: HR%">HRA · Power</th>
           </tr>
         </thead>
         <tbody>
@@ -1650,22 +1719,20 @@ export class TradeAnalyzerView {
             <tr>
               <td><span class="player-name-link" data-player-id="${p.playerId}">${p.name}</span></td>
               <td><span class="badge ${this.getTrueRatingClass(p.currentTrueRating)}">${p.currentTrueRating.toFixed(1)}</span></td>
-              <td>${p.projectedStats.fip.toFixed(2)}</td>
+              <td>${p.projectedStats.war.toFixed(1)}</td>
               <td>${p.projectedStats.k9.toFixed(2)}</td>
               <td>${p.projectedStats.bb9.toFixed(2)}</td>
-              <td>${p.projectedRatings.stuff.toFixed(0)}</td>
-              <td>${p.projectedRatings.control.toFixed(0)}</td>
+              <td>${p.projectedStats.hr9.toFixed(2)}</td>
             </tr>
           `).join('')}
           ${allBatters.map(b => `
             <tr>
               <td><span class="player-name-link" data-player-id="${b.playerId}">${b.name}</span></td>
               <td><span class="badge ${this.getTrueRatingClass(b.currentTrueRating)}">${b.currentTrueRating.toFixed(1)}</span></td>
-              <td>${b.projectedStats.woba.toFixed(3)}</td>
-              <td>${b.projectedStats.kPct?.toFixed(1) ?? '-'}%</td>
-              <td>${b.projectedStats.bbPct?.toFixed(1) ?? '-'}%</td>
-              <td>${b.estimatedRatings.power.toFixed(0)}</td>
-              <td>${b.estimatedRatings.eye.toFixed(0)}</td>
+              <td>${b.projectedStats.war.toFixed(1)}</td>
+              <td>${b.projectedStats.avg.toFixed(3)}</td>
+              <td>${b.projectedStats.bbPct != null ? b.projectedStats.bbPct.toFixed(1) + '%' : '-'}</td>
+              <td>${b.projectedStats.hrPct != null ? b.projectedStats.hrPct.toFixed(1) + '%' : '-'}</td>
             </tr>
           `).join('')}
         </tbody>
