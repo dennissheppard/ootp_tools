@@ -154,4 +154,3 @@ describe('TeamPlanningView regressions', () => {
     expect(ratingMapArg.get(player.id)).toBe(4.5);
   });
 });
-
