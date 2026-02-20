@@ -20,7 +20,7 @@ function createViewStub(): AnyView {
   view.playerMap = new Map<number, Player>();
   view.contractMap = new Map();
   view.overrides = new Map<string, TeamPlanningOverrideRecord>();
-  view.devOverrides = new Set<number>();
+  view.devOverrides = new Map<number, number>();
   view.playerRatingMap = new Map<number, number>();
   view.playerTfrMap = new Map<number, number>();
   view.prospectCurrentRatingMap = new Map<number, number>();
