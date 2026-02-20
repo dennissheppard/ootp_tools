@@ -280,7 +280,8 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `TeamRatingsView` | Power Rankings / Projections / Standings toggle |
 | `TeamPlanningView` | 6-year roster planning grid with prospects, contracts, trade market |
 | `TradeAnalyzerView` | Multi-asset trade evaluation (MLB + prospects + draft picks) |
-| `DataManagementView` | File uploads with header validation; analytics dashboard (localhost only, double-click logo to open) |
+| `DataManagementView` | File uploads with header validation; analytics dashboard (localhost only, double-click logo to open). Handles first-time onboarding data loading (bundled CSV + current-year API). |
+| `AboutView` | App overview with flow diagrams for TR, TFR, and projections. Accessible by single-clicking the logo. Also shown as background during first-time onboarding (fullscreen spinner overlaid; completion triggers a "Let's go!" modal). Not in the nav bar. |
 | `PlayerProfileModal` / `BatterProfileModal` | Deep-dive with Ratings + Development tabs + player tags |
 
 ### Team Ratings & Projected Standings

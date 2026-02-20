@@ -817,48 +817,52 @@ export class DataManagementView {
   }
 
   private showOnboardingLoader(): void {
-    const onboardingHtml = `
-      <div id="onboarding-container" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 400px; gap: 2rem;">
-        <div class="baseball-spinner">⚾</div>
-        <div id="onboarding-message" style="text-align: center; font-size: 1.1em; color: var(--color-text); max-width: 500px;"></div>
-        <div id="onboarding-progress" style="font-size: 0.9em; color: var(--color-text-muted);"></div>
+    // Transparent pass-through overlay — About page stays fully visible and interactive.
+    // The spinner pill floats at the top of the content area.
+    const overlay = document.createElement('div');
+    overlay.id = 'onboarding-fullscreen-overlay';
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 999;
+      background: transparent;
+      pointer-events: none;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding-top: 130px;
+    `;
+    overlay.innerHTML = `
+      <div style="
+        background: var(--color-surface);
+        border: 1px solid var(--color-primary);
+        border-radius: 2rem;
+        padding: 0.55rem 1.4rem;
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+        pointer-events: auto;
+        max-width: 90vw;
+      ">
+        <span style="font-size: 1.5em; animation: wbl-onboarding-spin 2s linear infinite; display: inline-block; flex-shrink: 0;">⚾</span>
+        <span id="onboarding-message" style="font-size: 0.9rem; color: var(--color-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"></span>
       </div>
-
       <style>
-        .baseball-spinner {
-          font-size: 4em;
-          animation: spin 2s linear infinite;
-          filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
-        }
-
-        @keyframes spin {
+        @keyframes wbl-onboarding-spin {
           from { transform: rotate(0deg); }
           to { transform: rotate(360deg); }
         }
-
-        @keyframes fadeInOut {
-          0%, 100% { opacity: 0; }
+        @keyframes wbl-onboarding-fade {
+          0%, 100% { opacity: 0.5; }
           50% { opacity: 1; }
         }
-
-        .message-fade {
-          animation: fadeInOut 4s ease-in-out;
-        }
+        .wbl-message-fade { animation: wbl-onboarding-fade 4s ease-in-out; }
       </style>
     `;
 
-    this.container.innerHTML = onboardingHtml;
+    document.body.appendChild(overlay);
+    this.onboardingOverlay = overlay;
     this.rotateOnboardingMessages();
-
-    // Block all clicks outside the onboarding container during loading
-    this.onboardingClickBlocker = (e: MouseEvent) => {
-      const onboardingContainer = document.getElementById('onboarding-container');
-      if (onboardingContainer && !onboardingContainer.contains(e.target as Node)) {
-        e.stopPropagation();
-        e.preventDefault();
-      }
-    };
-    document.addEventListener('click', this.onboardingClickBlocker, true);
   }
 
   private rotateOnboardingMessages(): void {
@@ -871,7 +875,7 @@ export class DataManagementView {
     ];
 
     let index = 0;
-    const messageEl = this.container.querySelector('#onboarding-message');
+    const messageEl = (this.onboardingOverlay ?? this.container).querySelector<HTMLElement>('#onboarding-message');
 
     if (!messageEl) return;
 
@@ -881,10 +885,10 @@ export class DataManagementView {
       }
 
       messageEl.textContent = messages[index];
-      messageEl.classList.add('message-fade');
+      messageEl.classList.add('wbl-message-fade');
 
       setTimeout(() => {
-        messageEl.classList.remove('message-fade');
+        messageEl.classList.remove('wbl-message-fade');
       }, 4000);
 
       index++;
@@ -895,6 +899,7 @@ export class DataManagementView {
   }
 
   private onboardingMessageInterval?: number;
+  private onboardingOverlay?: HTMLElement;
   private onboardingClickBlocker?: (e: MouseEvent) => void;
 
 
@@ -909,86 +914,75 @@ export class DataManagementView {
   private async showOnboardingComplete(osaCount: number = 0, totalLoaded: number = 0): Promise<void> {
     if (this.onboardingMessageInterval) {
       clearInterval(this.onboardingMessageInterval);
+      this.onboardingMessageInterval = undefined;
     }
     this.removeClickBlocker();
+
+    // Remove the fullscreen loading overlay to reveal the About page behind it
+    if (this.onboardingOverlay) {
+      this.onboardingOverlay.remove();
+      this.onboardingOverlay = undefined;
+    }
 
     const currentYear = await dateService.getCurrentYear();
     const yearCount = currentYear - LEAGUE_START_YEAR + 1;
 
-    const completeHtml = `
-      <div class="potential-stats-section">
-        <h2 class="section-title">Welcome to True Ratings!</h2>
-        <div style="max-width: 700px; margin: 0 auto; padding: 2rem;">
-          <div style="background: rgba(0, 186, 124, 0.1); border-left: 3px solid var(--color-primary); padding: 1.5rem; margin-bottom: 2rem; border-radius: 4px;">
-            <h3 style="margin-top: 0; color: var(--color-primary);">✅ Setup Complete!</h3>
-            <p>We've loaded ${yearCount} years (${LEAGUE_START_YEAR}-${currentYear}) of MLB and minor league stats from bundled files${totalLoaded > 0 ? ` (${totalLoaded} datasets)` : ''}. This data is now cached locally for instant access.</p>
-          </div>
+    const osaLine = osaCount > 0
+      ? `<strong>${osaCount.toLocaleString()} OSA scouting ratings</strong> are pre-loaded and ready to use.`
+      : 'OSA scouting data can be imported via <em>Data Management</em> once available.';
 
-          <h3>About Scouting Data</h3>
-          <p>True Ratings works best with scouting reports. Here's what you need to know:</p>
-
-          <ul style="line-height: 1.8; margin: 1rem 0;">
-            <li><strong>OSA ratings are included by default</strong> - ${osaCount > 0 ? `We've loaded ${osaCount.toLocaleString()} OSA ratings!` : 'Ready to import when available'}</li>
-            <li><strong>Upload your personal scout ratings</strong> (optional) - If you have custom scouting reports, you can upload them from the Data Management screen</li>
-            <li><strong>The app works without custom scouting data</strong> - We'll use OSA ratings as a fallback</li>
-            <li><strong>Toggle between "My Scout" and "OSA"</strong> to compare different rating sources</li>
-            <li><strong>Keep OSA data current</strong> - Upload updated CSV files as your league progresses</li>
-          </ul>
-
-          <p style="margin-top: 2rem; padding: 1rem; background: rgba(0,0,0,0.05); border-radius: 4px; font-size: 0.95em;">
-            💡 <strong>Pro tip:</strong> The toggle below defaults to "My Scout" - this will show your custom ratings when available, and fall back to OSA when not.
+    const modal = document.createElement('div');
+    modal.className = 'modal-overlay visible';
+    modal.style.zIndex = '1100';
+    modal.innerHTML = `
+      <div class="modal" style="width: min(580px, 92vw);">
+        <div class="modal-header">
+          <h3 class="modal-title">✅ Setup Complete — Welcome!</h3>
+        </div>
+        <div class="modal-body" style="padding: 1.5rem; line-height: 1.75;">
+          <p style="margin: 0 0 0.9rem;">
+            <strong>${yearCount} years of data loaded</strong> (${LEAGUE_START_YEAR}–${currentYear}) —
+            MLB and minor league stats are now cached locally for instant access${totalLoaded > 0 ? ` (${totalLoaded} datasets)` : ''}.
           </p>
-
-          <div style="display: flex; gap: 1rem; margin-top: 2rem;">
-            <button id="onboarding-done-btn" class="btn btn-primary">
-              Got it, let's go!
-            </button>
-            <button id="onboarding-upload-btn" class="btn btn-secondary">
-              Upload My Scouting Data
-            </button>
-          </div>
+          <p style="margin: 0 0 0.9rem;">${osaLine}</p>
+          <p style="margin: 0 0 0.9rem;">
+            <strong>Have your own scouting reports?</strong> Head to <em>Data Management</em> any time
+            to upload pitcher or hitter scouting CSVs. The app works great with just OSA data —
+            custom scouts are optional but unlock the full TR/TFR blend.
+          </p>
+          <p style="margin: 0; padding: 0.75rem 1rem; background: rgba(0,186,124,0.1); border-left: 3px solid var(--color-primary); border-radius: 4px; font-size: 0.88rem;">
+            💡 Scroll down the About page to see how True Ratings, TFR, and projections work —
+            then click any section card to jump straight in.
+          </p>
+        </div>
+        <div class="modal-footer" style="padding: 1rem 1.5rem; border-top: 1px solid var(--color-border); text-align: right;">
+          <button id="onboarding-welcome-done" class="btn btn-primary" style="padding: 0.55rem 1.5rem; font-size: 1rem;">
+            Let's go! ⚾
+          </button>
         </div>
       </div>
     `;
 
-    this.container.innerHTML = completeHtml;
+    document.body.appendChild(modal);
 
-    const doneBtn = this.container.querySelector('#onboarding-done-btn');
-    if (doneBtn) {
-      doneBtn.addEventListener('click', () => {
-        this.selectedScoutingSource = 'my';
-        this.render();
-        this.refreshExistingDataList();
-        this.fetchGameDate();
-        // Navigate to True Ratings view
-        window.dispatchEvent(new CustomEvent('wbl:navigate-tab', { detail: { tabId: 'tab-true-ratings' } }));
-      });
-    }
-
-    const uploadBtn = this.container.querySelector('#onboarding-upload-btn');
-    if (uploadBtn) {
-      uploadBtn.addEventListener('click', () => {
-        this.selectedScoutingSource = 'my';
-        this.render();
-        this.refreshExistingDataList();
-        this.fetchGameDate();
-      });
-    }
+    modal.querySelector('#onboarding-welcome-done')?.addEventListener('click', () => {
+      modal.remove();
+    });
   }
 
   private showOnboardingError(): void {
     if (this.onboardingMessageInterval) {
       clearInterval(this.onboardingMessageInterval);
+      this.onboardingMessageInterval = undefined;
     }
     this.removeClickBlocker();
 
-    this.container.innerHTML = `
-      <div style="text-align: center; padding: 2rem;">
-        <h2 style="color: var(--color-error);">Oops! Something went wrong</h2>
-        <p>We couldn't load the minor league data. Please try refreshing the page.</p>
-        <button class="btn btn-primary" onclick="location.reload()">Refresh Page</button>
-      </div>
-    `;
+    if (this.onboardingOverlay) {
+      this.onboardingOverlay.remove();
+      this.onboardingOverlay = undefined;
+    }
+
+    this.messageModal.show('Setup Error', 'We couldn\'t load some data during setup. Please refresh the page to try again.');
   }
 
   private async checkDefaultOsaStatus(): Promise<void> {
