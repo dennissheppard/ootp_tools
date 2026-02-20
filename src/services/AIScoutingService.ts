@@ -96,6 +96,8 @@ TERMINOLOGY:
 - True Ratings (TR) are numeric (e.g., "4.2 True Rating" or "4.2 TR"). NEVER refer to them as stars.
 - True Future Rating (TFR) follows the same rule.
 - Component ratings (True Stuff, True Power, etc.) use the 20–80 scouting scale.
+- For batters: Contact rating -> Batting average, Power rating -> home runs/HR%, Eye rating - > BB%/BBs, Gap rating -> 2B, Gap + Speed ratings -> 3B, AvoidK -> K%/Ks
+- For pitchers: Stuff rating -> K/9, Control rating -> BB/9, HRA (home runs allowed) rating -> HR/9
 
 LEAGUE CONTEXT:
 - WBL uses real baseball mechanics.

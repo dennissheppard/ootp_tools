@@ -437,7 +437,7 @@ export class TrueRatingsView {
 
       // Always default to the current game year (scouting/prospect data is available year-round)
       const defaultYear = gameYear;
-      
+
       this.currentGameYear = gameYear;
 
       const startYear = 2000;
@@ -455,12 +455,15 @@ export class TrueRatingsView {
         this.selectedYear = Math.min(Math.max(defaultYear, startYear), endYear);
       }
 
-      const yearSelect = this.container.querySelector<HTMLSelectElement>('#true-ratings-year');
-      if (yearSelect) {
-        yearSelect.innerHTML = this.yearOptions
-          .map(year => `<option value="${year}" ${year === this.selectedYear ? 'selected' : ''}>${year}</option>`)
+      const yearDisplaySpan = this.container.querySelector('#selected-year-display');
+      if (yearDisplaySpan) {
+        yearDisplaySpan.textContent = String(this.selectedYear);
+      }
+      const yearDropdownMenu = this.container.querySelector('#year-dropdown-menu');
+      if (yearDropdownMenu) {
+        yearDropdownMenu.innerHTML = this.yearOptions
+          .map(year => `<div class="filter-dropdown-item ${year === this.selectedYear ? 'selected' : ''}" data-value="${year}">${year}</div>`)
           .join('');
-        yearSelect.value = String(this.selectedYear);
       }
     } catch {
       // Keep existing defaults if date load fails
