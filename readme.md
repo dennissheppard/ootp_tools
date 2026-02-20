@@ -216,9 +216,9 @@ Current view usage:
 - **Trade Analyzer (MLB players)**: Canonical Current via CanonicalCurrentProjectionService
 - **True Ratings view**: Canonical Current
 - **Projections view**: Pre-season Model
-- **Team Ratings view**: Power Rankings = Canonical Current; Projections/Standings = Pre-season Model
+- **Team Ratings view**: Power Rankings = Canonical Current; Projections/Standings = Pre-season Model (default) or Current Year Stats (toggle)
 
-TeamRatingsView projections/standings force the selected season to the current game year, but remain model outputs (not literal in-season standings progression).
+TeamRatingsView projections/standings force the selected season to the current game year, but remain model outputs (not literal in-season standings progression). The Pre-Season/Current Year Stats toggle controls whether projection services use prior-year-only data (pure pre-season) or allow current-year stats to influence projections.
 
 ## Key Services
 
@@ -280,7 +280,9 @@ TeamRatingsView projections/standings force the selected season to the current g
 
 Three modes: Power Rankings (weighted avg TR), Projections (weighted WAR), Standings (projected W-L).
 
-**Weighting:** 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench (Power Rankings & Projections). Standings uses raw WAR sum.
+**Pre-Season / Current Year Stats toggle** (Projections & Standings): Pre-Season forces all data sources to `year - 1` (stats, IP distribution, league context, role classification). Current Year Stats uses live data. Persisted in `wbl-teamratings-statsMode`. Data source badge updates accordingly.
+
+**Weighting:** 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench (Power Rankings & Projections). Standings uses raw WAR sum (rotation + bullpen + lineup; bench excluded).
 
 **WAR→Wins (Piecewise):**
 ```
@@ -292,6 +294,8 @@ rawWins = 81 + deviation × slope
 ```
 
 **Runs Scored/Allowed:** RS from wRC (lineup+bench), RA from FIP×IP/9 (rotation+bullpen). RS normalized so league RS = league RA. Pythagorean record (exponent 1.83) shown as sanity check.
+
+**Roster assignment:** Players assigned by current roster team (`player.teamId`), not stats-year team. Free agents (`teamId=0`) are excluded even if they have stats for a team.
 
 **Lineup/Bench split (Standings & Projections):** Top 9 by projected WAR → lineup, next 4 → bench.
 
@@ -371,6 +375,7 @@ Three-column layout: Team 1 | Analysis | Team 2. `src/views/TradeAnalyzerView.ts
 | `wbl-tp-viewMode` | Team Planning (grid/analysis/market) |
 | `wbl-tp-marketYear` | Team Planning year offset |
 | `wbl-teamratings-viewMode` | Team Ratings mode |
+| `wbl-teamratings-statsMode` | Team Ratings pre-season vs current year stats |
 | `wbl-proj-position` / `wbl-proj-year` | Projections |
 | `wbl-prefs` | True Ratings (JSON blob) |
 | `wbl-active-tab` | Active nav tab |

@@ -127,6 +127,7 @@ interface TradeTarget {
   sourceTeamNeeds: TeamNeed[];
   complementary: boolean;
   matchDetails: TradeMatchDetail[];
+  targetTier: 1 | 2 | 3; // 1=complementary, 2=surplus, 3=general
 }
 
 interface TradeMarketMatch {
@@ -240,7 +241,10 @@ export class TeamPlanningView {
     if (isCurrentlyActive) {
       this.loadData();
       this.hasLoadedData = true;
-    } else {
+    }
+
+    // Keep observing — first activation loads data, subsequent ones sync team selection
+    if (tabPanel) {
       const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
           if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
@@ -249,18 +253,37 @@ export class TeamPlanningView {
               if (!this.hasLoadedData) {
                 this.loadData();
                 this.hasLoadedData = true;
+              } else {
+                this.syncTeamSelection();
               }
-              observer.disconnect();
               break;
             }
           }
         }
       });
-
-      if (tabPanel) {
-        observer.observe(tabPanel, { attributes: true });
-      }
+      observer.observe(tabPanel, { attributes: true, attributeFilter: ['class'] });
     }
+  }
+
+  /** Re-read wbl-selected-team and update picker if it changed since last visit */
+  private syncTeamSelection(): void {
+    const savedTeam = localStorage.getItem('wbl-selected-team');
+    if (!savedTeam) return;
+
+    const match = Array.from(this.teamLookup.values()).find(t => t.nickname === savedTeam);
+    if (!match || match.id === this.selectedTeamId) return;
+
+    this.selectedTeamId = match.id;
+    const display = this.container.querySelector('#tp-team-display');
+    if (display) display.textContent = match.nickname;
+
+    const menu = this.container.querySelector<HTMLElement>('#tp-team-menu');
+    if (menu) {
+      menu.querySelectorAll('.filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+      menu.querySelector(`.filter-dropdown-item[data-value="${match.id}"]`)?.classList.add('selected');
+    }
+
+    this.loadOverrides().then(() => this.buildAndRenderGrid());
   }
 
   private renderLayout(): void {
@@ -2140,6 +2163,10 @@ export class TeamPlanningView {
     const currentPlayerTfr = (rawTfr !== undefined && currentCellData && rawTfr > currentCellData.rating) ? rawTfr : undefined;
     const currentPlayerDevOverride = currentPlayerId ? this.devOverrides.has(currentPlayerId) : false;
 
+    // Estimate extension salary: $1M per projected WAR (use rating as WAR proxy)
+    const incumbentRatingForSalary = incumbentCell?.rating ?? 0;
+    const estimatedExtensionSalary = Math.round(incumbentRatingForSalary * 1_000_000);
+
     const context: CellEditContext = {
       position,
       year,
@@ -2150,6 +2177,7 @@ export class TeamPlanningView {
       gameYear: this.gameYear,
       currentPlayerTfr,
       currentPlayerDevOverride,
+      estimatedExtensionSalary,
     };
 
     // Build org player list sorted by TFR/TR (highest first)
@@ -2231,6 +2259,7 @@ export class TeamPlanningView {
 
     if (result.action === 'extend' && result.player) {
       const years = result.extensionYears ?? 1;
+      const extensionSalary = result.extensionSalary ?? 0;
       const yearRange = this.getYearRange();
       const startIndex = yearRange.indexOf(year);
       const records: TeamPlanningOverrideRecord[] = [];
@@ -2253,7 +2282,7 @@ export class TeamPlanningView {
           playerName: `${result.player.firstName} ${result.player.lastName}`,
           age: baseAge + yearOffset,
           rating: incumbentRating,
-          salary: 0,
+          salary: extensionSalary,
           contractStatus: i === years - 1 ? 'final-year' : 'under-contract',
           sourceType: 'extend',
           createdAt: Date.now(),
@@ -2768,6 +2797,9 @@ export class TeamPlanningView {
           return details;
         };
 
+        // Track seen playerIds to avoid duplicates across surplus + general scans
+        const seenPlayerIds = new Set<number>();
+
         // Check their surplus prospects
         for (const prospect of otherProfile.surplusProspects) {
           if (!positionFitsNeed(prospect.positionLabel, need.position, prospect.isPitcher)) continue;
@@ -2783,6 +2815,7 @@ export class TeamPlanningView {
             + (complementary ? 20 : 0)
             + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0);
 
+          seenPlayerIds.add(prospect.playerId);
           targets.push({
             player: prospect,
             isProspect: true,
@@ -2790,6 +2823,7 @@ export class TeamPlanningView {
             sourceTeamNeeds: otherProfile.needs,
             complementary,
             matchDetails,
+            targetTier: complementary ? 1 : 2,
           });
         }
 
@@ -2804,6 +2838,7 @@ export class TeamPlanningView {
             + (complementary ? 20 : 0)
             + (mlbPlayer.isExpiring ? 3 : 0);
 
+          seenPlayerIds.add(mlbPlayer.playerId);
           targets.push({
             player: mlbPlayer,
             isProspect: false,
@@ -2811,13 +2846,194 @@ export class TeamPlanningView {
             sourceTeamNeeds: otherProfile.needs,
             complementary,
             matchDetails,
+            targetTier: complementary ? 1 : 2,
           });
+        }
+
+        // --- General targets: non-surplus MLB roster players ---
+        const otherRanking = this.cachedAllRankings.find(r => r.teamId === otherTeamId);
+        if (otherRanking) {
+          const isPitcherNeed = need.section === 'rotation' || need.section === 'bullpen';
+          if (isPitcherNeed) {
+            const rosterPitchers = need.section === 'rotation'
+              ? otherRanking.rotation.map((p, i) => ({ ...p, posLabel: ROTATION_POSITIONS[i] }))
+              : otherRanking.bullpen.slice(0, 3).map((p, i) => ({ ...p, posLabel: BULLPEN_POSITIONS[i] }));
+            for (const p of rosterPitchers) {
+              if (seenPlayerIds.has(p.playerId)) continue;
+              if (!positionFitsNeed(p.posLabel, need.position, true)) continue;
+              if (p.trueRating < 2.5 || p.trueRating <= need.bestCurrentRating) continue;
+              // Future year: check contract covers target year
+              if (yearOffset > 0) {
+                const c = this.contractMap.get(p.playerId);
+                if (c && contractService.getYearsRemaining(c) <= yearOffset) continue;
+              }
+              const contract = this.contractMap.get(p.playerId);
+              const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
+              const player = this.playerMap.get(p.playerId);
+              const matchDetails = collectMatchDetails();
+              const complementary = matchDetails.length > 0;
+              const matchScore = p.trueRating * 10 + (complementary ? 20 : 0);
+
+              seenPlayerIds.add(p.playerId);
+              targets.push({
+                player: {
+                  playerId: p.playerId,
+                  name: p.name,
+                  positionLabel: p.posLabel,
+                  trueRating: p.trueRating,
+                  age: (player?.age ?? 0) + yearOffset,
+                  contractYearsRemaining: Math.max(0, yearsLeft - yearOffset),
+                  isExpiring: yearsLeft - yearOffset === 1,
+                  orgId: otherTeamId,
+                  orgName: otherRanking.teamName,
+                  isPitcher: true,
+                  replacementName: '',
+                  replacementTfr: 0,
+                } as SurplusMlbPlayer,
+                isProspect: false,
+                matchScore,
+                sourceTeamNeeds: otherProfile.needs,
+                complementary,
+                matchDetails,
+                targetTier: complementary ? 1 : 3,
+              });
+            }
+          } else {
+            for (const b of otherRanking.lineup) {
+              if (seenPlayerIds.has(b.playerId)) continue;
+              if (!positionFitsNeed(b.positionLabel, need.position, false)) continue;
+              if (b.trueRating < 2.5 || b.trueRating <= need.bestCurrentRating) continue;
+              if (yearOffset > 0) {
+                const c = this.contractMap.get(b.playerId);
+                if (c && contractService.getYearsRemaining(c) <= yearOffset) continue;
+              }
+              const contract = this.contractMap.get(b.playerId);
+              const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
+              const player = this.playerMap.get(b.playerId);
+              const matchDetails = collectMatchDetails();
+              const complementary = matchDetails.length > 0;
+              const matchScore = b.trueRating * 10 + (complementary ? 20 : 0);
+
+              seenPlayerIds.add(b.playerId);
+              targets.push({
+                player: {
+                  playerId: b.playerId,
+                  name: b.name,
+                  positionLabel: b.positionLabel,
+                  trueRating: b.trueRating,
+                  age: (player?.age ?? 0) + yearOffset,
+                  contractYearsRemaining: Math.max(0, yearsLeft - yearOffset),
+                  isExpiring: yearsLeft - yearOffset === 1,
+                  orgId: otherTeamId,
+                  orgName: otherRanking.teamName,
+                  isPitcher: false,
+                  replacementName: '',
+                  replacementTfr: 0,
+                } as SurplusMlbPlayer,
+                isProspect: false,
+                matchScore,
+                sourceTeamNeeds: otherProfile.needs,
+                complementary,
+                matchDetails,
+                targetTier: complementary ? 1 : 3,
+              });
+            }
+          }
+
+          // --- General targets: non-surplus prospects ---
+          const otherTeamHitterProspects = this.cachedAllHitterProspects.filter(p => p.orgId === otherTeamId);
+          const otherTeamPitcherProspects = this.cachedAllPitcherProspects.filter(p => p.orgId === otherTeamId);
+
+          if (isPitcherNeed) {
+            for (const prospect of otherTeamPitcherProspects) {
+              if (seenPlayerIds.has(prospect.playerId)) continue;
+              if (prospect.trueFutureRating < 2.5) continue;
+              const pitches = prospect.scoutingRatings?.pitches ?? 0;
+              const stamina = prospect.scoutingRatings?.stamina ?? 0;
+              const isSP = pitches >= 3 && stamina >= 40;
+              const posLabel = isSP ? 'SP' : 'RP';
+              if (!positionFitsNeed(posLabel, need.position, true)) continue;
+              const eta = this.estimateETA({ level: prospect.level, trueFutureRating: prospect.trueFutureRating });
+              if (eta > yearOffset + 1) continue;
+
+              const matchDetails = collectMatchDetails();
+              const complementary = matchDetails.length > 0;
+              const matchScore = prospect.trueFutureRating * 10
+                + (complementary ? 20 : 0)
+                + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0);
+
+              seenPlayerIds.add(prospect.playerId);
+              targets.push({
+                player: {
+                  playerId: prospect.playerId,
+                  name: prospect.name,
+                  position: 1,
+                  positionLabel: posLabel,
+                  tfr: prospect.trueFutureRating,
+                  age: prospect.age,
+                  level: prospect.level,
+                  orgId: otherTeamId,
+                  orgName: otherRanking.teamName,
+                  blockingPlayer: '',
+                  blockingRating: 0,
+                  blockingYears: 0,
+                  isPitcher: true,
+                } as SurplusProspect,
+                isProspect: true,
+                matchScore,
+                sourceTeamNeeds: otherProfile.needs,
+                complementary,
+                matchDetails,
+                targetTier: complementary ? 1 : 3,
+              });
+            }
+          } else {
+            for (const prospect of otherTeamHitterProspects) {
+              if (seenPlayerIds.has(prospect.playerId)) continue;
+              if (prospect.trueFutureRating < 2.5) continue;
+              const posLabel = POSITION_CODE_TO_LABEL[prospect.position] ?? 'DH';
+              if (!positionFitsNeed(posLabel, need.position, false)) continue;
+              const eta = this.estimateETA({ level: prospect.level, trueFutureRating: prospect.trueFutureRating });
+              if (eta > yearOffset + 1) continue;
+
+              const matchDetails = collectMatchDetails();
+              const complementary = matchDetails.length > 0;
+              const matchScore = prospect.trueFutureRating * 10
+                + (complementary ? 20 : 0)
+                + (prospect.level === 'AAA' ? 5 : prospect.level === 'AA' ? 3 : 0);
+
+              seenPlayerIds.add(prospect.playerId);
+              targets.push({
+                player: {
+                  playerId: prospect.playerId,
+                  name: prospect.name,
+                  position: prospect.position,
+                  positionLabel: posLabel,
+                  tfr: prospect.trueFutureRating,
+                  age: prospect.age,
+                  level: prospect.level,
+                  orgId: otherTeamId,
+                  orgName: prospect.parentOrg ?? otherRanking.teamName,
+                  blockingPlayer: '',
+                  blockingRating: 0,
+                  blockingYears: 0,
+                  isPitcher: false,
+                } as SurplusProspect,
+                isProspect: true,
+                matchScore,
+                sourceTeamNeeds: otherProfile.needs,
+                complementary,
+                matchDetails,
+                targetTier: complementary ? 1 : 3,
+              });
+            }
+          }
         }
       }
 
-      // Sort: complementary first, then by score
+      // Sort: tier asc (complementary > surplus > general), then by score desc
       targets.sort((a, b) => {
-        if (a.complementary !== b.complementary) return a.complementary ? -1 : 1;
+        if (a.targetTier !== b.targetTier) return a.targetTier - b.targetTier;
         return b.matchScore - a.matchScore;
       });
 
@@ -2826,7 +3042,7 @@ export class TeamPlanningView {
           position: need.position,
           section: need.section,
           severity: need.severity,
-          targets: targets.slice(0, 8),
+          targets: targets.slice(0, 12),
         });
       }
     }
@@ -2979,6 +3195,7 @@ export class TeamPlanningView {
 
   private renderTradeTargetCard(target: TradeTarget): string {
     const twoWayClass = target.complementary ? ' market-two-way' : '';
+    const generalClass = target.targetTier === 3 ? ' market-general' : '';
     const matchBadge = target.complementary && target.matchDetails.length > 0
       ? `<span class="market-match-badge" title="${target.matchDetails.map(d => `${d.positionLabel} ${this.abbreviateName(d.name)} (${d.rating.toFixed(1)})`).join(', ')}">2-Way: send ${this.abbreviateName(target.matchDetails[0].name)} (${target.matchDetails[0].rating.toFixed(1)})</span>`
       : '';
@@ -2986,7 +3203,7 @@ export class TeamPlanningView {
     if (target.isProspect) {
       const p = target.player as SurplusProspect;
       return `
-        <div class="market-player-card market-prospect-card${twoWayClass}">
+        <div class="market-player-card market-prospect-card${twoWayClass}${generalClass}">
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.tfr)} cell-rating">${p.tfr.toFixed(1)} TFR</span>
@@ -2997,7 +3214,7 @@ export class TeamPlanningView {
     } else {
       const p = target.player as SurplusMlbPlayer;
       return `
-        <div class="market-player-card market-mlb-card${twoWayClass}">
+        <div class="market-player-card market-mlb-card${twoWayClass}${generalClass}">
           <span class="market-pos-badge">${p.positionLabel}</span>
           <span class="cell-name-link" data-profile-id="${p.playerId}" title="ID: ${p.playerId}">${this.abbreviateName(p.name)}</span>
           <span class="badge ${this.getRatingClass(p.trueRating)} cell-rating">${p.trueRating.toFixed(1)} TR</span>

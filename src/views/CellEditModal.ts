@@ -25,6 +25,7 @@ export interface CellEditResult {
   player?: Player;
   sourceType?: OverrideSourceType;
   extensionYears?: number;
+  extensionSalary?: number;
   rating?: number;
   level?: string;
   devOverridePlayerId?: number;
@@ -40,6 +41,7 @@ export interface CellEditContext {
   gameYear: number;
   currentPlayerTfr?: number;
   currentPlayerDevOverride?: boolean;
+  estimatedExtensionSalary?: number;
 }
 
 type OrgSortColumn = 'name' | 'position' | 'age' | 'rating';
@@ -111,6 +113,10 @@ export class CellEditModal {
 
       let extendSection = '';
       if (hasIncumbent && incumbentPlayer) {
+        const estSalary = context.estimatedExtensionSalary ?? 0;
+        const estSalaryDisplay = estSalary >= 1_000_000
+          ? (estSalary / 1_000_000).toFixed(1)
+          : (estSalary / 1_000).toFixed(0);
         extendSection = `
           <div class="cell-edit-action-section">
             <button class="cell-edit-action-btn" data-action="extend-toggle">
@@ -118,6 +124,10 @@ export class CellEditModal {
               Extend ${context.incumbentCell!.playerName}
             </button>
             <div class="cell-edit-extend-options" style="display:none;">
+              <div class="extend-salary-row">
+                <label class="extend-label">Annual salary ($M):</label>
+                <input type="number" class="extend-salary-input" value="${estSalaryDisplay}" min="0" step="0.5" />
+              </div>
               <div class="extend-label">Extension length:</div>
               <div class="extend-buttons">
                 ${[1,2,3,4,5].map(y =>
@@ -191,11 +201,15 @@ export class CellEditModal {
       modal.querySelectorAll<HTMLButtonElement>('.extend-year-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           const years = parseInt(btn.dataset.years!, 10);
+          const salaryInput = modal.querySelector<HTMLInputElement>('.extend-salary-input');
+          const salaryM = parseFloat(salaryInput?.value ?? '0') || 0;
+          const extensionSalary = salaryM * 1_000_000;
           this.resolve({
             action: 'extend',
             player: incumbentPlayer ?? undefined,
             sourceType: 'extend',
             extensionYears: years,
+            extensionSalary,
             rating: context.incumbentCell?.rating ?? 0,
           });
         });
