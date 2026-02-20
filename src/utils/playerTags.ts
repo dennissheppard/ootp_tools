@@ -16,7 +16,7 @@ import type { PitcherProfileData } from '../views/PitcherProfileModal';
 export interface PlayerTag {
   id: string;
   label: string;
-  color: 'green' | 'amber' | 'red';
+  color: 'green' | 'amber' | 'red' | 'blue';
   tooltip: string;
 }
 
@@ -31,6 +31,8 @@ export interface TagContext {
   blockingYears?: number;
   /** FIP percentile (0-100, higher = better pitcher). Pitcher-only. */
   fipPercentile?: number;
+  /** 1-based rank in the league-wide top 100 prospect list (undefined if not top 100) */
+  top100Rank?: number;
 }
 
 // ============================================================================
@@ -41,6 +43,14 @@ export function computeBatterTags(data: BatterProfileData, ctx: TagContext): Pla
   const tags: PlayerTag[] = [];
 
   const devRatio = computeDevRatio(data.scoutOvr, data.scoutPot);
+
+  // Top 100 Prospect
+  if (ctx.top100Rank !== undefined) {
+    tags.push({
+      id: 'top-100', label: `Top 100 (#${ctx.top100Rank})`, color: 'blue',
+      tooltip: `Ranked #${ctx.top100Rank} among all league prospects by True Future Rating`,
+    });
+  }
 
   // Overperformer: overall TR star rating exceeds TFR
   if (isOverperformer(data.trueRating, data.trueFutureRating)) {
@@ -132,6 +142,14 @@ export function computePitcherTags(data: PitcherProfileData, ctx: TagContext): P
   const tags: PlayerTag[] = [];
 
   const devRatio = computeDevRatio(data.scoutOvr, data.scoutPot);
+
+  // Top 100 Prospect
+  if (ctx.top100Rank !== undefined) {
+    tags.push({
+      id: 'top-100', label: `Top 100 (#${ctx.top100Rank})`, color: 'blue',
+      tooltip: `Ranked #${ctx.top100Rank} among all league prospects by True Future Rating`,
+    });
+  }
 
   // Overperformer: overall TR star rating exceeds TFR
   if (isOverperformer(data.trueRating, data.trueFutureRating)) {

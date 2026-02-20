@@ -141,6 +141,7 @@ export class PitcherProfileModal {
   private blockingPlayer: string | undefined;
   private blockingRating: number | undefined;
   private blockingYears: number | undefined;
+  private top100Rank: number | undefined;
 
   // Sorted league FIP distribution (ascending) for percentile calculation
   private leagueFipDistribution: number[] = [];
@@ -289,6 +290,9 @@ export class PitcherProfileModal {
       if (generation !== this.showGeneration) return;
       tfrEntry = farmData.prospects.find(p => p.playerId === data.playerId);
     } catch { /* TFR data not available */ }
+
+    this.top100Rank = (tfrEntry?.percentileRank !== undefined && tfrEntry.percentileRank <= 100)
+      ? tfrEntry.percentileRank : undefined;
 
     // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
     resolveCanonicalPitcherData(data, playerTR, tfrEntry);
@@ -1028,6 +1032,7 @@ export class PitcherProfileModal {
       blockingRating: this.blockingRating,
       blockingYears: this.blockingYears,
       fipPercentile,
+      top100Rank: this.top100Rank,
     };
     const tagsHtml = renderTagsHtml(computePitcherTags(data, tagCtx));
 
