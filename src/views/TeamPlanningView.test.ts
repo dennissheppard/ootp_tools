@@ -28,6 +28,8 @@ function createViewStub(): AnyView {
   view.canonicalBatterTrMap = new Map<number, number>();
   view.playerAgeMap = new Map<number, number>();
   view.playerServiceYearsMap = new Map<number, number>();
+  view.tradeFlags = new Map<number, 'tradeable' | 'not-tradeable'>();
+  view.needOverrides = new Set<string>();
   view.buildAndRenderGrid = jest.fn().mockResolvedValue(undefined);
   view.cellEditModal = { show: jest.fn() };
   return view;
