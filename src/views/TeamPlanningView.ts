@@ -200,7 +200,7 @@ export class TeamPlanningView {
   private playerMap: Map<number, Player> = new Map();
   private contractMap: Map<number, Contract> = new Map();
   private overrides: Map<string, TeamPlanningOverrideRecord> = new Map();
-  private devOverrides: Set<number> = new Set();
+  private devOverrides: Map<number, number> = new Map(); // playerId → effectiveFromYear
   private tradeFlags: Map<number, 'tradeable' | 'not-tradeable'> = new Map();
   private needOverrides: Set<string> = new Set();
   private playerRatingMap: Map<number, number> = new Map();
@@ -599,14 +599,18 @@ export class TeamPlanningView {
 
       this.prospectCurrentRatingMap.clear();
       for (const h of farmHitters) {
-        const devRating = this.devOverrides.has(h.playerId) ? h.trueFutureRating : this.computeProspectCurrentRating(h);
+        const devFromYear = this.devOverrides.get(h.playerId);
+        const isDevActiveNow = devFromYear !== undefined && devFromYear <= this.gameYear;
+        const devRating = isDevActiveNow ? h.trueFutureRating : this.computeProspectCurrentRating(h);
         const canonicalTr = canonicalBatterTr.get(h.playerId)?.trueRating;
-        this.prospectCurrentRatingMap.set(h.playerId, canonicalTr ?? devRating);
+        this.prospectCurrentRatingMap.set(h.playerId, isDevActiveNow ? devRating : (canonicalTr ?? devRating));
       }
       for (const p of orgPitchers) {
-        const devRating = this.devOverrides.has(p.playerId) ? p.trueFutureRating : this.computeProspectCurrentRating(p);
+        const devFromYear = this.devOverrides.get(p.playerId);
+        const isDevActiveNow = devFromYear !== undefined && devFromYear <= this.gameYear;
+        const devRating = isDevActiveNow ? p.trueFutureRating : this.computeProspectCurrentRating(p);
         const canonicalTr = canonicalPitcherTr.get(p.playerId)?.trueRating;
-        this.prospectCurrentRatingMap.set(p.playerId, canonicalTr ?? devRating);
+        this.prospectCurrentRatingMap.set(p.playerId, isDevActiveNow ? devRating : (canonicalTr ?? devRating));
       }
 
       // Build player age map for buildRow projections
@@ -824,7 +828,11 @@ export class TeamPlanningView {
       let candidates: Candidate[] = [];
 
       for (const prospect of available) {
-        const prospectCurrentRating = this.prospectCurrentRatingMap.get(prospect.playerId) ?? prospect.trueFutureRating;
+        const devFromYear = this.devOverrides.get(prospect.playerId);
+        const isDevActive = devFromYear !== undefined && this.gameYear + yi >= devFromYear;
+        const prospectCurrentRating = isDevActive
+          ? prospect.trueFutureRating
+          : (this.prospectCurrentRatingMap.get(prospect.playerId) ?? prospect.trueFutureRating);
         const prospectProjected = this.projectPlanningRating(prospectCurrentRating, prospect.trueFutureRating, prospect.age, yi);
 
         for (const slot of slotsToFill) {
@@ -914,7 +922,9 @@ export class TeamPlanningView {
         for (const p of spProspects) {
           if (overridePlayerIds.has(p.playerId)) continue; // Already placed by user override
           if (pitcherETA.get(p.playerId)! > yi || p.age + yi < MIN_PROSPECT_GRID_AGE) continue;
-          const pCurrent = this.prospectCurrentRatingMap.get(p.playerId) ?? p.trueFutureRating;
+          const pDevFromYear = this.devOverrides.get(p.playerId);
+          const isPDevActive = pDevFromYear !== undefined && this.gameYear + yi >= pDevFromYear;
+          const pCurrent = isPDevActive ? p.trueFutureRating : (this.prospectCurrentRatingMap.get(p.playerId) ?? p.trueFutureRating);
           const pProjected = this.projectPlanningRating(pCurrent, p.trueFutureRating, p.age, yi);
           if (pProjected <= incumbentRating) continue;
           rotationCandidates.push({ row, prospect: p, projected: pProjected, improvement: pProjected - incumbentRating });
@@ -948,7 +958,9 @@ export class TeamPlanningView {
           if (overridePlayerIds.has(p.playerId)) continue; // Already placed by user override
           if (usedThisYear.has(p.playerId)) continue;
           if (pitcherETA.get(p.playerId)! > yi || p.age + yi < MIN_PROSPECT_GRID_AGE) continue;
-          const pCurrent = this.prospectCurrentRatingMap.get(p.playerId) ?? p.trueFutureRating;
+          const bpDevFromYear = this.devOverrides.get(p.playerId);
+          const isBpDevActive = bpDevFromYear !== undefined && this.gameYear + yi >= bpDevFromYear;
+          const pCurrent = isBpDevActive ? p.trueFutureRating : (this.prospectCurrentRatingMap.get(p.playerId) ?? p.trueFutureRating);
           const pProjected = this.projectPlanningRating(pCurrent, p.trueFutureRating, p.age, yi);
           if (pProjected <= incumbentRating) continue;
           bullpenCandidates.push({ row, prospect: p, projected: pProjected, improvement: pProjected - incumbentRating });
@@ -1073,8 +1085,9 @@ export class TeamPlanningView {
         // Project rating using TFR for growth, aging for decline
         const tfr = this.playerTfrMap.get(playerId!);
         const peakRating = (tfr !== undefined && tfr > rating) ? tfr : rating;
-        // Dev override: player is already at peak — skip the growth phase
-        const effectiveCurrentRating = this.devOverrides.has(playerId!) ? peakRating : rating;
+        // Dev override: player is already at peak from the effective year onward — skip growth phase
+        const devFromYear = this.devOverrides.get(playerId!);
+        const effectiveCurrentRating = (devFromYear !== undefined && this.gameYear + yearOffset >= devFromYear) ? peakRating : rating;
         const projectedRating = this.projectPlanningRating(effectiveCurrentRating, peakRating, baseAge, yearOffset);
 
         cells.set(year, {
@@ -1927,7 +1940,7 @@ export class TeamPlanningView {
     for (const rec of records) {
       this.overrides.set(rec.key, rec);
     }
-    this.devOverrides = new Set(devPlayerIds);
+    this.devOverrides = new Map(devPlayerIds.map(r => [r.playerId, r.effectiveFromYear]));
     this.loadTradeFlags();
     this.loadNeedOverrides();
   }
@@ -1980,6 +1993,19 @@ export class TeamPlanningView {
       let effectiveRating = override.rating;
       if (effectiveRating <= 0 && override.playerId) {
         effectiveRating = this.playerRatingMap.get(override.playerId) ?? 0;
+      }
+
+      // If the player has a dev override and this cell is at or after the effective year,
+      // recompute from TFR — the stored rating was computed at placement time and is stale.
+      const devFromYear = override.playerId ? this.devOverrides.get(override.playerId) : undefined;
+      if (devFromYear !== undefined && override.year >= devFromYear) {
+        const tfr = this.playerTfrMap.get(override.playerId!);
+        if (tfr !== undefined) {
+          const yearOffset = override.year - this.gameYear;
+          const baseAge = override.age - yearOffset; // undo the age-at-year offset to get current age
+          const peakRating = Math.max(tfr, effectiveRating);
+          effectiveRating = this.projectPlanningRating(peakRating, peakRating, baseAge, yearOffset);
+        }
       }
 
       row.cells.set(override.year, {
@@ -2249,7 +2275,8 @@ export class TeamPlanningView {
         const currentRating = this.resolveCurrentRatingForProjection(p.id);
         const tfr = this.playerTfrMap.get(p.id);
         const peakRating = (tfr !== undefined && tfr > currentRating) ? tfr : currentRating;
-        const effectiveCurrent = this.devOverrides.has(p.id) ? Math.max(currentRating, peakRating) : currentRating;
+        const pDevFromYear = this.devOverrides.get(p.id);
+        const effectiveCurrent = (pDevFromYear !== undefined && this.gameYear + yearOffset >= pDevFromYear) ? Math.max(currentRating, peakRating) : currentRating;
         const projRating = this.projectPlanningRating(effectiveCurrent, peakRating, baseAge, yearOffset);
         projectedDataMap.set(p.id, { projectedAge: baseAge + yearOffset, projectedRating: projRating });
       }
@@ -2265,8 +2292,8 @@ export class TeamPlanningView {
     if (result.action === 'cancel') return;
 
     if (result.action === 'dev-override-set' && result.devOverridePlayerId) {
-      await indexedDBService.savePlayerDevOverride(result.devOverridePlayerId);
-      this.devOverrides.add(result.devOverridePlayerId);
+      await indexedDBService.savePlayerDevOverride(result.devOverridePlayerId, year);
+      this.devOverrides.set(result.devOverridePlayerId, year);
       await this.buildAndRenderGrid();
       return;
     }
@@ -2381,7 +2408,7 @@ export class TeamPlanningView {
       const currentRating = this.resolveCurrentRatingForProjection(player.id);
       const tfr = this.playerTfrMap.get(player.id);
       const peakRating = (tfr !== undefined && tfr > currentRating) ? tfr : currentRating;
-      const effectiveCurrent = this.devOverrides.has(player.id) ? Math.max(currentRating, peakRating) : currentRating;
+      const playerDevFromYear = this.devOverrides.get(player.id);
       // For salary estimation, use TFR-inclusive rating (consistent with auto-fill salary logic)
       const salaryBasisRating = this.resolveBestKnownRating(player.id, year);
 
@@ -2466,7 +2493,10 @@ export class TeamPlanningView {
         const yearOffset = targetYear - this.gameYear;
         const key = `${this.selectedTeamId}_${position}_${targetYear}`;
 
-        // Project rating: grow from current ability toward peak, then age decline
+        // Project rating: grow from current ability toward peak, then age decline.
+        // Apply dev override only from the effective year onward.
+        const isDevActiveAtYear = playerDevFromYear !== undefined && targetYear >= playerDevFromYear;
+        const effectiveCurrent = isDevActiveAtYear ? Math.max(currentRating, peakRating) : currentRating;
         const cellRating = this.projectPlanningRating(effectiveCurrent, peakRating, baseAge, yearOffset);
 
         // Compute salary: use contract salary if available, otherwise estimate from team control

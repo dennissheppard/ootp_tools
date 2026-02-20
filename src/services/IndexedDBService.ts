@@ -199,6 +199,7 @@ export interface TeamPlanningOverrideRecord {
 export interface PlayerDevOverrideRecord {
   key: string;             // playerId as string
   playerId: number;
+  effectiveFromYear: number; // grid year from which dev override applies (forward only)
 }
 
 class IndexedDBService {
@@ -1592,7 +1593,7 @@ class IndexedDBService {
   }
   // Player development override methods (v11)
 
-  async savePlayerDevOverride(playerId: number): Promise<void> {
+  async savePlayerDevOverride(playerId: number, effectiveFromYear: number): Promise<void> {
     await this.init();
     if (!this.db) throw new Error('Database not initialized');
 
@@ -1601,7 +1602,7 @@ class IndexedDBService {
       return;
     }
 
-    const record: PlayerDevOverrideRecord = { key: String(playerId), playerId };
+    const record: PlayerDevOverrideRecord = { key: String(playerId), playerId, effectiveFromYear };
     return new Promise((resolve, reject) => {
       const transaction = this.db!.transaction([PLAYER_DEV_OVERRIDES_STORE], 'readwrite');
       const store = transaction.objectStore(PLAYER_DEV_OVERRIDES_STORE);
@@ -1626,7 +1627,7 @@ class IndexedDBService {
     });
   }
 
-  async getAllPlayerDevOverrides(): Promise<number[]> {
+  async getAllPlayerDevOverrides(): Promise<Array<{ playerId: number; effectiveFromYear: number }>> {
     await this.init();
     if (!this.db) return [];
 
@@ -1638,7 +1639,9 @@ class IndexedDBService {
       const request = store.getAll();
       request.onsuccess = () => {
         const records = request.result as PlayerDevOverrideRecord[];
-        resolve(records.map(r => r.playerId));
+        // effectiveFromYear may be absent on records saved before this field was added;
+        // default to 2000 so old overrides continue to apply to all years.
+        resolve(records.map(r => ({ playerId: r.playerId, effectiveFromYear: r.effectiveFromYear ?? 2000 })));
       };
       request.onerror = () => reject(request.error);
     });

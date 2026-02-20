@@ -35,6 +35,7 @@ export class DataManagementView {
   }
 
   private setupAnalyticsToggle(): void {
+    if (location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') return;
     window.addEventListener('wbl:show-analytics', () => {
       const el = this.container.querySelector<HTMLElement>('#analytics-dashboard-container');
       if (el) {

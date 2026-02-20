@@ -280,7 +280,7 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `TeamRatingsView` | Power Rankings / Projections / Standings toggle |
 | `TeamPlanningView` | 6-year roster planning grid with prospects, contracts, trade market |
 | `TradeAnalyzerView` | Multi-asset trade evaluation (MLB + prospects + draft picks) |
-| `DataManagementView` | File uploads with header validation |
+| `DataManagementView` | File uploads with header validation; analytics dashboard (localhost only, double-click logo to open) |
 | `PlayerProfileModal` / `BatterProfileModal` | Deep-dive with Ratings + Development tabs + player tags |
 
 ### Team Ratings & Projected Standings
@@ -343,7 +343,7 @@ rawWins = 81 + deviation × slope
 - **Need overrides** (per-position, localStorage): "Mark as Position of Need" forces a position into the needs list regardless of auto-detection. Set via cell edit modal footer.
 - Trade flags and need overrides are team-scoped (`wbl-tp-tradeFlags-{teamId}`, `wbl-tp-needOverrides-{teamId}`)
 
-**Cell Editing:** Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`). Dev curve overrides: skip growth phase, project at TFR with only aging decline.
+**Cell Editing:** Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`). Dev curve overrides ("Set as fully developed"): skip growth phase, project at TFR with only aging decline — applied from the clicked cell's year forward only, not retroactively to prior grid years. Stored in `player_dev_overrides` IndexedDB store with `effectiveFromYear`.
 - **Canonical rating resolution:** Org picker and manual insert both use a shared best-known rating resolver (grid value, canonical TR, prospect current/TFR maps) to avoid stale `0.5` fallbacks.
 - **Single-slot invariant:** Manual player insert clears that player from any other slot in the same team/year before saving, preventing duplicate placements (e.g. `MR1` + `MR5` in one season).
 
@@ -389,7 +389,7 @@ Three-column layout: Team 1 | Analysis | Team 2. `src/views/TradeAnalyzerView.ts
 | `wbl-tp-needOverrides-{teamId}` | Team Planning per-position need overrides |
 | `wbl-teamratings-viewMode` | Team Ratings mode |
 | `wbl-teamratings-statsMode` | Team Ratings pre-season vs current year stats |
-| `wbl-proj-position` / `wbl-proj-year` | Projections |
+| `wbl-proj-position` | Projections |
 | `wbl-prefs` | True Ratings (JSON blob) |
 | `wbl-active-tab` | Active nav tab |
 
