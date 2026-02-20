@@ -182,6 +182,7 @@ export class BatterProfileModal {
   private blockingPlayer: string | undefined;
   private blockingRating: number | undefined;
   private blockingYears: number | undefined;
+  private top100Rank: number | undefined;
 
   // Cached projected PA for legend display
   private cachedProjPa: number | undefined;
@@ -352,6 +353,9 @@ export class BatterProfileModal {
       if (generation !== this.showGeneration) return;
       tfrEntry = unifiedData.prospects.find(p => p.playerId === data.playerId);
     } catch { /* TFR data not available */ }
+
+    this.top100Rank = (tfrEntry?.percentileRank !== undefined && tfrEntry.percentileRank <= 100)
+      ? tfrEntry.percentileRank : undefined;
 
     // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
     resolveCanonicalBatterData(data, playerTR, tfrEntry);
@@ -1116,6 +1120,7 @@ export class BatterProfileModal {
       blockingPlayer: this.blockingPlayer,
       blockingRating: this.blockingRating,
       blockingYears: this.blockingYears,
+      top100Rank: this.top100Rank,
     };
     const tagsHtml = renderTagsHtml(computeBatterTags(data, tagCtx));
 
@@ -1602,16 +1607,22 @@ export class BatterProfileModal {
     // Prepare Flip Cards
     const contactRating = this.clampRatingForDisplay(ratings.contact);
     const eyeRating = this.clampRatingForDisplay(ratings.eye);
+    const avoidKRating = this.clampRatingForDisplay(ratings.avoidK);
     const powerRating = this.clampRatingForDisplay(ratings.power);
     const gapRating = this.clampRatingForDisplay(ratings.gap);
     const speedRating = this.clampRatingForDisplay(ratings.speed);
 
     const avgFlip = this.renderFlipCell(formatStat(projAvg), contactRating.toString(), `${ratingLabel} Contact`);
     const bbPctFlip = this.renderFlipCell(formatPct(projBbPct), eyeRating.toString(), `${ratingLabel} Eye`);
-    const kPctDisplay = formatPct(projKPct);
+    const kPctFlip = this.renderFlipCell(formatPct(projKPct), avoidKRating.toString(), `${ratingLabel} Avoid K`);
     const hrPctFlip = this.renderFlipCell(formatPct(projHrPct), powerRating.toString(), `${ratingLabel} Power`);
     const doublesFlip = this.renderFlipCell(proj2b.toString(), gapRating.toString(), `${ratingLabel} Gap`);
     const triplesFlip = this.renderFlipCell(proj3b.toString(), speedRating.toString(), `${ratingLabel} Speed`);
+
+    const steRating = this.scoutingData?.stealingAbility ?? data.scoutSTE;
+    const sbFlip = hasSrSte && projSb !== undefined && steRating !== undefined
+      ? this.renderFlipCell(projSb.toString(), this.clampRatingForDisplay(steRating).toString(), `${ratingLabel} SB Ability`)
+      : hasSrSte ? projSb?.toString() ?? '—' : '—';
 
     // Show comparison to actual if we have stats (not in peak mode)
     let comparisonRow = '';
@@ -1718,14 +1729,14 @@ export class BatterProfileModal {
                 <td>${avgFlip}</td>
                 <td>${formatStat(projObp)}</td>
                 <td>${bbPctFlip}</td>
-                <td>${kPctDisplay}</td>
+                <td>${kPctFlip}</td>
                 <td>${hrPctFlip}</td>
                 <td>${Math.round(projPa * projBbPct / 100)}</td>
                 <td>${Math.round(projPa * projKPct / 100)}</td>
                 <td>${projHr}</td>
                 <td>${doublesFlip}</td>
                 <td>${triplesFlip}</td>
-                <td>${hasSrSte ? projSb : '—'}</td>
+                <td>${sbFlip}</td>
                 <td>${formatStat(projSlg)}</td>
                 <td>${formatStat(projOps)}</td>
                 <td><strong>${projOpsPlus}</strong></td>
