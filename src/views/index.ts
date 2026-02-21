@@ -17,3 +17,4 @@ export * from './ProjectionsView';
 export * from './TeamPlanningView';
 export * from './TradeAnalyzerView';
 export * from './AnalyticsDashboardView';
+export * from './AboutView';

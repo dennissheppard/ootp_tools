@@ -4,7 +4,7 @@ import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
 import { indexedDBService } from './services/IndexedDBService';
-import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, TeamPlanningView, TradeAnalyzerView } from './views';
+import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
 import { analyticsService } from './services/AnalyticsService';
 import { setApiCallTracker } from './services/ApiClient';
 import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
@@ -40,10 +40,10 @@ class App {
   constructor(isFirstTime: boolean = false) {
     this.controller = new PlayerController();
 
-    // If first-time user, navigate to Data Management, otherwise restore tab preference
+    // If first-time user, show About page as background while onboarding loads
     if (isFirstTime) {
-      console.log('🎬 Navigating to Data Management for onboarding');
-      this.activeTabId = 'tab-data-management';
+      console.log('🎬 Showing About page for onboarding');
+      this.activeTabId = 'tab-about';
     } else {
       this.restoreTabPreference();
     }
@@ -137,35 +137,35 @@ class App {
 
       <nav class="tabs">
         <button class="tab-button ${this.activeTabId === 'tab-true-ratings' ? 'active' : ''}" data-tab-target="tab-true-ratings">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><circle cx="12" cy="8" r="7"/><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/></svg>
+          <span style="font-size:1.1rem; line-height:1;">🏆</span>
           <span>True Ratings</span>
         </button>
         <button class="tab-button ${this.activeTabId === 'tab-projections' ? 'active' : ''}" data-tab-target="tab-projections">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M23 6l-9.5 9.5-5-5L1 18"/><path d="M17 6h6v6"/></svg>
+          <span style="font-size:1.1rem; line-height:1;">📈</span>
           <span>Player Projections</span>
         </button>
         <button class="tab-button ${this.activeTabId === 'tab-farm-rankings' ? 'active' : ''}" data-tab-target="tab-farm-rankings">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+          <span style="font-size:1.1rem; line-height:1;">🌱</span>
           <span>Farm Rankings</span>
         </button>
         <button class="tab-button ${this.activeTabId === 'tab-team-ratings' ? 'active' : ''}" data-tab-target="tab-team-ratings">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+          <span style="font-size:1.1rem; line-height:1;">👥</span>
           <span>Team Ratings</span>
         </button>
         <button class="tab-button ${this.activeTabId === 'tab-team-planning' ? 'active' : ''}" data-tab-target="tab-team-planning">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+          <span style="font-size:1.1rem; line-height:1;">📅</span>
           <span>Team Planner</span>
         </button>
         <button class="tab-button ${this.activeTabId === 'tab-trade-analyzer' ? 'active' : ''}" data-tab-target="tab-trade-analyzer">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M16 3h5v5"></path><path d="M8 21H3v-5"></path><path d="M21 3l-7.5 7.5"></path><path d="M10.5 13.5L3 21"></path></svg>
+          <span style="font-size:1.1rem; line-height:1;">🔄</span>
           <span>Trade Analyzer</span>
         </button>
         <button class="tab-button ${this.activeTabId === 'tab-calculators' ? 'active' : ''}" data-tab-target="tab-calculators">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          <span style="font-size:1.1rem; line-height:1;">🔢</span>
           <span>Rating Calculators</span>
         </button>
         <button class="tab-button ${this.activeTabId === 'tab-data-management' ? 'active' : ''}" data-tab-target="tab-data-management">
-          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="tab-icon"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          <span style="font-size:1.1rem; line-height:1;">💾</span>
           <span>Data Management</span>
         </button>
       </nav>
@@ -211,6 +211,10 @@ class App {
 
         <section id="tab-data-management" class="tab-panel ${this.activeTabId === 'tab-data-management' ? 'active' : ''}">
           <div id="data-management-container"></div>
+        </section>
+
+        <section id="tab-about" class="tab-panel ${this.activeTabId === 'tab-about' ? 'active' : ''}">
+          <div id="about-container"></div>
         </section>
       </div>
       <div id="loading-container"></div>
@@ -264,6 +268,8 @@ class App {
     this.teamPlanningContainer = teamPlanningContainer;
     this.tradeAnalyzerContainer = tradeAnalyzerContainer;
     new DataManagementView(dataManagementContainer);
+    const aboutContainer = document.querySelector<HTMLElement>('#about-container')!;
+    new AboutView(aboutContainer);
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
     this.rateLimitView = new ErrorView(rateLimitContainer);
@@ -327,9 +333,13 @@ class App {
       await this.tradeAnalyzerView.initWithTrade(myTeamId, targetTeamId, targetPlayerId, targetIsProspect, scrollY, matchPlayerId, matchPlayerIsProspect);
     });
 
-    // Double-click logo to toggle analytics dashboard
+    // Single-click logo → About page; double-click → analytics (localhost only)
     const logo = document.querySelector<HTMLImageElement>('.app-logo');
     if (logo) {
+      logo.style.cursor = 'pointer';
+      logo.addEventListener('click', () => {
+        this.setActiveTab('tab-about');
+      });
       logo.addEventListener('dblclick', () => {
         this.setActiveTab('tab-data-management');
         window.dispatchEvent(new CustomEvent('wbl:show-analytics'));
@@ -338,7 +348,7 @@ class App {
   }
 
   private static readonly TABS_WITHOUT_BADGES = new Set([
-    'tab-calculators', 'tab-data-management', 'tab-search', 'tab-draft',
+    'tab-calculators', 'tab-data-management', 'tab-search', 'tab-draft', 'tab-about',
   ]);
 
   private setupHeaderBadges(): void {
@@ -361,6 +371,7 @@ class App {
     'tab-calculators': 'Calculators',
     'tab-data-management': 'Data Management',
     'tab-search': 'Search',
+    'tab-about': 'About',
   };
 
   private setActiveTab(tabId: string): void {
