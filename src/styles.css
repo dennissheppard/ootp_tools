@@ -67,6 +67,24 @@ body {
   min-height: 100vh;
 }
 
+body::before {
+  content: '';
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 520px;
+  height: 520px;
+  background-image: url('./images/logos/wbl.png');
+  background-repeat: no-repeat;
+  background-size: contain;
+  background-position: center;
+  opacity: 0.02;
+  pointer-events: none;
+  z-index: -1;
+  filter: blur(3px);
+}
+
 /* App container */
 #app {
   max-width: 1200px;

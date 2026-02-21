@@ -65,12 +65,6 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const endpoint = normalizeEndpoint(url);
 
   while (true) {
-    // Snapshot entry count before the fetch so we can locate this specific request's
-    // PerformanceResourceTiming entry afterward, even if multiple calls share the URL.
-    const entryIndex = _apiCallTracker
-      ? (performance.getEntriesByName(url, 'resource') as PerformanceResourceTiming[]).length
-      : 0;
-
     const start = performance.now();
     const response = await fetch(input, init);
     const duration_ms = Math.round(performance.now() - start);
@@ -78,15 +72,15 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
     if (_apiCallTracker) {
       const status = response.status;
       const tracker = _apiCallTracker;
-      // Defer reading the PerformanceResourceTiming entry — decodedBodySize isn't
-      // finalized until the body finishes downloading (after the caller consumes it).
-      // Analytics don't need to be real-time; 5 s is plenty for any normal response.
-      setTimeout(() => {
-        const entries = performance.getEntriesByName(url, 'resource') as PerformanceResourceTiming[];
-        const entry = entries[entryIndex];
-        const bytes = entry?.decodedBodySize || undefined;
-        tracker(endpoint, bytes, status, duration_ms);
-      }, 8000);
+      // Clone the response to measure body size without consuming the original.
+      // PerformanceResourceTiming.decodedBodySize returns 0 for cross-origin requests
+      // without Timing-Allow-Origin, so we read the actual bytes from a cloned body.
+      // Fire-and-forget — never blocks the caller.
+      response.clone().blob().then(blob => {
+        tracker(endpoint, blob.size || undefined, status, duration_ms);
+      }).catch(() => {
+        tracker(endpoint, undefined, status, duration_ms);
+      });
     }
 
     if (response.status !== 429) {
