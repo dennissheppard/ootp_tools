@@ -763,6 +763,9 @@ export class DataManagementView {
         trueRatingsService.getTruePitchingStats(currentYear)
           .then(() => console.log(`✅ API: MLB pitching ${currentYear}`))
           .catch(err => console.warn(`⚠️ API: MLB pitching ${currentYear} failed:`, err)),
+        trueRatingsService.getTrueBattingStats(currentYear)
+          .then(() => console.log(`✅ API: MLB batting ${currentYear}`))
+          .catch(err => console.warn(`⚠️ API: MLB batting ${currentYear} failed:`, err)),
       ];
       for (const level of levels) {
         apiPromises.push(
@@ -862,6 +865,16 @@ export class DataManagementView {
 
     document.body.appendChild(overlay);
     this.onboardingOverlay = overlay;
+
+    // Block all clicks (navigation, tabs, buttons) until onboarding completes.
+    // Scroll is unaffected — it uses wheel/touch events, not click.
+    const clickBlocker = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    document.addEventListener('click', clickBlocker, true);
+    this.onboardingClickBlocker = clickBlocker;
+
     this.rotateOnboardingMessages();
   }
 
@@ -937,21 +950,21 @@ export class DataManagementView {
     modal.innerHTML = `
       <div class="modal" style="width: min(580px, 92vw);">
         <div class="modal-header">
-          <h3 class="modal-title">✅ Setup Complete — Welcome!</h3>
+          <h3 class="modal-title">✅ Setup Complete ⚾ Welcome!</h3>
         </div>
         <div class="modal-body" style="padding: 1.5rem; line-height: 1.75;">
           <p style="margin: 0 0 0.9rem;">
-            <strong>${yearCount} years of data loaded</strong> (${LEAGUE_START_YEAR}–${currentYear}) —
+            <strong>${yearCount} years of data loaded</strong> (${LEAGUE_START_YEAR}–${currentYear}):
             MLB and minor league stats are now cached locally for instant access${totalLoaded > 0 ? ` (${totalLoaded} datasets)` : ''}.
           </p>
           <p style="margin: 0 0 0.9rem;">${osaLine}</p>
           <p style="margin: 0 0 0.9rem;">
             <strong>Have your own scouting reports?</strong> Head to <em>Data Management</em> any time
-            to upload pitcher or hitter scouting CSVs. The app works great with just OSA data —
-            custom scouts are optional but unlock the full TR/TFR blend.
+            to upload pitcher or hitter scouting CSVs. The app works great with just OSA data!
+            Custom scouting is optional but will improve the TR/TFR blend.
           </p>
           <p style="margin: 0; padding: 0.75rem 1rem; background: rgba(0,186,124,0.1); border-left: 3px solid var(--color-primary); border-radius: 4px; font-size: 0.88rem;">
-            💡 Scroll down the About page to see how True Ratings, TFR, and projections work —
+            💡 Scroll down the About page to see how True Ratings, TFR, and projections work,
             then click any section card to jump straight in.
           </p>
         </div>

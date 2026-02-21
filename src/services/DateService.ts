@@ -8,28 +8,48 @@ const SEASON_START_MONTH = 4;
 const SEASON_START_DAY = 1;
 const SEASON_DAYS = 183;
 
+const DATE_CACHE_KEY = 'wbl-game-date-cache';
+const DATE_CACHE_TTL_MS = 60 * 60 * 1000; // 60 minutes
+
 class DateService {
   private cachedDate: string | null = null;
   private fetchPromise: Promise<string> | null = null;
 
   /**
    * Fetch the current game date from the API.
-   * Caches the result so subsequent calls return immediately.
+   * Caches in memory for the session lifetime and in localStorage for 60 minutes
+   * across page reloads, so the API is hit at most once per hour.
    */
   async getCurrentDate(): Promise<string> {
-    if (this.cachedDate) {
-      return this.cachedDate;
-    }
+    // In-memory hit (fastest path)
+    if (this.cachedDate) return this.cachedDate;
 
-    // If a fetch is already in progress, wait for it
-    if (this.fetchPromise) {
-      return this.fetchPromise;
-    }
+    // localStorage hit — still fresh?
+    try {
+      const stored = localStorage.getItem(DATE_CACHE_KEY);
+      if (stored) {
+        const { date, ts } = JSON.parse(stored) as { date: string; ts: number };
+        if (typeof date === 'string' && Date.now() - ts < DATE_CACHE_TTL_MS) {
+          this.cachedDate = date;
+          return date;
+        }
+      }
+    } catch { /* ignore parse/access errors */ }
+
+    // Deduplicate concurrent in-flight requests
+    if (this.fetchPromise) return this.fetchPromise;
 
     this.fetchPromise = this.fetchDate();
-    this.cachedDate = await this.fetchPromise;
+    const date = await this.fetchPromise;
+    this.cachedDate = date;
     this.fetchPromise = null;
-    return this.cachedDate;
+
+    // Persist with a timestamp so the TTL survives reloads
+    try {
+      localStorage.setItem(DATE_CACHE_KEY, JSON.stringify({ date, ts: Date.now() }));
+    } catch { /* storage quota or private-mode — fine, in-memory cache still works */ }
+
+    return date;
   }
 
   /**
@@ -140,6 +160,7 @@ class DateService {
   clearCache(): void {
     this.cachedDate = null;
     this.fetchPromise = null;
+    try { localStorage.removeItem(DATE_CACHE_KEY); } catch { /* ignore */ }
   }
 }
 
