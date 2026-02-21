@@ -258,6 +258,9 @@ export class AboutView {
         ${this.renderTfrSection()}
         ${this.renderProjectionsSection()}
         ${this.renderAppOverview()}
+        <div style="text-align:center; padding:2rem 0 0; color:var(--color-text-muted); font-size:0.75rem; opacity:0.5;">
+          Build ${__APP_VERSION__}
+        </div>
       </div>
     `;
 

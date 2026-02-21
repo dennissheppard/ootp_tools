@@ -120,7 +120,7 @@ class App {
     app.innerHTML = `
       <header class="app-header">
         <div class="app-header-brand">
-          <img class="app-logo" src="${logoUrl}" alt="World Baseball League logo" />
+          <img class="app-logo" src="${logoUrl}" alt="World Baseball League logo" title="Build ${__APP_VERSION__}" />
           <div class="app-header-main">
             <h1 class="app-title">True Ratings</h1>
             <p class="app-subtitle">World Baseball League</p>
