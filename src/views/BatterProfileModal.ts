@@ -19,6 +19,7 @@ import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
 import { resolveCanonicalBatterData, computeBatterProjection } from '../services/ModalDataService';
 import { computeBatterTags, renderTagsHtml, TagContext } from '../utils/playerTags';
+import { analyticsService } from '../services/AnalyticsService';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -319,6 +320,15 @@ export class BatterProfileModal {
   async show(data: BatterProfileData, _selectedYear: number): Promise<void> {
     this.ensureOverlayExists();
     if (!this.overlay) return;
+
+    analyticsService.trackPlayerProfileOpened({
+      playerId: data.playerId,
+      playerName: data.playerName,
+      playerType: 'batter',
+      team: data.team,
+      trueRating: data.trueRating,
+      isProspect: data.isProspect,
+    });
 
     // Clean up any existing charts from a previous show() (e.g. re-opened without hide())
     if (this.radarChart) { this.radarChart.destroy(); this.radarChart = null; }

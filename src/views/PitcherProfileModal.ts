@@ -20,6 +20,7 @@ import { PitcherTfrSourceData, teamRatingsService } from '../services/TeamRating
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
 import { resolveCanonicalPitcherData, computePitcherProjection } from '../services/ModalDataService';
 import { computePitcherTags, renderTagsHtml, TagContext } from '../utils/playerTags';
+import { analyticsService } from '../services/AnalyticsService';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -264,6 +265,15 @@ export class PitcherProfileModal {
   async show(data: PitcherProfileData, _selectedYear: number): Promise<void> {
     this.ensureOverlayExists();
     if (!this.overlay) return;
+
+    analyticsService.trackPlayerProfileOpened({
+      playerId: data.playerId,
+      playerName: data.playerName,
+      playerType: 'pitcher',
+      team: data.team,
+      trueRating: data.trueRating,
+      isProspect: data.isProspect,
+    });
 
     // Clean up any existing charts from a previous show() (e.g. re-opened without hide())
     if (this.radarChart) { this.radarChart.destroy(); this.radarChart = null; }

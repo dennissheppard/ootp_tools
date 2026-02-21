@@ -64,7 +64,9 @@ function normalizeEndpoint(url: string): string {
  * In dev, Vite's proxy handles `/api/*` natively.
  */
 function proxyRewrite(url: string): string {
-  if (!import.meta.env.PROD) return url;
+  if (typeof window === 'undefined' || !window.location) return url;
+  const host = window.location.hostname;
+  if (host === 'localhost' || host === '127.0.0.1') return url;
   if (!url.startsWith('/api/')) return url;
   const parsed = new URL(url, window.location.origin);
   const path = parsed.pathname.replace(/^\/api\//, '');

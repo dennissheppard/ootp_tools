@@ -19,6 +19,7 @@ import { getPositionLabel, getFullName, isPitcher } from '../models/Player';
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
+import { analyticsService } from '../services/AnalyticsService';
 
 interface FarmColumn {
   key: string;
@@ -464,6 +465,7 @@ export class FarmRankingsView {
 
               this.selectedTeam = value;
               try { localStorage.setItem('wbl-selected-team', value); } catch { /* ignore */ }
+              analyticsService.trackTeamSelected(value, 'farm-rankings');
 
               // Update display
               const displaySpan = this.container.querySelector('#selected-team-display') as HTMLElement | null;

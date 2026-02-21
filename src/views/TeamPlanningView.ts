@@ -16,6 +16,7 @@ import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
+import { analyticsService } from '../services/AnalyticsService';
 
 // --- Types ---
 
@@ -502,6 +503,7 @@ export class TeamPlanningView {
 
         this.selectedTeamId = parseInt(value, 10);
         try { localStorage.setItem('wbl-selected-team', nickname); } catch { /* ignore */ }
+        analyticsService.trackTeamSelected(nickname, 'team-planning');
 
         const display = this.container.querySelector('#tp-team-display') as HTMLElement | null;
         if (display) {

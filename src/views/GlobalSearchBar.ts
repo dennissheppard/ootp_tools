@@ -216,12 +216,6 @@ export class GlobalSearchBar {
   private async handlePlayerSelect(player: Player): Promise<void> {
     this.closeDropdown();
 
-    analyticsService.trackPlayerProfileOpened({
-      playerId: player.id,
-      playerName: getFullName(player),
-      playerType: isPitcher(player) ? 'pitcher' : 'batter',
-    });
-
     // Fetch the player's ratings data and show modal
     try {
       const currentYear = await dateService.getCurrentYear();

@@ -17,6 +17,7 @@ import { standingsService } from '../services/StandingsService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import type { Player } from '../models/Player';
+import { analyticsService } from '../services/AnalyticsService';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -1902,6 +1903,7 @@ export class ProjectionsView {
               this.selectedTeam = value;
               this.currentPage = 1;
               try { localStorage.setItem('wbl-selected-team', value); } catch { /* ignore */ }
+              analyticsService.trackTeamSelected(value, 'projections');
 
               // Update display
               const displaySpan = this.container.querySelector('#selected-team-display') as HTMLElement | null;

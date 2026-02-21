@@ -1,3 +1,7 @@
+jest.mock('../services/AnalyticsService', () => ({
+  analyticsService: { trackTeamSelected: jest.fn(), trackPlayerProfileOpened: jest.fn() },
+}));
+
 jest.mock('./BatterProfileModal', () => ({
   batterProfileModal: { show: jest.fn() },
 }));

@@ -21,6 +21,7 @@ import { hasComponentUpside } from '../utils/tfrUpside';
 import { canonicalCurrentProjectionService } from '../services/CanonicalCurrentProjectionService';
 import { emitDataSourceBadges } from '../utils/dataSourceBadges';
 import { teamLogoImg } from '../utils/teamLogos';
+import { analyticsService } from '../services/AnalyticsService';
 
 interface DraftPick {
   id: string;
@@ -814,6 +815,7 @@ export class TradeAnalyzerView {
 
           if (teamNum === 1) {
             try { localStorage.setItem('wbl-selected-team', nickname); } catch { /* ignore */ }
+            analyticsService.trackTeamSelected(nickname, 'trade-analyzer');
           }
           this.onTeamChange(teamNum);
         });

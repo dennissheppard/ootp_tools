@@ -3454,15 +3454,6 @@ export class TrueRatingsView {
     const row = this.playerRowLookup.get(playerId);
     if (!row) return;
 
-    analyticsService.trackPlayerProfileOpened({
-      playerId,
-      playerName: row.playerName,
-      playerType: 'pitcher',
-      team: row.teamFilter,
-      trueRating: row.trueRating,
-      isProspect: row.isProspect,
-    });
-
     // Fetch scouting data fresh (more reliable than cached class properties)
     const [myRatings, osaRatings] = await Promise.all([
       scoutingDataService.getLatestScoutingRatings('my'),
@@ -3614,15 +3605,6 @@ export class TrueRatingsView {
   private async openBatterProfile(playerId: number): Promise<void> {
     const row = this._batterRowLookup?.get(playerId);
     if (!row) return;
-
-    analyticsService.trackPlayerProfileOpened({
-      playerId,
-      playerName: row.playerName,
-      playerType: 'batter',
-      team: row.teamFilter,
-      trueRating: row.trueRating,
-      isProspect: row.isProspect,
-    });
 
     // Fetch player and team info
     const player = await playerService.getPlayerById(playerId);

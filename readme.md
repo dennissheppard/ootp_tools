@@ -10,6 +10,19 @@ npm run dev    # Development server (port 5173)
 npm run build  # Production build
 ```
 
+## Deployment (Vercel)
+
+Hosted on Vercel. The app needs to proxy `/api/*` requests to the StatsPlus server (`atl-01.statsplus.net`) since the browser can't call it directly (CORS).
+
+**How it works:**
+
+- `api/proxy.js` — Node.js serverless function that forwards requests to `https://atl-01.statsplus.net/world/api/`
+- `ApiClient.ts` (`proxyRewrite()`) — In production, rewrites `/api/date/?foo=1` to `/api/proxy?path=date/&foo=1` so the browser calls the function route directly
+- `vercel.json` — Only contains the SPA catch-all (`/(.*) → /index.html`). No API rewrites.
+- Local dev uses Vite's built-in proxy (`vite.config.ts`) — `proxyRewrite()` is skipped on localhost
+
+**Why not Vercel rewrites?** Vercel rewrites (both external URL and rewrite-to-function) don't reliably reach serverless functions in non-Next.js projects — the SPA catch-all intercepts first and serves `index.html`. The client-side rewrite bypasses this entirely since `/api/proxy` is resolved as a function route before rewrites are consulted.
+
 ## Technology Stack
 
 - TypeScript + Vite
