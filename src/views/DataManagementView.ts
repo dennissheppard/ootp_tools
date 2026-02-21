@@ -81,8 +81,80 @@ export class DataManagementView {
           </div>
         </div>
 
+        
+        
         <div class="potential-stats-content" style="grid-template-columns: 1fr;">
-          <div class="csv-upload-container">
+          <details class="csv-field-reference" style="margin-top: 0.5rem;">
+            <summary style="cursor: pointer; user-select: none; font-size: 1.9rem; color: var(--color-text); font-weight: bolder; padding: 0.5rem 0;">CSV Field Reference</summary>
+            <div style="margin-top: 0.75rem;">
+              <p style="font-size: 0.82em; color: var(--color-text-muted); margin-bottom: 0.75rem;">All recognized columns for scouting CSVs. Required columns marked with <span style="color: var(--color-error); font-weight: 600;">✱</span> — upload will be rejected if these headers are missing. Columns not listed below are ignored.</p>
+
+              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                <div>
+                  <h4 style="font-size: 0.85em; margin-bottom: 0.5rem; color: var(--color-text);">Pitcher Scouting</h4>
+                  <table class="stats-table" style="width: 100%; font-size: 0.8em;">
+                    <thead><tr><th style="text-align: left;">Column</th><th style="text-align: left;">Description</th><th style="width: 1.5rem;"></th></tr></thead>
+                    <tbody>
+                      <tr><td>ID</td><td>Player ID</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>STU P</td><td>Stuff (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>CON P</td><td>Control (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>HRR P</td><td>HR Avoidance (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>OVR</td><td>Overall star rating</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>POT</td><td>Potential star rating</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>Prone</td><td>Injury proneness</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td style="white-space: nowrap;">FBP, CHP, SLP…</td><td>Pitch type ratings (at least 1)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>Name</td><td>Player name</td><td></td></tr>
+                      <tr><td>STM</td><td>Stamina</td><td></td></tr>
+                      <tr><td>DOB</td><td>Date of birth</td><td></td></tr>
+                      <tr><td>Lev</td><td>Level (MLB, AAA, AA…)</td><td></td></tr>
+                      <tr><td>HSC</td><td>HS/College status</td><td></td></tr>
+                      <tr><td>PBABIP P</td><td>BABIP rating</td><td></td></tr>
+                      <tr><td>G/F</td><td>Groundball/flyball type</td><td></td></tr>
+                      <tr><td>LEA</td><td>Leadership</td><td></td></tr>
+                      <tr><td>LOY</td><td>Loyalty</td><td></td></tr>
+                      <tr><td>AD</td><td>Adaptability</td><td></td></tr>
+                      <tr><td>FIN</td><td>Greed</td><td></td></tr>
+                      <tr><td>WE</td><td>Work Ethic</td><td></td></tr>
+                      <tr><td>INT</td><td>Intelligence</td><td></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div>
+                  <h4 style="font-size: 0.85em; margin-bottom: 0.5rem; color: var(--color-text);">Hitter Scouting</h4>
+                  <table class="stats-table" style="width: 100%; font-size: 0.8em;">
+                    <thead><tr><th style="text-align: left;">Column</th><th style="text-align: left;">Description</th><th style="width: 1.5rem;"></th></tr></thead>
+                    <tbody>
+                      <tr><td>ID</td><td>Player ID</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>POS</td><td>Position (LF, SS, C…)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>POW P</td><td>Power (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>EYE P</td><td>Eye / Discipline (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>K P</td><td>Avoid K (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>CON P</td><td>Contact (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>OVR</td><td>Overall star rating</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>POT</td><td>Potential star rating</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>Prone</td><td>Injury proneness</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
+                      <tr><td>Name</td><td>Player name</td><td></td></tr>
+                      <tr><td>GAP P</td><td>Gap Power (20-80)</td><td></td></tr>
+                      <tr><td>SPE</td><td>Speed (20-80)</td><td></td></tr>
+                      <tr><td>SR</td><td>Stealing aggressiveness</td><td></td></tr>
+                      <tr><td>STE</td><td>Stealing ability</td><td></td></tr>
+                      <tr><td>DOB</td><td>Date of birth</td><td></td></tr>
+                      <tr><td>Lev</td><td>Level (MLB, AAA, AA…)</td><td></td></tr>
+                      <tr><td>HSC</td><td>HS/College status</td><td></td></tr>
+                      <tr><td>LEA</td><td>Leadership</td><td></td></tr>
+                      <tr><td>LOY</td><td>Loyalty</td><td></td></tr>
+                      <tr><td>AD</td><td>Adaptability</td><td></td></tr>
+                      <tr><td>FIN</td><td>Greed</td><td></td></tr>
+                      <tr><td>WE</td><td>Work Ethic</td><td></td></tr>
+                      <tr><td>INT</td><td>Intelligence</td><td></td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </details>
+        
+        <div class="csv-upload-container">
             <h3 class="form-title">Upload Scouting Data</h3>
 
             <!-- Scouting Inputs -->
@@ -124,6 +196,8 @@ export class DataManagementView {
                  <button id="upload-btn" class="btn btn-primary" disabled>Save Data</button>
             </div>
           </div>
+
+          
 
           <div class="results-container">
             <h3 class="form-title">Existing Data</h3>
