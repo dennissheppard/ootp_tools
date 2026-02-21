@@ -73,7 +73,7 @@ export class ProjectionsView {
   private selectedPosition = localStorage.getItem('wbl-proj-position') || 'all-pitchers';
   private mode: 'pitchers' | 'batters' = (() => {
     const pos = localStorage.getItem('wbl-proj-position') || 'all-pitchers';
-    const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+    const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH', 'all-middle-if', 'all-of'];
     return batterPositions.includes(pos) ? 'batters' as const : 'pitchers' as const;
   })();
   private teamOptions: string[] = [];
@@ -286,10 +286,10 @@ export class ProjectionsView {
             <div class="filter-group" role="group" aria-label="Projection filters">
               <div class="filter-dropdown" data-filter="team">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
-                  Team: <span id="selected-team-display">All</span> ▾
+                  Team: <span id="selected-team-display">All Teams</span> ▾
                 </button>
                 <div class="filter-dropdown-menu" id="team-dropdown-menu">
-                  <div class="filter-dropdown-item selected" data-value="all">All</div>
+                  <div class="filter-dropdown-item selected" data-value="all">All Teams</div>
                 </div>
               </div>
               <div class="filter-dropdown position-filter" data-filter="position">
@@ -1939,7 +1939,7 @@ export class ProjectionsView {
 
               // Determine mode based on position selection
               const pitcherPositions = ['all-pitchers', 'SP', 'RP'];
-              const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH'];
+              const batterPositions = ['all-batters', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF', 'DH', 'all-middle-if', 'all-of'];
 
               const previousMode = this.mode;
               if (pitcherPositions.includes(value)) {
@@ -1986,6 +1986,8 @@ export class ProjectionsView {
   private getPositionDisplayName(position: string): string {
     if (position === 'all-pitchers') return 'All Pitchers';
     if (position === 'all-batters') return 'All Batters';
+    if (position === 'all-of') return 'All OFers';
+    if (position === 'all-middle-if') return 'All Middle IFers';
     return position;
   }
 
@@ -1997,9 +1999,11 @@ export class ProjectionsView {
       { value: 'all-batters', label: 'All Batters' },
       { value: 'C', label: 'C' },
       { value: '1B', label: '1B' },
+      { value: 'all-middle-if', label: 'All Middle IFers' },
       { value: '2B', label: '2B' },
-      { value: '3B', label: '3B' },
       { value: 'SS', label: 'SS' },
+      { value: '3B', label: '3B' },
+      { value: 'all-of', label: 'All OFers' },
       { value: 'LF', label: 'LF' },
       { value: 'CF', label: 'CF' },
       { value: 'RF', label: 'RF' },
@@ -2131,7 +2135,7 @@ export class ProjectionsView {
           const posMap: Record<string, number[]> = {
               'C': [2], '1B': [3], '2B': [4], '3B': [5], 'SS': [6],
               'LF': [7], 'CF': [8], 'RF': [9], 'DH': [10],
-              'IF': [3, 4, 5, 6], 'OF': [7, 8, 9],
+              'all-middle-if': [4, 6], 'all-of': [7, 8, 9],
           };
           const allowed = posMap[this.selectedPosition];
           if (allowed) {
@@ -2760,7 +2764,7 @@ export class ProjectionsView {
 
   private renderPitcherPositionBadge(isSp: boolean): string {
     const posLabel = isSp ? 'SP' : 'RP';
-    const className = 'pos-utility';
+    const className = isSp ? 'tier-starter' : 'tier-reliever';
     const title = isSp ? 'Starting Pitcher' : 'Relief Pitcher';
     return `<span class="badge ${className}" title="${title}">${posLabel}</span>`;
   }

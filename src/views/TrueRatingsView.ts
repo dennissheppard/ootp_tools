@@ -2625,6 +2625,15 @@ export class TrueRatingsView {
             return this.renderHitterTrueRatingBadge(row.trueRating);
           },
         },
+        {
+          key: 'percentile',
+          label: '%',
+          sortKey: 'percentile',
+          accessor: (row) => {
+            const pct = row.isProspect ? row.tfrPercentile : row.percentile;
+            return typeof pct === 'number' ? pct.toFixed(1) : '';
+          },
+        },
         { key: 'estimatedContact', label: 'True Contact', sortKey: 'estimatedContact' },
         { key: 'estimatedPower', label: 'True Pow', sortKey: 'estimatedPower' },
         { key: 'estimatedEye', label: 'True Eye', sortKey: 'estimatedEye' },
@@ -2655,6 +2664,15 @@ export class TrueRatingsView {
             return this.renderTrueFutureRatingBadge(row.trueFutureRating);
           }
           return this.renderHitterTrueRatingBadge(row.trueRating);
+        },
+      },
+      {
+        key: 'percentile',
+        label: '%',
+        sortKey: 'percentile',
+        accessor: (row) => {
+          const pct = row.isProspect ? row.tfrPercentile : row.percentile;
+          return typeof pct === 'number' ? pct.toFixed(1) : '';
         },
       },
       { key: 'pa', label: 'PA', sortKey: 'pa' },
