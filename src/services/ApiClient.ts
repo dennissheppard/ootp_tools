@@ -58,11 +58,28 @@ function normalizeEndpoint(url: string): string {
   }
 }
 
+/**
+ * In production (Vercel), rewrite `/api/foo?bar=1` to `/api/proxy?path=foo&bar=1`
+ * so the request hits the serverless function directly (no rewrite rules needed).
+ * In dev, Vite's proxy handles `/api/*` natively.
+ */
+function proxyRewrite(url: string): string {
+  if (!import.meta.env.PROD) return url;
+  if (!url.startsWith('/api/')) return url;
+  const parsed = new URL(url, window.location.origin);
+  const path = parsed.pathname.replace(/^\/api\//, '');
+  parsed.pathname = '/api/proxy';
+  parsed.searchParams.set('path', path);
+  return parsed.pathname + parsed.search;
+}
+
 export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   let attempt = 0;
   let hadRateLimit = false;
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   const endpoint = normalizeEndpoint(url);
+  // Route through proxy function in production
+  input = proxyRewrite(url);
 
   while (true) {
     const start = performance.now();
