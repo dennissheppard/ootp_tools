@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://atl-01.statsplus.net/world/api/:path*"
+    }
+  ]
+}
