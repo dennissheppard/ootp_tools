@@ -2342,7 +2342,16 @@ export class TeamPlanningView {
       }
     }
 
-    const result = await this.cellEditModal.show(context, orgPlayers, allPlayers, this.contractMap, displayRatingMap, projectedDataMap);
+    // Collect player IDs already on the grid for this year so the org picker can mark them
+    const alreadyOnGridIds = new Set<number>();
+    for (const gridRow of this.gridRows) {
+      const cell = gridRow.cells.get(year);
+      if (cell?.playerId && cell.contractStatus !== 'empty') {
+        alreadyOnGridIds.add(cell.playerId);
+      }
+    }
+
+    const result = await this.cellEditModal.show(context, orgPlayers, allPlayers, this.contractMap, displayRatingMap, projectedDataMap, alreadyOnGridIds);
     await this.processEditResult(result, position, year);
   }
 

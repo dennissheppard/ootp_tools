@@ -95,6 +95,7 @@ export class CellEditModal {
     contractMap: Map<number, Contract>,
     playerRatingMap?: Map<number, number>,
     projectedDataMap?: Map<number, { projectedAge: number; projectedRating: number }>,
+    alreadyOnGridIds?: Set<number>,
   ): Promise<CellEditResult> {
     return new Promise((resolve) => {
       this.resolvePromise = resolve;
@@ -329,7 +330,7 @@ export class CellEditModal {
         if (!list) return;
         if (list.style.display === 'none') {
           list.style.display = 'block';
-          this.populateOrgList(list, orgPlayers, context, playerRatingMap, projectedDataMap);
+          this.populateOrgList(list, orgPlayers, context, playerRatingMap, projectedDataMap, alreadyOnGridIds);
         } else {
           list.style.display = 'none';
         }
@@ -429,6 +430,7 @@ export class CellEditModal {
     context: CellEditContext,
     ratingMap?: Map<number, number>,
     projectedDataMap?: Map<number, { projectedAge: number; projectedRating: number }>,
+    alreadyOnGridIds?: Set<number>,
   ): void {
     const isPitcherSlot = context.section === 'rotation' || context.section === 'bullpen';
     const eligible = POSITION_ELIGIBILITY[context.position];
@@ -506,8 +508,11 @@ export class CellEditModal {
 
       const renderRows = (data: typeof allDisplayData) => data.map(d => {
         const ratingStr = d.rating ? `<span class="player-item-rating">${d.rating.toFixed(1)}</span>` : '';
+        const isOnGrid = alreadyOnGridIds?.has(d.player.id) ?? false;
+        const onGridClass = isOnGrid ? ' player-on-grid' : '';
+        const onGridTitle = isOnGrid ? ' title="Already placed on grid this year"' : '';
         return `
-          <div class="cell-edit-player-item" data-player-id="${d.player.id}">
+          <div class="cell-edit-player-item${onGridClass}" data-player-id="${d.player.id}"${onGridTitle}>
             <span class="player-item-name">${d.player.firstName} ${d.player.lastName}</span>
             <span class="player-item-pos">${getPositionLabel(d.player.position)}</span>
             <span class="player-item-age">${d.displayAge}</span>
