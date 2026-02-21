@@ -950,7 +950,7 @@ export class DataManagementView {
     modal.innerHTML = `
       <div class="modal" style="width: min(580px, 92vw);">
         <div class="modal-header">
-          <h3 class="modal-title">✅ Setup Complete ⚾ Welcome!</h3>
+          <h3 class="modal-title">✅ Setup Complete ⚾ Welcome to True Ratings!</h3>
         </div>
         <div class="modal-body" style="padding: 1.5rem; line-height: 1.75;">
           <p style="margin: 0 0 0.9rem;">

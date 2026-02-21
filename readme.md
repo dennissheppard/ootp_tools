@@ -268,7 +268,7 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `DevelopmentSnapshotService` | Historical scouting snapshot storage |
 | `MinorLeagueStatsService` | Minor league stats from API/CSV |
 | `IndexedDBService` | Persistent browser storage (v7) |
-| `DateService` | Season progress calculation for stat weighting |
+| `DateService` | Game date from `/api/date/` (60-min localStorage cache + in-memory); season progress calculation for stat weighting |
 
 ## Views
 
@@ -349,6 +349,7 @@ rawWins = 81 + deviation × slope
 **Cell Editing:** Overrides persisted in IndexedDB (`TeamPlanningOverrideRecord`). Dev curve overrides ("Set as fully developed"): skip growth phase, project at TFR with only aging decline — applied from the clicked cell's year forward only, not retroactively to prior grid years. Stored in `player_dev_overrides` IndexedDB store with `effectiveFromYear`. Salary overrides: any cell salary can be overridden via the edit modal; stored in `salary_overrides` IndexedDB store (v12) keyed by `teamId_position_year`. Estimated salaries (arb/prospect) shown with `~` prefix; salary overrides shown with `✎` marker; active dev overrides shown with `◆` superscript on the rating badge.
 - **Canonical rating resolution:** Org picker and manual insert both use a shared best-known rating resolver (grid value, canonical TR, prospect current/TFR maps) to avoid stale `0.5` fallbacks.
 - **Single-slot invariant:** Manual player insert clears that player from any other slot in the same team/year before saving, preventing duplicate placements (e.g. `MR1` + `MR5` in one season).
+- **Org picker on-grid indicator:** Players already placed on the grid for the selected year are marked with ◆ (amber) in the "Choose from your org" list.
 
 **Section/Team Ratings:** Lineup/Rotation/Bullpen averages per year. Team row = 40% rotation + 40% lineup + 20% bullpen.
 

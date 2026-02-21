@@ -16,6 +16,14 @@ function getCacheControl(path) {
   return PUBLIC_CACHE_CONTROL;
 }
 
+async function openCache() {
+  try {
+    return await caches.open('statsplus-proxy');
+  } catch {
+    return null;
+  }
+}
+
 export default async function handler(req) {
   const { searchParams, pathname } = new URL(req.url);
   const path = pathname.replace('/api/', '');
@@ -23,16 +31,18 @@ export default async function handler(req) {
 
   // Try to get from cache first (only for public endpoints)
   if (!isPrivateEndpoint(path)) {
-    const cache = caches.default;
-    const cachedResponse = await cache.match(targetUrl);
-    if (cachedResponse) {
-      return new Response(cachedResponse.body, {
-        status: cachedResponse.status,
-        headers: {
-          ...Object.fromEntries(cachedResponse.headers),
-          'X-Cache': 'HIT',
-        },
-      });
+    const cache = await openCache();
+    if (cache) {
+      const cachedResponse = await cache.match(targetUrl);
+      if (cachedResponse) {
+        return new Response(cachedResponse.body, {
+          status: cachedResponse.status,
+          headers: {
+            ...Object.fromEntries(cachedResponse.headers),
+            'X-Cache': 'HIT',
+          },
+        });
+      }
     }
   }
 
@@ -95,8 +105,10 @@ export default async function handler(req) {
 
   // Cache the response for public endpoints
   if (!isPrivateEndpoint(path) && upstream.ok) {
-    const cache = caches.default;
-    await cache.put(targetUrl, response.clone());
+    const cache = await openCache();
+    if (cache) {
+      await cache.put(targetUrl, response.clone());
+    }
   }
 
   return response;
