@@ -279,7 +279,14 @@ class ProjectionService {
             yearlyStats: multiYearStats.get(playerId) ?? [],
             scoutingRatings: scouting
         };
-    }).filter(input => input.yearlyStats.length > 0 || input.scoutingRatings);
+    }).filter(input => {
+        if (input.yearlyStats.length === 0 && !input.scoutingRatings) return false;
+        // Mirror canonical TR pipeline: require 10+ total IP across multi-year window.
+        // Prevents position players with mop-up innings from entering pitcher projections.
+        const totalIp = input.yearlyStats.reduce((sum, s) => sum + s.ip, 0);
+        if (totalIp < 10 && !input.scoutingRatings) return false;
+        return true;
+    });
 
     // 4. Calculate Current True Ratings
     const trResults = trueRatingsCalculationService.calculateTrueRatings(inputs, leagueAverages);
