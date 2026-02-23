@@ -158,7 +158,7 @@ export class PitcherProfileModal {
   private hiddenSeries = new Set<string>();
 
   // Analysis toggle state (Projections vs True Analysis)
-  private viewMode: 'projections' | 'analysis' = 'analysis';
+  private viewMode: 'projections' | 'analysis' = 'projections';
   private cachedAnalysisHtml: string = '';
 
   // Guard against async race conditions when re-opened quickly
@@ -284,7 +284,7 @@ export class PitcherProfileModal {
     const generation = ++this.showGeneration;
 
     this.projectionMode = 'current';
-    this.viewMode = 'analysis';
+    this.viewMode = 'projections';
     this.cachedAnalysisHtml = '';
     // Reset cached development snapshots from previous player
     this.cachedRatingSnapshots = null;
@@ -1069,8 +1069,8 @@ export class PitcherProfileModal {
           ${ratingsSection}
           <div class="analysis-toggle-row">
             <div class="analysis-toggle">
-              <button class="analysis-toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-view="analysis">True Analysis</button>
               <button class="analysis-toggle-btn ${this.viewMode === 'projections' ? 'active' : ''}" data-view="projections">Projections</button>
+              <button class="analysis-toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-view="analysis">True Analysis</button>
             </div>
           </div>
           <div class="analysis-content-area">

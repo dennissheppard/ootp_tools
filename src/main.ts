@@ -9,6 +9,14 @@ import { analyticsService } from './services/AnalyticsService';
 import { setApiCallTracker } from './services/ApiClient';
 import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
 
+function getDeepLinkPlayerId(): number | null {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get('player');
+  if (!raw) return null;
+  const id = parseInt(raw, 10);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
 setApiCallTracker((endpoint, bytes, status, duration_ms) =>
   analyticsService.trackApiCall(endpoint, bytes, status, duration_ms)
 );
@@ -66,6 +74,34 @@ class App {
         window.dispatchEvent(new CustomEvent('wbl:first-time-onboarding'));
       }, 100);
     }
+
+    // Handle ?player=XXXX deep links
+    if (!isFirstTime) {
+      this.handlePlayerDeepLink();
+    }
+  }
+
+  private handlePlayerDeepLink(): void {
+    const playerId = getDeepLinkPlayerId();
+    if (!playerId) return;
+
+    // Clean the URL so refreshing doesn't re-trigger the deep link
+    const url = new URL(window.location.href);
+    url.searchParams.delete('player');
+    window.history.replaceState({}, '', url.pathname + url.search);
+
+    // Navigate to True Ratings and open the player modal
+    this.activeTabId = 'tab-true-ratings';
+    localStorage.setItem(this.TAB_PREF_KEY, 'tab-true-ratings');
+
+    // Activate the tab visually
+    const tabButtons = document.querySelectorAll<HTMLButtonElement>('[data-tab-target]');
+    const tabPanels = document.querySelectorAll<HTMLElement>('.tab-panel');
+    tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tabTarget === 'tab-true-ratings'));
+    tabPanels.forEach(p => p.classList.toggle('active', p.id === 'tab-true-ratings'));
+
+    // Defer to let DOM settle, then open the player
+    this.trueRatingsView.openPlayerDeepLink(playerId);
   }
 
   /**

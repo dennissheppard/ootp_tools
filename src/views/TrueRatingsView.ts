@@ -4004,4 +4004,54 @@ export class TrueRatingsView {
       `<div class="filter-dropdown-item ${pos.value === this.selectedPosition ? 'selected' : ''}" data-value="${pos.value}">${pos.label}</div>`
     ).join('');
   }
+
+  /**
+   * Deep-link: look up a player, switch to their mode/team, load data, and open their modal.
+   * Called from main.ts when ?player=XXXX is in the URL.
+   */
+  public async openPlayerDeepLink(playerId: number): Promise<void> {
+    const player = await playerService.getPlayerById(playerId);
+    if (!player) {
+      console.warn(`Deep link: player ${playerId} not found`);
+      return;
+    }
+
+    const isBatter = !isPitcher(player);
+    const targetMode: StatsMode = isBatter ? 'batters' : 'pitchers';
+
+    // Resolve team nickname for filter
+    const teamId = player.parentTeamId || player.teamId;
+    let teamNickname = 'all';
+    if (teamId && teamId > 0) {
+      const team = await teamService.getTeamById(teamId);
+      if (team) teamNickname = team.nickname;
+    }
+
+    // Set mode + filters before loading data
+    this.mode = targetMode;
+    this.selectedPosition = isBatter ? 'all-batters' : 'all-pitchers';
+    this.selectedTeam = teamNickname;
+    this.sortKey = 'percentile';
+    this.sortDirection = 'desc';
+    this.currentPage = 1;
+    this.saveFilterPreferences();
+    try { localStorage.setItem('wbl-selected-team', teamNickname); } catch { /* ignore */ }
+
+    // Ensure data is loaded (fetchAndRenderStats populates row lookups needed by modal openers)
+    await this.fetchAndRenderStats();
+    this.hasLoadedData = true;
+
+    // Update dropdown UI to reflect the new selections
+    const teamDisplaySpan = this.container.querySelector('#selected-team-display');
+    if (teamDisplaySpan) this.renderTeamButtonDisplay(teamDisplaySpan as HTMLElement, teamNickname);
+    const posDisplaySpan = this.container.querySelector('#selected-position-display');
+    if (posDisplaySpan) posDisplaySpan.textContent = this.getPositionDisplayName(this.selectedPosition);
+
+    // Open the modal
+    if (isBatter) {
+      this.openBatterProfile(playerId);
+    } else {
+      this.openPlayerProfile(playerId);
+    }
+  }
 }
