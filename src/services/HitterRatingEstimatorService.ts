@@ -566,6 +566,74 @@ class HitterRatingEstimatorService {
   }
 
   /**
+   * Project stolen bases blending scouting model with historical per-PA rates.
+   *
+   * History weight escalates with qualifying years:
+   *   historyWeight = min(0.35, 0.12 + yearsWithData * 0.08)
+   *   1yr → 20%, 2yr → 28%, 3yr → 33% (capped at 35%)
+   *
+   * Year weights [5, 4, 3] (most-recent-first) mirror calculateWeightedRates pattern.
+   * Qualifying threshold: pa >= 50.
+   *
+   * Falls back to pure scouting when no qualifying years exist.
+   */
+  static projectStolenBasesWithHistory(
+    sr: number,
+    ste: number,
+    projPa: number,
+    historicalStats: Array<{ sb: number; cs: number; pa: number }>
+  ): { sb: number; cs: number; historyWeight: number; yearsUsed: number } {
+    // Scouting-based per-PA rates
+    const attemptsPerSeason = this.expectedStealAttempts(sr);
+    const successRate = this.expectedStealSuccessRate(ste);
+    const scoutSbPerPa = (attemptsPerSeason * successRate) / 600;
+    const scoutCsPerPa = (attemptsPerSeason * (1 - successRate)) / 600;
+
+    // Filter to qualifying years (pa >= 50), take up to 3 most recent
+    const qualifying = historicalStats.filter(s => s.pa >= 50).slice(0, 3);
+    const yearsUsed = qualifying.length;
+
+    if (yearsUsed === 0) {
+      // Pure scouting fallback
+      return {
+        sb: Math.round(scoutSbPerPa * projPa),
+        cs: Math.round(scoutCsPerPa * projPa),
+        historyWeight: 0,
+        yearsUsed: 0,
+      };
+    }
+
+    // Weighted historical per-PA rates (weights: 5, 4, 3 for most-recent-first)
+    const yearWeights = [5, 4, 3];
+    let weightedSbPerPa = 0;
+    let weightedCsPerPa = 0;
+    let totalWeight = 0;
+    for (let i = 0; i < yearsUsed; i++) {
+      const w = yearWeights[i];
+      const s = qualifying[i];
+      weightedSbPerPa += w * (s.sb / s.pa);
+      weightedCsPerPa += w * (s.cs / s.pa);
+      totalWeight += w;
+    }
+    weightedSbPerPa /= totalWeight;
+    weightedCsPerPa /= totalWeight;
+
+    // Escalating trust: more history → more weight
+    const historyWeight = Math.min(0.35, 0.12 + yearsUsed * 0.08);
+
+    // Blend per-PA rates
+    const blendedSbPerPa = (1 - historyWeight) * scoutSbPerPa + historyWeight * weightedSbPerPa;
+    const blendedCsPerPa = (1 - historyWeight) * scoutCsPerPa + historyWeight * weightedCsPerPa;
+
+    return {
+      sb: Math.round(blendedSbPerPa * projPa),
+      cs: Math.round(blendedCsPerPa * projPa),
+      historyWeight,
+      yearsUsed,
+    };
+  }
+
+  /**
    * Compare estimated rating to scouting rating
    */
   static compareToScout(estimated: RatingEstimate, scoutRating: number): string {

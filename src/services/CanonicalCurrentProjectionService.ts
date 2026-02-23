@@ -463,6 +463,9 @@ class CanonicalCurrentProjectionService {
           calculateBaserunningRuns: (sb, cs) => leagueBattingAveragesService.calculateBaserunningRuns(sb, cs),
           calculateBattingWar: (woba, pa, lg, sbRuns) => leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns),
           projectStolenBases: (sr, ste, pa) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
+          historicalSbStats: mlbStats
+            .filter(s => s.pa >= 50)
+            .map(s => ({ sb: s.sb, cs: s.cs, pa: s.pa })),
         });
 
         const currentRating = tr?.trueRating ?? tfr?.trueFutureRating ?? 0.5;

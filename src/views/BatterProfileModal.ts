@@ -1608,6 +1608,10 @@ export class BatterProfileModal {
       calculateBaserunningRuns: (sb, cs) => leagueBattingAveragesService.calculateBaserunningRuns(sb, cs),
       calculateBattingWar: (woba, pa, lg, sbRuns) => leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns),
       projectStolenBases: (sr, ste, pa) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
+      historicalSbStats: stats
+        .filter(s => s.level === 'MLB' && s.pa >= 50)
+        .sort((a, b) => b.year - a.year)
+        .map(s => ({ sb: s.sb, cs: s.cs, pa: s.pa })),
     });
 
     // Destructure for template compatibility

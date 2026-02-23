@@ -7,6 +7,7 @@ import { trueRatingsService, LEAGUE_START_YEAR } from '../services/TrueRatingsSe
 import { MessageModal } from './MessageModal';
 import { storageMigration } from '../services/StorageMigration';
 import { AnalyticsDashboardView } from './AnalyticsDashboardView';
+import { analyticsService } from '../services/AnalyticsService';
 
 type ScoutingPlayerType = 'pitcher' | 'hitter';
 
@@ -650,6 +651,16 @@ export class DataManagementView {
         detail: { source: this.selectedScoutingSource }
       }));
     }
+
+    // Track scouting upload attempt
+    analyticsService.trackScoutingUpload({
+      playerType: this.selectedScoutingPlayerType,
+      source: this.selectedScoutingSource,
+      fileCount: successCount + failCount,
+      successCount,
+      failCount,
+      errors: errors.length > 0 ? errors : undefined,
+    });
 
     let msg = `Process complete.\nSaved: ${successCount} files.\nFailed: ${failCount} files.`;
     if (errors.length > 0) {

@@ -12,6 +12,7 @@ import type { HitterTrueRatingResult } from './HitterTrueRatingsCalculationServi
 import type { TrueRatingResult } from './TrueRatingsCalculationService';
 import type { RatedHitterProspect, RatedProspect } from './TeamRatingsService';
 import { hasComponentUpside } from '../utils/tfrUpside';
+import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 
 // ============================================================================
 // A. resolveCanonicalBatterData
@@ -252,6 +253,7 @@ export interface BatterProjectionDeps {
   calculateBaserunningRuns: (sb: number, cs: number) => number;
   calculateBattingWar: (woba: number, pa: number, leagueAvg: any, sbRuns: number) => number;
   projectStolenBases: (sr: number, ste: number, pa: number) => { sb: number; cs: number };
+  historicalSbStats?: Array<{ sb: number; cs: number; pa: number }>;
 }
 
 interface BatterSeasonStatsForProjection {
@@ -398,17 +400,28 @@ export function computeBatterProjection(
     proj3b = Math.round(projAb * 0.005);
   }
 
-  // Projected SB
+  // Projected SB — compute once, reuse for display and WAR
   const sr = deps.scoutingData?.stealingAggressiveness ?? data.scoutSR ?? 50;
   const ste = deps.scoutingData?.stealingAbility ?? data.scoutSTE ?? 50;
   const hasSrSte = (deps.scoutingData?.stealingAggressiveness !== undefined) || (data.scoutSR !== undefined);
   let projSb: number;
+  let projCs: number;
   if (data.projSb !== undefined) {
     projSb = data.projSb;
+    projCs = data.projCs ?? Math.round(projSb * 0.25);
   } else if (hasSrSte) {
-    projSb = deps.projectStolenBases(sr, ste, projPa).sb;
+    if (deps.historicalSbStats && deps.historicalSbStats.length > 0) {
+      const sbResult = HitterRatingEstimatorService.projectStolenBasesWithHistory(sr, ste, projPa, deps.historicalSbStats);
+      projSb = sbResult.sb;
+      projCs = sbResult.cs;
+    } else {
+      const sbResult = deps.projectStolenBases(sr, ste, projPa);
+      projSb = sbResult.sb;
+      projCs = sbResult.cs;
+    }
   } else {
     projSb = 0;
+    projCs = 0;
   }
 
   // OPS and OPS+
@@ -424,15 +437,10 @@ export function computeBatterProjection(
   const peakWobaFromRates = deps.computeWoba(projBbPct / 100, projAvg, projDoublesPerAb, projTriplesPerAb, projHrPerAb);
   const projWoba = isPeakMode ? peakWobaFromRates : (data.projWoba ?? peakWobaFromRates);
 
-  // SB runs for WAR
-  let projSbRuns = 0;
-  if (hasSrSte) {
-    const sbProjForWar = deps.projectStolenBases(sr, ste, projPa);
-    projSbRuns = deps.calculateBaserunningRuns(sbProjForWar.sb, sbProjForWar.cs);
-  } else if (data.projSb !== undefined) {
-    const projCsForWar = data.projCs ?? Math.round(projSb * 0.25);
-    projSbRuns = deps.calculateBaserunningRuns(projSb, projCsForWar);
-  }
+  // SB runs for WAR — reuse the single SB/CS computation above
+  const projSbRuns = (projSb > 0 || projCs > 0)
+    ? deps.calculateBaserunningRuns(projSb, projCs)
+    : 0;
 
   let calculatedWar: number;
   if (deps.leagueAvg) {

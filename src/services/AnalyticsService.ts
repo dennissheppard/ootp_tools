@@ -132,6 +132,24 @@ export class AnalyticsService {
     this.trackAlways('api_call', { endpoint, bytes, status, duration_ms });
   }
 
+  trackScoutingUpload(data: {
+    playerType: 'pitcher' | 'hitter';
+    source: string;
+    fileCount: number;
+    successCount: number;
+    failCount: number;
+    errors?: string[];
+  }): void {
+    this.track('scouting_upload', {
+      player_type: data.playerType,
+      source: data.source,
+      file_count: data.fileCount,
+      success_count: data.successCount,
+      fail_count: data.failCount,
+      errors: data.errors,
+    });
+  }
+
   // --- Query methods for dashboard ---
 
   /**

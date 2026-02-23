@@ -65,6 +65,26 @@ export class AnalyticsDashboardView {
             </div>
           </div>
 
+          <!-- Scouting Uploads Section -->
+          <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
+            <h3 class="form-title" style="margin-bottom: 1rem;">Scouting Uploads</h3>
+            <div class="analytics-cards" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; margin-bottom: 1.5rem;">
+              <div class="analytics-card">
+                <div class="analytics-card-value" id="scouting-stat-attempts">-</div>
+                <div class="analytics-card-label">Upload Attempts (30d)</div>
+              </div>
+              <div class="analytics-card">
+                <div class="analytics-card-value" id="scouting-stat-files">-</div>
+                <div class="analytics-card-label">Files Uploaded (30d)</div>
+              </div>
+              <div class="analytics-card">
+                <div class="analytics-card-value" id="scouting-stat-failures">-</div>
+                <div class="analytics-card-label">Failed Files (30d)</div>
+              </div>
+            </div>
+            <div id="scouting-upload-table" style="max-height: 300px; overflow-y: auto;"></div>
+          </div>
+
           <!-- StatsPlus API Usage Section -->
           <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
             <h3 class="form-title" style="margin-bottom: 1rem;">StatsPlus API Usage</h3>
@@ -171,6 +191,10 @@ export class AnalyticsDashboardView {
     this.renderTabPopularityChart(recent);
     this.renderTopPlayers(recent);
     this.renderTeamPopularityChart(recent);
+
+    // Scouting uploads section
+    const scoutingEvents = events.filter(e => e.event_type === 'scouting_upload');
+    this.renderScoutingUploadsSection(scoutingEvents);
 
     // API usage section
     this.cachedApiEvents = events.filter(e => e.event_type === 'api_call');
@@ -442,6 +466,78 @@ export class AnalyticsDashboardView {
       tooltip: { theme: 'dark' },
     });
     this.teamChart.render();
+  }
+
+  private renderScoutingUploadsSection(scoutingEvents: AnalyticsEvent[]): void {
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    const recent30 = scoutingEvents.filter(e => new Date(e.created_at) >= thirtyDaysAgo);
+
+    const totalAttempts = recent30.length;
+    const totalFiles = recent30.reduce((sum, e) => sum + ((e.event_data.file_count as number) ?? 0), 0);
+    const totalFailures = recent30.reduce((sum, e) => sum + ((e.event_data.fail_count as number) ?? 0), 0);
+
+    const attemptsEl = this.container.querySelector('#scouting-stat-attempts');
+    const filesEl = this.container.querySelector('#scouting-stat-files');
+    const failuresEl = this.container.querySelector('#scouting-stat-failures');
+    if (attemptsEl) attemptsEl.textContent = String(totalAttempts);
+    if (filesEl) filesEl.textContent = String(totalFiles);
+    if (failuresEl) {
+      failuresEl.textContent = String(totalFailures);
+      if (totalFailures > 0) (failuresEl as HTMLElement).style.color = '#ef4444';
+    }
+
+    // Render individual upload events table
+    const tableEl = this.container.querySelector('#scouting-upload-table');
+    if (!tableEl) return;
+
+    if (recent30.length === 0) {
+      tableEl.innerHTML = '<p style="color: var(--color-text-muted); text-align: center; padding: 1rem;">No scouting uploads in the last 30 days.</p>';
+      return;
+    }
+
+    tableEl.innerHTML = `
+      <table class="stats-table" style="width: 100%; text-align: left; font-size: 0.85em;">
+        <thead>
+          <tr>
+            <th style="text-align: left;">Date</th>
+            <th style="text-align: left;">Type</th>
+            <th style="text-align: left;">Source</th>
+            <th style="text-align: right;">Files</th>
+            <th style="text-align: right;">OK</th>
+            <th style="text-align: right;">Failed</th>
+            <th style="text-align: left;">Errors</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${recent30.map(e => {
+            const date = new Date(e.created_at);
+            const dateStr = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+            const type = (e.event_data.player_type as string) ?? '?';
+            const source = ((e.event_data.source as string) ?? '?').toUpperCase();
+            const fileCount = (e.event_data.file_count as number) ?? 0;
+            const successCount = (e.event_data.success_count as number) ?? 0;
+            const failCount = (e.event_data.fail_count as number) ?? 0;
+            const errors = (e.event_data.errors as string[]) ?? [];
+            const errorStr = errors.length > 0
+              ? `<span style="color: #ef4444; font-size: 0.85em;" title="${this.escapeHtml(errors.join('\n'))}">${errors.length} error${errors.length > 1 ? 's' : ''}</span>`
+              : '<span style="color: var(--color-success);">—</span>';
+            const failStyle = failCount > 0 ? ' style="color: #ef4444; text-align: right;"' : ' style="text-align: right;"';
+            return `
+              <tr>
+                <td>${dateStr}</td>
+                <td>${type === 'pitcher' ? 'Pitcher' : 'Hitter'}</td>
+                <td>${source}</td>
+                <td style="text-align: right;">${fileCount}</td>
+                <td style="text-align: right;">${successCount}</td>
+                <td${failStyle}>${failCount}</td>
+                <td>${errorStr}</td>
+              </tr>
+            `;
+          }).join('')}
+        </tbody>
+      </table>
+    `;
   }
 
   private renderApiUsageSection(apiEvents: AnalyticsEvent[]): void {

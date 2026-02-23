@@ -129,12 +129,14 @@ export interface BatterProjectionCalculationTrace {
     historicalPaData: Array<{ year: number; pa: number }>;
   };
   stolenBaseProjection?: {
-    method: 'scouting' | 'fallback';
+    method: 'scouting' | 'blended' | 'fallback';
     sr?: number;
     ste?: number;
     sb: number;
     cs: number;
     sbRuns: number;
+    historyWeight?: number;
+    yearsUsed?: number;
   };
   runValueOutput?: {
     hasLeagueAverages: boolean;
@@ -459,12 +461,30 @@ class BatterProjectionService {
     const ste = scouting?.stealingAbility;
     let projSb: number;
     let projCs: number;
-    let sbMethod: 'scouting' | 'fallback';
+    let sbMethod: 'scouting' | 'blended' | 'fallback';
+    let sbHistoryWeight: number | undefined;
+    let sbYearsUsed: number | undefined;
     if (sr !== undefined && ste !== undefined) {
-      const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-      projSb = sbProj.sb;
-      projCs = sbProj.cs;
-      sbMethod = 'scouting';
+      // Build historical SB data from MLB stats (sorted most-recent-first already)
+      const histSbData: Array<{ sb: number; cs: number; pa: number }> = [];
+      for (const s of historicalStats) {
+        if (s.sb !== undefined && s.cs !== undefined) {
+          histSbData.push({ sb: s.sb, cs: s.cs, pa: s.pa });
+        }
+      }
+      if (histSbData.length > 0) {
+        const sbProj = HitterRatingEstimatorService.projectStolenBasesWithHistory(sr, ste, projPa, histSbData);
+        projSb = sbProj.sb;
+        projCs = sbProj.cs;
+        sbMethod = 'blended';
+        sbHistoryWeight = sbProj.historyWeight;
+        sbYearsUsed = sbProj.yearsUsed;
+      } else {
+        const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+        projSb = sbProj.sb;
+        projCs = sbProj.cs;
+        sbMethod = 'scouting';
+      }
     } else {
       projSb = Math.round(projPa * 0.02);
       projCs = Math.round(projPa * 0.005);
@@ -480,6 +500,8 @@ class BatterProjectionService {
         sb: projSb,
         cs: projCs,
         sbRuns,
+        historyWeight: sbHistoryWeight,
+        yearsUsed: sbYearsUsed,
       };
     }
 

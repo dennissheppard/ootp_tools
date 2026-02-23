@@ -215,6 +215,8 @@ Three-model ensemble:
 5. Ensemble aging: 35% full aging, 65% 20%-aging
 6. Rating→Rate conversion (forward formulas)
 
+**Batter SB blending:** Both pipelines blend scouting SB/CS projections with historical per-PA rates for MLB players (see Stolen Bases formula). Prospects with no MLB history use pure scouting. TFR peak projections always use pure scouting.
+
 **Rating ranges:** Internal calculations use 0-100 (prevents artificial capping at extremes); UI displays 20-80.
 
 ### Pipeline Modes
@@ -435,6 +437,13 @@ Attempts (per 600 PA, 3-segment piecewise):
   55 < SR ≤ 70: -62.525 + 1.250 × SR
   SR > 70:  -360.0 + 5.5 × SR
 Success rate: 0.160 + 0.0096 × STE (clamped 0.30-0.98)
+
+Historical blend (MLB players with qualifying seasons):
+  Per-PA SB/CS rates weighted [5, 4, 3] (most-recent-first, up to 3 years, pa ≥ 50)
+  historyWeight = min(0.35, 0.12 + yearsWithData × 0.08)
+    → 1yr: 20%, 2yr: 28%, 3yr: 33%, 4+: 35%
+  blendedRate = (1 - historyWeight) × scoutingRate + historyWeight × historicalRate
+  Prospects (no MLB history) use pure scouting.
 ```
 
 **Doubles/Triples:** `doublesRate = -0.012627 + 0.001086 × gap`, `triplesRate = -0.001657 + 0.000083 × speed(20-200 converted)`
