@@ -589,6 +589,13 @@ export class PitcherProfileModal {
     this.overlay.classList.remove('visible');
     this.overlay.setAttribute('aria-hidden', 'true');
 
+    // Clear deep-link ?player= param so refresh doesn't re-open
+    const url = new URL(window.location.href);
+    if (url.searchParams.has('player')) {
+      url.searchParams.delete('player');
+      window.history.replaceState({}, '', url.pathname + url.search);
+    }
+
     if (this.boundKeyHandler) {
       document.removeEventListener('keydown', this.boundKeyHandler);
       this.boundKeyHandler = null;

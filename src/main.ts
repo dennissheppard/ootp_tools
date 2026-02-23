@@ -8,6 +8,8 @@ import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, Tru
 import { analyticsService } from './services/AnalyticsService';
 import { setApiCallTracker } from './services/ApiClient';
 import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
+import { scoutingDataService } from './services/ScoutingDataService';
+import { hitterScoutingDataService } from './services/HitterScoutingDataService';
 
 function getDeepLinkPlayerId(): number | null {
   const params = new URLSearchParams(window.location.search);
@@ -78,17 +80,36 @@ class App {
     // Handle ?player=XXXX deep links
     if (!isFirstTime) {
       this.handlePlayerDeepLink();
+      // Check if bundled OSA scouting files have been updated (non-blocking)
+      this.checkBundledOsaFreshness();
+    }
+  }
+
+  /**
+   * Silently check if bundled OSA CSVs have changed and auto-replace cached data.
+   * Runs in the background — doesn't block rendering.
+   */
+  private async checkBundledOsaFreshness(): Promise<void> {
+    try {
+      const gameDate = await dateService.getCurrentDate();
+      const [pitcherUpdated, hitterUpdated] = await Promise.all([
+        scoutingDataService.checkAndUpdateBundledOsa(gameDate),
+        hitterScoutingDataService.checkAndUpdateBundledOsa(gameDate),
+      ]);
+      if (pitcherUpdated || hitterUpdated) {
+        console.log('🔄 Bundled OSA data updated — notifying views');
+        window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
+          detail: { source: 'osa', type: 'bundled-refresh' },
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to check bundled OSA freshness:', error);
     }
   }
 
   private handlePlayerDeepLink(): void {
     const playerId = getDeepLinkPlayerId();
     if (!playerId) return;
-
-    // Clean the URL so refreshing doesn't re-trigger the deep link
-    const url = new URL(window.location.href);
-    url.searchParams.delete('player');
-    window.history.replaceState({}, '', url.pathname + url.search);
 
     // Navigate to True Ratings and open the player modal
     this.activeTabId = 'tab-true-ratings';

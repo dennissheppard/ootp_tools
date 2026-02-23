@@ -1,6 +1,7 @@
 import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService } from './IndexedDBService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
+import { simpleHash } from '../utils/simpleHash';
 
 type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence' | 'pitcherType' | 'babip' | 'lev' | 'hsc' | 'dob';
 
@@ -591,12 +592,46 @@ class ScoutingDataService {
       // Save with the current game date
       console.log(`💾 Saving ${ratings.length} OSA ratings with date ${gameDate}...`);
       await this.saveScoutingRatings(gameDate, ratings, 'osa');
+      // Store content hash so checkAndUpdateBundledOsa() won't re-trigger on next visit
+      localStorage.setItem(ScoutingDataService.OSA_HASH_KEY, simpleHash(csvText));
       console.log(`✅ Successfully loaded ${ratings.length} default OSA scouting ratings`);
 
       return ratings.length;
     } catch (error) {
       console.error('❌ Failed to load default OSA data:', error);
       return 0;
+    }
+  }
+
+  private static readonly OSA_HASH_KEY = 'wbl-osa-pitcher-bundled-hash';
+
+  /**
+   * Check if bundled pitcher OSA CSV has changed since last load.
+   * If so, force-reload into IndexedDB. Called on app startup.
+   * Returns true if data was updated.
+   */
+  async checkAndUpdateBundledOsa(gameDate: string): Promise<boolean> {
+    try {
+      const response = await fetch('/data/default_osa_scouting.csv');
+      if (!response.ok) return false;
+
+      const csvText = await response.text();
+      const newHash = simpleHash(csvText);
+      const storedHash = localStorage.getItem(ScoutingDataService.OSA_HASH_KEY);
+
+      if (newHash === storedHash) return false;
+
+      console.log(`🔄 Bundled pitcher OSA scouting changed (${storedHash ?? 'none'} → ${newHash}), updating...`);
+      const ratings = this.parseScoutingCsv(csvText, 'osa');
+      if (ratings.length === 0) return false;
+
+      await this.saveScoutingRatings(gameDate, ratings, 'osa');
+      localStorage.setItem(ScoutingDataService.OSA_HASH_KEY, newHash);
+      console.log(`✅ Auto-updated ${ratings.length} pitcher OSA ratings from bundled file`);
+      return true;
+    } catch (error) {
+      console.error('Failed to check bundled pitcher OSA freshness:', error);
+      return false;
     }
   }
 }

@@ -2,6 +2,7 @@ import { HitterScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService } from './IndexedDBService';
 import { ScoutingSource } from './ScoutingDataService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
+import { simpleHash } from '../utils/simpleHash';
 
 type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'contact' | 'gap' | 'speed' | 'stealingAggressiveness' | 'stealingAbility' | 'injuryProneness' | 'age' | 'ovr' | 'pot' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence' | 'pos' | 'lev' | 'hsc' | 'dob';
 
@@ -499,12 +500,46 @@ class HitterScoutingDataService {
       }
 
       await this.saveScoutingRatings(gameDate, ratings, 'osa');
+      // Store content hash so checkAndUpdateBundledOsa() won't re-trigger on next visit
+      localStorage.setItem(HitterScoutingDataService.OSA_HASH_KEY, simpleHash(csvText));
       console.log(`Successfully loaded ${ratings.length} default hitter OSA scouting ratings`);
 
       return ratings.length;
     } catch (error) {
       console.error('Failed to load default hitter OSA data:', error);
       return 0;
+    }
+  }
+
+  private static readonly OSA_HASH_KEY = 'wbl-osa-hitter-bundled-hash';
+
+  /**
+   * Check if bundled hitter OSA CSV has changed since last load.
+   * If so, force-reload into IndexedDB. Called on app startup.
+   * Returns true if data was updated.
+   */
+  async checkAndUpdateBundledOsa(gameDate: string): Promise<boolean> {
+    try {
+      const response = await fetch('/data/default_hitter_osa_scouting.csv');
+      if (!response.ok) return false;
+
+      const csvText = await response.text();
+      const newHash = simpleHash(csvText);
+      const storedHash = localStorage.getItem(HitterScoutingDataService.OSA_HASH_KEY);
+
+      if (newHash === storedHash) return false;
+
+      console.log(`🔄 Bundled hitter OSA scouting changed (${storedHash ?? 'none'} → ${newHash}), updating...`);
+      const ratings = this.parseScoutingCsv(csvText, 'osa');
+      if (ratings.length === 0) return false;
+
+      await this.saveScoutingRatings(gameDate, ratings, 'osa');
+      localStorage.setItem(HitterScoutingDataService.OSA_HASH_KEY, newHash);
+      console.log(`✅ Auto-updated ${ratings.length} hitter OSA ratings from bundled file`);
+      return true;
+    } catch (error) {
+      console.error('Failed to check bundled hitter OSA freshness:', error);
+      return false;
     }
   }
 }
