@@ -3,6 +3,7 @@ import { indexedDBService } from './IndexedDBService';
 import { apiFetch } from './ApiClient';
 import { dateService } from './DateService';
 import { LEAGUE_START_YEAR } from './TrueRatingsService';
+import { supabaseDataService } from './SupabaseDataService';
 
 export type { MinorLeagueLevel };
 
@@ -33,6 +34,8 @@ const HEADER_ALIASES: Record<BattingHeaderKey, string[]> = {
 
 class MinorLeagueBattingStatsService {
   private inFlightRequests: Map<string, Promise<MinorLeagueBattingStats[]>> = new Map();
+  // In-memory cache for Supabase-loaded MiLB batting stats (avoids repeated DB queries)
+  private supabaseCache = new Map<string, MinorLeagueBattingStats[]>();
 
   parseCsv(csvText: string): MinorLeagueBattingStats[] {
     const lines = csvText
@@ -170,6 +173,49 @@ class MinorLeagueBattingStatsService {
   }
 
   async fetchStatsFromApi(year: number, level: MinorLeagueLevel): Promise<MinorLeagueBattingStats[]> {
+    // Try Supabase first (hero skips only for the current year — historical years are already in DB)
+    if (supabaseDataService.isConfigured) {
+      try {
+        const rows = await supabaseDataService.getMinorBattingStats(year, level);
+        if (rows.length > 0) {
+          // MiLB batting stats loaded from Supabase
+          const stats: MinorLeagueBattingStats[] = rows.map((r: any) => {
+            const ab = r.ab ?? 0;
+            const h = r.h ?? 0;
+            const pa = r.pa ?? 0;
+            const d = r.d ?? 0;
+            const t = r.t ?? 0;
+            const hr = r.hr ?? 0;
+            const bb = r.bb ?? 0;
+            const k = r.k ?? 0;
+            const sb = r.sb ?? 0;
+            const cs = r.cs ?? 0;
+            const avg = ab > 0 ? h / ab : 0;
+            const obp = pa > 0 ? (h + bb) / pa : 0;
+            const slg = ab > 0 ? (h - d - t - hr + d * 2 + t * 3 + hr * 4) / ab : 0;
+            return {
+              id: r.player_id,
+              name: `Player ${r.player_id}`,
+              pa, ab, h, d, t, hr, bb, k, sb, cs,
+              avg, obp, slg,
+              ops: obp + slg,
+              iso: slg - avg,
+              bb_pct: pa > 0 ? bb / pa : 0,
+              k_pct: pa > 0 ? k / pa : 0,
+            };
+          });
+          this.supabaseCache.set(`${year}_${level}`, stats);
+          return stats;
+        }
+      } catch (err) {
+        console.warn(`⚠️ Supabase fetch failed for ${level} batting ${year}, falling back to API:`, err);
+      }
+
+      // Supabase is configured but returned no data — don't fall through to API
+      console.warn(`⚠️ Supabase returned no ${level} batting data for ${year} and API fallback is disabled`);
+      return [];
+    }
+
     const leagueId = this.getLeagueId(level);
     const url = `/api/playerbatstatsv2/?year=${year}&lid=${leagueId}&split=1`;
 
@@ -207,6 +253,7 @@ class MinorLeagueBattingStatsService {
       }
 
       console.log(`✅ Fetched ${stats.length} batting records from API: ${level.toUpperCase()} ${year}`);
+      this.supabaseCache.set(`${year}_${level}`, stats);
 
       window.dispatchEvent(new CustomEvent('wbl:fetched-minor-league-batting-data', {
         detail: { year, level, recordCount: stats.length }
@@ -275,12 +322,20 @@ class MinorLeagueBattingStatsService {
       return inFlightRequest;
     }
 
-    // Try IndexedDB first
+    // In-memory cache for Supabase-loaded data (avoids repeated DB queries)
+    if (supabaseDataService.isConfigured) {
+      const cached = this.supabaseCache.get(`${year}_${level}`);
+      if (cached) return cached;
+    }
+
+    // Try IndexedDB first (skip when Supabase configured — query on-demand)
     let stats: MinorLeagueBattingStats[] | null = null;
-    try {
-      stats = await indexedDBService.getBattingStats(year, level);
-    } catch (err) {
-      console.error('Error fetching batting stats from IndexedDB:', err);
+    if (!supabaseDataService.isConfigured) {
+      try {
+        stats = await indexedDBService.getBattingStats(year, level);
+      } catch (err) {
+        console.error('Error fetching batting stats from IndexedDB:', err);
+      }
     }
 
     // If found, check if current year data is stale (game date changed)
@@ -315,6 +370,65 @@ class MinorLeagueBattingStatsService {
 
     this.inFlightRequests.set(cacheKey, fetchPromise);
     return fetchPromise;
+  }
+
+  /**
+   * Bulk-fetch all MiLB batting stats for a year (all 4 levels in 1 query).
+   * Populates supabaseCache so individual getStats() calls are instant.
+   */
+  async prefetchYear(year: number): Promise<void> {
+    // Skip levels already cached
+    const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
+    const uncached = levels.filter(l => !this.supabaseCache.has(`${year}_${l}`));
+    if (uncached.length === 0) return;
+
+    // Try Supabase bulk query first
+    if (supabaseDataService.isConfigured) {
+      const rows = await supabaseDataService.getMinorBattingStatsByYear(year);
+      if (rows.length > 0) {
+        const leagueToLevel: Record<number, MinorLeagueLevel> = { 201: 'aaa', 202: 'aa', 203: 'a', 204: 'r' };
+        const levelMap = new Map<string, MinorLeagueBattingStats[]>();
+
+        for (const r of rows) {
+          const level = leagueToLevel[r.league_id];
+          if (!level) continue;
+          if (!levelMap.has(level)) levelMap.set(level, []);
+
+          const ab = r.ab ?? 0;
+          const h = r.h ?? 0;
+          const pa = r.pa ?? 0;
+          const d = r.d ?? 0;
+          const t = r.t ?? 0;
+          const hr = r.hr ?? 0;
+          const bb = r.bb ?? 0;
+          const k = r.k ?? 0;
+          const sb = r.sb ?? 0;
+          const cs = r.cs ?? 0;
+          const avg = ab > 0 ? h / ab : 0;
+          const obp = pa > 0 ? (h + bb) / pa : 0;
+          const slg = ab > 0 ? (h - d - t - hr + d * 2 + t * 3 + hr * 4) / ab : 0;
+
+          levelMap.get(level)!.push({
+            id: r.player_id,
+            name: `Player ${r.player_id}`,
+            pa, ab, h, d, t, hr, bb, k, sb, cs,
+            avg, obp, slg,
+            ops: obp + slg,
+            iso: slg - avg,
+            bb_pct: pa > 0 ? bb / pa : 0,
+            k_pct: pa > 0 ? k / pa : 0,
+          });
+        }
+
+        for (const [level, stats] of levelMap) {
+          this.supabaseCache.set(`${year}_${level}`, stats);
+        }
+        return;
+      }
+    }
+
+    // Supabase empty or not configured — fetch all uncached levels from API in parallel
+    await Promise.all(uncached.map(level => this.fetchStatsFromApiWithDedup(year, level)));
   }
 
   async hasStats(year: number, level: MinorLeagueLevel): Promise<boolean> {
@@ -362,6 +476,40 @@ class MinorLeagueBattingStatsService {
       }));
 
       console.log(`✅ Fast batting lookup successful - ${results.length} seasons found`);
+      return results.sort((a, b) => b.year - a.year);
+    }
+
+    // Supabase single-player query (1 request instead of years × levels)
+    if (supabaseDataService.isConfigured) {
+      const rows = await supabaseDataService.query<any>(
+        'batting_stats',
+        `select=*&player_id=eq.${playerId}&year=gte.${startYear}&year=lte.${endYear}&league_id=in.(201,202,203,204)&split_id=eq.1`
+      );
+      const leagueToLevel: Record<number, MinorLeagueLevel> = { 201: 'aaa', 202: 'aa', 203: 'a', 204: 'r' };
+      // Dedup by year+league (keep row with most PA — the season total)
+      const dedupMap = new Map<string, any>();
+      for (const r of rows) {
+        const key = `${r.year}_${r.league_id}`;
+        const existing = dedupMap.get(key);
+        if (!existing || (r.pa ?? 0) > (existing.pa ?? 0)) dedupMap.set(key, r);
+      }
+      const results: MinorLeagueBattingStatsWithLevel[] = [];
+      for (const r of dedupMap.values()) {
+        const level = leagueToLevel[r.league_id];
+        if (!level) continue;
+        const ab = r.ab ?? 0, h = r.h ?? 0, pa = r.pa ?? 0, d = r.d ?? 0, t = r.t ?? 0;
+        const hr = r.hr ?? 0, bb = r.bb ?? 0, k = r.k ?? 0, sb = r.sb ?? 0, cs = r.cs ?? 0;
+        const avg = ab > 0 ? h / ab : 0;
+        const obp = pa > 0 ? (h + bb) / pa : 0;
+        const slg = ab > 0 ? (h - d - t - hr + d * 2 + t * 3 + hr * 4) / ab : 0;
+        results.push({
+          id: r.player_id, name: `Player ${r.player_id}`,
+          pa, ab, h, d, t, hr, bb, k, sb, cs,
+          avg, obp, slg, ops: obp + slg, iso: slg - avg,
+          bb_pct: pa > 0 ? bb / pa : 0, k_pct: pa > 0 ? k / pa : 0,
+          year: r.year, level,
+        });
+      }
       return results.sort((a, b) => b.year - a.year);
     }
 
@@ -435,63 +583,111 @@ class MinorLeagueBattingStatsService {
   }
 
   /**
-   * Load default minor league batting data from bundled CSV files
+   * Load default minor league batting data.
+   * Tries Supabase bulk query first, falls back to CSV.
    */
   async loadDefaultMinorLeagueBattingData(): Promise<{ loaded: number; errors: string[] }> {
     const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
     const startYear = LEAGUE_START_YEAR;
     const currentYear = await dateService.getCurrentYear();
-    const endYear = currentYear - 1; // CSVs only bundled for historical years; current year fetched from API on demand
+    const endYear = currentYear - 1;
 
     let loaded = 0;
     const errors: string[] = [];
 
-    console.log(`📦 Loading bundled minor league batting data (${startYear}-${endYear})...`);
-
+    // Determine which year/level combos are missing
+    const missing: { year: number; level: MinorLeagueLevel }[] = [];
     for (let year = startYear; year <= endYear; year++) {
       for (const level of levels) {
-        try {
-          const filename = `${year}_${level}_batting.csv`;
-          const url = `/data/minors_batting/${filename}`;
-
-          // Check if data already exists in cache
-          const existing = await this.hasStats(year, level);
-          if (existing) {
-            console.log(`⏭️  Skipping ${filename} (already cached)`);
-            continue;
-          }
-
-          // Fetch the bundled CSV
-          const response = await fetch(url);
-          if (!response.ok) {
-            if (response.status === 404) {
-              console.log(`⏭️  Skipping ${filename} (not in bundle)`);
-            } else {
-              errors.push(`${filename}: HTTP ${response.status}`);
-            }
-            continue;
-          }
-
-          const csvText = await response.text();
-          const stats = this.parseCsv(csvText);
-
-          if (stats.length === 0) {
-            console.warn(`⚠️  ${filename} parsed to 0 records, skipping`);
-            continue;
-          }
-
-          await this.saveStats(year, level, stats, 'csv');
-          loaded++;
-          console.log(`✅ Loaded ${filename} (${stats.length} players)`);
-
-        } catch (error) {
-          errors.push(`${year}_${level}_batting: ${error}`);
-          console.error(`❌ Failed to load ${year}_${level}_batting:`, error);
+        if (!(await this.hasStats(year, level))) {
+          missing.push({ year, level });
         }
       }
     }
 
-    console.log(`📦 Bundled batting data load complete: ${loaded} datasets loaded, ${errors.length} errors`);
+    if (missing.length === 0) {
+      console.log('📦 All minor league batting data already cached');
+      return { loaded: 0, errors: [] };
+    }
+
+    console.log(`📦 Loading minor league batting data (${missing.length} datasets missing)...`);
+
+    // Try Supabase bulk query
+    if (supabaseDataService.isConfigured) {
+      try {
+        const grouped = await supabaseDataService.getAllMinorBattingStatsBulk(startYear, endYear);
+
+        if (grouped.size > 0) {
+          for (const [key, rows] of grouped) {
+            const [yearStr, level] = key.split('_');
+            const year = parseInt(yearStr, 10);
+
+            // Transform Supabase rows to MinorLeagueBattingStats shape
+            const stats: MinorLeagueBattingStats[] = rows.map(row => {
+              const pa = row.pa ?? 0;
+              const ab = row.ab ?? 0;
+              const h = row.h ?? 0;
+              const d = row.d ?? 0;
+              const t = row.t ?? 0;
+              const hr = row.hr ?? 0;
+              const bb = row.bb ?? 0;
+              const k = row.k ?? 0;
+              const sb = row.sb ?? 0;
+              const cs = row.cs ?? 0;
+
+              const avg = ab > 0 ? h / ab : 0;
+              const obp = pa > 0 ? (h + bb) / pa : 0;
+              const singles = h - d - t - hr;
+              const slg = ab > 0 ? (singles + 2 * d + 3 * t + 4 * hr) / ab : 0;
+              const ops = obp + slg;
+              const iso = slg - avg;
+              const bb_pct = pa > 0 ? bb / pa : 0;
+              const k_pct = pa > 0 ? k / pa : 0;
+
+              return {
+                id: row.player_id,
+                name: `Player ${row.player_id}`,
+                pa, ab, h, d, t, hr, bb, k, sb, cs,
+                avg, obp, slg, ops, iso, bb_pct, k_pct,
+              };
+            });
+
+            if (stats.length > 0) {
+              await this.saveStats(year, level as MinorLeagueLevel, stats, 'csv');
+              loaded++;
+            }
+          }
+
+          console.log(`📦 Loaded ${loaded} minor league batting datasets from Supabase`);
+          return { loaded, errors };
+        }
+      } catch (error) {
+        console.warn('Supabase bulk query failed, falling back to CSV:', error);
+      }
+    }
+
+    // Fallback: load from bundled CSV files
+    for (const { year, level } of missing) {
+      try {
+        const filename = `${year}_${level}_batting.csv`;
+        const response = await fetch(`/data/minors_batting/${filename}`);
+        if (!response.ok) {
+          if (response.status !== 404) errors.push(`${filename}: HTTP ${response.status}`);
+          continue;
+        }
+
+        const csvText = await response.text();
+        const stats = this.parseCsv(csvText);
+        if (stats.length === 0) continue;
+
+        await this.saveStats(year, level, stats, 'csv');
+        loaded++;
+      } catch (error) {
+        errors.push(`${year}_${level}_batting: ${error}`);
+      }
+    }
+
+    console.log(`📦 Minor league batting load complete: ${loaded} datasets, ${errors.length} errors`);
     return { loaded, errors };
   }
 

@@ -13,6 +13,7 @@ import { standingsService, ActualStanding } from '../services/StandingsService';
 import { hasComponentUpside } from '../utils/tfrUpside';
 import { emitDataSourceBadges, ScoutingDataMode, SeasonDataMode } from '../utils/dataSourceBadges';
 import { teamLogoImg } from '../utils/teamLogos';
+import { supabaseDataService } from '../services/SupabaseDataService';
 
 // WAR→Wins calibration constants
 // Recalibrated Feb 2026: piecewise projection-based calibration on 236 team-seasons (2005-2020).
@@ -106,6 +107,13 @@ export class TeamRatingsView {
 
     window.addEventListener('wbl:request-data-source-badges', () => {
       if (this.container.closest('.tab-panel.active')) this.updateDataSourceBadges();
+    });
+
+    // Re-render when scouting data is uploaded
+    window.addEventListener('scoutingDataUpdated', () => {
+      this.refreshScoutingDataMode();
+      this.updateDataSourceBadges();
+      this.loadData();
     });
   }
 
@@ -489,6 +497,11 @@ export class TeamRatingsView {
       return;
     }
 
+    if (supabaseDataService.isConfigured) {
+      this.scoutingDataMode = supabaseDataService.hasCustomScouting ? 'mixed' : 'osa';
+      return;
+    }
+
     const [pitcherFallback, hitterMy, hitterOsa] = await Promise.all([
       scoutingDataFallbackService.getScoutingRatingsWithFallback(currentYear).catch(() => null),
       hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
@@ -502,7 +515,7 @@ export class TeamRatingsView {
     this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : 'none';
   }
 
-  private renderLists(): void {
+  private async renderLists(): Promise<void> {
       const rotContainer = this.container.querySelector('#rotation-rankings');
       const penContainer = this.container.querySelector('#bullpen-rankings');
 
@@ -524,7 +537,7 @@ export class TeamRatingsView {
 
       // Standings mode
       if (this.viewMode === 'standings') {
-        this.renderStandingsTable(rotContainer, penContainer);
+        await this.renderStandingsTable(rotContainer, penContainer);
         this.bindPlayerNameClicks();
         return;
       }
@@ -911,7 +924,7 @@ export class TeamRatingsView {
       return labels[this.standingsSortKey] || 'Projected Wins';
   }
 
-  private renderStandingsTable(rotContainer: Element, penContainer: Element): void {
+  private async renderStandingsTable(rotContainer: Element, penContainer: Element): Promise<void> {
       if (this.showByDivision) {
         this.renderDivisionStandings(rotContainer, penContainer);
         return;
@@ -919,7 +932,7 @@ export class TeamRatingsView {
       this.sortStandingsData();
 
       // Load actual standings for backtesting (null if no data for this year)
-      this.actualStandingsMap = standingsService.getStandingsMap(this.selectedYear);
+      this.actualStandingsMap = await standingsService.getStandingsMap(this.selectedYear);
       const hasActuals = this.actualStandingsMap !== null && this.actualStandingsMap.size > 0;
 
       // Build player lookup for modal access (reuse Projections pattern)

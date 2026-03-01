@@ -50,6 +50,11 @@ export function setApiCallTracker(tracker: ApiCallTracker): void {
   _apiCallTracker = tracker;
 }
 
+let _supabaseMode = false;
+export function setSupabaseMode(enabled: boolean): void {
+  _supabaseMode = enabled;
+}
+
 function normalizeEndpoint(url: string): string {
   try {
     return new URL(url, 'http://localhost').pathname;
@@ -80,6 +85,13 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   let hadRateLimit = false;
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   const endpoint = normalizeEndpoint(url);
+
+  // Block non-date API calls when Supabase is the data source
+  if (_supabaseMode && !url.includes('/date/')) {
+    console.warn('\u26d4 Blocked StatsPlus API call in Supabase mode:', url);
+    return new Response('', { status: 503 });
+  }
+
   // Route through proxy function in production
   input = proxyRewrite(url);
 

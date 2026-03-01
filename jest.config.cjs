@@ -6,6 +6,7 @@ module.exports = {
   moduleNameMapper: {
     '^(\.{1,2}/.*)\\.js$': '$1',
     '.*teamLogos.*': '<rootDir>/src/utils/__mocks__/teamLogos.ts',
+    './SupabaseDataService': '<rootDir>/src/services/__mocks__/SupabaseDataService.ts',
   },
   transform: {
     // '^.+\.[tj]sx?$' to process js/ts with `ts-jest`

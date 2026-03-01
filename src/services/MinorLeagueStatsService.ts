@@ -3,6 +3,7 @@ import { indexedDBService } from './IndexedDBService';
 import { apiFetch } from './ApiClient';
 import { dateService } from './DateService';
 import { LEAGUE_START_YEAR } from './TrueRatingsService';
+import { supabaseDataService } from './SupabaseDataService';
 
 export type { MinorLeagueLevel };
 
@@ -26,6 +27,8 @@ const HEADER_ALIASES: Record<StatsHeaderKey, string[]> = {
 class MinorLeagueStatsService {
   // Cache for in-flight API requests to prevent duplicate calls
   private inFlightRequests: Map<string, Promise<MinorLeagueStats[]>> = new Map();
+  // In-memory cache for Supabase-loaded MiLB stats (avoids repeated DB queries)
+  private supabaseCache = new Map<string, MinorLeagueStats[]>();
 
   parseCsv(csvText: string): MinorLeagueStats[] {
     const lines = csvText
@@ -128,6 +131,38 @@ class MinorLeagueStatsService {
   }
 
   async fetchStatsFromApi(year: number, level: MinorLeagueLevel): Promise<MinorLeagueStats[]> {
+    // Try Supabase first (hero skips only for the current year — historical years are already in DB)
+    if (supabaseDataService.isConfigured) {
+      try {
+        const rows = await supabaseDataService.getMinorPitchingStats(year, level);
+        if (rows.length > 0) {
+          // MiLB pitching stats loaded from Supabase
+          const stats: MinorLeagueStats[] = rows.map((r: any) => {
+            const ip = typeof r.ip === 'string' ? parseFloat(r.ip) : (r.ip || 0);
+            const hr = r.hra ?? r.hr ?? 0;
+            const bb = r.bb ?? 0;
+            const k = r.k ?? 0;
+            return {
+              id: r.player_id,
+              name: `Player ${r.player_id}`,
+              ip, hr, bb, k,
+              hr9: ip > 0 ? (hr / ip) * 9 : 0,
+              bb9: ip > 0 ? (bb / ip) * 9 : 0,
+              k9: ip > 0 ? (k / ip) * 9 : 0,
+            };
+          });
+          this.supabaseCache.set(`${year}_${level}`, stats);
+          return stats;
+        }
+      } catch (err) {
+        console.warn(`⚠️ Supabase fetch failed for ${level} pitching ${year}, falling back to API:`, err);
+      }
+
+      // Supabase is configured but returned no data — don't fall through to API
+      console.warn(`⚠️ Supabase returned no ${level} pitching data for ${year} and API fallback is disabled`);
+      return [];
+    }
+
     const leagueId = this.getLeagueId(level);
     const url = `/api/playerpitchstatsv2/?year=${year}&lid=${leagueId}&split=1`;
 
@@ -170,6 +205,7 @@ class MinorLeagueStatsService {
       }
 
       console.log(`✅ Fetched ${stats.length} records from API: ${level.toUpperCase()} ${year}`);
+      this.supabaseCache.set(`${year}_${level}`, stats);
 
       // Emit success event
       window.dispatchEvent(new CustomEvent('wbl:fetched-minor-league-data', {
@@ -245,24 +281,32 @@ class MinorLeagueStatsService {
       return inFlightRequest;
     }
 
-    // Try IndexedDB first
+    // In-memory cache for Supabase-loaded data (avoids repeated DB queries)
+    if (supabaseDataService.isConfigured) {
+      const cached = this.supabaseCache.get(cacheKey);
+      if (cached) return cached;
+    }
+
+    // Try IndexedDB first (skip when Supabase configured — query on-demand)
     let stats: MinorLeagueStats[] | null = null;
-    if (USE_INDEXEDDB) {
-      try {
-        stats = await indexedDBService.getStats(year, level);
-      } catch (err) {
-        console.error('Error fetching from IndexedDB:', err);
-      }
-    } else {
-      // Fallback to localStorage
-      try {
-        const raw = localStorage.getItem(this.storageKey(year, level));
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          stats = Array.isArray(parsed) ? (parsed as MinorLeagueStats[]) : null;
+    if (!supabaseDataService.isConfigured) {
+      if (USE_INDEXEDDB) {
+        try {
+          stats = await indexedDBService.getStats(year, level);
+        } catch (err) {
+          console.error('Error fetching from IndexedDB:', err);
         }
-      } catch (err) {
-        console.error('Error fetching from localStorage:', err);
+      } else {
+        // Fallback to localStorage
+        try {
+          const raw = localStorage.getItem(this.storageKey(year, level));
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            stats = Array.isArray(parsed) ? (parsed as MinorLeagueStats[]) : null;
+          }
+        } catch (err) {
+          console.error('Error fetching from localStorage:', err);
+        }
       }
     }
 
@@ -326,6 +370,53 @@ class MinorLeagueStatsService {
 
     this.inFlightRequests.set(cacheKey, fetchPromise);
     return fetchPromise;
+  }
+
+  /**
+   * Bulk-fetch all MiLB pitching stats for a year (all 4 levels in 1 query).
+   * Populates supabaseCache so individual getStats() calls are instant.
+   */
+  async prefetchYear(year: number): Promise<void> {
+    // Skip levels already cached
+    const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
+    const uncached = levels.filter(l => !this.supabaseCache.has(`${year}_${l}`));
+    if (uncached.length === 0) return;
+
+    // Try Supabase bulk query first
+    if (supabaseDataService.isConfigured) {
+      const rows = await supabaseDataService.getMinorPitchingStatsByYear(year);
+      if (rows.length > 0) {
+        const leagueToLevel: Record<number, MinorLeagueLevel> = { 201: 'aaa', 202: 'aa', 203: 'a', 204: 'r' };
+        const levelMap = new Map<string, MinorLeagueStats[]>();
+
+        for (const r of rows) {
+          const level = leagueToLevel[r.league_id];
+          if (!level) continue;
+          if (!levelMap.has(level)) levelMap.set(level, []);
+
+          const ip = typeof r.ip === 'string' ? parseFloat(r.ip) : (r.ip || 0);
+          const hr = r.hra ?? r.hr ?? 0;
+          const bb = r.bb ?? 0;
+          const k = r.k ?? 0;
+          levelMap.get(level)!.push({
+            id: r.player_id,
+            name: `Player ${r.player_id}`,
+            ip, hr, bb, k,
+            hr9: ip > 0 ? (hr / ip) * 9 : 0,
+            bb9: ip > 0 ? (bb / ip) * 9 : 0,
+            k9: ip > 0 ? (k / ip) * 9 : 0,
+          });
+        }
+
+        for (const [level, stats] of levelMap) {
+          this.supabaseCache.set(`${year}_${level}`, stats);
+        }
+        return;
+      }
+    }
+
+    // Supabase empty or not configured — fetch all uncached levels from API in parallel
+    await Promise.all(uncached.map(level => this.fetchStatsFromApiWithDedup(year, level)));
   }
 
   async hasStats(year: number, level: MinorLeagueLevel): Promise<boolean> {
@@ -440,8 +531,41 @@ class MinorLeagueStatsService {
       console.warn(`⚠️ Player-indexed store returned 0 records - falling back to league-level scan`);
     }
 
+    // Supabase single-player query (1 request instead of years × levels)
+    if (supabaseDataService.isConfigured) {
+      const rows = await supabaseDataService.query<any>(
+        'pitching_stats',
+        `select=*&player_id=eq.${playerId}&year=gte.${startYear}&year=lte.${endYear}&league_id=in.(201,202,203,204)&split_id=eq.1`
+      );
+      const leagueToLevel: Record<number, MinorLeagueLevel> = { 201: 'aaa', 202: 'aa', 203: 'a', 204: 'r' };
+      // Dedup by year+league (keep row with most IP — the season total)
+      const dedupMap = new Map<string, any>();
+      for (const r of rows) {
+        const key = `${r.year}_${r.league_id}`;
+        const existing = dedupMap.get(key);
+        const rIp = typeof r.ip === 'string' ? parseFloat(r.ip) : (r.ip || 0);
+        const eIp = existing ? (typeof existing.ip === 'string' ? parseFloat(existing.ip) : (existing.ip || 0)) : -1;
+        if (!existing || rIp > eIp) dedupMap.set(key, r);
+      }
+      const results: MinorLeagueStatsWithLevel[] = [];
+      for (const r of dedupMap.values()) {
+        const level = leagueToLevel[r.league_id];
+        if (!level) continue;
+        const ip = typeof r.ip === 'string' ? parseFloat(r.ip) : (r.ip || 0);
+        const hr = r.hra ?? r.hr ?? 0, bb = r.bb ?? 0, k = r.k ?? 0;
+        results.push({
+          id: r.player_id, name: `Player ${r.player_id}`,
+          ip, hr, bb, k,
+          hr9: ip > 0 ? (hr / ip) * 9 : 0,
+          bb9: ip > 0 ? (bb / ip) * 9 : 0,
+          k9: ip > 0 ? (k / ip) * 9 : 0,
+          year: r.year, level,
+        });
+      }
+      return results.sort((a, b) => b.year - a.year);
+    }
+
     // Fallback: Query league-level data (slower, for v2 databases or cache misses)
-    // This will also trigger auto-fetch from API if data doesn't exist
     console.log(`   Scanning league-level data for player ${playerId}...`);
     const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
     const results: MinorLeagueStatsWithLevel[] = [];
@@ -486,68 +610,97 @@ class MinorLeagueStatsService {
   }
 
   /**
-   * Load default minor league data from bundled CSV files
-   * Tries to load all files from LEAGUE_START_YEAR to current year + 5
-   * Silently skips files that don't exist (404)
-   * @returns Object with count of files loaded and any errors
+   * Load default minor league pitching data.
+   * Tries Supabase bulk query first (1 request for all years/levels), falls back to CSV.
    */
   async loadDefaultMinorLeagueData(): Promise<{ loaded: number; errors: string[] }> {
     const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
     const startYear = LEAGUE_START_YEAR;
     const currentYear = await dateService.getCurrentYear();
-    const endYear = currentYear - 1; // CSVs only bundled for historical years; current year fetched from API on demand
+    const endYear = currentYear - 1;
 
     let loaded = 0;
     const errors: string[] = [];
 
-    console.log(`📦 Loading bundled minor league data (${startYear}-${endYear})...`);
-
+    // Determine which year/level combos are missing
+    const missing: { year: number; level: MinorLeagueLevel }[] = [];
     for (let year = startYear; year <= endYear; year++) {
       for (const level of levels) {
-        try {
-          const filename = `${year}_${level}.csv`;
-          const url = `/data/minors/${filename}`;
-
-          // Check if data already exists in cache
-          const existing = await this.hasStats(year, level);
-          if (existing) {
-            console.log(`⏭️  Skipping ${filename} (already cached)`);
-            continue;
-          }
-
-          // Fetch the bundled CSV
-          const response = await fetch(url);
-          if (!response.ok) {
-            // Don't error on 404 - some years might not have data
-            if (response.status === 404) {
-              console.log(`⏭️  Skipping ${filename} (not in bundle)`);
-            } else {
-              errors.push(`${filename}: HTTP ${response.status}`);
-            }
-            continue;
-          }
-
-          const csvText = await response.text();
-          const stats = this.parseCsv(csvText);
-
-          if (stats.length === 0) {
-            console.warn(`⚠️  ${filename} parsed to 0 records, skipping`);
-            continue;
-          }
-
-          // Save to IndexedDB with 'csv' source
-          await this.saveStats(year, level, stats, 'csv');
-          loaded++;
-          console.log(`✅ Loaded ${filename} (${stats.length} players)`);
-
-        } catch (error) {
-          errors.push(`${year}_${level}: ${error}`);
-          console.error(`❌ Failed to load ${year}_${level}:`, error);
+        if (!(await this.hasStats(year, level))) {
+          missing.push({ year, level });
         }
       }
     }
 
-    console.log(`📦 Bundled data load complete: ${loaded} datasets loaded, ${errors.length} errors`);
+    if (missing.length === 0) {
+      console.log('📦 All minor league pitching data already cached');
+      return { loaded: 0, errors: [] };
+    }
+
+    console.log(`📦 Loading minor league pitching data (${missing.length} datasets missing)...`);
+
+    // Try Supabase bulk query
+    if (supabaseDataService.isConfigured) {
+      try {
+        const grouped = await supabaseDataService.getAllMinorPitchingStatsBulk(startYear, endYear);
+
+        if (grouped.size > 0) {
+          for (const [key, rows] of grouped) {
+            const [yearStr, level] = key.split('_');
+            const year = parseInt(yearStr, 10);
+
+            // Transform Supabase rows to MinorLeagueStats shape
+            const stats: MinorLeagueStats[] = rows.map(row => {
+              const ip = parseFloat(row.ip) || 0;
+              const hr = row.hra ?? 0;
+              const bb = row.bb ?? 0;
+              const k = row.k ?? 0;
+              return {
+                id: row.player_id,
+                name: `Player ${row.player_id}`,
+                ip, hr, bb, k,
+                hr9: ip > 0 ? (hr / ip) * 9 : 0,
+                bb9: ip > 0 ? (bb / ip) * 9 : 0,
+                k9: ip > 0 ? (k / ip) * 9 : 0,
+              };
+            });
+
+            if (stats.length > 0) {
+              await this.saveStats(year, level as MinorLeagueLevel, stats, 'csv');
+              loaded++;
+            }
+          }
+
+          console.log(`📦 Loaded ${loaded} minor league pitching datasets from Supabase`);
+          return { loaded, errors };
+        }
+      } catch (error) {
+        console.warn('Supabase bulk query failed, falling back to CSV:', error);
+      }
+    }
+
+    // Fallback: load from bundled CSV files
+    for (const { year, level } of missing) {
+      try {
+        const filename = `${year}_${level}.csv`;
+        const response = await fetch(`/data/minors/${filename}`);
+        if (!response.ok) {
+          if (response.status !== 404) errors.push(`${filename}: HTTP ${response.status}`);
+          continue;
+        }
+
+        const csvText = await response.text();
+        const stats = this.parseCsv(csvText);
+        if (stats.length === 0) continue;
+
+        await this.saveStats(year, level, stats, 'csv');
+        loaded++;
+      } catch (error) {
+        errors.push(`${year}_${level}: ${error}`);
+      }
+    }
+
+    console.log(`📦 Minor league pitching load complete: ${loaded} datasets, ${errors.length} errors`);
     return { loaded, errors };
   }
 

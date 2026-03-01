@@ -25,6 +25,21 @@ const TEAM_PLANNING_OVERRIDES_STORE = 'team_planning_overrides'; // v10: User ce
 const PLAYER_DEV_OVERRIDES_STORE = 'player_dev_overrides'; // v11: Per-player development curve overrides
 const SALARY_OVERRIDES_STORE = 'salary_overrides'; // v12: Per-cell salary overrides in team planning grid
 
+// Stores that are pure API/CSV caches — safe to clear when Supabase replaces them
+const STALE_CACHE_STORES = [
+  STATS_STORE,            // minor_league_stats
+  METADATA_STORE,         // minor_league_metadata
+  PLAYER_STATS_STORE,     // player_minor_league_stats
+  MLB_PLAYER_STATS_STORE, // mlb_player_pitching_stats
+  MLB_LEAGUE_STATS_STORE, // mlb_league_stats
+  PLAYERS_STORE,          // players
+  TEAMS_STORE,            // teams
+  BATTING_STATS_STORE,    // minor_league_batting_stats
+  PLAYER_BATTING_STATS_STORE,     // player_minor_league_batting_stats
+  MLB_PLAYER_BATTING_STATS_STORE, // mlb_player_batting_stats
+  AI_SCOUTING_BLURB_STORE,        // ai_scouting_blurbs
+] as const;
+
 export interface ScoutingRecord {
   key: string; // Format: "YYYY-MM-DD_source"
   date: string;
@@ -1714,6 +1729,39 @@ class IndexedDBService {
       const request = index.getAll(IDBKeyRange.only(teamId));
       request.onsuccess = () => resolve(request.result as SalaryOverrideRecord[]);
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  /**
+   * Clear stale cache stores that are replaced by Supabase.
+   * Preserves user data: scouting uploads, dev snapshots, planning overrides.
+   * Returns the number of stores cleared.
+   */
+  async clearStaleCacheStores(): Promise<number> {
+    if (!this.db) return 0;
+
+    const storesToClear = STALE_CACHE_STORES.filter(
+      s => this.db!.objectStoreNames.contains(s)
+    );
+    if (storesToClear.length === 0) return 0;
+
+    return new Promise((resolve) => {
+      try {
+        const tx = this.db!.transaction(storesToClear as unknown as string[], 'readwrite');
+        let cleared = 0;
+        for (const name of storesToClear) {
+          const req = tx.objectStore(name).clear();
+          req.onsuccess = () => { cleared++; };
+        }
+        tx.oncomplete = () => resolve(cleared);
+        tx.onerror = () => {
+          console.warn('⚠️ Failed to clear some stale IndexedDB stores:', tx.error);
+          resolve(cleared);
+        };
+      } catch (err) {
+        console.warn('⚠️ Error clearing stale IndexedDB stores:', err);
+        resolve(0);
+      }
     });
   }
 }

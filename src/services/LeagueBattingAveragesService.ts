@@ -25,6 +25,8 @@ export interface LeagueBattingAverages {
   totalRuns: number;
 }
 
+import { supabaseDataService } from './SupabaseDataService';
+
 /** wOBA linear weights (FanGraphs 2021 values, close enough for OOTP) */
 const WOBA_WEIGHTS = {
   bb: 0.69,
@@ -41,6 +43,7 @@ const leagueAveragesCache = new Map<number, LeagueBattingAverages>();
 class LeagueBattingAveragesService {
   /**
    * Load and compute league batting averages for a given year.
+   * Tries Supabase first (aggregate query), falls back to CSV.
    * Results are cached after first computation.
    */
   async getLeagueAverages(year: number): Promise<LeagueBattingAverages | null> {
@@ -50,6 +53,35 @@ class LeagueBattingAveragesService {
     }
 
     try {
+      // Try pre-computed cache first (avoids bulk batting_stats fetch)
+      if (supabaseDataService.isConfigured) {
+        try {
+          const ctx = await supabaseDataService.getPrecomputed('league_context');
+          const cached = ctx?.leagueAverages?.[String(year)];
+          if (cached) {
+            leagueAveragesCache.set(year, cached);
+            return cached;
+          }
+        } catch {
+          // Fall through to bulk query
+        }
+
+        // Fallback: compute from bulk batting_stats
+        try {
+          const rows = await supabaseDataService.getBattingStats(year, 200);
+          if (rows.length > 0) {
+            const averages = this.computeAveragesFromRows(rows, year);
+            if (averages) {
+              leagueAveragesCache.set(year, averages);
+              return averages;
+            }
+          }
+        } catch (error) {
+          console.warn(`Supabase batting query failed for ${year}, falling back to CSV:`, error);
+        }
+      }
+
+      // Fallback: CSV
       const response = await fetch(`/data/mlb_batting/${year}_batting.csv`);
       if (!response.ok) {
         console.warn(`MLB batting data not found for year ${year}`);
@@ -61,7 +93,6 @@ class LeagueBattingAveragesService {
 
       if (averages) {
         leagueAveragesCache.set(year, averages);
-        console.log(`📊 Computed league averages for ${year}: lgOBP=${averages.lgObp.toFixed(3)}, lgSLG=${averages.lgSlg.toFixed(3)}, lgwOBA=${averages.lgWoba.toFixed(3)}`);
       }
 
       return averages;
@@ -69,6 +100,62 @@ class LeagueBattingAveragesService {
       console.error(`Error loading league batting averages for ${year}:`, error);
       return null;
     }
+  }
+
+  /**
+   * Compute league averages from Supabase batting_stats rows (JSON objects).
+   */
+  private computeAveragesFromRows(rows: any[], year: number): LeagueBattingAverages | null {
+    let totalPa = 0, totalAb = 0, totalH = 0, totalD = 0, totalT = 0;
+    let totalHr = 0, totalBb = 0, totalHp = 0, totalSf = 0, totalR = 0;
+
+    for (const row of rows) {
+      const pa = row.pa ?? 0;
+      if (pa < 1) continue;
+      totalPa += pa;
+      totalAb += row.ab ?? 0;
+      totalH += row.h ?? 0;
+      totalD += row.d ?? 0;
+      totalT += row.t ?? 0;
+      totalHr += row.hr ?? 0;
+      totalBb += row.bb ?? 0;
+      totalHp += row.hp ?? 0;
+      totalSf += row.sf ?? 0;
+      totalR += row.r ?? 0;
+    }
+
+    if (totalPa === 0 || totalAb === 0) return null;
+
+    const totalSingles = totalH - totalD - totalT - totalHr;
+    const totalTb = totalSingles + 2 * totalD + 3 * totalT + 4 * totalHr;
+
+    const lgObp = (totalH + totalBb + totalHp) / (totalAb + totalBb + totalHp + totalSf);
+    const lgSlg = totalTb / totalAb;
+    const lgRpa = totalR / totalPa;
+
+    const lgWoba = (
+      WOBA_WEIGHTS.bb * totalBb +
+      WOBA_WEIGHTS.hbp * totalHp +
+      WOBA_WEIGHTS.single * totalSingles +
+      WOBA_WEIGHTS.double * totalD +
+      WOBA_WEIGHTS.triple * totalT +
+      WOBA_WEIGHTS.hr * totalHr
+    ) / (totalAb + totalBb + totalHp + totalSf);
+
+    const wobaScale = 1.15;
+    const runsPerWin = 10;
+
+    return {
+      year,
+      lgObp: Math.round(lgObp * 1000) / 1000,
+      lgSlg: Math.round(lgSlg * 1000) / 1000,
+      lgWoba: Math.round(lgWoba * 1000) / 1000,
+      lgRpa: Math.round(lgRpa * 1000) / 1000,
+      wobaScale: Math.round(wobaScale * 100) / 100,
+      runsPerWin,
+      totalPa,
+      totalRuns: totalR,
+    };
   }
 
   /**

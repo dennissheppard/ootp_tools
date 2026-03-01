@@ -1,5 +1,6 @@
 import { apiFetch } from './ApiClient';
 import { dateService } from './DateService';
+import { supabaseDataService } from './SupabaseDataService';
 
 const API_BASE = '/api';
 const CACHE_KEY = 'wbl_contracts_cache';
@@ -56,6 +57,97 @@ export class ContractService {
     } finally {
       this.loading = null;
     }
+  }
+
+  async getContractForPlayer(playerId: number): Promise<Contract | undefined> {
+    // If already cached, use cache
+    if (this.contracts.size > 0) {
+      return this.contracts.get(playerId);
+    }
+
+    // Supabase: query single player's contract instead of fetching all
+    if (supabaseDataService.isConfigured) {
+      try {
+        const rows = await supabaseDataService.query<any>('contracts', `select=*&player_id=eq.${playerId}`);
+        if (rows.length > 0) {
+          const r = rows[0];
+          return {
+            playerId: r.player_id,
+            teamId: r.team_id ?? 0,
+            leagueId: r.league_id ?? 0,
+            isMajor: r.is_major ?? false,
+            seasonYear: r.season_year ?? 0,
+            years: r.years ?? 0,
+            currentYear: r.current_year ?? 0,
+            salaries: r.salaries ?? [],
+            noTrade: r.no_trade ?? false,
+            lastYearTeamOption: r.last_year_team_option ?? false,
+            lastYearPlayerOption: r.last_year_player_option ?? false,
+            lastYearVestingOption: r.last_year_vesting_option ?? false,
+          };
+        }
+        return undefined;
+      } catch {
+        // Fall through to bulk fetch
+      }
+    }
+
+    // Fallback: load all and find
+    const all = await this.getAllContracts();
+    return all.get(playerId);
+  }
+
+  async getContractsByPlayerIds(playerIds: number[]): Promise<Map<number, Contract>> {
+    if (playerIds.length === 0) return new Map();
+
+    // If full cache exists, filter it
+    if (this.contracts.size > 0) {
+      const result = new Map<number, Contract>();
+      const idSet = new Set(playerIds);
+      for (const [pid, c] of this.contracts) {
+        if (idSet.has(pid)) result.set(pid, c);
+      }
+      return result;
+    }
+
+    // Supabase: targeted query
+    if (supabaseDataService.isConfigured) {
+      try {
+        const idList = playerIds.join(',');
+        const rows = await supabaseDataService.query<any>('contracts', `select=*&player_id=in.(${idList})`);
+        const result = new Map<number, Contract>();
+        for (const r of rows) {
+          result.set(r.player_id, {
+            playerId: r.player_id,
+            teamId: r.team_id,
+            leagueId: r.league_id,
+            isMajor: r.is_major,
+            seasonYear: r.season_year,
+            years: r.years,
+            currentYear: r.current_year,
+            salaries: Array.isArray(r.salaries) ? r.salaries : [],
+            noTrade: r.no_trade,
+            lastYearTeamOption: r.last_year_team_option,
+            lastYearPlayerOption: r.last_year_player_option,
+            lastYearVestingOption: r.last_year_vesting_option,
+          });
+        }
+        return result;
+      } catch { /* fall through */ }
+    }
+
+    // Fallback: load all and filter
+    const all = await this.getAllContracts();
+    const result = new Map<number, Contract>();
+    const idSet = new Set(playerIds);
+    for (const [pid, c] of all) {
+      if (idSet.has(pid)) result.set(pid, c);
+    }
+    return result;
+  }
+
+  hasCachedContracts(): boolean {
+    return this.contracts.size > 0;
   }
 
   getYearsRemaining(contract: Contract): number {
@@ -123,6 +215,40 @@ export class ContractService {
   }
 
   private async fetchContracts(): Promise<Map<number, Contract>> {
+    // Try Supabase first
+    if (supabaseDataService.isConfigured) {
+      try {
+        const rows = await supabaseDataService.getContracts();
+        if (rows.length > 0) {
+          // Contracts loaded from Supabase
+          const contractMap = new Map<number, Contract>();
+          for (const r of rows) {
+            contractMap.set(r.player_id, {
+              playerId: r.player_id,
+              teamId: r.team_id,
+              leagueId: r.league_id,
+              isMajor: r.is_major,
+              seasonYear: r.season_year,
+              years: r.years,
+              currentYear: r.current_year,
+              salaries: Array.isArray(r.salaries) ? r.salaries : [],
+              noTrade: r.no_trade,
+              lastYearTeamOption: r.last_year_team_option,
+              lastYearPlayerOption: r.last_year_player_option,
+              lastYearVestingOption: r.last_year_vesting_option,
+            });
+          }
+          return contractMap;
+        }
+      } catch (err) {
+        console.warn('⚠️ Supabase contract fetch failed, falling back to API:', err);
+      }
+
+      // Supabase is configured but returned no data — don't fall through to API
+      console.warn('⚠️ Supabase returned no contract data and API fallback is disabled');
+      return new Map();
+    }
+
     console.log('Fetching contracts from API...');
     const response = await apiFetch(`${API_BASE}/contract/`);
     if (!response.ok) {
@@ -132,6 +258,7 @@ export class ContractService {
     const csvText = await response.text();
     const contracts = this.parseContractsCsv(csvText);
     console.log(`Fetched ${contracts.size} contracts from API`);
+
     return contracts;
   }
 

@@ -2,11 +2,51 @@ import { PitchingStats, BattingStats } from '../models/Stats';
 import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
 import { dateService } from './DateService';
+import { supabaseDataService } from './SupabaseDataService';
 
 const API_BASE = '/api';
 
 export class StatsService {
   async getPitchingStats(playerId: number, year?: number): Promise<PitchingStats[]> {
+    // Supabase-first path
+    if (supabaseDataService.isConfigured) {
+      try {
+        let params = `select=*&player_id=eq.${playerId}&split_id=eq.1&order=year`;
+        if (year) params += `&year=eq.${year}`;
+        const rows = await supabaseDataService.query<any>('pitching_stats', params);
+        return rows.map((r: any) => {
+          const ip = typeof r.ip === 'string' ? parseFloat(r.ip) : (r.ip || 0);
+          const er = r.er ?? 0;
+          const ha = r.ha ?? 0;
+          const bb = r.bb ?? 0;
+          const k = r.k ?? 0;
+          return {
+            id: r.id ?? 0,
+            playerId: r.player_id,
+            year: r.year,
+            teamId: r.team_id ?? 0,
+            leagueId: r.league_id,
+            levelId: r.level_id ?? 0,
+            splitId: r.split_id,
+            ip, w: r.w ?? 0, l: r.l ?? 0,
+            era: ip > 0 ? (er / ip) * 9 : 0,
+            g: r.g ?? 0, gs: r.gs ?? 0, sv: r.s ?? 0,
+            bf: r.bf ?? 0, ab: r.ab ?? 0, ha, er, r: r.r ?? 0, bb, k,
+            hr: r.hra ?? 0,
+            whip: ip > 0 ? (bb + ha) / ip : 0,
+            k9: ip > 0 ? (k / ip) * 9 : 0,
+            bb9: ip > 0 ? (bb / ip) * 9 : 0,
+            war: parseFloat(r.war) || 0,
+            cg: r.cg ?? 0, sho: r.sho ?? 0, hld: r.hld ?? 0,
+            bs: r.bs ?? 0, qs: r.qs ?? 0,
+          } as PitchingStats;
+        });
+      } catch (err) {
+        console.warn('Supabase pitching stats fetch failed:', err);
+        return [];
+      }
+    }
+
     // Check cache first
     try {
       const cached = await indexedDBService.getMlbPlayerPitchingStats(playerId, year);
@@ -65,6 +105,48 @@ export class StatsService {
   }
 
   async getBattingStats(playerId: number, year?: number): Promise<BattingStats[]> {
+    // Supabase-first path
+    if (supabaseDataService.isConfigured) {
+      try {
+        let params = `select=*&player_id=eq.${playerId}&split_id=eq.1&order=year`;
+        if (year) params += `&year=eq.${year}`;
+        const rows = await supabaseDataService.query<any>('batting_stats', params);
+        return rows.map((r: any) => {
+          const ab = r.ab ?? 0;
+          const h = r.h ?? 0;
+          const bb = r.bb ?? 0;
+          const hp = r.hp ?? 0;
+          const sf = r.sf ?? 0;
+          const d = r.d ?? 0;
+          const t = r.t ?? 0;
+          const hr = r.hr ?? 0;
+          const avg = ab > 0 ? h / ab : 0;
+          const obpDenom = ab + bb + hp + sf;
+          const obp = obpDenom > 0 ? (h + bb + hp) / obpDenom : 0;
+          const tb = h + d + (2 * t) + (3 * hr);
+          const slg = ab > 0 ? tb / ab : 0;
+          return {
+            id: r.id ?? 0,
+            playerId: r.player_id,
+            year: r.year,
+            teamId: r.team_id ?? 0,
+            leagueId: r.league_id,
+            levelId: r.level_id ?? 0,
+            splitId: r.split_id,
+            g: r.g ?? 0, ab, pa: r.pa ?? 0, h, d, t, hr,
+            r: r.r ?? 0, rbi: r.rbi ?? 0, bb, k: r.k ?? 0,
+            sb: r.sb ?? 0, cs: r.cs ?? 0,
+            avg, obp, slg, ops: obp + slg,
+            war: parseFloat(r.war) || 0,
+            ibb: r.ibb ?? 0, hp, sh: r.sh ?? 0, sf, gdp: r.gdp ?? 0,
+          } as BattingStats;
+        });
+      } catch (err) {
+        console.warn('Supabase batting stats fetch failed:', err);
+        return [];
+      }
+    }
+
     // Check cache first
     try {
       const cached = await indexedDBService.getMlbPlayerBattingStats(playerId, year);

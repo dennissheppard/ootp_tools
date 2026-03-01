@@ -2,7 +2,7 @@
  * StandingsService — loads actual historical standings from CSV files.
  * Used by Standings mode to show projected vs actual W-L for backtesting.
  *
- * CSVs are bundled at build time via Vite's import.meta.glob with ?raw.
+ * CSVs are lazy-loaded on demand via Vite's import.meta.glob.
  * Team names in CSVs must match the team nicknames used in the app.
  */
 
@@ -16,8 +16,8 @@ export interface ActualStanding {
   totalWar: number;
 }
 
-// Vite bundles these at build time — no runtime fetch needed
-const standingsModules = import.meta.glob('/data/*_standings.csv', { query: '?raw', eager: true }) as Record<string, { default: string }>;
+// Lazy loaders — each CSV is only fetched when getStandings(year) is first called
+const standingsModules = import.meta.glob('/data/*_standings.csv', { query: '?raw', import: 'default' }) as Record<string, () => Promise<string>>;
 
 class StandingsService {
   private cache = new Map<number, ActualStanding[] | null>();
@@ -26,19 +26,20 @@ class StandingsService {
    * Load actual standings for a given year.
    * Returns null if no standings file exists for that year.
    */
-  getStandings(year: number): ActualStanding[] | null {
+  async getStandings(year: number): Promise<ActualStanding[] | null> {
     if (this.cache.has(year)) {
       return this.cache.get(year)!;
     }
 
     const key = `/data/${year}_standings.csv`;
-    const mod = standingsModules[key];
-    if (!mod) {
+    const loader = standingsModules[key];
+    if (!loader) {
       this.cache.set(year, null);
       return null;
     }
 
-    const standings = this.parseCsv(mod.default);
+    const csv = await loader();
+    const standings = this.parseCsv(csv);
     this.cache.set(year, standings);
     return standings;
   }
@@ -46,8 +47,8 @@ class StandingsService {
   /**
    * Get a lookup map keyed by team nickname.
    */
-  getStandingsMap(year: number): Map<string, ActualStanding> | null {
-    const standings = this.getStandings(year);
+  async getStandingsMap(year: number): Promise<Map<string, ActualStanding> | null> {
+    const standings = await this.getStandings(year);
     if (!standings) return null;
 
     const map = new Map<string, ActualStanding>();

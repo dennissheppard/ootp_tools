@@ -108,10 +108,12 @@ export function resolveCanonicalBatterData(
     }
   }
 
-  // Step 5: Force recompute of WAR/PA
+  // Step 5: Force recompute of WAR/PA/OBP/SLG from canonical rates
   if (playerTR || tfrEntry) {
     data.projWar = undefined;
     data.projPa = undefined;
+    data.projObp = undefined;
+    data.projSlg = undefined;
   }
 }
 

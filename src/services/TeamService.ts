@@ -1,6 +1,7 @@
 import { Team } from '../models/Team';
 import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
+import { supabaseDataService } from './SupabaseDataService';
 
 const API_BASE = '/api';
 const CACHE_DURATION_MS = 24 * 60 * 60 * 1000 * 30; // 30 days (basically permanent)
@@ -15,8 +16,8 @@ export class TeamService {
       return this.teams;
     }
 
-    // Check IndexedDB cache
-    if (!forceRefresh) {
+    // Check IndexedDB cache (skip when Supabase is configured — query on-demand instead)
+    if (!forceRefresh && !supabaseDataService.isConfigured) {
       const cached = await this.loadFromCache();
       if (cached) {
         this.teams = cached;
@@ -32,7 +33,9 @@ export class TeamService {
     this.loading = this.fetchTeams();
     try {
       this.teams = await this.loading;
-      await this.saveToCache(this.teams);
+      if (!supabaseDataService.isConfigured) {
+        await this.saveToCache(this.teams);
+      }
       return this.teams;
     } finally {
       this.loading = null;
@@ -45,13 +48,38 @@ export class TeamService {
   }
 
   private async fetchTeams(): Promise<Team[]> {
+    // Try Supabase first (skip when hero — hero must fetch fresh data from API)
+    if (supabaseDataService.isConfigured) {
+      try {
+        const rows = await supabaseDataService.getTeams();
+        if (rows.length > 0) {
+          // Teams loaded from Supabase
+          return rows.map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            nickname: r.nickname,
+            parentTeamId: r.parent_team_id,
+            leagueId: r.league_id ?? undefined,
+          }));
+        }
+      } catch (err) {
+        console.warn('⚠️ Supabase team fetch failed, falling back to API:', err);
+      }
+
+      // Supabase is configured but returned no data — don't fall through to API
+      console.warn('⚠️ Supabase returned no team data and API fallback is disabled');
+      return [];
+    }
+
     const response = await apiFetch(`${API_BASE}/teams/`);
     if (!response.ok) {
       throw new Error(`Failed to fetch teams: ${response.statusText}`);
     }
 
     const csvText = await response.text();
-    return this.parseTeamsCsv(csvText);
+    const teams = this.parseTeamsCsv(csvText);
+
+    return teams;
   }
 
   private parseTeamsCsv(csv: string): Team[] {

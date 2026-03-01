@@ -18,6 +18,7 @@ import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { contractService } from './ContractService';
 import { prospectDevelopmentCurveService } from './ProspectDevelopmentCurveService';
+import { supabaseDataService } from './SupabaseDataService';
 
 export interface RatedPlayer {
   playerId: number;
@@ -394,6 +395,12 @@ class TeamRatingsService {
   private _unifiedHitterCache = new Map<number, HitterFarmData>();
   private _unifiedPitcherCache = new Map<number, FarmData>();
   private _pitcherFarmCache = new Map<number, FarmData>();
+
+  public clearTfrCaches(): void {
+    this._unifiedHitterCache.clear();
+    this._unifiedPitcherCache.clear();
+    this._pitcherFarmCache.clear();
+  }
 
   /**
    * Get Power Rankings for all MLB teams
@@ -811,6 +818,32 @@ class TeamRatingsService {
       const cached = this._unifiedPitcherCache.get(year);
       if (cached) return cached;
 
+      // Follower fast path: use pre-computed TFR from Supabase (skip when custom scouting uploaded)
+      if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
+        try {
+          // Try precomputed_cache first (1 request vs 2-3 paginated requests)
+          const cached = await supabaseDataService.getPrecomputed('pitcher_tfr_prospects');
+          if (cached && Array.isArray(cached) && cached.length > 0) {
+            console.log(`⚡ Loaded ${cached.length} pre-computed pitcher TFR from precomputed_cache`);
+            const farmData = await this.buildPitcherFarmDataFromProspects(cached as RatedProspect[]);
+            this._unifiedPitcherCache.set(year, farmData);
+            return farmData;
+          }
+          // Fallback: row-by-row from player_ratings
+          const rows = await supabaseDataService.getPlayerRatings('pitcher_tfr');
+          if (rows.length > 0) {
+            console.log(`⚡ Loaded ${rows.length} pre-computed pitcher TFR from player_ratings`);
+            const prospects: RatedProspect[] = rows.map(r => r.data);
+            const farmData = await this.buildPitcherFarmDataFromProspects(prospects);
+            this._unifiedPitcherCache.set(year, farmData);
+            return farmData;
+          }
+          console.log('⚠️ No pitcher TFR data available — falling back to computation');
+        } catch (err) {
+          console.warn('⚠️ Failed to load pre-computed pitcher TFR, falling back to computation:', err);
+        }
+      }
+
       // Fetch scouting data first to handle fallback logic
       let scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback(year);
       if (scoutingData.ratings.length === 0) {
@@ -942,7 +975,7 @@ class TeamRatingsService {
           const careerIp = careerMlbIpMap.get(tfr.playerId) ?? 0;
           const isFarmEligible = careerIp <= 50;
 
-          const prospect: RatedProspect = {
+          const prospect: RatedProspect & { parentOrg?: string } = {
               playerId: tfr.playerId,
               name: tfr.playerName,
               trueFutureRating: tfr.trueFutureRating,
@@ -959,6 +992,7 @@ class TeamRatingsService {
               level: levelLabel,
               teamId: player.teamId,
               orgId: orgId,
+              parentOrg: teamMap.get(orgId)?.nickname ?? team.nickname,
               peakFip: tfr.projFip,
               peakWar: peakWar,
               peakIp: projectedIp,
@@ -1149,6 +1183,32 @@ class TeamRatingsService {
   async getUnifiedHitterTfrData(year: number): Promise<HitterFarmData> {
       const cached = this._unifiedHitterCache.get(year);
       if (cached) return cached;
+
+      // Follower fast path: use pre-computed TFR from Supabase (skip when custom scouting uploaded)
+      if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
+        try {
+          // Try precomputed_cache first (1 request vs 3-4 paginated requests)
+          const cached = await supabaseDataService.getPrecomputed('hitter_tfr_prospects');
+          if (cached && Array.isArray(cached) && cached.length > 0) {
+            console.log(`⚡ Loaded ${cached.length} pre-computed hitter TFR from precomputed_cache`);
+            const farmData = this.buildHitterFarmDataFromProspects(cached as RatedHitterProspect[]);
+            this._unifiedHitterCache.set(year, farmData);
+            return farmData;
+          }
+          // Fallback: row-by-row from player_ratings
+          const rows = await supabaseDataService.getPlayerRatings('hitter_tfr');
+          if (rows.length > 0) {
+            console.log(`⚡ Loaded ${rows.length} pre-computed hitter TFR from player_ratings`);
+            const prospects: RatedHitterProspect[] = rows.map(r => r.data);
+            const farmData = this.buildHitterFarmDataFromProspects(prospects);
+            this._unifiedHitterCache.set(year, farmData);
+            return farmData;
+          }
+          console.log('⚠️ No hitter TFR data available — falling back to computation');
+        } catch (err) {
+          console.warn('⚠️ Failed to load pre-computed hitter TFR, falling back to computation:', err);
+        }
+      }
 
       // Fetch hitter scouting data and league averages in parallel
       const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerMlbStatsMap, contracts] = await Promise.all([
@@ -1509,8 +1569,144 @@ class TeamRatingsService {
       };
   }
 
+  /**
+   * Reconstruct FarmData from pre-computed RatedProspect[] stored in Supabase.
+   * Groups prospects by org and builds system rankings/overviews.
+   */
+  private async buildPitcherFarmDataFromProspects(prospects: RatedProspect[]): Promise<FarmData> {
+    // Compute developmentTR if missing (precomputed data from CLI doesn't include it)
+    for (const p of prospects) {
+      if (!p.developmentTR && p.trueRatings) {
+        p.developmentTR = prospectDevelopmentCurveService.calculatePitcherProspectTR(p);
+      }
+    }
+
+    // Filter out undrafted players (orgId === 0 = not in any org)
+    const inOrg = prospects.filter(p => p.orgId !== 0);
+    const sorted = [...inOrg].sort((a, b) => b.trueFutureRating - a.trueFutureRating);
+
+    // Build team name lookup
+    const teams = await teamService.getAllTeams();
+    const teamNameMap = new Map<number, string>();
+    for (const t of teams) teamNameMap.set(t.id, t.nickname);
+
+    // Group by org
+    const byOrg = new Map<number, RatedProspect[]>();
+    for (const p of sorted) {
+      if (!byOrg.has(p.orgId)) byOrg.set(p.orgId, []);
+      byOrg.get(p.orgId)!.push(p);
+    }
+
+    const reports: FarmSystemRankings[] = [];
+    const systems: FarmSystemOverview[] = [];
+
+    byOrg.forEach((orgProspects, orgId) => {
+      const rotation = orgProspects.filter(p => (p.scoutingRatings?.stamina ?? 0) >= 30 && (p.scoutingRatings?.pitches ?? 0) >= 3);
+      const bullpen = orgProspects.filter(p => !rotation.includes(p));
+
+      const tierCounts = { elite: 0, aboveAvg: 0, average: 0, fringe: 0 };
+      for (const p of orgProspects) {
+        if (p.trueFutureRating >= 4.5) tierCounts.elite++;
+        else if (p.trueFutureRating >= 3.5) tierCounts.aboveAvg++;
+        else if (p.trueFutureRating >= 2.5) tierCounts.average++;
+        else tierCounts.fringe++;
+      }
+
+      const totalWar = (tierCounts.elite * 10) + (tierCounts.aboveAvg * 5) + (tierCounts.average * 1);
+      const topProspect = orgProspects[0];
+      const teamName = teamNameMap.get(orgId) ?? '';
+
+      reports.push({
+        teamId: orgId,
+        teamName,
+        rotationScore: rotation.reduce((s, p) => s + p.trueFutureRating, 0),
+        bullpenScore: bullpen.reduce((s, p) => s + p.trueFutureRating, 0),
+        rotation: rotation.slice(0, 5),
+        bullpen: bullpen.slice(0, 5),
+        allProspects: orgProspects,
+      });
+
+      systems.push({
+        teamId: orgId,
+        teamName,
+        totalWar,
+        prospectCount: orgProspects.length,
+        topProspectName: topProspect?.name ?? '',
+        topProspectId: topProspect?.playerId ?? 0,
+        tierCounts,
+      });
+    });
+
+    return {
+      reports: reports.sort((a, b) => (b.rotationScore + b.bullpenScore) - (a.rotationScore + a.bullpenScore)),
+      systems: systems.sort((a, b) => b.totalWar - a.totalWar),
+      prospects: sorted,
+    };
+  }
+
+  /**
+   * Reconstruct HitterFarmData from pre-computed RatedHitterProspect[] stored in Supabase.
+   */
+  private buildHitterFarmDataFromProspects(prospects: RatedHitterProspect[]): HitterFarmData {
+    // Compute developmentTR if missing (precomputed data from CLI doesn't include it)
+    for (const p of prospects) {
+      if (!p.developmentTR && p.trueRatings) {
+        p.developmentTR = prospectDevelopmentCurveService.calculateProspectTR(p);
+      }
+    }
+
+    // Filter out undrafted players (orgId === 0 = not in any org)
+    const inOrg = prospects.filter(p => p.orgId !== 0);
+    const sorted = [...inOrg].sort((a, b) => b.trueFutureRating - a.trueFutureRating);
+
+    const byOrg = new Map<number, RatedHitterProspect[]>();
+    for (const p of sorted) {
+      if (!byOrg.has(p.orgId)) byOrg.set(p.orgId, []);
+      byOrg.get(p.orgId)!.push(p);
+    }
+
+    const reports: HitterFarmSystemRankings[] = [];
+    const systems: HitterFarmSystemOverview[] = [];
+
+    byOrg.forEach((orgProspects, orgId) => {
+      const tierCounts = { elite: 0, aboveAvg: 0, average: 0, fringe: 0 };
+      for (const p of orgProspects) {
+        if (p.trueFutureRating >= 4.5) tierCounts.elite++;
+        else if (p.trueFutureRating >= 3.5) tierCounts.aboveAvg++;
+        else if (p.trueFutureRating >= 2.5) tierCounts.average++;
+        else tierCounts.fringe++;
+      }
+
+      const totalScore = (tierCounts.elite * 10) + (tierCounts.aboveAvg * 5) + (tierCounts.average * 1);
+      const topProspect = orgProspects[0];
+
+      reports.push({
+        teamId: orgId,
+        teamName: topProspect?.team ?? '',
+        totalScore,
+        allProspects: orgProspects,
+      });
+
+      systems.push({
+        teamId: orgId,
+        teamName: topProspect?.team ?? '',
+        totalScore,
+        prospectCount: orgProspects.length,
+        topProspectName: topProspect?.name ?? '',
+        topProspectId: topProspect?.playerId ?? 0,
+        tierCounts,
+      });
+    });
+
+    return {
+      reports: reports.sort((a, b) => b.totalScore - a.totalScore),
+      systems: systems.sort((a, b) => b.totalScore - a.totalScore),
+      prospects: sorted,
+    };
+  }
+
   private async getCareerMlbIpMap(currentYear: number): Promise<Map<number, number>> {
-      const startYear = Math.max(2000, currentYear - 10);
+      const startYear = Math.max(2000, currentYear - 6);
       const promises = [];
       for (let y = startYear; y <= currentYear; y++) {
           promises.push(trueRatingsService.getTruePitchingStats(y));
@@ -1529,7 +1725,7 @@ class TeamRatingsService {
   }
 
   private async getCareerMlbStatsMap(currentYear: number): Promise<Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }>> {
-      const startYear = Math.max(2000, currentYear - 10);
+      const startYear = Math.max(2000, currentYear - 6);
       const promises = [];
       for (let y = startYear; y <= currentYear; y++) {
           promises.push(trueRatingsService.getTrueBattingStats(y));

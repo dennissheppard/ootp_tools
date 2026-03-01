@@ -3,10 +3,11 @@ import { Player } from './models';
 import { PlayerController } from './controllers';
 import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
+import { supabaseDataService } from './services/SupabaseDataService';
 import { indexedDBService } from './services/IndexedDBService';
 import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
 import { analyticsService } from './services/AnalyticsService';
-import { setApiCallTracker } from './services/ApiClient';
+import { setApiCallTracker, setSupabaseMode } from './services/ApiClient';
 import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
 import { scoutingDataService } from './services/ScoutingDataService';
 import { hitterScoutingDataService } from './services/HitterScoutingDataService';
@@ -31,7 +32,7 @@ class App {
   private loadingView!: LoadingView;
   private errorView!: ErrorView;
   private rateLimitView!: ErrorView;
-  private activeTabId = 'tab-true-ratings';
+  private activeTabId = 'tab-about';
   private trueRatingsView!: TrueRatingsView;
   private projectionsView?: ProjectionsView;
   private teamRatingsView?: TeamRatingsView;
@@ -80,8 +81,11 @@ class App {
     // Handle ?player=XXXX deep links
     if (!isFirstTime) {
       this.handlePlayerDeepLink();
-      // Check if bundled OSA scouting files have been updated (non-blocking)
-      this.checkBundledOsaFreshness();
+      // Check if bundled OSA scouting files have been updated (non-blocking).
+      // Skip for Supabase users — scouting data lives in the DB, not bundled CSVs.
+      if (!supabaseDataService.isConfigured) {
+        this.checkBundledOsaFreshness();
+      }
     }
   }
 
@@ -107,21 +111,25 @@ class App {
     }
   }
 
-  private handlePlayerDeepLink(): void {
+  private async handlePlayerDeepLink(): Promise<void> {
     const playerId = getDeepLinkPlayerId();
     if (!playerId) return;
 
-    // Navigate to True Ratings and open the player modal
+    // Try fast path first (pre-computed ratings from Supabase → instant modal)
+    // Opens modal on top of the current tab — no need to switch to True Ratings
+    if (supabaseDataService.isConfigured) {
+      const fast = await this.trueRatingsView.openPlayerDeepLinkFast(playerId);
+      if (fast) return;
+    }
+
+    // Fallback: need True Ratings view for full data load + modal
     this.activeTabId = 'tab-true-ratings';
     localStorage.setItem(this.TAB_PREF_KEY, 'tab-true-ratings');
-
-    // Activate the tab visually
     const tabButtons = document.querySelectorAll<HTMLButtonElement>('[data-tab-target]');
     const tabPanels = document.querySelectorAll<HTMLElement>('.tab-panel');
     tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tabTarget === 'tab-true-ratings'));
     tabPanels.forEach(p => p.classList.toggle('active', p.id === 'tab-true-ratings'));
 
-    // Defer to let DOM settle, then open the player
     this.trueRatingsView.openPlayerDeepLink(playerId);
   }
 
@@ -137,6 +145,46 @@ class App {
       // Continue anyway - will fall back to API calls
     }
 
+    // Block StatsPlus API calls when Supabase is the data source
+    if (supabaseDataService.isConfigured) {
+      setSupabaseMode(true);
+
+      // One-time cleanup: clear stale IndexedDB cache stores now replaced by Supabase.
+      // Preserves user data (scouting uploads, dev snapshots, planning overrides).
+      const MIGRATION_KEY = 'wbl-supabase-cache-cleared';
+      if (!localStorage.getItem(MIGRATION_KEY)) {
+        try {
+          const cleared = await indexedDBService.clearStaleCacheStores();
+          localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
+          if (cleared > 0) {
+            console.log(`🧹 Cleared ${cleared} stale IndexedDB cache stores (now using Supabase)`);
+          }
+        } catch (err) {
+          console.warn('Failed to clear stale IndexedDB stores:', err);
+        }
+      }
+    }
+
+    // Auto-detect custom scouting for Supabase users (must run before views initialize)
+    if (supabaseDataService.isConfigured) {
+      try {
+        const [myScouting, myHitterScouting] = await Promise.all([
+          scoutingDataService.getLatestScoutingRatings('my'),
+          hitterScoutingDataService.getLatestScoutingRatings('my'),
+        ]);
+        if (myScouting.length > 0 || myHitterScouting.length > 0) {
+          supabaseDataService.hasCustomScouting = true;
+          console.log('🎯 Custom scouting detected — will recompute TR/TFR locally');
+          const year = await dateService.getCurrentYear();
+          const { trueRatingsService } = await import('./services/TrueRatingsService');
+          await trueRatingsService.warmCachesForComputation(year);
+          console.log('🔥 Caches warmed for custom scouting computation');
+        }
+      } catch (err) {
+        console.warn('Failed to check for custom scouting:', err);
+      }
+    }
+
     // Check if this is first-time setup BEFORE creating app instance
     // This ensures we render with the correct initial tab
     const isFirstTime = await App.checkIsFirstTimeUser();
@@ -146,10 +194,17 @@ class App {
   }
 
   /**
-   * Check if this is a first-time user (no data in IndexedDB)
+   * Check if this is a first-time user.
+   * With Supabase: check if DB has a current game_date (data already synced).
+   * Without Supabase: check if IndexedDB has minor league data (legacy).
    */
   private static async checkIsFirstTimeUser(): Promise<boolean> {
     try {
+      if (supabaseDataService.isConfigured) {
+        const gameDate = await supabaseDataService.getGameDate();
+        if (gameDate) return false; // DB has synced data — not first time
+        return true;
+      }
       const hasData = await indexedDBService.hasMinorLeagueData();
       if (!hasData) {
         console.log('🎯 First-time user detected');
@@ -521,11 +576,14 @@ class App {
   }
 
   private preloadPlayers(): void {
-    // Preload player list in background for faster searches
-    this.controller.preloadPlayers();
-    // Preload team data
-    teamService.getAllTeams().catch(err => console.error('Failed to preload teams', err));
-    // Preload current game date and display it
+    // When Supabase is configured, skip eager preloading — data is fetched
+    // on-demand from the DB. Eager preloading races with onboarding and
+    // can trigger unnecessary StatsPlus API calls.
+    if (!supabaseDataService.isConfigured) {
+      this.controller.preloadPlayers();
+      teamService.getAllTeams().catch(err => console.error('Failed to preload teams', err));
+    }
+    // Always fetch game date for the header display
     dateService.getCurrentDate()
       .then(date => this.updateGameDateDisplay(date))
       .catch(err => {

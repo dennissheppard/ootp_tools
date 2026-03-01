@@ -984,7 +984,7 @@ export class ProjectionsView {
                   maxPa
               );
 
-              this.renderBatterAnalysisResults();
+              await this.renderBatterAnalysisResults();
           } else {
               // Run pitcher analysis
               const minIp = this.analysisUseIpFilter ? this.analysisMinIp : 0;
@@ -1000,7 +1000,7 @@ export class ProjectionsView {
                   maxIp
               );
 
-              this.renderAnalysisResults();
+              await this.renderAnalysisResults();
           }
       } catch (err) {
           console.error(err);
@@ -1009,7 +1009,7 @@ export class ProjectionsView {
       }
   }
 
-  private renderAnalysisResults(): void {
+  private async renderAnalysisResults(): Promise<void> {
       if (!this.analysisReport) return;
       const container = this.container.querySelector('#projections-table-container');
       if (!container) return;
@@ -1085,7 +1085,7 @@ export class ProjectionsView {
       `).join('');
 
       // Team WAR Compression
-      const pitcherTeamWarData = this.aggregateTeamWar(years);
+      const pitcherTeamWarData = await this.aggregateTeamWar(years);
       const pitcherCompressionMetrics = this.computeCompressionMetrics(pitcherTeamWarData);
       const pitcherCompressionHtml = this.renderTeamWarCompressionSection(pitcherTeamWarData, pitcherCompressionMetrics, 'Pitcher');
 
@@ -1367,7 +1367,7 @@ export class ProjectionsView {
       this.bindPlayerNameClicks();
   }
 
-  private renderBatterAnalysisResults(): void {
+  private async renderBatterAnalysisResults(): Promise<void> {
       if (!this.batterAnalysisReport) return;
       const container = this.container.querySelector('#projections-table-container');
       if (!container) return;
@@ -1443,7 +1443,7 @@ export class ProjectionsView {
       `).join('');
 
       // Team WAR Compression
-      const batterTeamWarData = this.aggregateTeamWar(years);
+      const batterTeamWarData = await this.aggregateTeamWar(years);
       const batterCompressionMetrics = this.computeCompressionMetrics(batterTeamWarData);
       const batterCompressionHtml = this.renderTeamWarCompressionSection(batterTeamWarData, batterCompressionMetrics, 'Batter');
 
@@ -1727,7 +1727,7 @@ export class ProjectionsView {
       return { slope, intercept, r2, n };
   }
 
-  private aggregateTeamWar(years: { year: number; details: { teamName: string; projected: { war: number }; actual: { war: number } }[] }[]): { year: number; teamName: string; projectedWar: number; actualWar: number; playerCount: number; actualWins?: number }[] {
+  private async aggregateTeamWar(years: { year: number; details: { teamName: string; projected: { war: number }; actual: { war: number } }[] }[]): Promise<{ year: number; teamName: string; projectedWar: number; actualWar: number; playerCount: number; actualWins?: number }[]> {
       const teamMap = new Map<string, { projectedWar: number; actualWar: number; playerCount: number }>();
 
       for (const yr of years) {
@@ -1749,7 +1749,7 @@ export class ProjectionsView {
           const point: typeof result[0] = { year, teamName, ...entry };
 
           // Enrich with actual wins from standings
-          const standingsMap = standingsService.getStandingsMap(year);
+          const standingsMap = await standingsService.getStandingsMap(year);
           if (standingsMap) {
               const standing = standingsMap.get(teamName);
               if (standing) point.actualWins = standing.wins;

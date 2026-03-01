@@ -232,9 +232,8 @@ class CanonicalCurrentProjectionService {
       if (isPitcher(player)) {
         const tr = ld.pitcherTrMap.get(player.id);
         const tfr = ld.pitcherTfrMap.get(player.id);
-        if (!tr && !tfr) continue;
-
         const scouting = ld.pitcherScoutMap.get(player.id);
+        if (!tr && !tfr && !scouting) continue;
         const teamId = player.teamId;
         const teamName = ld.teamById.get(teamId)?.nickname ?? 'Unknown';
 
@@ -256,6 +255,14 @@ class CanonicalCurrentProjectionService {
           pitchRatings: scouting?.pitches,
         };
         resolveCanonicalPitcherData(data, tr, tfr);
+
+        // Scouting-only fallback: no TR or TFR, but has scouting data
+        if (!tr && !tfr && scouting) {
+          data.isProspect = true;
+          data.estimatedStuff = scouting.stuff;
+          data.estimatedControl = scouting.control;
+          data.estimatedHra = scouting.hra;
+        }
 
         const mlbStats: Array<{ year: number; level: string; ip: number; k9: number; bb9: number; hr9: number; fip?: number; war?: number; gs: number }> = [];
         for (const y of ld.pitcherYears) {
@@ -388,9 +395,8 @@ class CanonicalCurrentProjectionService {
       } else {
         const tr = ld.batterTrMap.get(player.id);
         const tfr = ld.hitterTfrMap.get(player.id);
-        if (!tr && !tfr) continue;
-
         const scouting = ld.hitterScoutMap.get(player.id);
+        if (!tr && !tfr && !scouting) continue;
         const teamId = player.teamId;
         const teamName = ld.teamById.get(teamId)?.nickname ?? 'Unknown';
 
@@ -415,6 +421,17 @@ class CanonicalCurrentProjectionService {
           injuryProneness: scouting?.injuryProneness,
         };
         resolveCanonicalBatterData(data, tr, tfr);
+
+        // Scouting-only fallback: no TR or TFR, but has scouting data
+        if (!tr && !tfr && scouting) {
+          data.isProspect = true;
+          data.estimatedPower = scouting.power;
+          data.estimatedEye = scouting.eye;
+          data.estimatedAvoidK = scouting.avoidK;
+          data.estimatedContact = scouting.contact;
+          data.estimatedGap = scouting.gap;
+          data.estimatedSpeed = scouting.speed;
+        }
 
         const mlbStats: Array<{ year: number; level: string; pa: number; avg: number; obp: number; slg: number; hr: number; d?: number; t?: number; rbi: number; sb: number; cs: number; bb: number; k: number; war?: number }> = [];
         for (const y of ld.battingYearList) {
