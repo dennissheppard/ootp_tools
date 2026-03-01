@@ -65,7 +65,12 @@ class SupabaseDataService {
   private supabaseKey: string;
   private configured: boolean;
   private _dobCache: Map<number, Date> | null = null;
+  private _playersCache: any[] | null = null;
+  private _playersCachePromise: Promise<any[]> | null = null;
+  private _teamsCache: any[] | null = null;
   private _precomputedCache = new Map<string, any>();
+  private _gameDatePromise: Promise<string | null> | null = null;
+  private _cachedGameDate: string | null | undefined = undefined; // undefined = not fetched
   public hasCustomScouting = false;
 
   constructor() {
@@ -387,12 +392,20 @@ class SupabaseDataService {
   // ──────────────────────────────────────────────
 
   async getPlayers(): Promise<any[]> {
-    // Exclude DOB-only stubs from migration (first_name is null until hero writes full player data)
-    return this.query('players', 'select=*&first_name=not.is.null&limit=50000');
+    if (this._playersCache) return this._playersCache;
+    // Deduplicate concurrent calls
+    if (!this._playersCachePromise) {
+      this._playersCachePromise = this.query('players', 'select=*&first_name=not.is.null&limit=50000')
+        .then(rows => { this._playersCache = rows; return rows; })
+        .finally(() => { this._playersCachePromise = null; });
+    }
+    return this._playersCachePromise;
   }
 
   async getTeams(): Promise<any[]> {
-    return this.query('teams', 'select=*&order=id');
+    if (this._teamsCache) return this._teamsCache;
+    this._teamsCache = await this.query('teams', 'select=*&order=id');
+    return this._teamsCache;
   }
 
   // ──────────────────────────────────────────────
@@ -432,13 +445,71 @@ class SupabaseDataService {
   // Precomputed cache (static data that persists across syncs)
   // ──────────────────────────────────────────────
 
+  /**
+   * Fetch the current game_date, cached per session.
+   * Used as a cache key for localStorage — when CLI syncs and calls
+   * complete_sync(), the game_date changes and all cached data is invalidated.
+   */
+  private async getGameDateCached(): Promise<string | null> {
+    if (this._cachedGameDate !== undefined) return this._cachedGameDate;
+    if (!this._gameDatePromise) {
+      this._gameDatePromise = this.getGameDate().then(gd => {
+        this._cachedGameDate = gd;
+        return gd;
+      });
+    }
+    return this._gameDatePromise;
+  }
+
+  /**
+   * Clear stale localStorage entries when game_date changes.
+   */
+  private clearStalePrecomputedCache(): void {
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k?.startsWith('wbl-pc-')) keys.push(k);
+      }
+      for (const k of keys) localStorage.removeItem(k);
+    } catch { /* storage unavailable */ }
+  }
+
   async getPrecomputed(key: string): Promise<any | null> {
     if (!this.configured) return null;
     if (this._precomputedCache.has(key)) return this._precomputedCache.get(key);
+
+    const gameDate = await this.getGameDateCached();
+
+    // Check localStorage (invalidated when game_date changes after CLI sync)
+    if (gameDate) {
+      try {
+        const cached = localStorage.getItem(`wbl-pc-${key}`);
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed.gd === gameDate) {
+            this._precomputedCache.set(key, parsed.data);
+            return parsed.data;
+          }
+          // game_date changed — clear all stale entries
+          this.clearStalePrecomputedCache();
+        }
+      } catch { /* storage unavailable or corrupt */ }
+    }
+
+    // Fetch from Supabase
     try {
       const rows = await this.query<{ key: string; data: any }>('precomputed_cache', `select=data&key=eq.${key}`);
       const val = rows[0]?.data ?? null;
-      if (val !== null) this._precomputedCache.set(key, val);
+      if (val !== null) {
+        this._precomputedCache.set(key, val);
+        // Persist to localStorage for future page loads
+        if (gameDate) {
+          try {
+            localStorage.setItem(`wbl-pc-${key}`, JSON.stringify({ gd: gameDate, data: val }));
+          } catch { /* storage full or unavailable */ }
+        }
+      }
       return val;
     } catch {
       return null;

@@ -372,13 +372,31 @@ export class TeamPlanningView {
 
   private tradeMarketLoaded = false;
 
+  private leagueAgeMap: Map<number, number> = new Map();
+
   private async ensureTradeMarketData(): Promise<void> {
     if (this.tradeMarketLoaded) return;
     this.tradeMarketLoaded = true;
     try {
-      if (!contractService.hasCachedContracts()) {
-        this.contractMap = await contractService.getAllContracts();
+      // Collect all roster player IDs from power rankings for age lookup
+      const rosterIds: number[] = [];
+      for (const ranking of this.cachedAllRankings) {
+        for (const b of ranking.lineup) rosterIds.push(b.playerId);
+        for (const p of ranking.rotation) rosterIds.push(p.playerId);
+        for (const p of ranking.bullpen) rosterIds.push(p.playerId);
       }
+
+      const [, ages] = await Promise.all([
+        contractService.hasCachedContracts()
+          ? Promise.resolve()
+          : contractService.getAllContracts().then(c => { this.contractMap = c; }),
+        playerService.getPlayerAges(rosterIds),
+      ]);
+
+      this.leagueAgeMap = ages;
+      // Include selected org ages already loaded
+      for (const [id, age] of this.playerAgeMap) this.leagueAgeMap.set(id, age);
+
       this.cachedTradeProfiles = this.buildAllTeamProfiles();
       this.renderTradeMarket();
     } catch (e) {
@@ -2927,13 +2945,12 @@ export class TeamPlanningView {
       }
 
       if (bestReplacement) {
-        const player = this.playerMap.get(mlb.playerId);
         surplusMlbPlayers.push({
           playerId: mlb.playerId,
           name: mlb.name,
           positionLabel: mlb.posLabel,
           trueRating: mlb.trueRating,
-          age: (player?.age ?? 0) + yearOffset,
+          age: (this.leagueAgeMap.get(mlb.playerId) ?? 0) + yearOffset,
           contractYearsRemaining: effectiveYearsLeft,
           isExpiring: effectiveYearsLeft === 1,
           orgId: teamId,
@@ -3171,7 +3188,6 @@ export class TeamPlanningView {
               }
               const contract = this.contractMap.get(p.playerId);
               const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
-              const player = this.playerMap.get(p.playerId);
               const matchDetails = collectMatchDetails();
               const complementary = matchDetails.length > 0;
               const matchScore = p.trueRating * 10 + (complementary ? 20 : 0);
@@ -3183,7 +3199,7 @@ export class TeamPlanningView {
                   name: p.name,
                   positionLabel: p.posLabel,
                   trueRating: p.trueRating,
-                  age: (player?.age ?? 0) + yearOffset,
+                  age: (this.leagueAgeMap.get(p.playerId) ?? 0) + yearOffset,
                   contractYearsRemaining: Math.max(0, yearsLeft - yearOffset),
                   isExpiring: yearsLeft - yearOffset === 1,
                   orgId: otherTeamId,
@@ -3211,7 +3227,6 @@ export class TeamPlanningView {
               }
               const contract = this.contractMap.get(b.playerId);
               const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
-              const player = this.playerMap.get(b.playerId);
               const matchDetails = collectMatchDetails();
               const complementary = matchDetails.length > 0;
               const matchScore = b.trueRating * 10 + (complementary ? 20 : 0);
@@ -3223,7 +3238,7 @@ export class TeamPlanningView {
                   name: b.name,
                   positionLabel: b.positionLabel,
                   trueRating: b.trueRating,
-                  age: (player?.age ?? 0) + yearOffset,
+                  age: (this.leagueAgeMap.get(b.playerId) ?? 0) + yearOffset,
                   contractYearsRemaining: Math.max(0, yearsLeft - yearOffset),
                   isExpiring: yearsLeft - yearOffset === 1,
                   orgId: otherTeamId,

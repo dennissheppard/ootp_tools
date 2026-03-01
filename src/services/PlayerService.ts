@@ -204,6 +204,35 @@ export class PlayerService {
     return players.find((p) => p.id === id);
   }
 
+  /** Lightweight batch age lookup — single Supabase query for select=id,age */
+  async getPlayerAges(playerIds: number[]): Promise<Map<number, number>> {
+    if (playerIds.length === 0) return new Map();
+
+    // If full cache exists, use it
+    if (this.players.length > 0) {
+      const map = new Map<number, number>();
+      const idSet = new Set(playerIds);
+      for (const p of this.players) {
+        if (idSet.has(p.id)) map.set(p.id, p.age);
+      }
+      return map;
+    }
+
+    // Supabase: targeted lightweight query
+    if (supabaseDataService.isConfigured) {
+      try {
+        const idList = playerIds.join(',');
+        const rows = await supabaseDataService.query<{ id: number; age: number }>(
+          'players', `select=id,age&id=in.(${idList})`);
+        const map = new Map<number, number>();
+        for (const r of rows) map.set(r.id, typeof r.age === 'string' ? parseInt(r.age, 10) : r.age);
+        return map;
+      } catch { /* fall through */ }
+    }
+
+    return new Map();
+  }
+
   private async fetchPlayers(): Promise<Player[]> {
     // Try Supabase first
     if (supabaseDataService.isConfigured) {

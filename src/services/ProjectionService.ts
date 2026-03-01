@@ -10,6 +10,7 @@ import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { teamService } from './TeamService';
 import { minorLeagueStatsService } from './MinorLeagueStatsService';
 import { ensembleProjectionService } from './EnsembleProjectionService';
+import { supabaseDataService } from './SupabaseDataService';
 
 export interface ProjectedPlayer {
   playerId: number;
@@ -175,6 +176,12 @@ class ProjectionService {
   }
 
   async getProjectionsWithContext(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean; preSeasonOnly?: boolean }): Promise<ProjectionContext> {
+    // Fast-path: return precomputed projections from CLI sync
+    if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
+      const cached = await supabaseDataService.getPrecomputed('pitcher_projections');
+      if (cached) return cached as ProjectionContext;
+    }
+
     // 1. Fetch Data
     const forceRosterRefresh = options?.forceRosterRefresh ?? false;
     const useEnsemble = options?.useEnsemble ?? true; // DEFAULT: Use ensemble (calibrated Jan 2026)

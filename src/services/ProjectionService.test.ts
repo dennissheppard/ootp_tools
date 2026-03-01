@@ -1,4 +1,14 @@
 import { projectionService } from './ProjectionService';
+import { supabaseDataService } from './SupabaseDataService';
+
+// Mock SupabaseDataService for precomputed fast-path tests
+jest.mock('./SupabaseDataService', () => ({
+  supabaseDataService: {
+    isConfigured: false,
+    hasCustomScouting: false,
+    getPrecomputed: jest.fn(),
+  },
+}));
 
 describe('ProjectionService', () => {
   const mockLeagueContext = {
@@ -154,5 +164,49 @@ describe('ProjectionService', () => {
     expect(trace.projectedRatings).toBeDefined();
     expect(trace.ipPipeline?.output?.ip).toBe(result.projectedStats.ip);
     expect(trace.output?.projectedStats.ip).toBe(result.projectedStats.ip);
+  });
+
+  describe('precomputed fast-path', () => {
+    const mockCachedData = {
+      projections: [{ playerId: 1, name: 'Test Player', projectedStats: { fip: 3.50, war: 4.0, ip: 180, k9: 9.0, bb9: 3.0, hr9: 1.0 } }],
+      statsYear: 2021,
+      usedFallbackStats: false,
+      totalCurrentIp: 5000,
+      scoutingMetadata: { fromMyScout: 0, fromOSA: 100 },
+    };
+
+    afterEach(() => {
+      (supabaseDataService as any).isConfigured = false;
+      (supabaseDataService as any).hasCustomScouting = false;
+      (supabaseDataService.getPrecomputed as jest.Mock).mockReset();
+    });
+
+    test('should return precomputed projections when Supabase is configured and no custom scouting', async () => {
+      (supabaseDataService as any).isConfigured = true;
+      (supabaseDataService as any).hasCustomScouting = false;
+      (supabaseDataService.getPrecomputed as jest.Mock).mockResolvedValue(mockCachedData);
+
+      const result = await projectionService.getProjectionsWithContext(2021);
+
+      expect(supabaseDataService.getPrecomputed).toHaveBeenCalledWith('pitcher_projections');
+      expect(result).toBe(mockCachedData);
+      expect(result.projections).toHaveLength(1);
+      expect(result.projections[0].name).toBe('Test Player');
+    });
+
+    test('should fall through to live computation when hasCustomScouting is true', async () => {
+      (supabaseDataService as any).isConfigured = true;
+      (supabaseDataService as any).hasCustomScouting = true;
+
+      // This will fail because dependent services aren't mocked,
+      // but we can verify getPrecomputed was NOT called with 'pitcher_projections'
+      try {
+        await projectionService.getProjectionsWithContext(2021);
+      } catch {
+        // Expected - dependent services not mocked
+      }
+
+      expect(supabaseDataService.getPrecomputed).not.toHaveBeenCalledWith('pitcher_projections');
+    });
   });
 });

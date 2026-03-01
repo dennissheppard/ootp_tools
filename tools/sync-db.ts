@@ -45,6 +45,11 @@ import type { MinorLeagueStatsWithLevel } from '../src/models/Stats';
 import type { MinorLeagueBattingStatsWithLevel } from '../src/models/Stats';
 import { fipWarService } from '../src/services/FipWarService';
 import { prospectDevelopmentCurveService } from '../src/services/ProspectDevelopmentCurveService';
+import { agingService } from '../src/services/AgingService';
+import { hitterAgingService } from '../src/services/HitterAgingService';
+import { ensembleProjectionService } from '../src/services/EnsembleProjectionService';
+import { PotentialStatsService } from '../src/services/PotentialStatsService';
+import { HitterRatingEstimatorService } from '../src/services/HitterRatingEstimatorService';
 
 // ──────────────────────────────────────────────
 // Config
@@ -1246,6 +1251,891 @@ async function buildPaByInjury(dobMap: Map<number, Date>): Promise<Map<string, n
 }
 
 // ──────────────────────────────────────────────
+// parseIp helper (same as TrueRatingsService:932)
+// ──────────────────────────────────────────────
+
+function parseIp(ipValue: string | number): number {
+  if (ipValue === null || ipValue === undefined) return 0;
+  const parts = String(ipValue).split('.');
+  const fullInnings = parseInt(parts[0], 10) || 0;
+  const partialOuts = parts.length > 1 ? parseInt(parts[1], 10) || 0 : 0;
+  return fullInnings + partialOuts / 3;
+}
+
+// ──────────────────────────────────────────────
+// Step 5.5: Compute Projections
+// ──────────────────────────────────────────────
+
+const PROJ_PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
+  { threshold: 97.7, rating: 5.0 },
+  { threshold: 93.3, rating: 4.5 },
+  { threshold: 84.1, rating: 4.0 },
+  { threshold: 69.1, rating: 3.5 },
+  { threshold: 50.0, rating: 3.0 },
+  { threshold: 30.9, rating: 2.5 },
+  { threshold: 15.9, rating: 2.0 },
+  { threshold: 6.7, rating: 1.5 },
+  { threshold: 2.3, rating: 1.0 },
+  { threshold: 0.0, rating: 0.5 },
+];
+
+function percentileToRating(percentile: number): number {
+  for (const { threshold, rating } of PROJ_PERCENTILE_TO_RATING) {
+    if (percentile >= threshold) return rating;
+  }
+  return 0.5;
+}
+
+function getPercentile(value: number, distribution: number[]): number {
+  if (distribution.length === 0) return 50;
+  let rank = 0;
+  for (const val of distribution) {
+    if (val < value) rank++;
+    else break;
+  }
+  return (rank / distribution.length) * 100;
+}
+
+function getValueAtPercentile(pct: number, distribution: number[]): number {
+  if (distribution.length === 0) return 0;
+  const index = Math.floor((pct / 100) * distribution.length);
+  return distribution[Math.max(0, Math.min(distribution.length - 1, index))];
+}
+
+async function computeProjections(
+  year: number,
+  trRows: { player_id: number; rating_type: string; data: any }[]
+): Promise<{ pitcherProj: number; batterProj: number }> {
+  console.log('\n=== Step 5.5: Compute Projections ===');
+
+  // Build canonical TR lookups from Step 4
+  const pitcherTrMap = new Map<number, any>();
+  const hitterTrMap = new Map<number, any>();
+  for (const row of trRows) {
+    if (row.rating_type === 'pitcher_tr') pitcherTrMap.set(row.player_id, row.data);
+    if (row.rating_type === 'hitter_tr') hitterTrMap.set(row.player_id, row.data);
+  }
+
+  // ────────── Gather data from Supabase ──────────
+
+  // Multi-year MLB pitching stats (3 years prior for projection TR)
+  const pitchingYears = [year - 1, year - 2, year - 3].filter(y => y >= LEAGUE_START_YEAR);
+  // Current-year stats (for IP distributions + stamina mapping)
+  const currentPitchingYears = [year, ...pitchingYears];
+
+  const [
+    allPitchingStats, currentYearPitching,
+    allBattingStats, currentYearBatting,
+    allPlayers, allTeams,
+    pitcherScouting, hitterScouting,
+    aaaStatsRows, aaStatsRows,
+  ] = await Promise.all([
+    supabaseQuery<any>('pitching_stats', `select=*&league_id=eq.200&split_id=eq.1&year=in.(${currentPitchingYears.join(',')})&order=player_id`),
+    supabaseQuery<any>('pitching_stats', `select=*&league_id=eq.200&split_id=eq.1&year=eq.${year}&order=player_id`),
+    supabaseQuery<any>('batting_stats', `select=*&league_id=eq.200&split_id=eq.1&year=in.(${[year - 1, year - 2, year - 3].filter(y => y >= LEAGUE_START_YEAR).join(',')})&order=player_id`),
+    supabaseQuery<any>('batting_stats', `select=*&league_id=eq.200&split_id=eq.1&year=eq.${year}&order=player_id`),
+    supabaseQuery<any>('players', 'select=id,first_name,last_name,role,position,age,team_id,retired&first_name=not.is.null'),
+    supabaseQuery<any>('teams', 'select=id,nickname'),
+    supabaseQuery<any>('pitcher_scouting', 'select=*&source=eq.osa&order=snapshot_date.desc'),
+    supabaseQuery<any>('hitter_scouting', 'select=*&source=eq.osa&order=snapshot_date.desc'),
+    supabaseQuery<any>('pitching_stats', `select=player_id&league_id=eq.201&split_id=eq.1&year=eq.${year}&order=player_id`),
+    supabaseQuery<any>('pitching_stats', `select=player_id&league_id=eq.202&split_id=eq.1&year=eq.${year}&order=player_id`),
+  ]);
+
+  const playerMap = new Map<number, any>();
+  for (const p of allPlayers) playerMap.set(p.id, p);
+
+  const teamMap = new Map<number, string>();
+  for (const t of allTeams) teamMap.set(t.id, t.nickname);
+
+  // Build scouting maps
+  const pitcherScoutMap = new Map<number, any>();
+  for (const s of pitcherScouting) {
+    if (!pitcherScoutMap.has(s.player_id)) pitcherScoutMap.set(s.player_id, s);
+  }
+
+  const hitterScoutMap = new Map<number, any>();
+  for (const s of hitterScouting) {
+    if (!hitterScoutMap.has(s.player_id)) hitterScoutMap.set(s.player_id, s);
+  }
+
+  // Minor league readiness (AAA/AA players)
+  const aaaOrAaPlayerIds = new Set<number>([
+    ...aaaStatsRows.map((s: any) => s.player_id),
+    ...aaStatsRows.map((s: any) => s.player_id),
+  ]);
+
+  // Compute league stats for pitcher projections
+  let totalIp = 0, totalK = 0, totalBb = 0, totalHr = 0, totalEr = 0;
+  for (const r of currentYearPitching) {
+    const ip = parseIp(r.ip);
+    if (ip <= 0) continue;
+    totalIp += ip;
+    totalK += r.k ?? 0;
+    totalBb += r.bb ?? 0;
+    totalHr += r.hra ?? r.hr ?? 0;
+    totalEr += r.er ?? 0;
+  }
+  const fipConstant = totalIp > 0
+    ? (totalEr / totalIp * 9) - ((13 * totalHr + 3 * totalBb - 2 * totalK) / totalIp)
+    : 3.47;
+  const avgFip = totalIp > 0
+    ? ((13 * totalHr + 3 * totalBb - 2 * totalK) / totalIp) + fipConstant
+    : 4.2;
+
+  const leagueContext = { fipConstant, avgFip, runsPerWin: 8.5 };
+
+  // Compute league batting averages for batter projections
+  let lgPa = 0, lgAb = 0, lgH = 0, lgD = 0, lgT = 0, lgHrB = 0, lgBb = 0, lgHp = 0, lgSf = 0, lgR = 0;
+  for (const r of currentYearBatting) {
+    const pa = r.pa ?? 0;
+    if (pa < 1) continue;
+    lgPa += pa; lgAb += r.ab ?? 0; lgH += r.h ?? 0; lgD += r.d ?? 0; lgT += r.t ?? 0;
+    lgHrB += r.hr ?? 0; lgBb += r.bb ?? 0; lgHp += r.hp ?? 0; lgSf += r.sf ?? 0; lgR += r.r ?? 0;
+  }
+
+  let leagueAvg: any = null;
+  if (lgPa > 0 && lgAb > 0) {
+    const lgSingles = lgH - lgD - lgT - lgHrB;
+    const lgTb = lgSingles + 2 * lgD + 3 * lgT + 4 * lgHrB;
+    const denom = lgAb + lgBb + lgHp + lgSf;
+    leagueAvg = {
+      year,
+      lgObp: Math.round(((lgH + lgBb + lgHp) / denom) * 1000) / 1000,
+      lgSlg: Math.round((lgTb / lgAb) * 1000) / 1000,
+      lgWoba: Math.round(((0.69 * lgBb + 0.72 * lgHp + 0.89 * lgSingles + 1.27 * lgD + 1.62 * lgT + 2.10 * lgHrB) / denom) * 1000) / 1000,
+      lgRpa: Math.round((lgR / lgPa) * 1000) / 1000,
+      wobaScale: 1.15,
+      runsPerWin: 10,
+      totalPa: lgPa,
+      totalRuns: lgR,
+    };
+  }
+
+  // If current year has no data, try prior year
+  if (!leagueAvg) {
+    const priorBatting = await supabaseQuery<any>('batting_stats', `select=pa,ab,h,d,t,hr,bb,hp,sf,r&year=eq.${year - 1}&league_id=eq.200&split_id=eq.1`);
+    let pPa = 0, pAb = 0, pH = 0, pD = 0, pT = 0, pHr = 0, pBb = 0, pHp = 0, pSf = 0, pR = 0;
+    for (const r of priorBatting) {
+      const pa = r.pa ?? 0; if (pa < 1) continue;
+      pPa += pa; pAb += r.ab ?? 0; pH += r.h ?? 0; pD += r.d ?? 0; pT += r.t ?? 0;
+      pHr += r.hr ?? 0; pBb += r.bb ?? 0; pHp += r.hp ?? 0; pSf += r.sf ?? 0; pR += r.r ?? 0;
+    }
+    if (pPa > 0 && pAb > 0) {
+      const pSingles = pH - pD - pT - pHr;
+      const pTb = pSingles + 2 * pD + 3 * pT + 4 * pHr;
+      const denom = pAb + pBb + pHp + pSf;
+      leagueAvg = {
+        year: year - 1,
+        lgObp: Math.round(((pH + pBb + pHp) / denom) * 1000) / 1000,
+        lgSlg: Math.round((pTb / pAb) * 1000) / 1000,
+        lgWoba: Math.round(((0.69 * pBb + 0.72 * pHp + 0.89 * pSingles + 1.27 * pD + 1.62 * pT + 2.10 * pHr) / denom) * 1000) / 1000,
+        lgRpa: Math.round((pR / pPa) * 1000) / 1000,
+        wobaScale: 1.15,
+        runsPerWin: 10,
+        totalPa: pPa,
+        totalRuns: pR,
+      };
+    }
+  }
+
+  // ────────── Pitcher Projections ──────────
+  console.log('  Computing pitcher projections...');
+
+  // Group multi-year pitching stats by player
+  const playerPitchingStats = new Map<number, YearlyPitchingStats[]>();
+  for (const row of allPitchingStats) {
+    const ip = parseIp(row.ip);
+    if (ip <= 0) continue;
+    if (!playerPitchingStats.has(row.player_id)) playerPitchingStats.set(row.player_id, []);
+    playerPitchingStats.get(row.player_id)!.push({
+      year: row.year,
+      ip,
+      k9: (row.k / ip) * 9,
+      bb9: (row.bb / ip) * 9,
+      hr9: ((row.hra ?? row.hr ?? 0) / ip) * 9,
+      gs: row.gs ?? 0,
+    });
+  }
+
+  // Current-year stats map
+  const currentPitchingMap = new Map<number, any>();
+  for (const r of currentYearPitching) currentPitchingMap.set(r.player_id, r);
+
+  // Build TR inputs (same as computeTrueRatings but using projection-specific multi-year window)
+  const pitcherIds = new Set<number>();
+  playerPitchingStats.forEach((_s, pid) => pitcherIds.add(pid));
+  currentYearPitching.forEach((s: any) => pitcherIds.add(s.player_id));
+
+  const pitcherTrInputs: TrueRatingInput[] = [];
+  for (const playerId of pitcherIds) {
+    const player = playerMap.get(playerId);
+    const scouting = pitcherScoutMap.get(playerId);
+    const yearlyStats = playerPitchingStats.get(playerId) ?? [];
+
+    // Mirror canonical TR pipeline: require 10+ total IP or scouting
+    const totalIpForPlayer = yearlyStats.reduce((sum, s) => sum + s.ip, 0);
+    if (totalIpForPlayer < 10 && !scouting) continue;
+
+    const scoutingRatings: PitcherScoutingRatings | undefined = scouting ? {
+      playerId,
+      playerName: scouting.player_name,
+      stuff: scouting.stuff,
+      control: scouting.control,
+      hra: scouting.hra,
+      ovr: scouting.ovr,
+      pot: scouting.pot,
+      stamina: scouting.stamina,
+      injuryProneness: scouting.injury_proneness,
+      pitches: scouting.pitches,
+    } : undefined;
+
+    const ootpRole = player?.role ? parseInt(String(player.role), 10) : undefined;
+    const role = ootpRole === 11 ? 'SP' as const : undefined;
+
+    pitcherTrInputs.push({
+      playerId,
+      playerName: player ? `${player.first_name} ${player.last_name}` : 'Unknown',
+      yearlyStats: yearlyStats.sort((a, b) => b.year - a.year),
+      scoutingRatings,
+      role,
+    });
+  }
+
+  const pitcherTrResults = trueRatingsCalculationService.calculateTrueRatings(pitcherTrInputs);
+
+  // Build SP IP/stamina distributions from current-year stats + scouting
+  const spIpDistribution: number[] = [];
+  const spStaminaDistribution: number[] = [];
+  const MIN_GS_FOR_PEAK = 29;
+
+  for (const r of currentYearPitching) {
+    if ((r.gs ?? 0) >= MIN_GS_FOR_PEAK) {
+      const ip = parseIp(r.ip);
+      if (ip > 0) spIpDistribution.push(ip);
+    }
+  }
+  for (const [, s] of pitcherScoutMap) {
+    const pitches = s.pitches ?? {};
+    const usablePitches = Object.values(pitches).filter((r: any) => r > 25).length;
+    const stam = s.stamina ?? 0;
+    if (usablePitches >= 3 && stam >= 35) spStaminaDistribution.push(stam);
+  }
+  spIpDistribution.sort((a, b) => a - b);
+  spStaminaDistribution.sort((a, b) => a - b);
+  const spMaxIp = spIpDistribution.length > 0 ? spIpDistribution[spIpDistribution.length - 1] : 240;
+
+  // If current year distributions are empty, try prior year
+  if (spIpDistribution.length === 0) {
+    const priorPitching = await supabaseQuery<any>('pitching_stats', `select=ip,gs&league_id=eq.200&split_id=eq.1&year=eq.${year - 1}`);
+    for (const r of priorPitching) {
+      if ((r.gs ?? 0) >= MIN_GS_FOR_PEAK) {
+        const ip = parseIp(r.ip);
+        if (ip > 0) spIpDistribution.push(ip);
+      }
+    }
+    spIpDistribution.sort((a, b) => a - b);
+  }
+
+  // Generate pitcher projections
+  const tempPitcherProjections: any[] = [];
+
+  for (const tr of pitcherTrResults) {
+    const player = playerMap.get(tr.playerId);
+    if (!player) continue;
+    if (player.retired) continue;
+
+    const playerAge = typeof player.age === 'string' ? parseInt(player.age, 10) : (player.age ?? 25);
+    const currentStats = currentPitchingMap.get(tr.playerId);
+    const yearlyStats = playerPitchingStats.get(tr.playerId);
+
+    // Readiness check (same as browser ProjectionService)
+    const hasRecentMlb = (currentStats && parseIp(currentStats.ip) > 0) ||
+      (yearlyStats && yearlyStats.some(y => y.year === year - 1 && y.ip > 0));
+
+    let isMlbReady = hasRecentMlb;
+    const scouting = pitcherScoutMap.get(tr.playerId);
+
+    if (!isMlbReady) {
+      const isUpperMinors = aaaOrAaPlayerIds.has(tr.playerId);
+      const ovr = scouting?.ovr ?? 20;
+      const pot = scouting?.pot ?? 20;
+      const starGap = pot - ovr;
+      const isQualityProspect = (ovr >= 45) || (starGap <= 1.0 && pot >= 45);
+      if (isUpperMinors && (isQualityProspect || tr.trueRating >= 2.0)) isMlbReady = true;
+      if (ovr >= 50) isMlbReady = true;
+    }
+    if (!isMlbReady) continue;
+
+    const teamId = player.team_id ?? currentStats?.team_id ?? 0;
+
+    // Build scouting for IP calculation
+    const scoutingForIp: any = scouting ? {
+      stamina: scouting.stamina,
+      injuryProneness: scouting.injury_proneness,
+      pitches: scouting.pitches,
+      ovr: scouting.ovr,
+      pot: scouting.pot,
+    } : undefined;
+
+    // Determine SP/RP role (same logic as browser)
+    let isSp = false;
+    let roleReason = 'fallback';
+    if (scoutingForIp) {
+      const pitches = scoutingForIp.pitches ?? {};
+      const usablePitches = Object.values(pitches).filter((r: any) => r >= 25).length;
+      const stam = scoutingForIp.stamina ?? 0;
+      if (usablePitches >= 3 && stam >= 35) {
+        if (!hasRecentMlb || tr.trueRating >= 2.0) {
+          isSp = true;
+          roleReason = 'scouting-profile';
+        }
+      }
+    }
+    if (!isSp) {
+      const ootpRole = player.role ? parseInt(String(player.role), 10) : 0;
+      if (ootpRole === 11) { isSp = true; roleReason = 'ootp-role'; }
+      else if (currentStats && (currentStats.gs ?? 0) >= 5) { isSp = true; roleReason = 'current-stats-gs'; }
+      else if (yearlyStats) {
+        const recent = yearlyStats.find(s => s.ip > 10);
+        if (recent && recent.gs >= 5) { isSp = true; roleReason = 'historical-gs'; }
+      }
+    }
+
+    // Calculate projected IP (replicated from ProjectionService.calculateProjectedIp)
+    const stamina = scoutingForIp?.stamina ?? (isSp ? 50 : 30);
+    let baseIp: number;
+
+    if (isSp && spStaminaDistribution.length > 0 && spIpDistribution.length > 0) {
+      const staminaPercentile = getPercentile(stamina, spStaminaDistribution);
+      baseIp = getValueAtPercentile(staminaPercentile, spIpDistribution);
+      if (baseIp < 100) baseIp = 100;
+    } else {
+      baseIp = isSp ? 10 + (stamina * 3.0) : 30 + (stamina * 0.6);
+      if (isSp) baseIp = Math.max(100, Math.min(280, baseIp));
+      else baseIp = Math.max(30, Math.min(100, baseIp));
+    }
+
+    // Injury modifier (only when no historical data)
+    const proneness = scoutingForIp?.injuryProneness?.toLowerCase() ?? 'normal';
+    const hasHistoricalData = yearlyStats && yearlyStats.length > 0 && yearlyStats.some(s => s.ip >= (isSp ? 50 : 10));
+    if (!hasHistoricalData) {
+      let injuryMod = 1.0;
+      switch (proneness) {
+        case 'iron man': injuryMod = 1.15; break;
+        case 'durable': injuryMod = 1.10; break;
+        case 'normal': injuryMod = 1.0; break;
+        case 'fragile': injuryMod = 0.90; break;
+        case 'wrecked': injuryMod = 0.75; break;
+      }
+      baseIp *= injuryMod;
+    }
+
+    // Apply aging and ensemble projection
+    const currentRatings = {
+      stuff: tr.estimatedStuff,
+      control: tr.estimatedControl,
+      hra: tr.estimatedHra,
+    };
+    const projectedRatings = agingService.applyAging(currentRatings, playerAge);
+
+    // Calculate temp FIP for skill modifier
+    const tempStats = PotentialStatsService.calculatePitchingStats(
+      { ...projectedRatings, movement: 50, babip: 50 }, 150, leagueContext
+    );
+    const estimatedFip = tempStats.fip;
+
+    // Skill modifier
+    let skillMod = 1.0;
+    if (estimatedFip <= 3.50) skillMod = 1.20;
+    else if (estimatedFip <= 4.00) skillMod = 1.10;
+    else if (estimatedFip <= 4.50) skillMod = 1.0;
+    else if (estimatedFip <= 5.00) skillMod = 0.90;
+    else skillMod = 0.80;
+    baseIp *= skillMod;
+
+    // Historical blend
+    const totalHistoricalIp = yearlyStats?.reduce((sum, s) => sum + s.ip, 0) ?? 0;
+    const isLimitedExperience = totalHistoricalIp > 0 && totalHistoricalIp < 80 && playerAge < 28;
+    const hasStarterProfile = isSp && stamina >= 50;
+
+    if (yearlyStats && yearlyStats.length > 0) {
+      const minIpThreshold = isSp ? 50 : 10;
+      const completedSeasons = yearlyStats.filter(s => s.ip >= minIpThreshold);
+      let totalWeightedIp = 0, totalWeight = 0;
+      const weights = [5, 3, 2];
+      for (let i = 0; i < Math.min(completedSeasons.length, 3); i++) {
+        totalWeightedIp += completedSeasons[i].ip * weights[i];
+        totalWeight += weights[i];
+      }
+      if (totalWeight > 0) {
+        let weightedIp = totalWeightedIp / totalWeight;
+        const recentStats = completedSeasons[0];
+        if (completedSeasons.length >= 2) {
+          const previousStats = completedSeasons[1];
+          if (recentStats && previousStats && recentStats.ip > 120 && recentStats.ip > previousStats.ip * 1.5) {
+            weightedIp = recentStats.ip;
+          }
+        }
+        if (isLimitedExperience && hasStarterProfile) {
+          baseIp = (baseIp * 0.85) + (weightedIp * 0.15);
+        } else if (weightedIp > 50) {
+          baseIp = (baseIp * 0.45) + (weightedIp * 0.55);
+        } else {
+          baseIp = (baseIp * 0.50) + (weightedIp * 0.50);
+        }
+      }
+    } else if (currentStats) {
+      const rawIp = parseIp(currentStats.ip);
+      if (rawIp > 0) {
+        const isYoungStarterCallup = rawIp < 80 && playerAge < 28 && hasStarterProfile;
+        if (isYoungStarterCallup) baseIp = (baseIp * 0.85) + (rawIp * 0.15);
+        else baseIp = (baseIp * 0.50) + (rawIp * 0.50);
+      }
+    }
+
+    // Age cliff
+    if (playerAge >= 46) baseIp *= 0.10;
+    else if (playerAge >= 43) baseIp *= 0.40;
+    else if (playerAge >= 40) baseIp *= 0.75;
+
+    // IP cap
+    const ipCap = Math.round(spMaxIp * 1.05);
+    if (isSp && baseIp > ipCap) baseIp = ipCap;
+
+    // Elite boost
+    let finalIp = baseIp;
+    if (estimatedFip < 3.0) finalIp = baseIp * 1.08;
+    else if (estimatedFip < 3.5) {
+      const t = (estimatedFip - 3.0) / 0.5;
+      finalIp = baseIp * (1.08 - t * 0.05);
+    } else if (estimatedFip < 4.0) {
+      const t = (estimatedFip - 3.5) / 0.5;
+      finalIp = baseIp * (1.03 - t * 0.03);
+    }
+    const projIp = Math.round(finalIp);
+
+    // Ensemble projection for rates
+    const ensemble = ensembleProjectionService.calculateEnsemble({
+      currentRatings, age: playerAge, yearlyStats, leagueContext,
+    });
+
+    const potStats = PotentialStatsService.calculatePitchingStats(
+      { stuff: currentRatings.stuff, control: currentRatings.control, hra: currentRatings.hra, movement: 50, babip: 50 },
+      projIp, leagueContext,
+    );
+
+    const fipLike = trueRatingsCalculationService.calculateFipLike(ensemble.k9, ensemble.bb9, ensemble.hr9);
+
+    tempPitcherProjections.push({
+      playerId: tr.playerId,
+      name: tr.playerName,
+      teamId,
+      teamName: teamMap.get(teamId) || 'FA',
+      position: player.position,
+      age: playerAge,
+      currentTrueRating: tr.trueRating,
+      currentPercentile: tr.percentile,
+      projectedStats: {
+        k9: ensemble.k9,
+        bb9: ensemble.bb9,
+        hr9: ensemble.hr9,
+        fip: ensemble.fip,
+        war: potStats.war,
+        ip: projIp,
+      },
+      projectedRatings,
+      isSp,
+      fipLike,
+      projectedTrueRating: 0,
+      isProspect: !hasRecentMlb,
+    });
+  }
+
+  // Rank pitcher projections by fipLike
+  tempPitcherProjections.sort((a, b) => a.fipLike - b.fipLike);
+  const pitcherRanks = new Map<number, number>();
+  let ri = 0;
+  while (ri < tempPitcherProjections.length) {
+    const currentFip = tempPitcherProjections[ri].fipLike;
+    let rj = ri;
+    while (rj < tempPitcherProjections.length && tempPitcherProjections[rj].fipLike === currentFip) rj++;
+    const avgRank = (ri + 1 + rj) / 2;
+    for (let rk = ri; rk < rj; rk++) pitcherRanks.set(tempPitcherProjections[rk].playerId, avgRank);
+    ri = rj;
+  }
+
+  const pn = tempPitcherProjections.length;
+  const pitcherProjections = tempPitcherProjections.map((p: any) => {
+    const rank = pitcherRanks.get(p.playerId) || pn;
+    const pctile = Math.round(((pn - rank + 0.5) / pn) * 1000) / 10;
+    return { ...p, projectedTrueRating: percentileToRating(pctile) };
+  });
+
+  // Overlay canonical TR
+  for (const p of pitcherProjections) {
+    const canonical = pitcherTrMap.get(p.playerId);
+    if (canonical) {
+      p.currentTrueRating = canonical.trueRating;
+      p.currentPercentile = canonical.percentile;
+    }
+  }
+
+  pitcherProjections.sort((a: any, b: any) => a.projectedStats.fip - b.projectedStats.fip);
+
+  // Sanity checks
+  let pitcherIssues = 0;
+  for (const p of pitcherProjections) {
+    const fip = p.projectedStats.fip;
+    const war = p.projectedStats.war;
+    const ip = p.projectedStats.ip;
+    if (!Number.isFinite(fip) || fip < 1.0 || fip > 8.0) pitcherIssues++;
+    if (!Number.isFinite(war) || war < -5 || war > 15) pitcherIssues++;
+    if (p.isSp && (ip < 20 || ip > 300)) pitcherIssues++;
+  }
+  console.log(`  ✅ Pitcher projections: ${pitcherProjections.length} (${pitcherIssues} sanity issues)`);
+
+  // Determine statsYear and usedFallbackStats for metadata
+  const pitcherTotalCurrentIp = currentYearPitching.reduce((sum: number, s: any) => sum + parseIp(s.ip), 0);
+  const pitcherUsedFallback = pitcherTotalCurrentIp <= 0;
+
+  // Count scouting metadata
+  let pitcherFromMyScout = 0, pitcherFromOSA = 0;
+  for (const p of pitcherProjections) {
+    if (pitcherScoutMap.has(p.playerId)) pitcherFromOSA++;
+  }
+
+  // ────────── Batter Projections ──────────
+  console.log('  Computing batter projections...');
+
+  // Group multi-year batting stats by player
+  const playerBattingStats = new Map<number, any[]>();
+  for (const row of allBattingStats) {
+    if (!playerBattingStats.has(row.player_id)) playerBattingStats.set(row.player_id, []);
+    const ab = row.ab ?? 0;
+    const h = row.h ?? 0;
+    const pa = row.pa ?? 0;
+    const bb = row.bb ?? 0;
+    const hp = row.hp ?? 0;
+    playerBattingStats.get(row.player_id)!.push({
+      year: row.year,
+      pa, ab, h,
+      d: row.d ?? 0, t: row.t ?? 0, hr: row.hr ?? 0,
+      bb, k: row.k ?? 0, hp, sf: row.sf ?? 0, sh: row.sh ?? 0,
+      sb: row.sb ?? 0, cs: row.cs ?? 0,
+      avg: ab > 0 ? h / ab : 0,
+      obp: pa > 0 ? (h + bb + hp) / pa : 0,
+    });
+  }
+
+  // Build player pool
+  const batterIds = new Set<number>();
+  playerBattingStats.forEach((_s, pid) => batterIds.add(pid));
+  currentYearBatting.forEach((s: any) => batterIds.add(s.player_id));
+
+  // Current-year batting map
+  const currentBattingMap = new Map<number, any>();
+  for (const r of currentYearBatting) currentBattingMap.set(r.player_id, r);
+
+  // Build hitter TR inputs
+  const hitterTrInputs: HitterTrueRatingInput[] = [];
+  const batterInfoMap = new Map<number, any>();
+  let batterFromMyScout = 0, batterFromOSA = 0;
+
+  for (const playerId of batterIds) {
+    const player = playerMap.get(playerId);
+    const stat = currentBattingMap.get(playerId);
+    const stats = playerBattingStats.get(playerId);
+
+    if (!player) continue;
+    if (player.retired) continue;
+
+    const position = player.position || stat?.position || 0;
+    if (position === 1) continue; // Skip pitchers
+
+    const scoutingInfo = hitterScoutMap.get(playerId);
+    if ((!stats || stats.length === 0) && !scoutingInfo) continue;
+
+    const totalPa = (stats ?? []).reduce((sum: number, s: any) => sum + s.pa, 0);
+    if (totalPa < 30 && !scoutingInfo) continue;
+
+    const teamId = player.team_id ?? stat?.team_id ?? 0;
+    const playerName = stat?.player_name ?? `${player.first_name} ${player.last_name}`;
+    const playerAge = typeof player.age === 'string' ? parseInt(player.age, 10) : (player.age ?? 25);
+
+    const scoutingRatings: HitterScoutingRatings | undefined = scoutingInfo ? {
+      playerId,
+      playerName: scoutingInfo.player_name,
+      power: scoutingInfo.power,
+      eye: scoutingInfo.eye,
+      avoidK: scoutingInfo.avoid_k,
+      contact: scoutingInfo.contact ?? 50,
+      gap: scoutingInfo.gap ?? 50,
+      speed: scoutingInfo.speed ?? 50,
+      ovr: scoutingInfo.ovr,
+      pot: scoutingInfo.pot,
+      stealingAggressiveness: scoutingInfo.stealing_aggressiveness ?? scoutingInfo.sr,
+      stealingAbility: scoutingInfo.stealing_ability ?? scoutingInfo.ste,
+      injuryProneness: scoutingInfo.injury_proneness,
+    } : undefined;
+
+    if (scoutingInfo) batterFromOSA++;
+
+    hitterTrInputs.push({
+      playerId,
+      playerName,
+      yearlyStats: (stats ?? []).sort((a: any, b: any) => b.year - a.year),
+      scoutingRatings,
+    });
+
+    batterInfoMap.set(playerId, {
+      age: playerAge,
+      teamId,
+      teamName: teamMap.get(teamId) || 'FA',
+      position,
+      name: playerName,
+      scouting: scoutingRatings,
+      fromMyScout: false,
+    });
+  }
+
+  const hitterTrResults = hitterTrueRatingsCalculationService.calculateTrueRatings(hitterTrInputs);
+
+  // Build batter projections
+  const POSITION_LABELS: Record<number, string> = {
+    1: 'P', 2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH',
+  };
+
+  const batterProjections: any[] = [];
+
+  for (const trResult of hitterTrResults) {
+    const info = batterInfoMap.get(trResult.playerId);
+    if (!info) continue;
+
+    const { age, teamId, teamName, position, name, scouting } = info;
+    const currentRatings = {
+      power: trResult.estimatedPower,
+      eye: trResult.estimatedEye,
+      avoidK: trResult.estimatedAvoidK,
+      contact: trResult.estimatedContact,
+    };
+
+    const projectedRatings = hitterAgingService.applyAging(currentRatings, age);
+
+    const projBbPct = HitterRatingEstimatorService.expectedBbPct(projectedRatings.eye);
+    const projKPct = HitterRatingEstimatorService.expectedKPct(projectedRatings.avoidK);
+    const projAvg = HitterRatingEstimatorService.expectedAvg(projectedRatings.contact);
+    const projHrPct = HitterRatingEstimatorService.expectedHrPct(projectedRatings.power);
+
+    const bbRate = projBbPct / 100;
+    const hitRate = projAvg * (1 - bbRate);
+    const hrRate = projHrPct / 100;
+    const nonHrHitRate = Math.max(0, hitRate - hrRate);
+    const tripleRate = nonHrHitRate * 0.08;
+    const doubleRate = nonHrHitRate * 0.27;
+    const singleRate = nonHrHitRate * 0.65;
+
+    const projWoba = Math.max(0.200, Math.min(0.500,
+      0.69 * bbRate + 0.89 * singleRate + 1.27 * doubleRate + 1.62 * tripleRate + 2.10 * hrRate
+    ));
+    const projIso = hrRate * 3 + doubleRate + (tripleRate * 2);
+    const projObp = Math.min(0.450, projAvg + (projBbPct / 100));
+    const projSlg = projAvg + projIso;
+    const projOps = projObp + projSlg;
+
+    // Projected PA
+    const historicalPaData = (playerBattingStats.get(trResult.playerId) ?? []).map((s: any) => ({ year: s.year, pa: s.pa }));
+    // Inline getProjectedPaWithHistory logic (same algorithm as LeagueBattingAveragesService)
+    let projPa = 585; // default
+    if (historicalPaData.length > 0 && age) {
+      const sortedStats = [...historicalPaData].sort((a: any, b: any) => b.year - a.year).slice(0, 4);
+      const paWeights = [0.40, 0.30, 0.20, 0.10];
+      let weightedPaSum = 0, totalWeight = 0;
+      for (let i = 0; i < sortedStats.length; i++) {
+        const w = paWeights[i] || 0.10;
+        weightedPaSum += sortedStats[i].pa * w;
+        totalWeight += w;
+      }
+      const historicalAvgPa = weightedPaSum / totalWeight;
+
+      // Age curve multiplier
+      function getAgeCurveMultiplier(a: number): number {
+        if (a <= 21) return 0.88 + (a - 20) * 0.02;
+        if (a <= 27) return 0.88 + ((a - 21) / 6) * 0.12;
+        if (a <= 32) return 1.00 - (a - 27) * 0.002;
+        if (a <= 37) return 0.99 - (a - 32) * 0.03;
+        return 0.84 - (a - 37) * 0.04;
+      }
+
+      let weightedAgeSum = 0;
+      for (let i = 0; i < sortedStats.length; i++) {
+        const w = paWeights[i] || 0.10;
+        weightedAgeSum += (age - (i + 1)) * w;
+      }
+      const avgHistoricalAge = weightedAgeSum / totalWeight;
+      const ageCurveMultiplier = getAgeCurveMultiplier(age) / getAgeCurveMultiplier(avgHistoricalAge);
+      const ageAdjustedPa = historicalAvgPa * ageCurveMultiplier;
+
+      // Injury multiplier
+      const ip = scouting?.injuryProneness?.toLowerCase() ?? 'normal';
+      let injuryMult = 1.0;
+      switch (ip) {
+        case 'iron man': injuryMult = 1.08; break;
+        case 'durable': injuryMult = 1.04; break;
+        case 'fragile': injuryMult = 0.88; break;
+        case 'wrecked': injuryMult = 0.75; break;
+      }
+      const injuryAdjustedPa = ageAdjustedPa * injuryMult;
+
+      let trustFactor = Math.min(0.98, 0.40 + (sortedStats.length * 0.20));
+      if (historicalAvgPa >= 500 && sortedStats.length >= 2) trustFactor = Math.min(0.98, trustFactor + 0.05);
+
+      // Baseline PA by age
+      function getBaselinePaByAge(a: number): number {
+        if (a <= 21) return 480 + (a - 20) * 20;
+        if (a <= 27) return 480 + ((a - 21) / 6) * 120;
+        if (a <= 32) return 600 - (a - 27) * 2;
+        if (a <= 37) return 590 - (a - 32) * 20;
+        return 490 - (a - 37) * 30;
+      }
+
+      const baselinePa = historicalAvgPa < 250
+        ? Math.min(getBaselinePaByAge(age), 350)
+        : getBaselinePaByAge(age);
+      const baselineAdjusted = baselinePa * injuryMult;
+      const blendedPa = (injuryAdjustedPa * trustFactor) + (baselineAdjusted * (1 - trustFactor));
+      projPa = Math.round(Math.max(50, Math.min(700, blendedPa)));
+    } else if (age) {
+      // Fallback for players with no history
+      if (age <= 21) projPa = 480;
+      else if (age <= 23) projPa = 520;
+      else if (age <= 32) projPa = 585;
+      else if (age <= 36) projPa = 520;
+      else projPa = 400;
+    }
+
+    const projHr = Math.round(projPa * (projHrPct / 100));
+    const projRbi = Math.round(projHr * 3.5 + projPa * 0.08);
+
+    // Stolen bases
+    const sr = scouting?.stealingAggressiveness;
+    const ste = scouting?.stealingAbility;
+    let projSb: number, projCs: number;
+    if (sr !== undefined && ste !== undefined) {
+      const histSbData: Array<{ sb: number; cs: number; pa: number }> = [];
+      for (const s of (playerBattingStats.get(trResult.playerId) ?? [])) {
+        if (s.sb !== undefined && s.cs !== undefined) histSbData.push({ sb: s.sb, cs: s.cs, pa: s.pa });
+      }
+      if (histSbData.length > 0) {
+        const sbProj = HitterRatingEstimatorService.projectStolenBasesWithHistory(sr, ste, projPa, histSbData);
+        projSb = sbProj.sb; projCs = sbProj.cs;
+      } else {
+        const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+        projSb = sbProj.sb; projCs = sbProj.cs;
+      }
+    } else {
+      projSb = Math.round(projPa * 0.02);
+      projCs = Math.round(projPa * 0.005);
+    }
+
+    // WAR calculation
+    const sbRuns = projSb * 0.2 - projCs * 0.4;
+    let wrcPlus = 100;
+    let projWar = 0;
+    if (leagueAvg) {
+      const wRaaPerPa = (projWoba - leagueAvg.lgWoba) / leagueAvg.wobaScale;
+      wrcPlus = Math.round(((wRaaPerPa + leagueAvg.lgRpa) / leagueAvg.lgRpa) * 100);
+      const wRAA = ((projWoba - leagueAvg.lgWoba) / leagueAvg.wobaScale) * projPa;
+      const replacementRuns = (projPa / 600) * 20;
+      projWar = Math.round(((wRAA + replacementRuns + sbRuns) / leagueAvg.runsPerWin) * 10) / 10;
+    }
+
+    batterProjections.push({
+      playerId: trResult.playerId,
+      name,
+      teamId,
+      teamName,
+      position,
+      positionLabel: POSITION_LABELS[position] || 'UT',
+      age,
+      currentTrueRating: trResult.trueRating,
+      percentile: trResult.percentile,
+      projectedStats: {
+        woba: Math.round(projWoba * 1000) / 1000,
+        avg: Math.round(projAvg * 1000) / 1000,
+        obp: Math.round(projObp * 1000) / 1000,
+        slg: Math.round(projSlg * 1000) / 1000,
+        ops: Math.round(projOps * 1000) / 1000,
+        wrcPlus,
+        war: projWar,
+        pa: projPa,
+        hr: projHr,
+        rbi: projRbi,
+        sb: projSb,
+        hrPct: Math.round(projHrPct * 10) / 10,
+        bbPct: Math.round(projBbPct * 10) / 10,
+        kPct: Math.round(projKPct * 10) / 10,
+      },
+      estimatedRatings: {
+        power: Math.round(projectedRatings.power),
+        eye: Math.round(projectedRatings.eye),
+        avoidK: Math.round(projectedRatings.avoidK),
+        contact: Math.round(projectedRatings.contact),
+      },
+      scoutingRatings: scouting ? {
+        power: scouting.power,
+        eye: scouting.eye,
+        avoidK: scouting.avoidK,
+        contact: scouting.contact ?? 50,
+      } : undefined,
+    });
+  }
+
+  // Overlay canonical hitter TR
+  for (const p of batterProjections) {
+    const canonical = hitterTrMap.get(p.playerId);
+    if (canonical) {
+      p.currentTrueRating = canonical.trueRating;
+      p.percentile = canonical.percentile;
+    }
+  }
+
+  batterProjections.sort((a: any, b: any) => b.projectedStats.war - a.projectedStats.war);
+
+  // Batter sanity checks
+  let batterIssues = 0;
+  for (const p of batterProjections) {
+    const war = p.projectedStats.war;
+    if (!Number.isFinite(war) || war < -5 || war > 15) batterIssues++;
+  }
+  console.log(`  ✅ Batter projections: ${batterProjections.length} (${batterIssues} sanity issues)`);
+
+  // ────────── Store in precomputed_cache ──────────
+  const pitcherData = {
+    projections: pitcherProjections,
+    statsYear: pitcherUsedFallback ? year - 1 : year,
+    usedFallbackStats: pitcherUsedFallback,
+    totalCurrentIp: pitcherTotalCurrentIp,
+    scoutingMetadata: { fromMyScout: pitcherFromMyScout, fromOSA: pitcherFromOSA },
+  };
+
+  const batterData = {
+    projections: batterProjections,
+    statsYear: year,
+    usedFallbackStats: false,
+    scoutingMetadata: { fromMyScout: batterFromMyScout, fromOSA: batterFromOSA },
+  };
+
+  await Promise.all([
+    supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_projections', data: pitcherData }], 1, 'key'),
+    supabaseUpsertBatches('precomputed_cache', [{ key: 'batter_projections', data: batterData }], 1, 'key'),
+  ]);
+  console.log('  ✅ Projections saved to precomputed_cache');
+
+  return { pitcherProj: pitcherProjections.length, batterProj: batterProjections.length };
+}
+
+// ──────────────────────────────────────────────
 // Step 6: League Context
 // ──────────────────────────────────────────────
 
@@ -1459,6 +2349,7 @@ async function main(): Promise<void> {
 
   let trCounts = { pitcherTr: 0, hitterTr: 0 };
   let tfrCounts = { pitcherTfr: 0, hitterTfr: 0 };
+  let projCounts = { pitcherProj: 0, batterProj: 0 };
 
   if (!skipCompute) {
     // Step 4
@@ -1486,6 +2377,9 @@ async function main(): Promise<void> {
       ]);
       console.log(`  ✅ TFR precomputed cache: ${pitcherTfrData.length} pitchers, ${hitterTfrData.length} hitters`);
     }
+
+    // Step 5.5 — Projections
+    projCounts = await computeProjections(year, trResult.rows);
   }
 
   // Step 6 — league context (only when computing ratings)
@@ -1512,6 +2406,8 @@ async function main(): Promise<void> {
     console.log(`  Hitter TR:    ${trCounts.hitterTr}`);
     console.log(`  Pitcher TFR:  ${tfrCounts.pitcherTfr}`);
     console.log(`  Hitter TFR:   ${tfrCounts.hitterTfr}`);
+    console.log(`  Pitcher Proj: ${projCounts.pitcherProj}`);
+    console.log(`  Batter Proj:  ${projCounts.batterProj}`);
   }
   const kb = (apiBytesTransferred / 1024).toFixed(0);
   const mb = (apiBytesTransferred / (1024 * 1024)).toFixed(2);
