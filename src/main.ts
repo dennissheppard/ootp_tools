@@ -449,6 +449,10 @@ class App {
       panel.classList.toggle('active', panel.id === tabId);
     });
 
+    // Scroll the active tab into view in the tab strip (mobile horizontal scroll)
+    document.querySelector<HTMLButtonElement>(`[data-tab-target="${tabId}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+
     if (tabId === 'tab-true-ratings') {
       this.trueRatingsView.syncTeamSelection();
     }
