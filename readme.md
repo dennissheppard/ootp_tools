@@ -30,7 +30,7 @@ StatsPlus API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
 
 | Table | Purpose |
 |-|-|
-| `players` | Full player data (name, team, age, level, position, role) |
+| `players` | Full player data (name, team, age, level, position, role). Level values: 1=MLB, 2=AAA, 3=AA, 4=A, 5=R, 6=IC (set by CLI from contract league_id) |
 | `teams` | Team names, nicknames, parent relationships |
 | `pitching_stats` | MLB + MiLB pitching stats by year/league/split (PK: id, year, level_id) |
 | `batting_stats` | MLB + MiLB batting stats by year/league/split (PK: id, year, level_id) |
@@ -80,7 +80,7 @@ npx tsx tools/sync-db.ts --force         # Re-sync even if DB is up to date
 
 **Env vars** (`.env.local`): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
-**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts → Compute TR (pitcher + hitter) → Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Compute league context + build scouting/contract/DOB lookups → Set game_date
+**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts → Patch IC player levels (contract league_id=-200 → level=6) → Compute TR (pitcher + hitter) → Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Compute league context + build scouting/contract/DOB lookups → Set game_date
 
 **Skip detection:** The CLI compares the DB's `game_date` (set as the very last step of a successful sync) against the StatsPlus API date. If they match, the sync exits early — no work needed. Use `--force` to override.
 

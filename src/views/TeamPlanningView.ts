@@ -365,8 +365,26 @@ export class TeamPlanningView {
         this.container.querySelectorAll('.toggle-btn[data-view]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this.applyViewMode();
+        if (mode === 'market') this.ensureTradeMarketData();
       });
     });
+  }
+
+  private tradeMarketLoaded = false;
+
+  private async ensureTradeMarketData(): Promise<void> {
+    if (this.tradeMarketLoaded) return;
+    this.tradeMarketLoaded = true;
+    try {
+      if (!contractService.hasCachedContracts()) {
+        this.contractMap = await contractService.getAllContracts();
+      }
+      this.cachedTradeProfiles = this.buildAllTeamProfiles();
+      this.renderTradeMarket();
+    } catch (e) {
+      console.warn('Failed to load trade market data:', e);
+      this.tradeMarketLoaded = false; // allow retry
+    }
   }
 
   private applyViewMode(): void {
@@ -522,6 +540,7 @@ export class TeamPlanningView {
         el.closest('.filter-dropdown')?.classList.remove('open');
 
         // Load overrides from DB when team changes
+        this.tradeMarketLoaded = false; // rebuild trade profiles for new team context
         this.loadOverrides().then(() => this.buildAndRenderGrid());
       });
     });
@@ -702,14 +721,10 @@ export class TeamPlanningView {
       this.renderSummarySection();
       this.bindSummaryLinks();
 
-      // Load full contracts for trade market (deferred from init — grid already rendered with org contracts)
-      if (!contractService.hasCachedContracts()) {
-        this.contractMap = await contractService.getAllContracts();
+      // Trade market data loaded lazily when the Market tab is first viewed
+      if (this.viewMode === 'market') {
+        await this.ensureTradeMarketData();
       }
-
-      // Build trade market profiles for all teams
-      this.cachedTradeProfiles = this.buildAllTeamProfiles();
-      this.renderTradeMarket();
 
       // Re-apply view mode after summary/draft/market sections are populated
       this.applyViewMode();

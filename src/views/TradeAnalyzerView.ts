@@ -15,7 +15,6 @@ import { TrueRatingResult } from '../services/TrueRatingsCalculationService';
 import { HitterTrueRatingResult } from '../services/HitterTrueRatingsCalculationService';
 import { aiTradeAnalysisService, TradeContext, TradePlayerContext, TradePickContext } from '../services/AITradeAnalysisService';
 import { markdownToHtml } from '../services/AIScoutingService';
-import { canonicalCurrentProjectionService } from '../services/CanonicalCurrentProjectionService';
 import { resolveCanonicalPitcherData, resolveCanonicalBatterData, computePitcherProjection, computeBatterProjection } from '../services/ModalDataService';
 import type { PitcherProfileData } from './PitcherProfileModal';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
@@ -58,7 +57,7 @@ interface TradeAnalysis {
 
 export class TradeAnalyzerView {
   private container: HTMLElement;
-  private allPlayers: Player[] = [];
+  private teamPlayers: Map<number, Player[]> = new Map(); // per-org player cache
   private allTeams: Team[] = [];
   private allProjections: Map<number, ProjectedPlayer> = new Map();
   private allBatterProjections: Map<number, ProjectedBatter> = new Map();
@@ -70,11 +69,13 @@ export class TradeAnalyzerView {
   private pitcherProspectMap: Map<number, RatedProspect> = new Map();
   private hitterProspectMap: Map<number, RatedHitterProspect> = new Map();
 
-  // Power rankings for team impact (Improvement 2)
+  // Power rankings for team impact — lazy-loaded on first trade analysis
   private powerRankingsMap: Map<number, TeamPowerRanking> = new Map();
+  private powerRankingsLoaded = false;
 
-  // Contracts for AI analysis (Improvement 3)
+  // Contracts — lazy-loaded on first team selection
   private allContracts: Map<number, Contract> = new Map();
+  private contractsLoaded = false;
 
   // Canonical True Ratings (consistent with profile modals)
   private canonicalPitcherTR: Map<number, TrueRatingResult> = new Map();
@@ -116,8 +117,16 @@ export class TradeAnalyzerView {
     });
   }
 
+  private findPlayer(playerId: number): Player | undefined {
+    for (const players of this.teamPlayers.values()) {
+      const found = players.find(p => p.id === playerId);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
   private async openPlayerProfile(playerId: number): Promise<void> {
-    const player = this.allPlayers.find(p => p.id === playerId);
+    const player = this.findPlayer(playerId);
     if (!player) {
       console.warn(`Player ${playerId} not found`);
       return;
@@ -195,11 +204,7 @@ export class TradeAnalyzerView {
       this.currentYear = 2022;
     }
 
-    this.allPlayers = await playerService.getAllPlayers();
     this.allTeams = await teamService.getAllTeams();
-
-    // Projection snapshots are loaded lazily per-team in onTeamChange() to avoid
-    // computing projections for the entire league upfront.
 
     // Detect scouting data mode for badges (don't need to store all ratings —
     // CanonicalCurrentProjectionService loads them internally)
@@ -217,43 +222,30 @@ export class TradeAnalyzerView {
       console.error('Failed to detect scouting data mode:', e);
     }
 
-    // Load farm data, power rankings, contracts, and canonical TR in parallel
+    // Load farm data and canonical TR in parallel (lightweight precomputed lookups).
+    // Power rankings + contracts are deferred to first trade analysis / team selection.
     try {
-      const [pitcherUnifiedData, hitterUnifiedData, powerRankings, contracts, pitcherTR, batterTR] = await Promise.all([
+      const [pitcherUnifiedData, hitterUnifiedData, pitcherTR, batterTR] = await Promise.all([
         teamRatingsService.getUnifiedPitcherTfrData(this.currentYear).catch(e => { console.warn('Failed to load unified pitcher TFR data:', e); return null; }),
         teamRatingsService.getUnifiedHitterTfrData(this.currentYear).catch(e => { console.warn('Failed to load unified hitter TFR data:', e); return null; }),
-        teamRatingsService.getPowerRankings(this.currentYear).catch(e => { console.warn('Failed to load power rankings:', e); return null; }),
-        contractService.getAllContracts().catch(e => { console.warn('Failed to load contracts:', e); return null; }),
         trueRatingsService.getPitcherTrueRatings(this.currentYear).catch(e => { console.warn('Failed to load canonical pitcher TR:', e); return null; }),
         trueRatingsService.getHitterTrueRatings(this.currentYear).catch(e => { console.warn('Failed to load canonical batter TR:', e); return null; }),
       ]);
 
       if (pitcherUnifiedData) {
         pitcherUnifiedData.prospects.forEach(p => this.pitcherProspectMap.set(p.playerId, p));
-        console.log(`Loaded ${this.pitcherProspectMap.size} pitcher prospects into map`);
       }
       if (hitterUnifiedData) {
         hitterUnifiedData.prospects.forEach(p => this.hitterProspectMap.set(p.playerId, p));
-        console.log(`Loaded ${this.hitterProspectMap.size} hitter prospects into map`);
-      }
-      if (powerRankings) {
-        powerRankings.forEach(r => this.powerRankingsMap.set(r.teamId, r));
-        console.log(`Loaded ${this.powerRankingsMap.size} power rankings`);
-      }
-      if (contracts) {
-        this.allContracts = contracts;
-        console.log(`Loaded ${this.allContracts.size} contracts`);
       }
       if (pitcherTR) {
         this.canonicalPitcherTR = pitcherTR;
-        console.log(`Loaded ${this.canonicalPitcherTR.size} canonical pitcher TRs`);
       }
       if (batterTR) {
         this.canonicalBatterTR = batterTR;
-        console.log(`Loaded ${this.canonicalBatterTR.size} canonical batter TRs`);
       }
     } catch (e) {
-      console.error('Failed to load farm/ranking/contract data:', e);
+      console.error('Failed to load farm/ranking data:', e);
     }
 
     this.setupEventHandlers();
@@ -370,20 +362,27 @@ export class TradeAnalyzerView {
     this.renderBackButton();
 
     await this.setTeamById(1, myTeamId);
-    await this.setTeamById(2, targetTeamId);
 
+    // targetTeamId = 0 means "add player to team 1 side" (same-team / no saved team)
+    const addToTeam1 = !targetTeamId;
+    if (!addToTeam1) {
+      await this.setTeamById(2, targetTeamId);
+    }
+
+    const targetSide: 1 | 2 = addToTeam1 ? 1 : 2;
     if (targetIsProspect) {
-      const select = this.container.querySelector<HTMLSelectElement>('.trade-level-select[data-team="2"]');
+      const select = this.container.querySelector<HTMLSelectElement>(`.trade-level-select[data-team="${targetSide}"]`);
       if (select) {
+        const state = targetSide === 1 ? this.team1State : this.team2State;
         select.value = 'all-prospects';
-        this.team2State.minorLevel = 'all-prospects';
-        const toggleContainer = this.container.querySelector<HTMLElement>('.trade-player-type-toggle[data-team="2"]');
+        state.minorLevel = 'all-prospects';
+        const toggleContainer = this.container.querySelector<HTMLElement>(`.trade-player-type-toggle[data-team="${targetSide}"]`);
         if (toggleContainer) toggleContainer.style.display = 'flex';
-        this.updatePlayerList(2);
+        this.updatePlayerList(targetSide);
       }
     }
 
-    this.addPlayerToTrade(2, targetPlayerId);
+    this.addPlayerToTrade(targetSide, targetPlayerId);
 
     // Add the trade-match player to Team 1 if present (two-way match)
     if (matchPlayerId) {
@@ -460,13 +459,13 @@ export class TradeAnalyzerView {
   }
 
   private populateTeamDropdowns(): void {
-    const teamsWithPlayers = new Set<number>();
-    this.allPlayers.forEach(p => {
-      if (p.teamId) teamsWithPlayers.add(p.teamId);
-    });
-
+    // Filter to real MLB orgs — teams with minor league affiliates (excludes All-Star teams)
+    const orgsWithAffiliates = new Set<number>();
+    for (const t of this.allTeams) {
+      if (t.parentTeamId > 0) orgsWithAffiliates.add(t.parentTeamId);
+    }
     const mainTeams = this.allTeams
-      .filter(t => t.parentTeamId === 0 && teamsWithPlayers.has(t.id))
+      .filter(t => t.parentTeamId === 0 && orgsWithAffiliates.has(t.id))
       .sort((a, b) => a.nickname.localeCompare(b.nickname));
 
     ([1, 2] as const).forEach(teamNum => {
@@ -635,19 +634,18 @@ export class TradeAnalyzerView {
     state.tradingBatters = [];
     state.tradingPicks = [];
 
-    // Show skeleton placeholder while projections load
+    // Show skeleton placeholder while data loads
     if (teamId > 0) {
       this.showPlayerListSkeleton(teamNum);
     }
 
-    // Load projections lazily for this team (merges into cache)
-    if (teamId > 0) {
+    // Load players lazily for this team (projections computed on-demand when added to trade)
+    if (teamId > 0 && !this.teamPlayers.has(teamId)) {
       try {
-        const snapshot = await canonicalCurrentProjectionService.getSnapshotForTeams(this.currentYear, [teamId]);
-        for (const [id, p] of snapshot.pitchers) this.allProjections.set(id, p);
-        for (const [id, b] of snapshot.batters) this.allBatterProjections.set(id, b);
+        const teamPlayerList = await playerService.getPlayersByOrgId(teamId);
+        this.teamPlayers.set(teamId, teamPlayerList);
       } catch (e) {
-        console.warn('Failed to load projections for team:', e);
+        console.warn('Failed to load players for team:', e);
       }
     }
 
@@ -687,49 +685,32 @@ export class TradeAnalyzerView {
   }
 
   private getPlayersByTeamAndLevel(teamId: number, level: string, showPitchers: boolean): Player[] {
-    if (teamId === 0) {
-      console.log('No team selected');
-      return [];
-    }
+    if (teamId === 0) return [];
 
-    console.log(`Filtering players: teamId=${teamId}, level=${level}, showPitchers=${showPitchers}, total players=${this.allPlayers.length}`);
+    const teamPlayerList = this.teamPlayers.get(teamId) ?? [];
 
-    let filtered = this.allPlayers.filter(p => {
+    let filtered = teamPlayerList.filter(p => {
       if (level === 'mlb') {
-        // MLB: teamId matches, level is 1, and NOT an IC player
-        // IC players have level 1 (same as MLB) but contract.leagueId === -200
-        if (p.teamId !== teamId || p.level !== 1) return false;
-        const contract = this.allContracts.get(p.id);
-        return !contract || contract.leagueId !== -200;
+        // MLB: level 1, excluding IC players (level 6)
+        return (p.teamId === teamId) && p.level === 1;
       } else if (level === 'all-prospects') {
-        // All minor league levels (AAA through Rookie) + IC players
-        const isMinorLeaguer = p.parentTeamId === teamId && p.level >= 2 && p.level <= 5;
-        const isIcPlayer = p.teamId === teamId && p.level === 1 &&
-          this.allContracts.get(p.id)?.leagueId === -200;
-        return isMinorLeaguer || isIcPlayer;
+        // All minor league levels (AAA through Rookie) + IC (level 6)
+        return (p.level >= 2 && p.level <= 5) || p.level === 6;
       } else if (level === 'ic') {
-        // International Complex: teamId matches, level is 1, contract.leagueId === -200
-        return p.teamId === teamId && p.level === 1 &&
-          this.allContracts.get(p.id)?.leagueId === -200;
+        return p.level === 6;
       } else if (level === 'aaa') {
-        return p.parentTeamId === teamId && p.level === 2;
+        return p.level === 2;
       } else if (level === 'aa') {
-        return p.parentTeamId === teamId && p.level === 3;
+        return p.level === 3;
       } else if (level === 'a') {
-        return p.parentTeamId === teamId && p.level === 4;
+        return p.level === 4;
       } else if (level === 'r') {
-        return p.parentTeamId === teamId && p.level === 5;
+        return p.level === 5;
       }
       return false;
     });
 
-    console.log(`After team/level filter: ${filtered.length} players`);
-
-    // Filter by player type (pitchers vs batters)
-    const result = filtered.filter(p => showPitchers ? isPitcher(p) : !isPitcher(p));
-    console.log(`After player type filter: ${result.length} ${showPitchers ? 'pitchers' : 'batters'}`);
-
-    return result;
+    return filtered.filter(p => showPitchers ? isPitcher(p) : !isPitcher(p));
   }
 
   private sortPlayers(players: Player[], sortKey: 'name' | 'position' | 'rating', sortDirection: 'asc' | 'desc', showPitchers: boolean): Player[] {
@@ -1199,7 +1180,7 @@ export class TradeAnalyzerView {
 
   private addPlayerToTrade(teamNum: 1 | 2, playerId: number): void {
     const state = teamNum === 1 ? this.team1State : this.team2State;
-    const player = this.allPlayers.find(p => p.id === playerId);
+    const player = this.findPlayer(playerId);
     if (!player) {
       console.warn(`Player ${playerId} not found`);
       return;
@@ -1244,6 +1225,31 @@ export class TradeAnalyzerView {
     this.updateAnalysis();
   }
 
+  private async ensureTradeAnalysisData(): Promise<void> {
+    const promises: Promise<void>[] = [];
+    if (!this.powerRankingsLoaded) {
+      promises.push(
+        teamRatingsService.getPowerRankings(this.currentYear)
+          .then(rankings => {
+            rankings.forEach(r => this.powerRankingsMap.set(r.teamId, r));
+            this.powerRankingsLoaded = true;
+          })
+          .catch(e => { console.warn('Failed to load power rankings:', e); this.powerRankingsLoaded = true; })
+      );
+    }
+    if (!this.contractsLoaded) {
+      promises.push(
+        contractService.getAllContracts()
+          .then(contracts => {
+            this.allContracts = contracts;
+            this.contractsLoaded = true;
+          })
+          .catch(e => { console.warn('Failed to load contracts:', e); this.contractsLoaded = true; })
+      );
+    }
+    if (promises.length > 0) await Promise.all(promises);
+  }
+
   private updateAnalysis(): void {
     const contentDiv = this.container.querySelector<HTMLElement>('.trade-analysis-content');
     if (!contentDiv) return;
@@ -1262,6 +1268,11 @@ export class TradeAnalyzerView {
         </div>
       `;
       return;
+    }
+
+    // Kick off lazy-load of power rankings + contracts; re-render when ready
+    if (!this.powerRankingsLoaded || !this.contractsLoaded) {
+      this.ensureTradeAnalysisData().then(() => this.updateAnalysis());
     }
 
     const analysis = this.calculateTradeAnalysis();
@@ -1827,6 +1838,9 @@ export class TradeAnalyzerView {
     btn.disabled = true;
     btn.textContent = 'Analyzing...';
     resultDiv.innerHTML = '<div class="ai-loading"><span class="ai-loading-text">Generating trade analysis...</span></div>';
+
+    // Ensure power rankings + contracts are loaded before AI analysis
+    await this.ensureTradeAnalysisData();
 
     try {
       const team1 = this.allTeams.find(t => t.id === this.team1State.teamId);

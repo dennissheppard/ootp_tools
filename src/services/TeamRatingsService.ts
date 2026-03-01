@@ -16,7 +16,6 @@ import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { batterProjectionService } from './BatterProjectionService';
 import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
-import { contractService } from './ContractService';
 import { prospectDevelopmentCurveService } from './ProspectDevelopmentCurveService';
 import { supabaseDataService } from './SupabaseDataService';
 
@@ -851,12 +850,11 @@ class TeamRatingsService {
           scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
       }
 
-      const [allPlayers, tfrResults, tfrResultsOsa, teams, contracts, careerMlbIpMap] = await Promise.all([
+      const [allPlayers, tfrResults, tfrResultsOsa, teams, careerMlbIpMap] = await Promise.all([
           playerService.getAllPlayers(),
           trueFutureRatingService.getProspectTrueFutureRatings(year),
           trueFutureRatingService.getProspectTrueFutureRatings(year, 'osa'),
           teamService.getAllTeams(),
-          contractService.getAllContracts(),
           this.getCareerMlbIpMap(year),
       ]);
 
@@ -967,11 +965,8 @@ class TeamRatingsService {
 
           const peakWar = fipWarService.calculateWar(tfr.projFip, projectedIp);
 
-          // Determine level label - use contract to detect IC players
-          const playerContract = contracts.get(tfr.playerId);
-          const levelLabel = (playerContract && playerContract.leagueId === -200)
-              ? 'IC'
-              : this.getLevelLabel(player.level);
+          // IC players have level=6 (set by CLI from contract league_id=-200)
+          const levelLabel = player.level === 6 ? 'IC' : this.getLevelLabel(player.level);
           const careerIp = careerMlbIpMap.get(tfr.playerId) ?? 0;
           const isFarmEligible = careerIp <= 50;
 
@@ -1211,12 +1206,11 @@ class TeamRatingsService {
       }
 
       // Fetch hitter scouting data and league averages in parallel
-      const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerMlbStatsMap, contracts] = await Promise.all([
+      const [myScoutingRatings, osaScoutingRatings, leagueAvg, careerMlbStatsMap] = await Promise.all([
           hitterScoutingDataService.getLatestScoutingRatings('my'),
           hitterScoutingDataService.getLatestScoutingRatings('osa'),
           leagueBattingAveragesService.getLeagueAverages(year),
           this.getCareerMlbStatsMap(year),
-          contractService.getAllContracts()
       ]);
 
       // Merge scouting data (my takes priority)
@@ -1284,11 +1278,8 @@ class TeamRatingsService {
           const totalPa = minorStats.reduce((sum, s) => sum + s.pa, 0);
 
           if (totalPa === 0 && careerAb === 0) {
-              // No stats at all — check for a professional contract
-              const contract = contracts.get(playerId);
-              if (!contract || contract.leagueId === 0) {
-                  return; // Truly amateur/unsigned, skip
-              }
+              // No stats at all — player must be on a team (signed professional)
+              if (!player.teamId) return;
           }
 
           tfrInputs.push({
@@ -1368,11 +1359,8 @@ class TeamRatingsService {
               projWar = Math.round(((wRAA + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
           }
 
-          // Determine level label - use contract to detect IC players
-          const playerContract = contracts.get(tfr.playerId);
-          const hitterLevelLabel = (playerContract && playerContract.leagueId === -200)
-              ? 'IC'
-              : this.getLevelLabel(player.level);
+          // IC players have level=6 (set by CLI from contract league_id=-200)
+          const hitterLevelLabel = player.level === 6 ? 'IC' : this.getLevelLabel(player.level);
 
           const prospect: RatedHitterProspect = {
               playerId: tfr.playerId,

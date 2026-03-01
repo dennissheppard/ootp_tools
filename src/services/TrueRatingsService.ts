@@ -18,7 +18,6 @@ import { minorLeagueStatsService } from './MinorLeagueStatsService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { fipWarService } from './FipWarService';
 import { teamService } from './TeamService';
-import { contractService } from './ContractService';
 // Type-only imports to avoid circular dependency (both TFR services import trueRatingsService)
 import type { HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
 import type { TrueFutureRatingInput } from './TrueFutureRatingService';
@@ -1314,9 +1313,8 @@ class TrueRatingsService {
       minorLeagueStatsService.prefetchYear(year - 2),
       minorLeagueStatsService.prefetchYear(year - 1),
       minorLeagueStatsService.prefetchYear(year),
-      // Entity caches: 1 query each (players loaded lazily by views that need them)
+      // Entity caches (players loaded lazily by views that need them)
       teamService.getAllTeams(),
-      contractService.getAllContracts(),
     ]);
   }
 

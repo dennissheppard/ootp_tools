@@ -17,7 +17,6 @@ import { minorLeagueStatsService } from './MinorLeagueStatsService';
 import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { trueRatingsService } from './TrueRatingsService';
 import { trueRatingsCalculationService } from './TrueRatingsCalculationService';
-import { contractService } from './ContractService';
 import { playerService } from './PlayerService';
 import { supabaseDataService } from './SupabaseDataService';
 
@@ -861,8 +860,7 @@ class TrueFutureRatingService {
     // Fetch career MLB IP to exclude veterans (>50 IP)
     const careerIpMap = await this.getCareerMlbIpMap(year);
     
-    // Fetch contracts to identify affiliated players who haven't played yet (e.g. IC/DSL)
-    const contracts = await contractService.getAllContracts();
+    // Players table used to identify affiliated players (teamId set = signed professional)
 
     // Build prospect inputs
     const prospectInputs: TrueFutureRatingInput[] = [];
@@ -894,18 +892,13 @@ class TrueFutureRatingService {
       // UNLESS they are signed to a pro team (e.g. International Complex players with no stats)
       const totalIp = minorStats.reduce((sum, stat) => sum + stat.ip, 0);
 
-      if (totalIp === 0) {
-          // If no stats, check if they have a professional contract
-          // Amateurs (Draft Pool) usually don't have a contract entry or have league_id=0/null
-          const contract = contracts.get(scouting.playerId);
-          if (!contract || contract.leagueId === 0) {
-              continue; // Truly amateur/unsigned, skip
-          }
-          // If they have a contract (e.g. league_id = -200 for IC, or others), include them
-      }
-
       // Get age from player database (preferred), then scouting CSV, then fallback to 22
       const player = playerMap.get(scouting.playerId);
+
+      if (totalIp === 0) {
+          // No stats — player must be on a team (signed professional) to include
+          if (!player?.teamId) continue;
+      }
       const age = player?.age ?? scouting.age ?? 22;
 
       prospectInputs.push({

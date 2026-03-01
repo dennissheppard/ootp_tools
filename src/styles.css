@@ -6816,6 +6816,17 @@ th .stat-tooltip {
   font-weight: 700;
 }
 
+.batter-profile-modal .modal-title a,
+.pitcher-profile-modal .modal-title a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.batter-profile-modal .modal-title a:hover,
+.pitcher-profile-modal .modal-title a:hover {
+  text-decoration: underline;
+}
+
 .batter-profile-modal .player-team-info {
   font-size: 0.9rem;
   color: var(--color-text-muted);
@@ -7942,13 +7953,51 @@ th .stat-tooltip {
 }
 
 /* Player Tags (shared by batter and pitcher modals) */
+.profile-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+}
+
 .player-tags-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
   align-items: center;
-  margin-left: auto;
-  padding: 0 0.75rem;
+  padding: 0 0.5rem;
+}
+
+.modal-action-buttons {
+  display: flex;
+  gap: 0.25rem;
+  align-items: center;
+  padding-right: 0.5rem;
+}
+
+.modal-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+
+.modal-action-btn:hover {
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.modal-action-btn.action-success {
+  color: #4ade80;
+  border-color: #4ade80;
 }
 
 .player-tag {

@@ -17,6 +17,7 @@
 import {
   supabaseQuery,
   supabaseUpsertBatches,
+  supabasePatch,
   supabaseRpc,
   PITCHING_COLS,
   BATTING_COLS,
@@ -340,6 +341,22 @@ async function fetchAndWriteData(year: number): Promise<WriteStats> {
   })());
 
   await Promise.all(parallelPromises);
+
+  // Fix IC player levels: IC players have level=1 (same as MLB) in the API
+  // but contract league_id=-200. Set level='6' so the browser can distinguish
+  // IC from MLB without loading contracts.
+  const icContracts = await supabaseQuery<{ player_id: number }>(
+    'contracts', 'select=player_id&league_id=eq.-200'
+  );
+  if (icContracts.length > 0) {
+    const icIds = icContracts.map(r => r.player_id);
+    for (let i = 0; i < icIds.length; i += BATCH_SIZE) {
+      const batch = icIds.slice(i, i + BATCH_SIZE);
+      await supabasePatch('players', `id=in.(${batch.join(',')})`, { level: '6' });
+    }
+    console.log(`  ✅ IC player levels: ${icIds.length} players set to level=6`);
+  }
+
   return stats;
 }
 

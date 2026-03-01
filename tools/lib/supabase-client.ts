@@ -161,6 +161,24 @@ export async function supabaseRpc<T = any>(fn: string, args: Record<string, any>
 }
 
 // ──────────────────────────────────────────────
+// Patch (update rows matching a filter)
+// ──────────────────────────────────────────────
+
+export async function supabasePatch(table: string, filter: string, data: Record<string, any>): Promise<void> {
+  const url = `${SUPABASE_URL}/rest/v1/${table}?${filter}`;
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: { ...HEADERS, 'Prefer': 'return=minimal' },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`PATCH ${table} failed (${response.status}): ${body}`);
+  }
+}
+
+// ──────────────────────────────────────────────
 // Delete
 // ──────────────────────────────────────────────
 

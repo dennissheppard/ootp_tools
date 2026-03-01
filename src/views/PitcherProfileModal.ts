@@ -21,6 +21,7 @@ import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../serv
 import { resolveCanonicalPitcherData, computePitcherProjection } from '../services/ModalDataService';
 import { computePitcherTags, renderTagsHtml, TagContext } from '../utils/playerTags';
 import { analyticsService } from '../services/AnalyticsService';
+import { playerService } from '../services/PlayerService';
 import { supabaseDataService } from '../services/SupabaseDataService';
 
 // Eagerly resolve all team logo URLs via Vite glob
@@ -345,8 +346,14 @@ export class PitcherProfileModal {
     const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
 
     if (titleEl) {
-      titleEl.textContent = data.playerName;
-      titleEl.title = `ID: ${data.playerId}`;
+      const link = document.createElement('a');
+      link.href = `https://worldbaseballleague.org/#/player/${data.playerId}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = data.playerName;
+      link.title = `View on WBL.org (ID: ${data.playerId})`;
+      titleEl.textContent = '';
+      titleEl.appendChild(link);
     }
     if (teamEl) {
       const teamInfo = this.formatTeamInfo(data.team, data.parentTeam);
@@ -1058,7 +1065,17 @@ export class PitcherProfileModal {
         <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
         <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
-        ${tagsHtml}
+        <div class="profile-tab-actions">
+          ${tagsHtml}
+          <div class="modal-action-buttons">
+            <button class="modal-action-btn" data-action="share" title="Copy link to clipboard">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+            </button>
+            <button class="modal-action-btn" data-action="trade" title="Add to Trade Analyzer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="profile-tab-content">
         <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
@@ -1964,11 +1981,53 @@ export class PitcherProfileModal {
 
   // ─── Event Binding ──────────────────────────────────────────────────
 
+  private bindActionButtons(): void {
+    const shareBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="share"]');
+    const tradeBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="trade"]');
+
+    shareBtn?.addEventListener('click', () => {
+      if (!this.currentData) return;
+      const url = new URL(window.location.href);
+      url.search = '';
+      url.searchParams.set('player', String(this.currentData.playerId));
+      navigator.clipboard.writeText(url.toString()).then(() => {
+        shareBtn.classList.add('action-success');
+        shareBtn.title = 'Copied!';
+        setTimeout(() => {
+          shareBtn.classList.remove('action-success');
+          shareBtn.title = 'Copy link to clipboard';
+        }, 1500);
+      });
+    });
+
+    tradeBtn?.addEventListener('click', async () => {
+      if (!this.currentData) return;
+      const player = await playerService.getPlayerById(this.currentData.playerId);
+      const playerTeamId = player?.teamId ?? 0;
+      const savedTeamId = parseInt(localStorage.getItem('wbl-selected-team') ?? '0', 10);
+      const isProspect = this.currentData.isProspect === true;
+      const playerId = this.currentData.playerId;
+      this.hide();
+      if (savedTeamId > 0 && savedTeamId !== playerTeamId) {
+        // Different saved team: my team on side 1, player on side 2
+        window.dispatchEvent(new CustomEvent('wbl:open-trade-analyzer', {
+          detail: { myTeamId: savedTeamId, targetTeamId: playerTeamId, targetPlayerId: playerId, targetIsProspect: isProspect },
+        }));
+      } else {
+        // Same team or no saved team: player's team on side 1, player on side 1
+        window.dispatchEvent(new CustomEvent('wbl:open-trade-analyzer', {
+          detail: { myTeamId: playerTeamId, targetTeamId: 0, targetPlayerId: playerId, targetIsProspect: isProspect },
+        }));
+      }
+    });
+  }
+
   private bindBodyEvents(): void {
     this.bindScoutSourceToggle();
     this.bindTabSwitching();
     this.bindProjectionToggle();
     this.bindAnalysisToggle();
+    this.bindActionButtons();
     // Bind flip cards in pre-rendered projection content
     const flipCells = this.overlay?.querySelectorAll<HTMLElement>('.projection-section .flip-cell');
     flipCells?.forEach(cell => {

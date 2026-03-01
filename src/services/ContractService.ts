@@ -34,6 +34,7 @@ export class ContractService {
     if (this.contracts.size > 0 && !forceRefresh) {
       return this.contracts;
     }
+    console.trace('📦 getAllContracts — bulk load triggered');
 
     // Try localStorage cache first
     if (!forceRefresh) {
