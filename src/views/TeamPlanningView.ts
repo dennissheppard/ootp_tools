@@ -2,7 +2,7 @@ import { teamService } from '../services/TeamService';
 import { dateService } from '../services/DateService';
 import { playerService } from '../services/PlayerService';
 import { contractService, Contract } from '../services/ContractService';
-import { trueRatingsService, LEAGUE_START_YEAR } from '../services/TrueRatingsService';
+import { trueRatingsService } from '../services/TrueRatingsService';
 import { teamRatingsService, TeamPowerRanking, RatedPitcher, RatedBatter, RatedHitterProspect, RatedProspect } from '../services/TeamRatingsService';
 import { RosterGap } from '../services/DraftValueService';
 import { indexedDBService, TeamPlanningOverrideRecord } from '../services/IndexedDBService';
@@ -17,6 +17,7 @@ import { hitterScoutingDataService } from '../services/HitterScoutingDataService
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
+import { supabaseDataService } from '../services/SupabaseDataService';
 
 // --- Types ---
 
@@ -239,6 +240,12 @@ export class TeamPlanningView {
     window.addEventListener('wbl:request-data-source-badges', () => {
       if (this.container.closest('.tab-panel.active')) this.emitBadges();
     });
+
+    // Re-render when scouting data is uploaded
+    window.addEventListener('scoutingDataUpdated', () => {
+      this.refreshScoutingDataMode();
+      if (this.hasLoadedData) this.loadData();
+    });
   }
 
   private setupLazyLoading(): void {
@@ -358,8 +365,44 @@ export class TeamPlanningView {
         this.container.querySelectorAll('.toggle-btn[data-view]').forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         this.applyViewMode();
+        if (mode === 'market') this.ensureTradeMarketData();
       });
     });
+  }
+
+  private tradeMarketLoaded = false;
+
+  private leagueAgeMap: Map<number, number> = new Map();
+
+  private async ensureTradeMarketData(): Promise<void> {
+    if (this.tradeMarketLoaded) return;
+    this.tradeMarketLoaded = true;
+    try {
+      // Collect all roster player IDs from power rankings for age lookup
+      const rosterIds: number[] = [];
+      for (const ranking of this.cachedAllRankings) {
+        for (const b of ranking.lineup) rosterIds.push(b.playerId);
+        for (const p of ranking.rotation) rosterIds.push(p.playerId);
+        for (const p of ranking.bullpen) rosterIds.push(p.playerId);
+      }
+
+      const [, ages] = await Promise.all([
+        contractService.hasCachedContracts()
+          ? Promise.resolve()
+          : contractService.getAllContracts().then(c => { this.contractMap = c; }),
+        playerService.getPlayerAges(rosterIds),
+      ]);
+
+      this.leagueAgeMap = ages;
+      // Include selected org ages already loaded
+      for (const [id, age] of this.playerAgeMap) this.leagueAgeMap.set(id, age);
+
+      this.cachedTradeProfiles = this.buildAllTeamProfiles();
+      this.renderTradeMarket();
+    } catch (e) {
+      console.warn('Failed to load trade market data:', e);
+      this.tradeMarketLoaded = false; // allow retry
+    }
   }
 
   private applyViewMode(): void {
@@ -421,29 +464,16 @@ export class TeamPlanningView {
   private async loadData(): Promise<void> {
     try {
       const gridContainer = this.container.querySelector<HTMLElement>('#team-planning-grid-container');
-      if (gridContainer) {
-        gridContainer.innerHTML = '<p class="empty-text">Loading data...</p>';
-      }
 
-      const [teams, players, year, rankings] = await Promise.all([
+      const [teams, year] = await Promise.all([
         teamService.getAllTeams(),
-        playerService.getAllPlayers(),
         dateService.getCurrentYear(),
-        teamRatingsService.getPowerRankings(2021),
       ]);
 
       this.allTeams = teams;
       this.gameYear = year;
 
-      this.playerMap.clear();
-      for (const p of players) {
-        this.playerMap.set(p.id, p);
-      }
-
-      this.contractMap = await contractService.getAllContracts();
-
-      const rosterTeamIds = new Set(rankings.map(r => r.teamId));
-      this.populateTeamDropdown(rosterTeamIds);
+      this.populateTeamDropdown();
 
       if (gridContainer) {
         gridContainer.innerHTML = '<p class="empty-text">Select a team to start planning your next championship</p>';
@@ -460,6 +490,11 @@ export class TeamPlanningView {
   }
 
   private async refreshScoutingDataMode(): Promise<void> {
+    if (supabaseDataService.isConfigured) {
+      this.scoutingDataMode = supabaseDataService.hasCustomScouting ? 'mixed' : 'osa';
+      this.emitBadges();
+      return;
+    }
     const [myHitters, osaHitters, myPitchers, osaPitchers] = await Promise.all([
       hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
       hitterScoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
@@ -476,11 +511,16 @@ export class TeamPlanningView {
     emitDataSourceBadges('current-ytd', this.scoutingDataMode);
   }
 
-  private populateTeamDropdown(rosterTeamIds: Set<number>): void {
+  private populateTeamDropdown(): void {
     const menu = this.container.querySelector<HTMLElement>('#tp-team-menu');
     if (!menu) return;
 
-    const mainTeams = this.allTeams.filter(t => t.parentTeamId === 0 && rosterTeamIds.has(t.id));
+    // Filter to real MLB orgs — teams with minor league affiliates (excludes All-Star teams)
+    const orgsWithAffiliates = new Set<number>();
+    for (const t of this.allTeams) {
+      if (t.parentTeamId > 0) orgsWithAffiliates.add(t.parentTeamId);
+    }
+    const mainTeams = this.allTeams.filter(t => t.parentTeamId === 0 && orgsWithAffiliates.has(t.id));
     mainTeams.sort((a, b) => a.nickname.localeCompare(b.nickname));
 
     this.teamLookup.clear();
@@ -518,6 +558,7 @@ export class TeamPlanningView {
         el.closest('.filter-dropdown')?.classList.remove('open');
 
         // Load overrides from DB when team changes
+        this.tradeMarketLoaded = false; // rebuild trade profiles for new team context
         this.loadOverrides().then(() => this.buildAndRenderGrid());
       });
     });
@@ -544,6 +585,12 @@ export class TeamPlanningView {
   // Main orchestrator — updated with Phases 2.5, 3, 4
   // =====================================================================
 
+  private async loadOrgPlayers(orgTeamId: number): Promise<void> {
+    const orgPlayers = await playerService.getPlayersByOrgId(orgTeamId);
+    this.playerMap.clear();
+    for (const p of orgPlayers) this.playerMap.set(p.id, p);
+  }
+
   private async buildAndRenderGrid(): Promise<void> {
     if (!this.selectedTeamId) return;
 
@@ -558,6 +605,9 @@ export class TeamPlanningView {
         teamRatingsService.getUnifiedHitterTfrData(this.gameYear),
         teamRatingsService.getFarmData(this.gameYear),
       ]);
+
+      // Load only this org's players (~40 rows) instead of all 15K
+      await this.loadOrgPlayers(this.selectedTeamId);
 
       const teamRanking = rankings.find(r => r.teamId === this.selectedTeamId);
 
@@ -588,6 +638,10 @@ export class TeamPlanningView {
       for (const b of teamRanking.bench) rosterPlayerIds.add(b.playerId);
       for (const p of teamRanking.rotation) rosterPlayerIds.add(p.playerId);
       for (const p of teamRanking.bullpen) rosterPlayerIds.add(p.playerId);
+
+      // Load contracts for roster + org players only (~1 request instead of 7 pages)
+      const contractPlayerIds = [...rosterPlayerIds, ...Array.from(this.playerMap.keys())];
+      this.contractMap = await contractService.getContractsByPlayerIds(contractPlayerIds);
 
       // Build TFR map from both hitter and pitcher TFR data
       this.playerTfrMap.clear();
@@ -685,9 +739,10 @@ export class TeamPlanningView {
       this.renderSummarySection();
       this.bindSummaryLinks();
 
-      // Build trade market profiles for all teams
-      this.cachedTradeProfiles = this.buildAllTeamProfiles();
-      this.renderTradeMarket();
+      // Trade market data loaded lazily when the Market tab is first viewed
+      if (this.viewMode === 'market') {
+        await this.ensureTradeMarketData();
+      }
 
       // Re-apply view mode after summary/draft/market sections are populated
       this.applyViewMode();
@@ -708,39 +763,9 @@ export class TeamPlanningView {
    * Count actual MLB service years for each roster player by scanning
    * the already-cached league-wide stats (no individual API calls needed).
    */
-  private async computeServiceYears(rosterPlayerIds: Set<number>): Promise<void> {
+  /** Stub — service years will come from scouting export in a future sync */
+  private async computeServiceYears(_rosterPlayerIds: Set<number>): Promise<void> {
     this.playerServiceYearsMap.clear();
-
-    // Build a map of playerId → Set<year> by scanning cached league stats
-    const playerYears = new Map<number, Set<number>>();
-    for (const pid of rosterPlayerIds) playerYears.set(pid, new Set());
-
-    // Load all years of league-wide pitching + batting stats from cache
-    const years: number[] = [];
-    for (let y = LEAGUE_START_YEAR; y <= this.gameYear; y++) years.push(y);
-
-    const [pitchingByYear, battingByYear] = await Promise.all([
-      Promise.all(years.map(y => trueRatingsService.getTruePitchingStats(y).catch(() => []))),
-      Promise.all(years.map(y => trueRatingsService.getTrueBattingStats(y).catch(() => []))),
-    ]);
-
-    // Scan each year's data for roster players
-    for (let i = 0; i < years.length; i++) {
-      for (const stat of pitchingByYear[i]) {
-        const yearSet = playerYears.get(stat.player_id);
-        if (yearSet) yearSet.add(years[i]);
-      }
-      for (const stat of battingByYear[i]) {
-        const yearSet = playerYears.get(stat.player_id);
-        if (yearSet) yearSet.add(years[i]);
-      }
-    }
-
-    for (const [pid, yearSet] of playerYears) {
-      if (yearSet.size > 0) {
-        this.playerServiceYearsMap.set(pid, yearSet.size);
-      }
-    }
   }
 
   // =====================================================================
@@ -805,12 +830,13 @@ export class TeamPlanningView {
     for (let yi = 1; yi < yearRange.length; yi++) {
       const year = yearRange[yi];
 
-      // Collect player IDs locked by user overrides this year (across all sections).
-      // Override cells are treated as immovable constraints — the greedy algorithm
-      // optimizes the remaining open slots around them.
+      // Collect all player IDs already in the grid this year (from buildRow contract propagation).
+      // This prevents placing a player in a second position when they're already occupying one.
+      const occupiedPlayerIds = new Set<number>();
       const overridePlayerIds = new Set<number>();
       for (const row of this.gridRows) {
         const cell = row.cells.get(year);
+        if (cell?.playerId) occupiedPlayerIds.add(cell.playerId);
         if (cell?.isOverride && cell.playerId) {
           overridePlayerIds.add(cell.playerId);
         }
@@ -841,7 +867,8 @@ export class TeamPlanningView {
       const slotsToFill = POSITION_SLOTS.filter(s => openPositions.includes(s.label));
 
       // Greedy assignment: place each prospect where it provides the biggest upgrade
-      const usedThisYear = new Set<number>();
+      // Pre-seed with players already in the grid to prevent duplicate placements
+      const usedThisYear = new Set<number>(occupiedPlayerIds);
       const filledSlots = new Set<string>();
 
       // Build all (prospect, slot, improvement) candidates
@@ -914,16 +941,18 @@ export class TeamPlanningView {
     // Pitcher prospect filling — greedy by improvement, arb-eligible cells are open
     for (let yi = 1; yi < yearRange.length; yi++) {
       const year = yearRange[yi];
-      const usedThisYear = new Set<number>();
 
-      // Collect player IDs locked by user overrides this year (across all sections)
+      // Collect all player IDs already in the grid this year (including hitter prospects just placed)
+      const occupiedPlayerIds = new Set<number>();
       const overridePlayerIds = new Set<number>();
       for (const row of this.gridRows) {
         const cell = row.cells.get(year);
+        if (cell?.playerId) occupiedPlayerIds.add(cell.playerId);
         if (cell?.isOverride && cell.playerId) {
           overridePlayerIds.add(cell.playerId);
         }
       }
+      const usedThisYear = new Set<number>(occupiedPlayerIds);
 
       // Helper: check if a pitcher cell is open for prospect replacement
       const isPitcherCellOpen = (cell: GridCell | undefined): boolean => {
@@ -2077,7 +2106,8 @@ export class TeamPlanningView {
   }
 
   private async openPlayerProfile(playerId: number): Promise<void> {
-    const player = this.playerMap.get(playerId);
+    let player = this.playerMap.get(playerId);
+    if (!player) player = await playerService.getPlayerById(playerId);
     if (!player) return;
 
     const team = this.teamLookup.get(player.teamId);
@@ -2317,7 +2347,12 @@ export class TeamPlanningView {
     const orgPlayers = Array.from(this.playerMap.values())
       .filter(p => p.parentTeamId === this.selectedTeamId || p.teamId === this.selectedTeamId)
       .sort((a, b) => (this.playerRatingMap.get(b.id) ?? 0) - (this.playerRatingMap.get(a.id) ?? 0));
-    const allPlayers = Array.from(this.playerMap.values()).filter(p => !p.retired);
+
+    // Lazy search function: loads all players on first search, cached after that
+    const searchPlayersFn = async (query: string): Promise<Player[]> => {
+      const results = await playerService.searchPlayers(query);
+      return results.filter(p => !p.retired);
+    };
 
     // Display rating map: use current ability (not TFR ceiling) so prospects
     // show their development-curve estimate rather than their ceiling rating.
@@ -2353,7 +2388,7 @@ export class TeamPlanningView {
       }
     }
 
-    const result = await this.cellEditModal.show(context, orgPlayers, allPlayers, this.contractMap, displayRatingMap, projectedDataMap, alreadyOnGridIds);
+    const result = await this.cellEditModal.show(context, orgPlayers, searchPlayersFn, this.contractMap, displayRatingMap, projectedDataMap, alreadyOnGridIds);
     await this.processEditResult(result, position, year);
   }
 
@@ -2910,13 +2945,12 @@ export class TeamPlanningView {
       }
 
       if (bestReplacement) {
-        const player = this.playerMap.get(mlb.playerId);
         surplusMlbPlayers.push({
           playerId: mlb.playerId,
           name: mlb.name,
           positionLabel: mlb.posLabel,
           trueRating: mlb.trueRating,
-          age: (player?.age ?? 0) + yearOffset,
+          age: (this.leagueAgeMap.get(mlb.playerId) ?? 0) + yearOffset,
           contractYearsRemaining: effectiveYearsLeft,
           isExpiring: effectiveYearsLeft === 1,
           orgId: teamId,
@@ -3154,7 +3188,6 @@ export class TeamPlanningView {
               }
               const contract = this.contractMap.get(p.playerId);
               const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
-              const player = this.playerMap.get(p.playerId);
               const matchDetails = collectMatchDetails();
               const complementary = matchDetails.length > 0;
               const matchScore = p.trueRating * 10 + (complementary ? 20 : 0);
@@ -3166,7 +3199,7 @@ export class TeamPlanningView {
                   name: p.name,
                   positionLabel: p.posLabel,
                   trueRating: p.trueRating,
-                  age: (player?.age ?? 0) + yearOffset,
+                  age: (this.leagueAgeMap.get(p.playerId) ?? 0) + yearOffset,
                   contractYearsRemaining: Math.max(0, yearsLeft - yearOffset),
                   isExpiring: yearsLeft - yearOffset === 1,
                   orgId: otherTeamId,
@@ -3194,7 +3227,6 @@ export class TeamPlanningView {
               }
               const contract = this.contractMap.get(b.playerId);
               const yearsLeft = contract ? contractService.getYearsRemaining(contract) : 0;
-              const player = this.playerMap.get(b.playerId);
               const matchDetails = collectMatchDetails();
               const complementary = matchDetails.length > 0;
               const matchScore = b.trueRating * 10 + (complementary ? 20 : 0);
@@ -3206,7 +3238,7 @@ export class TeamPlanningView {
                   name: b.name,
                   positionLabel: b.positionLabel,
                   trueRating: b.trueRating,
-                  age: (player?.age ?? 0) + yearOffset,
+                  age: (this.leagueAgeMap.get(b.playerId) ?? 0) + yearOffset,
                   contractYearsRemaining: Math.max(0, yearsLeft - yearOffset),
                   isExpiring: yearsLeft - yearOffset === 1,
                   orgId: otherTeamId,

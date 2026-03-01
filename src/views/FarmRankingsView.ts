@@ -13,10 +13,10 @@ import { pitcherProfileModal } from './PitcherProfileModal';
 import { batterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
+import { supabaseDataService } from '../services/SupabaseDataService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { getPositionLabel, getFullName, isPitcher } from '../models/Player';
-import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
@@ -108,6 +108,14 @@ export class FarmRankingsView {
 
     window.addEventListener('wbl:request-data-source-badges', () => {
       if (this.container.closest('.tab-panel.active')) this.emitBadges();
+    });
+
+    // Re-render when scouting data is uploaded
+    window.addEventListener('scoutingDataUpdated', () => {
+      this.data = null;
+      this.hitterData = null;
+      this.refreshScoutingDataMode();
+      if (this.hasLoadedData) this.loadData();
     });
 
     // Navigate to Top 100 with team filter cleared (triggered from profile modal tags)
@@ -558,6 +566,12 @@ export class FarmRankingsView {
   }
 
   private async refreshScoutingDataMode(): Promise<void> {
+    // Supabase: use flag instead of querying IndexedDB
+    if (supabaseDataService.isConfigured) {
+      this.scoutingDataMode = supabaseDataService.hasCustomScouting ? 'mixed' : 'osa';
+      this.emitBadges();
+      return;
+    }
     const [myHitters, osaHitters, myPitchers, osaPitchers] = await Promise.all([
       hitterScoutingDataService.getLatestScoutingRatings('my').catch(() => []),
       hitterScoutingDataService.getLatestScoutingRatings('osa').catch(() => []),
@@ -2426,17 +2440,11 @@ export class FarmRankingsView {
           return;
       }
 
-      // 2. Fetch Scouting Data (My & OSA) for pitchers
-      const [myScoutingRatings, osaScoutingRatings] = await Promise.all([
-        scoutingDataService.getLatestScoutingRatings('my'),
-        scoutingDataService.getLatestScoutingRatings('osa')
+      // 2. Fetch Scouting Data (My & OSA) for this pitcher only
+      const [myScouting, osaScouting] = await Promise.all([
+        scoutingDataService.getScoutingForPlayer(playerId, 'my'),
+        scoutingDataService.getScoutingForPlayer(playerId, 'osa'),
       ]);
-
-      const myScoutingLookup = this.buildScoutingLookup(myScoutingRatings);
-      const osaScoutingLookup = this.buildScoutingLookup(osaScoutingRatings);
-
-      const myScouting = this.resolveScouting(playerId, getFullName(player), myScoutingLookup);
-      const osaScouting = this.resolveScouting(playerId, getFullName(player), osaScoutingLookup);
 
       // Get TFR Data from our View Model
       // Use the `prospect` object from `this.data` for TFR specific values
@@ -2490,8 +2498,7 @@ export class FarmRankingsView {
 
   private async openHitterProfile(playerId: number, player: any, teamLabel: string, parentLabel: string): Promise<void> {
       // Fetch hitter scouting data (my scout only - modal will fetch OSA separately)
-      const myScoutingAll = await hitterScoutingDataService.getLatestScoutingRatings('my');
-      const myScouting = myScoutingAll.find(s => s.playerId === playerId);
+      const myScouting = await hitterScoutingDataService.getScoutingForPlayer(playerId, 'my');
 
       // Find hitter prospect data from our loaded data
       const hitterProspect = this.hitterData?.prospects.find(p => p.playerId === playerId);
@@ -2575,45 +2582,6 @@ export class FarmRankingsView {
       };
 
       await batterProfileModal.show(batterData, this.selectedYear);
-  }
-
-  private buildScoutingLookup(ratings: PitcherScoutingRatings[]): { byId: Map<number, PitcherScoutingRatings>, byName: Map<string, PitcherScoutingRatings[]> } {
-    const byId = new Map<number, PitcherScoutingRatings>();
-    const byName = new Map<string, PitcherScoutingRatings[]>();
-
-    ratings.forEach((rating) => {
-      if (rating.playerId > 0) {
-        byId.set(rating.playerId, rating);
-      }
-
-      if (rating.playerName) {
-        const normalized = this.normalizeName(rating.playerName);
-        if (!normalized) return;
-        const list = byName.get(normalized) ?? [];
-        list.push(rating);
-        byName.set(normalized, list);
-      }
-    });
-
-    return { byId, byName };
-  }
-
-  private resolveScouting(playerId: number, playerName: string, lookup: { byId: Map<number, PitcherScoutingRatings>, byName: Map<string, PitcherScoutingRatings[]> }): PitcherScoutingRatings | undefined {
-      const byId = lookup.byId.get(playerId);
-      if (byId) return byId;
-      
-      const normalized = this.normalizeName(playerName);
-      const byName = lookup.byName.get(normalized);
-      if (byName && byName.length === 1) return byName[0];
-      
-      return undefined;
-  }
-
-  private normalizeName(name: string): string {
-    const suffixes = new Set(['jr', 'sr', 'ii', 'iii', 'iv', 'v']);
-    const cleaned = name.toLowerCase().replace(/[^a-z0-9\s]/g, ' ');
-    const tokens = cleaned.split(/\s+/).filter((token) => token && !suffixes.has(token));
-    return tokens.join('');
   }
 
   private getTeamName(teamId: number): string {

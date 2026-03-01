@@ -10,6 +10,84 @@ npm run dev    # Development server (port 5173)
 npm run build  # Production build
 ```
 
+## Data Architecture
+
+The app uses a **CLI-first data pipeline**: a local CLI tool writes all data to Supabase, and the browser is a **pure reader**.
+
+### Data Flow
+
+```
+StatsPlus API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
+                                                    ↓
+                                              Browser (read-only)
+```
+
+1. **CLI sync** (`npx tsx tools/sync-db.ts`): Fetches current-year data from StatsPlus API, writes players/teams/stats/contracts to Supabase, computes TR and TFR, writes pre-computed ratings to `player_ratings` table
+2. **Browser**: When Supabase is configured, all StatsPlus API calls are blocked (`ApiClient.ts` guard) — the only allowed API call is `/api/date/`. Services read exclusively from Supabase. Without Supabase, the app falls back to CSV/API for dev mode.
+3. **Pre-computed ratings**: TR and TFR are computed by the CLI and stored as JSONB in `player_ratings`. The browser loads them directly — no expensive computation on page load.
+
+### Supabase Tables
+
+| Table | Purpose |
+|-|-|
+| `players` | Full player data (name, team, age, level, position, role). Level values: 1=MLB, 2=AAA, 3=AA, 4=A, 5=R, 6=IC (set by CLI from contract league_id) |
+| `teams` | Team names, nicknames, parent relationships |
+| `pitching_stats` | MLB + MiLB pitching stats by year/league/split (PK: id, year, level_id) |
+| `batting_stats` | MLB + MiLB batting stats by year/league/split (PK: id, year, level_id) |
+| `pitcher_scouting` | Pitcher scouting ratings by source (my/osa) |
+| `hitter_scouting` | Hitter scouting ratings by source (my/osa) |
+| `contracts` | Player contracts with salary schedules (JSONB) |
+| `player_ratings` | Pre-computed TR/TFR as JSONB (PK: player_id, rating_type) |
+| `precomputed_cache` | Key-value JSONB store for compact lookups and cached distributions (see below) |
+| `data_version` | `game_date` TEXT — set by `complete_sync()` RPC as "data ready" signal |
+
+**`precomputed_cache` keys:**
+
+| Key | Written by | Read by | Purpose |
+|-|-|-|-|
+| `pitcher_scouting_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: [stuff, ctrl, hra, ovr, pot, lev, hsc, name?, age?, stamina?]}` — replaces 12-page bulk scouting fetch |
+| `hitter_scouting_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: [con, pow, eye, avK, gap, spd, ovr, pot, lev, hsc, name?, age?]}` |
+| `contract_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: {salary, leagueId, faYear}}` — replaces 7-page bulk contract fetch |
+| `dob_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: birthYear}` — replaces 12-page bulk player DOB fetch |
+| `pitcher_tfr_prospects` | sync-db Step 5 | TeamRatingsService | Full `RatedProspect[]` array — replaces 3-4 paginated `player_ratings` requests |
+| `hitter_tfr_prospects` | sync-db Step 5 | TeamRatingsService | Full `RatedHitterProspect[]` array |
+| `pitcher_mlb_distribution` | sync-db Step 5 | sync-db (cached) | MLB peak-age distribution for TFR percentile calculation |
+| `hitter_mlb_distribution` | sync-db Step 5 | sync-db (cached) | Same for hitters |
+| `league_context` | sync-db Step 6 | LeagueBattingAveragesService | League-wide averages, $/WAR thresholds |
+
+**RPC functions:** `clear_for_sync()` (wipes contracts + ratings), `complete_sync(date)` (sets game_date)
+
+### IndexedDB (Local-Only, v12)
+
+| Store | Purpose |
+|-|-|
+| `team_planning_overrides` | Manual cell placements in team planning grid |
+| `player_dev_overrides` | Per-player "fully developed" override |
+| `salary_overrides` | Per-cell salary overrides in team planning grid |
+| `scouting_ratings` | User-uploaded scouting snapshots (my scout data) |
+| `player_development_snapshots` | Historical TR/TFR/scouting for dev tracking |
+
+IndexedDB is bypassed for reads when Supabase is configured. In-memory caches only.
+
+### CLI Sync Tool
+
+```bash
+npx tsx tools/sync-db.ts                 # Auto-detect year/date from API
+npx tsx tools/sync-db.ts --year=2021     # Explicit year
+npx tsx tools/sync-db.ts --skip-compute  # Data only, skip TR/TFR computation
+npx tsx tools/sync-db.ts --force         # Re-sync even if DB is up to date
+```
+
+**Env vars** (`.env.local`): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
+
+**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts → Patch IC player levels (contract league_id=-200 → level=6) → Compute TR (pitcher + hitter) → Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Compute league context + build scouting/contract/DOB lookups → Set game_date
+
+**Skip detection:** The CLI compares the DB's `game_date` (set as the very last step of a successful sync) against the StatsPlus API date. If they match, the sync exits early — no work needed. Use `--force` to override.
+
+### Non-Supabase Dev Mode
+
+Without Supabase env vars, the app falls back to the StatsPlus API + CSV files. IndexedDB is used for caching in this mode. The API guard in `ApiClient.ts` is inactive, so all StatsPlus endpoints work normally.
+
 ## Deployment (Vercel)
 
 Hosted on Vercel. The app needs to proxy `/api/*` requests to the StatsPlus server (`atl-01.statsplus.net`) since the browser can't call it directly (CORS).
@@ -26,7 +104,8 @@ Hosted on Vercel. The app needs to proxy `/api/*` requests to the StatsPlus serv
 ## Technology Stack
 
 - TypeScript + Vite
-- IndexedDB v7 for client-side storage
+- Supabase (PostgreSQL via PostgREST) for primary data storage
+- IndexedDB v12 for local-only data (team planning overrides, dev snapshots)
 - ApexCharts for data visualization
 - Vanilla CSS (dark theme)
 
@@ -231,7 +310,7 @@ These are intentionally separate — numbers may differ between them and that's 
 | View | Pipeline | Notes |
 |-|-|-|
 | Profile modals | Canonical Current | Always re-resolve canonical values |
-| Trade Analyzer | Canonical Current | Via `CanonicalCurrentProjectionService` |
+| Trade Analyzer | Canonical Current | TR/TFR maps + on-demand projection from canonical data |
 | True Ratings | Canonical Current | TR/TFR maps as source of truth |
 | Farm Rankings | Canonical Current | TFR pools for prospect rankings |
 | Team Planning | Canonical Current | TR maps + TFR for roster construction |
@@ -273,16 +352,18 @@ TeamRatingsView projections/standings force the selected season to the current g
 | Service | Purpose |
 |---------|---------|
 | `ModalDataService` | Pure functions for modal data resolution and projection computation (extracted from profile modals for testability) |
-| `CanonicalCurrentProjectionService` | Builds cached modal-equivalent MLB projection snapshots for current-year canonical pipeline consumers (Trade Analyzer) |
+| `CanonicalCurrentProjectionService` | Builds cached modal-equivalent MLB projection snapshots for current-year canonical pipeline consumers |
+| `SupabaseDataService` | Primary data layer — PostgREST queries with auto-pagination, column whitelists, pre-computed rating reads |
+| `SyncOrchestrator` | Data-ready check: `checkDataReady()` verifies `game_date` is set in Supabase. No hero detection or write tracking |
 | `ContractService` | Contract parsing, salary schedules, years remaining, team control |
 | `TeamRatingsService` | Farm rankings, org depth, Farm Score, Power Rankings, team WAR projections |
-| `StandingsService` | Historical standings data (bundled CSVs, 2005-2020) |
+| `StandingsService` | Historical standings data (lazy-loaded CSVs, 2005-2020) |
 | `ProjectionService` | Future performance projections, IP projection pipeline |
 | `EnsembleProjectionService` | Three-model ensemble blending |
 | `AgingService` | Age-based rating adjustments |
 | `DevelopmentSnapshotService` | Historical scouting snapshot storage |
-| `MinorLeagueStatsService` | Minor league stats from API/CSV |
-| `IndexedDBService` | Persistent browser storage (v7) |
+| `MinorLeagueStatsService` | Minor league stats from Supabase/API/CSV |
+| `IndexedDBService` | Local-only storage (v12): team planning overrides, dev snapshots, salary overrides |
 | `DateService` | Game date from `/api/date/` (60-min localStorage cache + in-memory); season progress calculation for stat weighting |
 
 ## Views
@@ -295,8 +376,8 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `TeamRatingsView` | Power Rankings / Projections / Standings toggle |
 | `TeamPlanningView` | 6-year roster planning grid with prospects, contracts, trade market |
 | `TradeAnalyzerView` | Multi-asset trade evaluation (MLB + prospects + draft picks) |
-| `DataManagementView` | File uploads with header validation; analytics dashboard (localhost only, double-click logo to open). Handles first-time onboarding data loading (bundled CSV + current-year API). |
-| `AboutView` | App overview with flow diagrams for TR, TFR, and projections. Accessible by single-clicking the logo. Also shown as background during first-time onboarding (fullscreen spinner overlaid; completion triggers a "Let's go!" modal). Not in the nav bar. |
+| `DataManagementView` | File uploads with header validation; analytics dashboard (localhost only, double-click logo to open). |
+| `AboutView` | App overview with flow diagrams for TR, TFR, and projections. Default landing page. Accessible by single-clicking the logo. Not in the nav bar. |
 | `PlayerProfileModal` / `BatterProfileModal` | Deep-dive with Ratings + Development tabs + player tags |
 
 ### Team Ratings & Projected Standings
@@ -349,7 +430,8 @@ rawWins = 81 + deviation × slope
 **View modes:** Planning Grid | Org Analysis | Trade Market toggle.
 
 **Trade Market (`analyzeTeamTradeProfile()`, `findTradeMatches()`):**
-- Analyzes all 20 teams' rosters/farms, no additional fetches
+- Data deferred until Trade Market tab is first viewed: bulk contracts + league-wide age lookup (`PlayerService.getPlayerAges`) load on demand, not during grid build
+- Analyzes all teams' rosters/farms using cached power rankings
 - Year selector shifts analysis to future years
 - Sections: Your Situation (needs + trade chips) | Trade Targets by Position
 - Blocked prospects: TFR≥3.0 blocked by incumbent TR≥3.5 with 3+ years remaining
@@ -382,8 +464,9 @@ Elite: TFR≥4.5 (10pts), Good: 3.5-4.4 (5pts), Average: 2.5-3.4 (1pt). Depth bo
 Three-column layout: Team 1 | Analysis | Team 2. `src/views/TradeAnalyzerView.ts` (~2100 lines).
 
 **Key points:**
-- MLB player projections come from `CanonicalCurrentProjectionService` (modal-equivalent current pipeline)
+- Players loaded per-team via `getPlayersByOrgId` (not bulk `getAllPlayers`); projections computed on-demand from canonical TR/TFR via `buildPitcherFallbackFromCanonical` / `buildBatterFallbackFromCanonical`
 - Prospect/farm context comes from unified TFR pools (`getUnifiedPitcherTfrData` / `getUnifiedHitterTfrData`)
+- Power rankings + contracts lazy-loaded on first trade analysis (not on view init or team selection)
 - WAR split into Current (MLB) and Future (prospects + picks)
 - Trade archetypes: Roster swap (>70% current both sides), Win-now vs future (>50% ratio difference), Prospect swap (>70% future both sides)
 - Team impact: clones power ranking roster, applies trade, recalculates with 40/40/15/5 weights
@@ -497,21 +580,20 @@ Historical blend (MLB players with qualifying seasons):
 | Pitcher MLB distribution | 2015-2020, ages 25-32, 50+ IP | TFR |
 | Batter MLB distribution | 2015-2020, ages 25-32, 300+ PA | TFR |
 
-## IndexedDB Schema (v12)
+## Database Schema
 
-| Store | Purpose |
-|-------|---------|
-| `scouting_ratings` | Date-stamped scouting snapshots |
-| `minor_league_stats` | League-level stats by year/level |
-| `player_minor_league_stats` | Player-indexed stats for O(1) lookup |
-| `mlb_league_stats` | Full MLB data by year |
-| `player_development_snapshots` | Historical TR/TFR/scouting for dev tracking |
-| `players`, `teams` | Roster caches |
-| `team_planning_overrides` | Manual cell placements (player + salary) in team planning grid |
-| `player_dev_overrides` | Per-player "fully developed" override (effectiveFromYear) |
-| `salary_overrides` | Per-cell salary overrides in team planning grid (teamId_position_year) |
+See [Data Architecture](#data-architecture) above for the full Supabase table layout and IndexedDB local-only stores.
 
 ## Tools
+
+### Data Pipeline
+
+| Tool | Purpose | Usage |
+|-|-|-|
+| `tools/sync-db.ts` | **Primary data pipeline.** Fetches all data from StatsPlus API, writes to Supabase, computes and stores TR/TFR ratings. See [Sync Pipeline](#sync-pipeline) below. | `npx tsx tools/sync-db.ts [--year=N] [--skip-compute]` |
+| `tools/migrate-to-supabase.ts` | One-time migration: historical DOBs, stats, scouting to Supabase | `npx tsx tools/migrate-to-supabase.ts` |
+| `tools/check-db.ts` | Diagnostic: verify Supabase data integrity (player counts, join checks) | `npx tsx tools/check-db.ts` |
+| `tools/lib/supabase-client.ts` | Shared PostgREST helpers (query, upsert, rpc, CSV parsing) used by all CLI tools | — |
 
 ### Debugging & Validation
 
@@ -539,6 +621,53 @@ The CLI explain flow uses instrumented service calls so output stays in sync wit
 
 `tools/research/` contains one-off analysis scripts (development curves, level adjustments, TFR optimization, aging curves). Historical artifacts for understanding model construction.
 
+### Sync Pipeline
+
+`tools/sync-db.ts` is the backbone of the data layer. Every browser client is a **pure reader** — all writes go through this CLI tool.
+
+**Data flow:** StatsPlus API → `sync-db.ts` → Supabase → browser clients (read-only)
+
+**Steps (in order):**
+1. **Detect game date** — fetches `/api/date/` from StatsPlus, parses year (or uses `--year=N`)
+2. **Clear stale data** — calls `clear_for_sync()` RPC (deletes contracts + player_ratings; players/teams/stats are upserted)
+3. **Sync data** — fetches players, teams, contracts, pitching stats (MLB + minors), batting stats (MLB + minors). Upserts everything to Supabase.
+4. **Compute TR** — pitcher TR + hitter TR. Writes to `player_ratings` table as JSONB.
+5. **Compute TFR** — pitcher TFR + hitter TFR. Writes to `player_ratings`. Also stores full TFR prospect arrays in `precomputed_cache` (`pitcher_tfr_prospects`, `hitter_tfr_prospects`) for single-request loading.
+6. **Compute league context + lookups** — league-wide averages, compact scouting/contract/DOB lookups → `precomputed_cache`. These replace bulk table scans in the browser.
+7. **Finalize** — calls `complete_sync(game_date)` RPC, which sets `game_date` on `data_version` (the "data is ready" signal) and bumps table versions so browser clients invalidate caches
+
+**Env vars:** `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` (service_role, full write access, no RLS)
+
+**CLI args:**
+- `--year=N` — override auto-detected year
+- `--skip-compute` — sync data only, skip TR/TFR computation (steps 4-5)
+
+**Self-healing:** If the tool crashes mid-run, `complete_sync` never fires → `game_date` stays stale → next run retries the full sync.
+
+**Runtime:** ~15 seconds typical.
+
+**Concurrency safety:** `claim_sync(date)` RPC uses odd/even version locking with a 2-minute timeout. `complete_sync` bumps version back to even. Multiple concurrent runs won't corrupt data (all writes are upserts), but only the last `complete_sync` sets the final date.
+
+### Automated Sync (GitHub Actions)
+
+`.github/workflows/sync-db.yml` automates the sync pipeline. Game date changes happen between **8am–noon Eastern**.
+
+**Schedule:** Every 10 minutes, 12:00–17:50 UTC (7am–1pm ET with DST buffer on both sides).
+
+**How it works:**
+1. **Date check** (no checkout, ~2 seconds) — curls the StatsPlus date API and Supabase REST API, compares dates. If they match → job exits, consuming almost zero GHA minutes.
+2. **Sync** (only when date changed) — checks out repo, `npm ci`, runs `npx tsx tools/sync-db.ts`.
+3. **Manual trigger** — `workflow_dispatch` in GitHub UI always forces a sync regardless of date check.
+
+**Concurrency group:** `sync-db` — prevents overlapping runs but queues the next one.
+
+**GitHub Secrets required:**
+- `SUPABASE_URL` — PostgREST base URL
+- `SUPABASE_SERVICE_KEY` — service_role key (write access)
+- `SUPABASE_ANON_KEY` — used for the lightweight date check query
+
+**Failure handling:** GitHub sends email on workflow failure by default. If sync-db.ts fails, `game_date` stays stale and the next cron run retries automatically.
+
 ## Testing
 
 Jest with ts-jest (ESM mode):
@@ -555,21 +684,46 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 | `ModalDataService.test.ts` | 17 | Resolve and projection functions across prospect/MLB player archetypes (batter and pitcher) |
 | `RatingEstimatorService.test.ts` | 20 | Pitcher rating estimation with confidence intervals |
 | `ProjectionService.test.ts` | 8 | IP projection pipeline |
+| `ProspectDevelopmentCurveService.test.ts` | 19 | Hitter/pitcher development curves: age-based TR scaling, rawStats adjustment, MLB stats boost, clamping, gap/speed avg devFraction, diagnostics |
+| `PlayerService.test.ts` | 12 | Cache-path queries: name/info lookup, org filtering, search (case-insensitive, reverse name), hasCachedPlayers |
+| `ContractService.test.ts` | 13 | Utility methods (yearsRemaining, FA year, salary access, last year check), team/player filtering, cache state |
+| `SupabaseDataService.test.ts` | 53 | Column whitelist invariants: PITCHING_COLS excludes 14 bad CSV columns, BATTING_COLS excludes computed avg/obp, filterColumns strips extras |
 | `TeamPlanningView.test.ts` | 3 | Rating resolution and grid manipulation |
 
 ## Architecture Notes
 
+### Data Layer
+- **Browser = pure reader**: All services try Supabase first when configured (`supabaseDataService.isConfigured`), fall back to CSV/API. No browser writes to Supabase.
+- **Pre-computed TR/TFR**: `player_ratings` table stores JSONB per player+type. CLI writes, browser reads. Eliminates expensive computation on page load. Rating types: `pitcher_tr`, `hitter_tr`, `pitcher_tfr`, `hitter_tfr`
+- **Deep link fast path**: `TrueRatingsView.openPlayerDeepLinkFast(playerId)` fetches single-player ratings from `player_ratings` → builds modal data directly → instant open
+- **Lazy loading**: Scouting data and standings CSVs deferred to tab activation. Minor league stats skipped when pre-computed data available. Hitter scouting skipped in pitcher mode.
+- **In-flight dedup**: `ScoutingDataService` and `HitterScoutingDataService` deduplicate concurrent Supabase queries via `supabaseOsaLoading` promise pattern
+- **Pagination**: PostgREST caps at 1000 rows per request. Both `SupabaseDataService` (browser) and `supabase-client.ts` (CLI) auto-paginate in 1000-row batches.
+- **Precomputed lookups**: The CLI pre-builds compact lookup tables (scouting, contracts, DOBs) and stores them as single JSONB entries in `precomputed_cache`. The browser reads these in one request instead of paginating through full tables (e.g. 12 pages of players → 1 DOB lookup). `SupabaseDataService.getPrecomputed()` caches results in-memory (`_precomputedCache` Map) to prevent redundant fetches within a session.
+
+### Pipelines
 - **Pipeline map (view -> data path):** `docs/pipeline-map.html` (Canonical Current vs Forecasting Model). Audited 2026-02-20: all views verified against documented pipeline assignments
 - **Shared IP utility exception**: `ProjectionService.calculateProjectedIp()` is used by canonical consumers (`PitcherProfileModal`, `CanonicalCurrentProjectionService`) for innings-pitched estimation only — not full projections. This is a stateless utility call; no ensemble math or forecasting output crosses the pipeline boundary
-- **Single source of truth for TFR**: use unified pools `TeamRatingsService.getUnifiedHitterTfrData()` / `getUnifiedPitcherTfrData()` for mixed MLB+prospect contexts; `getHitterFarmData()` / `getFarmData()` are farm-only wrappers. Never call `calculateTrueFutureRatings()` independently. Use `prospect.trueFutureRating` (precomputed) — NEVER re-derive from `prospect.percentile`
-- **Single source of truth for TR**: `TrueRatingsService.getHitterTrueRatings(year)` / `getPitcherTrueRatings(year)` — every view MUST use these cached methods instead of calling `trueRatingsCalculationService.calculateTrueRatings()` directly
-- **Single source of truth for percentile→rating**: `PERCENTILE_TO_RATING` in `TrueFutureRatingService.ts` / `HitterTrueFutureRatingService.ts` — NEVER create local copies of this mapping (thresholds: 99→5.0, 97→4.5, 93→4.0, 75→3.5, 60→3.0, 35→2.5, 20→2.0, 10→1.5, 5→1.0, 0→0.5)
+
+### Single Sources of Truth
+- **TFR**: use unified pools `TeamRatingsService.getUnifiedHitterTfrData()` / `getUnifiedPitcherTfrData()` for mixed MLB+prospect contexts; `getHitterFarmData()` / `getFarmData()` are farm-only wrappers. Never call `calculateTrueFutureRatings()` independently. Use `prospect.trueFutureRating` (precomputed) — NEVER re-derive from `prospect.percentile`
+- **TR**: `TrueRatingsService.getHitterTrueRatings(year)` / `getPitcherTrueRatings(year)` — every view MUST use these cached methods instead of calling `trueRatingsCalculationService.calculateTrueRatings()` directly
+- **Percentile→rating**: `PERCENTILE_TO_RATING` in `TrueFutureRatingService.ts` / `HitterTrueFutureRatingService.ts` — NEVER create local copies of this mapping (thresholds: 99→5.0, 97→4.5, 93→4.0, 75→3.5, 60→3.0, 35→2.5, 20→2.0, 10→1.5, 5→1.0, 0→0.5)
+
+### UI / Modal Patterns
 - **Modal canonical override**: Both profile modals override caller-provided TR/TFR data with canonical values, guaranteeing consistency regardless of which view opens them
-- **Trade Analyzer MLB parity**: `CanonicalCurrentProjectionService` snapshots are modal-equivalent and should be preferred over base-year projection maps for current-context analysis. League-wide data (TR, TFR, scouting, stats) is loaded once and cached; per-team snapshots are built synchronously from cached data with team-level cache tracking to skip already-processed teams
+- **Trade Analyzer lazy loading**: Players loaded per-team via `getPlayersByOrgId`; projections computed on-demand from canonical TR/TFR (no `CanonicalCurrentProjectionService`). Power rankings and contracts deferred to first trade analysis. Team dropdowns filter to orgs with minor league affiliates (excludes All-Star teams)
 - **Data-source clarity**: use `renderDataSourceBadges()` from `src/utils/dataSourceBadges.ts` when a view mixes season/scouting modes (Current YTD vs Forecasting Model, My/OSA/Fallback)
 - **Rating display rule**: Any view showing a player rating MUST use canonical TR/TFR values, not projection-derived or locally-computed alternatives. `ProjectionService` overlays canonical TR onto `currentTrueRating` after building projections (its internal TR is only used for aging/ensemble inputs)
 - **Modal projectionOverride trap**: `projectedRatings` MUST use `trueRatings` values (not scouting), or True Rating bars show scouting values instead of TFR-derived
+
+### Data Gotchas
+- **PostgREST string columns**: The `players` table stores `level`, `role`, and `age` as TEXT in PostgreSQL. PostgREST returns them as strings (`"4"`, `"11"`, `"20"`), not numbers. Any code comparing these with `switch(level)` or `=== 11` must parse first: `parseInt(player.level, 10)`. The browser's `PlayerService` already handles this (`typeof r.level === 'string' ? parseInt(...)`); CLI code in `sync-db.ts` must do the same.
+- **OOTP role values**: `players.role` stores OOTP numeric codes as strings: `"11"` = SP, `"12"` = RP, `"13"` = CL, `"0"` = position player/unknown. These are NOT `PitcherRole` values (`'SP'`/`'SW'`/`'RP'`). Must map before passing to `calculateTrueRatings()` or percentile tiers won't match.
+- **IC player detection**: IC (International Complex) players are identified by `contracts.league_id = -200`, NOT by `players.level`. IC players have `level: "0"` or `"1"` in the players table. IC players have no DOB (`null`); use `players.age` column as fallback for age calculation.
 - **Injury values** in CSV `Prone` column: `Iron Man, Durable, Normal, Fragile, Wrecked` (NOT `Wary`/`Prone` as ScoutingData.ts comments incorrectly say)
 - **Player level classification**: `src/utils/playerLevel.ts` — `classifyPlayer(lev, hsc)` returns `'mlb' | 'minors' | 'draftee' | 'freeAgent'` from scouting CSV fields. Contract freshness updates stale levels when game date > scouting date via `buildFreshnessUpdatedLevels()`. Falls back to `isProspect` when `Lev` column is absent
+- **Level labels**: `1`=MLB, `2`=AAA, `3`=AA, `4`=A, `6`=R (Rookie), `7`=R (fallback). There is no level `5` (Short-A) or `8` (IC) in this league — IC is detected via contracts, not level.
 - **ISO trap**: Never use deprecated `expectedIso(power)` — ignores Gap/Speed. Use pre-computed `tfrSlg` or component rates
 - **Forward/inverse intercept alignment**: Pitcher rating↔rate intercepts MUST match in both directions or round-trip bias is amplified by FIP weights
+- **PostgREST pagination determinism**: Paginated queries (`OFFSET`/`LIMIT`) require an explicit `order` clause for deterministic results. Without it, rows can be duplicated or skipped across pages. Always add `&order=player_id` (or appropriate PK) to paginated queries.

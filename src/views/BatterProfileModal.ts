@@ -18,8 +18,10 @@ import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
 import { resolveCanonicalBatterData, computeBatterProjection } from '../services/ModalDataService';
+import { supabaseDataService } from '../services/SupabaseDataService';
 import { computeBatterTags, renderTagsHtml, TagContext } from '../utils/playerTags';
 import { analyticsService } from '../services/AnalyticsService';
+import { playerService } from '../services/PlayerService';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -362,18 +364,34 @@ export class BatterProfileModal {
     this.leagueAvg = await leagueBattingAveragesService.getLeagueAverages(currentYear - 1);
 
     // === Canonical data override — ensures consistency regardless of caller ===
-    // 1. Always fetch canonical TR (for MLB players)
-    const canonicalTR = await trueRatingsService.getHitterTrueRatings(currentYear);
-    if (generation !== this.showGeneration) return;
-    const playerTR = canonicalTR.get(data.playerId);
-
-    // 2. Always fetch canonical TFR (for players with upside)
+    let playerTR: import('../services/HitterTrueRatingsCalculationService').HitterTrueRatingResult | undefined;
     let tfrEntry: import('../services/TeamRatingsService').RatedHitterProspect | undefined;
-    try {
-      const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(currentYear);
-      if (generation !== this.showGeneration) return;
-      tfrEntry = unifiedData.prospects.find(p => p.playerId === data.playerId);
-    } catch { /* TFR data not available */ }
+
+    if (supabaseDataService.isConfigured) {
+      // Fast path: single-player rating lookup (1 query instead of bulk fetches)
+      try {
+        const rows = await supabaseDataService.getPlayerRating(data.playerId);
+        if (generation !== this.showGeneration) return;
+        for (const row of rows) {
+          if (row.rating_type === 'hitter_tr') playerTR = row.data;
+          else if (row.rating_type === 'hitter_tfr') tfrEntry = row.data;
+        }
+      } catch { /* ratings not available */ }
+    } else {
+      // 1. Fetch canonical TR (skip for prospects — they have no MLB stats)
+      if (!data.isProspect) {
+        const canonicalTR = await trueRatingsService.getHitterTrueRatings(currentYear);
+        if (generation !== this.showGeneration) return;
+        playerTR = canonicalTR.get(data.playerId);
+      }
+
+      // 2. Always fetch canonical TFR (for players with upside)
+      try {
+        const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(currentYear);
+        if (generation !== this.showGeneration) return;
+        tfrEntry = unifiedData.prospects.find(p => p.playerId === data.playerId);
+      } catch { /* TFR data not available */ }
+    }
 
     this.top100Rank = (tfrEntry?.percentileRank !== undefined && tfrEntry.percentileRank <= 100)
       ? tfrEntry.percentileRank : undefined;
@@ -391,8 +409,14 @@ export class BatterProfileModal {
     const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
 
     if (titleEl) {
-      titleEl.textContent = data.playerName;
-      titleEl.title = `ID: ${data.playerId}`;
+      const link = document.createElement('a');
+      link.href = `https://worldbaseballleague.org/#/player/${data.playerId}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = data.playerName;
+      link.title = `View on WBL.org (ID: ${data.playerId})`;
+      titleEl.textContent = '';
+      titleEl.appendChild(link);
     }
     if (teamEl) {
       const teamInfo = this.formatTeamInfo(data.team, data.parentTeam);
@@ -435,68 +459,25 @@ export class BatterProfileModal {
 
     // Fetch additional data
     try {
-      // Fetch scouting data, contract data, and league WAR ceiling
-      const [myScoutingAll, osaScoutingAll, allContracts, lastYearBatting, powerRankings] = await Promise.all([
-        hitterScoutingDataService.getLatestScoutingRatings('my'),
-        hitterScoutingDataService.getLatestScoutingRatings('osa'),
-        contractService.getAllContracts(),
-        trueRatingsService.getTrueBattingStats(currentYear - 1).catch(() => []),
-        teamRatingsService.getPowerRankings(currentYear).catch(() => [] as import('../services/TeamRatingsService').TeamPowerRanking[]),
+      // Fetch scouting + contract + league context in parallel
+      const [myScouting, osaScouting, playerContract, leagueCtx] = await Promise.all([
+        hitterScoutingDataService.getScoutingForPlayer(data.playerId, 'my'),
+        hitterScoutingDataService.getScoutingForPlayer(data.playerId, 'osa'),
+        contractService.getContractForPlayer(data.playerId),
+        supabaseDataService.isConfigured ? supabaseDataService.getPrecomputed('league_context') : Promise.resolve(null),
       ]);
       if (generation !== this.showGeneration) return; // Stale call
 
-      this.contract = allContracts.get(data.playerId) ?? null;
+      this.contract = playerContract ?? null;
 
-      // Compute league WAR ceiling from last year's leader
-      if (lastYearBatting.length > 0) {
-        const maxWar = lastYearBatting.reduce((max, p) => Math.max(max, p.war ?? 0), 0);
-        this.leagueWarMax = Math.max(6, maxWar);
-      }
-
-      // Compute tag context: league $/WAR distribution and blocking info
-      this.leagueDollarPerWar = undefined;
+      // Tag context
       this.blockingPlayer = undefined;
       this.blockingRating = undefined;
       this.blockingYears = undefined;
 
-      if (powerRankings.length > 0) {
-        // League $/WAR distribution for Expensive/Bargain tags
-        const dollarPerWarList: number[] = [];
-        for (const team of powerRankings) {
-          for (const player of [...team.lineup, ...team.bench]) {
-            const c = allContracts.get(player.playerId);
-            if (!c) continue;
-            const sal = contractService.getCurrentSalary(c);
-            const war = player.projWar;
-            if (sal >= 3_000_000 && war !== undefined && war > 0.5) {
-              dollarPerWarList.push(sal / war);
-            }
-          }
-        }
-        dollarPerWarList.sort((a, b) => a - b);
-        if (dollarPerWarList.length > 0) this.leagueDollarPerWar = dollarPerWarList;
-
-        // Blocking info for prospects
-        if (data.isProspect && data.position !== undefined) {
-          const playerOrg = data.parentTeam ?? data.team;
-          const orgTeam = powerRankings.find(t => t.teamName === playerOrg);
-          if (orgTeam) {
-            const incumbent = orgTeam.lineup.find(b => b.position === data.position);
-            if (incumbent) {
-              const incumbentContract = allContracts.get(incumbent.playerId);
-              const yearsRemaining = incumbentContract ? contractService.getYearsRemaining(incumbentContract) : 0;
-              if (incumbent.trueRating >= 3.5 && yearsRemaining >= 3) {
-                this.blockingPlayer = incumbent.name;
-                this.blockingRating = incumbent.trueRating;
-                this.blockingYears = yearsRemaining;
-              }
-            }
-          }
-        }
-      }
-
-      const myScouting = myScoutingAll.find(s => s.playerId === data.playerId);
-      const osaScouting = osaScoutingAll.find(s => s.playerId === data.playerId);
+      // League context: WAR ceiling + $/WAR distribution
+      this.leagueWarMax = leagueCtx?.batterWarMax ?? 8;
+      this.leagueDollarPerWar = leagueCtx?.dollarPerWar?.length > 0 ? leagueCtx.dollarPerWar : undefined;
 
       // Store both for dropdown toggle
       this.myScoutingData = myScouting ?? null;
@@ -562,32 +543,52 @@ export class BatterProfileModal {
       // Fetch MLB batting stats
       let mlbStats: BatterSeasonStats[] = [];
       try {
-        for (let year = currentYear2; year >= currentYear2 - 4; year--) {
-          const yearStats = await trueRatingsService.getTrueBattingStats(year);
-          const playerStat = yearStats.find(s => s.player_id === data.playerId);
-          if (playerStat) {
-            const singles = playerStat.h - playerStat.d - playerStat.t - playerStat.hr;
-            const slg = playerStat.ab > 0
-              ? (singles + 2 * playerStat.d + 3 * playerStat.t + 4 * playerStat.hr) / playerStat.ab
-              : 0;
-
+        if (supabaseDataService.isConfigured) {
+          // Single query for this player's MLB batting across all years
+          const rows = await supabaseDataService.query<any>(
+            'batting_stats',
+            `select=*&player_id=eq.${data.playerId}&league_id=eq.200&split_id=eq.1&year=gte.${currentYear2 - 4}&year=lte.${currentYear2}&order=year.desc`
+          );
+          // Dedup by year (keep row with most PA — the season total)
+          const byYear = new Map<number, any>();
+          for (const r of rows) {
+            const existing = byYear.get(r.year);
+            if (!existing || (r.pa ?? 0) > (existing.pa ?? 0)) byYear.set(r.year, r);
+          }
+          for (const r of byYear.values()) {
+            const ab = r.ab ?? 0, h = r.h ?? 0, d = r.d ?? 0, t = r.t ?? 0, hr = r.hr ?? 0;
+            const singles = h - d - t - hr;
+            const slg = ab > 0 ? (singles + 2 * d + 3 * t + 4 * hr) / ab : 0;
+            const pa = r.pa ?? 0, bb = r.bb ?? 0;
             mlbStats.push({
-              year: year,
-              level: 'MLB',
-              pa: playerStat.pa,
-              avg: playerStat.avg,
-              obp: playerStat.obp,
+              year: r.year, level: 'MLB', pa,
+              avg: ab > 0 ? h / ab : 0,
+              obp: pa > 0 ? (h + bb + (r.hp ?? 0)) / (ab + bb + (r.sf ?? 0) + (r.hp ?? 0)) : 0,
               slg: Math.round(slg * 1000) / 1000,
-              hr: playerStat.hr,
-              d: playerStat.d,
-              t: playerStat.t,
-              rbi: playerStat.rbi,
-              sb: playerStat.sb,
-              cs: playerStat.cs,
-              bb: playerStat.bb,
-              k: playerStat.k,
-              war: playerStat.war
+              hr, d, t, rbi: r.rbi ?? 0,
+              sb: r.sb ?? 0, cs: r.cs ?? 0, bb, k: r.k ?? 0,
+              war: r.war ?? 0,
             });
+          }
+        } else {
+          for (let year = currentYear2; year >= currentYear2 - 4; year--) {
+            const yearStats = await trueRatingsService.getTrueBattingStats(year);
+            const playerStat = yearStats.find(s => s.player_id === data.playerId);
+            if (playerStat) {
+              const singles = playerStat.h - playerStat.d - playerStat.t - playerStat.hr;
+              const slg = playerStat.ab > 0
+                ? (singles + 2 * playerStat.d + 3 * playerStat.t + 4 * playerStat.hr) / playerStat.ab
+                : 0;
+
+              mlbStats.push({
+                year: year, level: 'MLB', pa: playerStat.pa,
+                avg: playerStat.avg, obp: playerStat.obp,
+                slg: Math.round(slg * 1000) / 1000,
+                hr: playerStat.hr, d: playerStat.d, t: playerStat.t,
+                rbi: playerStat.rbi, sb: playerStat.sb, cs: playerStat.cs,
+                bb: playerStat.bb, k: playerStat.k, war: playerStat.war,
+              });
+            }
           }
         }
       } catch (e) {
@@ -1157,7 +1158,17 @@ export class BatterProfileModal {
         <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
         <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
-        ${tagsHtml}
+        <div class="profile-tab-actions">
+          ${tagsHtml}
+          <div class="modal-action-buttons">
+            <button class="modal-action-btn" data-action="share" title="Copy link to clipboard">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+            </button>
+            <button class="modal-action-btn" data-action="trade" title="Add to Trade Analyzer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="profile-tab-content">
         <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
@@ -2093,11 +2104,53 @@ export class BatterProfileModal {
 
   // ─── Event Binding ────────────────────────────────────────────────────
 
+  private bindActionButtons(): void {
+    const shareBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="share"]');
+    const tradeBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="trade"]');
+
+    shareBtn?.addEventListener('click', () => {
+      if (!this.currentData) return;
+      const url = new URL(window.location.href);
+      url.search = '';
+      url.searchParams.set('player', String(this.currentData.playerId));
+      navigator.clipboard.writeText(url.toString()).then(() => {
+        shareBtn.classList.add('action-success');
+        shareBtn.title = 'Copied!';
+        setTimeout(() => {
+          shareBtn.classList.remove('action-success');
+          shareBtn.title = 'Copy link to clipboard';
+        }, 1500);
+      });
+    });
+
+    tradeBtn?.addEventListener('click', async () => {
+      if (!this.currentData) return;
+      const player = await playerService.getPlayerById(this.currentData.playerId);
+      const playerTeamId = player?.teamId ?? 0;
+      const savedTeamId = parseInt(localStorage.getItem('wbl-selected-team') ?? '0', 10);
+      const isProspect = this.currentData.isProspect === true;
+      const playerId = this.currentData.playerId;
+      this.hide();
+      if (savedTeamId > 0 && savedTeamId !== playerTeamId) {
+        // Different saved team: my team on side 1, player on side 2
+        window.dispatchEvent(new CustomEvent('wbl:open-trade-analyzer', {
+          detail: { myTeamId: savedTeamId, targetTeamId: playerTeamId, targetPlayerId: playerId, targetIsProspect: isProspect },
+        }));
+      } else {
+        // Same team or no saved team: player's team on side 1, player on side 1
+        window.dispatchEvent(new CustomEvent('wbl:open-trade-analyzer', {
+          detail: { myTeamId: playerTeamId, targetTeamId: 0, targetPlayerId: playerId, targetIsProspect: isProspect },
+        }));
+      }
+    });
+  }
+
   private bindBodyEvents(): void {
     this.bindScoutSourceToggle();
     this.bindTabSwitching();
     this.bindProjectionToggle();
     this.bindAnalysisToggle();
+    this.bindActionButtons();
     // Bind flip cards in pre-rendered projection content
     const flipCells = this.overlay?.querySelectorAll<HTMLElement>('.projection-section .flip-cell');
     flipCells?.forEach(cell => {

@@ -2,6 +2,7 @@ import { PitcherScoutingRatings } from '../models/ScoutingData';
 import { indexedDBService } from './IndexedDBService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 import { simpleHash } from '../utils/simpleHash';
+import { supabaseDataService } from './SupabaseDataService';
 
 type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra' | 'age' | 'ovr' | 'pot' | 'stamina' | 'injuryProneness' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence' | 'pitcherType' | 'babip' | 'lev' | 'hsc' | 'dob';
 
@@ -200,8 +201,53 @@ class ScoutingDataService {
     }
   }
 
+  // In-memory cache for Supabase OSA scouting (avoids repeat queries within a session)
+  private supabaseOsaCache: PitcherScoutingRatings[] | null = null;
+  private supabaseOsaLoading: Promise<PitcherScoutingRatings[]> | null = null;
+
+  async getScoutingForPlayer(playerId: number, source: ScoutingSource = 'my'): Promise<PitcherScoutingRatings | undefined> {
+    // Supabase: always do single-player query for full data (cache may have precomputed subset)
+    if (supabaseDataService.isConfigured && source === 'osa') {
+      try {
+        const rows = await supabaseDataService.query<any>('pitcher_scouting', `select=*&source=eq.osa&player_id=eq.${playerId}`);
+        if (rows.length > 0) {
+          return supabaseDataService.transformPitcherScoutingRow(rows[0]);
+        }
+        return undefined;
+      } catch { /* fall through */ }
+    }
+
+    // Check in-memory cache (non-Supabase path)
+    if (this.supabaseOsaCache && source === 'osa') {
+      return this.supabaseOsaCache.find(s => s.playerId === playerId);
+    }
+
+    // Fallback: load all and find
+    const all = await this.getLatestScoutingRatings(source);
+    return all.find(s => s.playerId === playerId);
+  }
+
   async getLatestScoutingRatings(source: ScoutingSource = 'my'): Promise<PitcherScoutingRatings[]> {
     if (typeof window === 'undefined') return [];
+
+    // Supabase fast path for OSA data — skip IndexedDB entirely
+    if (supabaseDataService.isConfigured && source === 'osa') {
+      if (this.supabaseOsaCache) return this.supabaseOsaCache;
+      if (this.supabaseOsaLoading) return this.supabaseOsaLoading;
+      this.supabaseOsaLoading = (async () => {
+        try {
+          const ratings = await supabaseDataService.getPitcherScouting() as PitcherScoutingRatings[];
+          if (ratings.length > 0) {
+            this.supabaseOsaCache = ratings;
+            return ratings;
+          }
+        } catch (err) {
+          console.warn('⚠️ Supabase pitcher scouting fetch failed:', err);
+        }
+        return [] as PitcherScoutingRatings[];
+      })().finally(() => { this.supabaseOsaLoading = null; });
+      return this.supabaseOsaLoading;
+    }
 
     const allKeys = await this.getAllKeys(source);
     if (allKeys.length === 0) return [];
@@ -234,6 +280,11 @@ class ScoutingDataService {
    */
   async getScoutingRatings(year: number, source: ScoutingSource = 'my'): Promise<PitcherScoutingRatings[]> {
     if (typeof window === 'undefined') return [];
+
+    // Supabase fast path for OSA — same data regardless of year
+    if (supabaseDataService.isConfigured && source === 'osa') {
+      return this.getLatestScoutingRatings('osa');
+    }
 
     const relevantKeys = await this.findKeysForYear(year, source);
     if (relevantKeys.length === 0) {
@@ -273,6 +324,10 @@ class ScoutingDataService {
   
   async hasScoutingRatings(year: number, source: ScoutingSource = 'my'): Promise<boolean> {
       if (typeof window === 'undefined') return false;
+      if (supabaseDataService.isConfigured && source === 'osa') {
+        const data = await this.getLatestScoutingRatings('osa');
+        return data.length > 0;
+      }
       const keys = await this.findKeysForYear(year, source);
       if (keys.length > 0) return true;
       if (source === 'my' && localStorage.getItem(this.storageKeyLegacy(year))) return true;
@@ -549,56 +604,54 @@ class ScoutingDataService {
   }
 
   /**
-   * Load default OSA scouting data from bundled CSV file.
-   * This should be called during onboarding if no OSA data exists.
+   * Load default OSA scouting data.
+   * Tries Supabase first, falls back to bundled CSV.
    * @param gameDate The current game date to associate with the default data
    * @param force If true, load even if OSA data already exists
    * @returns The number of ratings loaded, or 0 if failed
    */
   async loadDefaultOsaData(gameDate: string, force: boolean = false): Promise<number> {
     try {
-      console.log('📋 loadDefaultOsaData called', { gameDate, force });
-
       // Check if OSA data already exists
       if (!force) {
         const existingOsa = await this.getLatestScoutingRatings('osa');
         if (existingOsa.length > 0) {
-          console.log(`ℹ️ OSA data already exists (${existingOsa.length} ratings), skipping load`);
           return 0;
         }
-      } else {
-        console.log('⚠️ Force flag set - will load default OSA data even if it exists');
       }
 
-      // Fetch the bundled CSV from public folder
-      console.log('🌐 Fetching /data/default_osa_scouting.csv...');
+      // Try Supabase first
+      if (supabaseDataService.isConfigured) {
+        try {
+          const ratings = await supabaseDataService.getPitcherScouting() as PitcherScoutingRatings[];
+          if (ratings.length > 0) {
+            await this.saveScoutingRatings(gameDate, ratings, 'osa');
+            console.log(`✅ Loaded ${ratings.length} pitcher OSA ratings from Supabase`);
+            return ratings.length;
+          }
+        } catch (error) {
+          console.warn('Supabase pitcher scouting query failed, falling back to CSV:', error);
+        }
+      }
+
+      // Fallback: fetch bundled CSV
       const response = await fetch('/data/default_osa_scouting.csv');
       if (!response.ok) {
-        console.error(`❌ Failed to fetch default OSA data: ${response.status} ${response.statusText}`);
         throw new Error(`Failed to fetch default OSA data: ${response.statusText}`);
       }
 
       const csvText = await response.text();
-      console.log(`📄 CSV loaded, size: ${csvText.length} bytes`);
-
       const ratings = this.parseScoutingCsv(csvText, 'osa');
-      console.log(`🔍 Parsed ${ratings.length} ratings from CSV`);
 
-      if (ratings.length === 0) {
-        console.warn('⚠️ No valid ratings found in default OSA CSV (might be empty or header-only)');
-        return 0;
-      }
+      if (ratings.length === 0) return 0;
 
-      // Save with the current game date
-      console.log(`💾 Saving ${ratings.length} OSA ratings with date ${gameDate}...`);
       await this.saveScoutingRatings(gameDate, ratings, 'osa');
-      // Store content hash so checkAndUpdateBundledOsa() won't re-trigger on next visit
       localStorage.setItem(ScoutingDataService.OSA_HASH_KEY, simpleHash(csvText));
-      console.log(`✅ Successfully loaded ${ratings.length} default OSA scouting ratings`);
+      console.log(`✅ Loaded ${ratings.length} default OSA scouting ratings from CSV`);
 
       return ratings.length;
     } catch (error) {
-      console.error('❌ Failed to load default OSA data:', error);
+      console.error('Failed to load default OSA data:', error);
       return 0;
     }
   }
@@ -606,12 +659,29 @@ class ScoutingDataService {
   private static readonly OSA_HASH_KEY = 'wbl-osa-pitcher-bundled-hash';
 
   /**
-   * Check if bundled pitcher OSA CSV has changed since last load.
-   * If so, force-reload into IndexedDB. Called on app startup.
+   * Check if scouting data has been updated.
+   * With Supabase: checks data_version table for pitcher_scouting changes.
+   * Fallback: checks if bundled CSV file hash has changed.
    * Returns true if data was updated.
    */
   async checkAndUpdateBundledOsa(gameDate: string): Promise<boolean> {
     try {
+      // With Supabase, cache invalidation is handled by data_version check in onboarding
+      // If Supabase is configured and version bumped, re-fetch from Supabase
+      if (supabaseDataService.isConfigured) {
+        const stale = await supabaseDataService.checkForUpdates();
+        if (stale.includes('pitcher_scouting')) {
+          const ratings = await supabaseDataService.getPitcherScouting() as PitcherScoutingRatings[];
+          if (ratings.length > 0) {
+            await this.saveScoutingRatings(gameDate, ratings, 'osa');
+            console.log(`✅ Updated ${ratings.length} pitcher OSA ratings from Supabase`);
+            return true;
+          }
+        }
+        return false;
+      }
+
+      // Fallback: check bundled CSV hash
       const response = await fetch('/data/default_osa_scouting.csv');
       if (!response.ok) return false;
 
@@ -621,16 +691,15 @@ class ScoutingDataService {
 
       if (newHash === storedHash) return false;
 
-      console.log(`🔄 Bundled pitcher OSA scouting changed (${storedHash ?? 'none'} → ${newHash}), updating...`);
       const ratings = this.parseScoutingCsv(csvText, 'osa');
       if (ratings.length === 0) return false;
 
       await this.saveScoutingRatings(gameDate, ratings, 'osa');
       localStorage.setItem(ScoutingDataService.OSA_HASH_KEY, newHash);
-      console.log(`✅ Auto-updated ${ratings.length} pitcher OSA ratings from bundled file`);
+      console.log(`✅ Updated ${ratings.length} pitcher OSA ratings from bundled CSV`);
       return true;
     } catch (error) {
-      console.error('Failed to check bundled pitcher OSA freshness:', error);
+      console.error('Failed to check pitcher OSA freshness:', error);
       return false;
     }
   }

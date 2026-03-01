@@ -15,6 +15,7 @@ import { MinorLeagueBattingStatsWithLevel, MinorLeagueLevel } from '../models/St
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { trueRatingsService } from './TrueRatingsService';
 import { LeagueBattingAverages } from './LeagueBattingAveragesService';
+import { supabaseDataService } from './SupabaseDataService';
 
 // ============================================================================
 // Interfaces
@@ -606,6 +607,16 @@ class HitterTrueFutureRatingService {
     const cacheKey = `${leagueBattingAverages?.lgWoba ?? 'def'}_${leagueBattingAverages?.wobaScale ?? 'def'}_${leagueBattingAverages?.runsPerWin ?? 'def'}`;
     if (this._mlbDistCache && this._mlbDistCacheKey === cacheKey) return this._mlbDistCache;
 
+    // Check precomputed cache (static 2015-2020 data that never changes between syncs)
+    if (supabaseDataService.isConfigured) {
+      const cached = await supabaseDataService.getPrecomputed(`hitter_mlb_distribution_${cacheKey}`);
+      if (cached) {
+        this._mlbDistCache = cached;
+        this._mlbDistCacheKey = cacheKey;
+        return cached;
+      }
+    }
+
     const years = [2015, 2016, 2017, 2018, 2019, 2020];
     const allBbPct: number[] = [];
     const allKPct: number[] = [];
@@ -624,7 +635,10 @@ class HitterTrueFutureRatingService {
     // Load DOB data to filter by age
     const dobMap = await this.loadPlayerDOBs();
 
-    // Load MLB batting data for all years
+    // Bulk-fetch all years in 1 query (populates per-year caches)
+    await trueRatingsService.prefetchBattingStats(2015, 2020);
+
+    // Load MLB batting data for all years (now served from in-memory cache)
     for (const year of years) {
       try {
         const mlbStats = await trueRatingsService.getTrueBattingStats(year);
@@ -693,13 +707,6 @@ class HitterTrueFutureRatingService {
     allTriplesRate.sort((a, b) => a - b); // Ascending: lower values = lower percentile
     allWar.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
 
-    console.log(`📊 Built MLB hitter distributions: ${allBbPct.length} peak-age hitters (ages 25-32) from 2015-2020`);
-    console.log(`📊 WAR constants used: lgWoba=${lgWoba}, wobaScale=${wobaScale}, runsPerWin=${runsPerWin}`);
-    if (allWar.length > 0) {
-      const p = (pct: number) => allWar[Math.min(Math.floor(pct / 100 * allWar.length), allWar.length - 1)];
-      console.log(`📊 MLB WAR/600 distribution: min=${allWar[0]}, p50=${p(50)}, p75=${p(75)}, p90=${p(90)}, p93=${p(93)}, p95=${p(95)}, p97=${p(97)}, p99=${p(99)}, max=${allWar[allWar.length - 1]}`);
-    }
-
     this._mlbDistCache = {
       bbPctValues: allBbPct,
       kPctValues: allKPct,
@@ -710,6 +717,13 @@ class HitterTrueFutureRatingService {
       warValues: allWar,
     };
     this._mlbDistCacheKey = cacheKey;
+
+    // Cache for future syncs (this data never changes)
+    if (supabaseDataService.isConfigured) {
+      supabaseDataService.setPrecomputed(`hitter_mlb_distribution_${cacheKey}`, this._mlbDistCache)
+        .catch(err => console.warn('Failed to cache hitter MLB distribution:', err));
+    }
+
     return this._mlbDistCache;
   }
 
@@ -726,6 +740,14 @@ class HitterTrueFutureRatingService {
   async buildMLBPaByInjury(
     _scoutingMap: Map<number, { injuryProneness?: string }>
   ): Promise<Map<string, number>> {
+    // Check precomputed cache (static 2015-2020 data)
+    if (supabaseDataService.isConfigured) {
+      const cached = await supabaseDataService.getPrecomputed('hitter_pa_by_injury');
+      if (cached) {
+        return new Map(Object.entries(cached as Record<string, number>));
+      }
+    }
+
     const years = [2015, 2016, 2017, 2018, 2019, 2020];
     const allPa: number[] = [];
 
@@ -776,33 +798,46 @@ class HitterTrueFutureRatingService {
       result.set(tier, allPa[idx]);
     }
 
+    // Cache for future syncs (this data never changes)
+    if (supabaseDataService.isConfigured) {
+      supabaseDataService.setPrecomputed('hitter_pa_by_injury', Object.fromEntries(result))
+        .catch(err => console.warn('Failed to cache hitter PA by injury:', err));
+    }
+
     return result;
   }
 
   /**
-   * Load player DOBs from mlb_dob.csv
+   * Load player DOBs. Tries Supabase players table first, falls back to CSV.
    */
   async loadPlayerDOBs(): Promise<Map<number, Date>> {
     try {
+      // Try Supabase first
+      if (supabaseDataService.isConfigured) {
+        try {
+          const dobMap = await supabaseDataService.getPlayerDOBs();
+          if (dobMap.size > 0) return dobMap;
+        } catch (error) {
+          console.warn('Supabase DOB query failed, falling back to CSV:', error);
+        }
+      }
+
+      // Fallback: CSV
       const response = await fetch('/data/mlb_dob.csv');
       const csvText = await response.text();
 
       const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       const dobMap = new Map<number, Date>();
 
-      // Skip header
       for (let i = 1; i < lines.length; i++) {
         const [idStr, dobStr] = lines[i].split(',');
         const playerId = parseInt(idStr, 10);
-
         if (!playerId || !dobStr) continue;
 
-        // Parse MM/DD/YYYY format
         const [month, day, year] = dobStr.split('/').map(s => parseInt(s, 10));
         if (!month || !day || !year) continue;
 
-        const dob = new Date(year, month - 1, day);
-        dobMap.set(playerId, dob);
+        dobMap.set(playerId, new Date(year, month - 1, day));
       }
 
       return dobMap;
@@ -1158,13 +1193,6 @@ class HitterTrueFutureRatingService {
     });
 
     // Log top prospect WAR values with full rate breakdowns for debugging
-    const topByWar = [...resultsWithWoba].sort((a, b) => b.projWar - a.projWar).slice(0, 5);
-    for (const r of topByWar) {
-      const input = inputs.find(i => i.playerId === r.playerId);
-      const s = input?.scouting;
-      console.log(`📊 ${r.playerName}: WAR=${r.projWar}, wOBA=${r.projWoba}, BB%=${r.projBbPct}, K%=${r.projKPct}, HR%=${r.projHrPct}, AVG=${r.projAvg} | Scout: eye=${s?.eye}, avK=${s?.avoidK}, pow=${s?.power}, con=${s?.contact}, gap=${s?.gap}, spd=${s?.speed}, SR=${s?.stealingAggressiveness}, STE=${s?.stealingAbility}`);
-    }
-
     // Step 5: Map WAR to MLB peak-year WAR distribution for final TFR rating
     // (Components and final rating both compared to MLB, not other prospects)
     return resultsWithWoba.map((result) => {

@@ -8,6 +8,9 @@ import { MessageModal } from './MessageModal';
 import { storageMigration } from '../services/StorageMigration';
 import { AnalyticsDashboardView } from './AnalyticsDashboardView';
 import { analyticsService } from '../services/AnalyticsService';
+import { syncOrchestrator } from '../services/SyncOrchestrator';
+import { supabaseDataService } from '../services/SupabaseDataService';
+import { teamRatingsService } from '../services/TeamRatingsService';
 
 type ScoutingPlayerType = 'pitcher' | 'hitter';
 
@@ -18,15 +21,16 @@ export class DataManagementView {
   private selectedScoutingSource: ScoutingSource = 'my';
   private selectedScoutingPlayerType: ScoutingPlayerType = 'pitcher';
   private currentGameDate: string = '';
+  private hasLoadedData = false;
 
   constructor(container: HTMLElement) {
     this.container = container;
     this.messageModal = new MessageModal();
     this.render();
-    this.refreshExistingDataList();
     this.fetchGameDate();
     this.setupOnboardingListener();
     this.setupAnalyticsToggle();
+    this.setupLazyLoading();
   }
 
   private setupOnboardingListener(): void {
@@ -44,6 +48,46 @@ export class DataManagementView {
         el.style.display = isHidden ? 'block' : 'none';
       }
     });
+  }
+
+  private setupLazyLoading(): void {
+    const tabPanel = this.container.closest<HTMLElement>('.tab-panel');
+    const isCurrentlyActive = tabPanel?.classList.contains('active');
+
+    if (isCurrentlyActive) {
+      this.lazyInit();
+    } else if (tabPanel) {
+      const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+          if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+            const target = mutation.target as HTMLElement;
+            if (target.classList.contains('active') && !this.hasLoadedData) {
+              observer.disconnect();
+              this.lazyInit();
+              break;
+            }
+          }
+        }
+      });
+      observer.observe(tabPanel, { attributes: true, attributeFilter: ['class'] });
+    }
+  }
+
+  private lazyInit(): void {
+    if (this.hasLoadedData) return;
+    this.hasLoadedData = true;
+
+    this.refreshExistingDataList();
+
+    if (!supabaseDataService.isConfigured) {
+      this.checkDefaultOsaStatus();
+    }
+
+    // Mount analytics dashboard
+    const dashboardContainer = this.container.querySelector<HTMLElement>('#analytics-dashboard-container');
+    if (dashboardContainer) {
+      new AnalyticsDashboardView(dashboardContainer);
+    }
   }
 
   private async fetchGameDate(): Promise<void> {
@@ -72,7 +116,7 @@ export class DataManagementView {
           </div>
         </div>
 
-        <div id="default-osa-banner" style="display: none; background: rgba(0, 186, 124, 0.1); border-left: 3px solid var(--color-primary); padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
+        ${supabaseDataService.isConfigured ? '' : `<div id="default-osa-banner" style="display: none; background: rgba(0, 186, 124, 0.1); border-left: 3px solid var(--color-primary); padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
           <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
             <div style="flex: 1;">
               <strong id="default-osa-title">Default OSA Scouting Data</strong>
@@ -80,7 +124,7 @@ export class DataManagementView {
             </div>
             <button id="load-default-osa-btn" class="btn btn-primary" style="display: none;">Load Default Data</button>
           </div>
-        </div>
+        </div>`}
 
         
         
@@ -225,13 +269,6 @@ export class DataManagementView {
 
     this.bindEvents();
     this.checkMigrationNeeded();
-    this.checkDefaultOsaStatus();
-
-    // Mount analytics dashboard
-    const dashboardContainer = this.container.querySelector<HTMLElement>('#analytics-dashboard-container');
-    if (dashboardContainer) {
-      new AnalyticsDashboardView(dashboardContainer);
-    }
   }
 
   private bindEvents(): void {
@@ -645,13 +682,6 @@ export class DataManagementView {
     // Update list
     this.refreshExistingDataList();
 
-    // Emit event to notify other views that scouting data was updated
-    if (successCount > 0) {
-      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
-        detail: { source: this.selectedScoutingSource }
-      }));
-    }
-
     // Track scouting upload attempt
     analyticsService.trackScoutingUpload({
       playerType: this.selectedScoutingPlayerType,
@@ -661,6 +691,50 @@ export class DataManagementView {
       failCount,
       errors: errors.length > 0 ? errors : undefined,
     });
+
+    // Recalculate TR/TFR when Supabase user uploads custom scouting
+    if (successCount > 0 && supabaseDataService.isConfigured) {
+      supabaseDataService.hasCustomScouting = true;
+      trueRatingsService.clearCaches();
+      teamRatingsService.clearTfrCaches();
+
+      this.messageModal.show('Recalculating', 'Loading stats data...');
+
+      try {
+        const year = await dateService.getCurrentYear();
+        await trueRatingsService.warmCachesForComputation(year);
+        this.messageModal.show('Recalculating', 'Computing ratings with your scouting data...');
+        const [hitterTr, pitcherTr, , pitcherFarm] = await Promise.all([
+          trueRatingsService.getHitterTrueRatings(year),
+          trueRatingsService.getPitcherTrueRatings(year),
+          teamRatingsService.getUnifiedHitterTfrData(year),
+          teamRatingsService.getFarmData(year),
+        ]);
+
+        const prospectCount = pitcherFarm.prospects.length;
+        this.messageModal.show('Upload Results',
+          `Ratings recalculated with your scouting data.\n${hitterTr.size} hitter TRs, ${pitcherTr.size} pitcher TRs, ${prospectCount} pitcher prospects.\n\nSaved: ${successCount} files. Failed: ${failCount} files.`
+          + (errors.length > 0 ? '\n\nErrors:\n' + errors.join('\n') : ''));
+      } catch (err) {
+        console.error('Failed to recalculate ratings:', err);
+        let msg = `Scouting uploaded but rating recalculation failed.\nSaved: ${successCount} files. Failed: ${failCount} files.`;
+        if (errors.length > 0) msg += '\n\nErrors:\n' + errors.join('\n');
+        this.messageModal.show('Upload Results', msg);
+      }
+
+      // Notify views after caches are warm
+      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
+        detail: { source: this.selectedScoutingSource }
+      }));
+      return;
+    }
+
+    // Emit event to notify other views that scouting data was updated
+    if (successCount > 0) {
+      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
+        detail: { source: this.selectedScoutingSource }
+      }));
+    }
 
     let msg = `Process complete.\nSaved: ${successCount} files.\nFailed: ${failCount} files.`;
     if (errors.length > 0) {
@@ -835,73 +909,74 @@ export class DataManagementView {
     // Show onboarding UI
     this.showOnboardingLoader();
 
-    // Auto-fetch MLB and minor league data from league start to current year
     try {
+      // Supabase configured → DB is pre-populated by CLI tool (tools/sync-db.ts)
+      if (supabaseDataService.isConfigured) {
+        const syncResult = await syncOrchestrator.checkDataReady();
+        if (syncResult.source === 'db') {
+          console.log('⚡ Supabase has data, skipping onboarding');
+          this.dismissOnboardingOverlay();
+          return;
+        }
+        // DB not ready yet (CLI hasn't run) — show error
+        console.warn('⚠️ Supabase configured but no data found. Run: npx tsx tools/sync-db.ts');
+      }
+
+      // Legacy (non-Supabase) onboarding — loads from API + bundled CSVs into IndexedDB
+      const gameDate = await dateService.getCurrentDate();
       const currentYear = await dateService.getCurrentYear();
-      const startYear = LEAGUE_START_YEAR;
-      const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
-
-      // Fire current-year API calls first — they're slow (network latency)
-      // and can run in parallel with the fast local CSV loading
-      console.log(`📥 Fetching current year (${currentYear}) from API...`);
-      const apiPromises: Promise<any>[] = [
-        trueRatingsService.getTruePitchingStats(currentYear)
-          .then(() => console.log(`✅ API: MLB pitching ${currentYear}`))
-          .catch(err => console.warn(`⚠️ API: MLB pitching ${currentYear} failed:`, err)),
-        trueRatingsService.getTrueBattingStats(currentYear)
-          .then(() => console.log(`✅ API: MLB batting ${currentYear}`))
-          .catch(err => console.warn(`⚠️ API: MLB batting ${currentYear} failed:`, err)),
-      ];
-      for (const level of levels) {
-        apiPromises.push(
-          minorLeagueStatsService.getStats(currentYear, level)
-            .then(() => console.log(`✅ API: MiLB pitching ${currentYear} ${level}`))
-            .catch(err => console.warn(`⚠️ API: MiLB pitching ${currentYear} ${level} failed:`, err))
-        );
-        apiPromises.push(
-          minorLeagueBattingStatsService.getStats(currentYear, level)
-            .then(() => console.log(`✅ API: MiLB batting ${currentYear} ${level}`))
-            .catch(err => console.warn(`⚠️ API: MiLB batting ${currentYear} ${level} failed:`, err))
-        );
-      }
-
-      // While API calls are in flight, load bundled CSV data (fast, local files)
-      console.log(`📦 Loading bundled historical data (${startYear}-${currentYear - 1})...`);
-      const [mlbBundleResult, mlbBattingBundleResult, bundleResult, battingBundleResult, gameDate] = await Promise.all([
-        trueRatingsService.loadDefaultMlbData(),
-        trueRatingsService.loadDefaultMlbBattingData(),
-        minorLeagueStatsService.loadDefaultMinorLeagueData(),
-        minorLeagueBattingStatsService.loadDefaultMinorLeagueBattingData(),
-        dateService.getCurrentDate(),
-      ]);
-      console.log(`✅ Loaded ${mlbBundleResult.loaded} MLB pitching + ${mlbBattingBundleResult.loaded} MLB batting + ${bundleResult.loaded} MiLB pitching + ${battingBundleResult.loaded} MiLB batting bundled datasets`);
-
-      // Load default OSA scouting data (pitchers and hitters)
-      console.log('📋 Loading default OSA scouting data...');
-      const [pitcherOsaCount, hitterOsaCount] = await Promise.all([
-        scoutingDataService.loadDefaultOsaData(gameDate),
-        hitterScoutingDataService.loadDefaultHitterOsaData(gameDate)
-      ]);
-      const totalOsaCount = pitcherOsaCount + hitterOsaCount;
-      if (totalOsaCount > 0) {
-        console.log(`✅ Loaded ${pitcherOsaCount} pitcher + ${hitterOsaCount} hitter OSA scouting ratings`);
-      }
-
-      // Wait for all current-year API calls to finish
-      await Promise.all(apiPromises);
-      console.log(`✅ Current year API data loaded`);
-
-      // Notify other views that scouting data is now available
-      if (totalOsaCount > 0) {
-        window.dispatchEvent(new CustomEvent('scoutingDataUpdated', { detail: { source: 'osa' } }));
-      }
-
-      // All done - show onboarding explanation
-      this.showOnboardingComplete(totalOsaCount, mlbBundleResult.loaded + bundleResult.loaded + battingBundleResult.loaded);
+      await this.legacyOnboarding(gameDate, currentYear);
     } catch (error) {
       console.error('Onboarding fetch error:', error);
       this.showOnboardingError();
     }
+  }
+
+  /** Legacy onboarding for when Supabase is not configured — loads everything into IndexedDB */
+  private async legacyOnboarding(gameDate: string, currentYear: number): Promise<void> {
+    const levels: MinorLeagueLevel[] = ['aaa', 'aa', 'a', 'r'];
+
+    const apiPromises: Promise<any>[] = [
+      trueRatingsService.getTruePitchingStats(currentYear)
+        .catch(err => console.warn(`⚠️ API: MLB pitching ${currentYear} failed:`, err)),
+      trueRatingsService.getTrueBattingStats(currentYear)
+        .catch(err => console.warn(`⚠️ API: MLB batting ${currentYear} failed:`, err)),
+    ];
+    for (const level of levels) {
+      apiPromises.push(
+        minorLeagueStatsService.getStats(currentYear, level)
+          .catch(err => console.warn(`⚠️ API: MiLB ${currentYear} ${level} failed:`, err)),
+        minorLeagueBattingStatsService.getStats(currentYear, level)
+          .catch(err => console.warn(`⚠️ API: MiLB batting ${currentYear} ${level} failed:`, err)),
+      );
+    }
+
+    const [mlbBundleResult, mlbBattingBundleResult, bundleResult, battingBundleResult] = await Promise.all([
+      trueRatingsService.loadDefaultMlbData(),
+      trueRatingsService.loadDefaultMlbBattingData(),
+      minorLeagueStatsService.loadDefaultMinorLeagueData(),
+      minorLeagueBattingStatsService.loadDefaultMinorLeagueBattingData(),
+    ]);
+
+    const totalBundled = mlbBundleResult.loaded + mlbBattingBundleResult.loaded +
+                         bundleResult.loaded + battingBundleResult.loaded;
+    if (totalBundled > 0) {
+      console.log(`✅ Loaded ${totalBundled} historical datasets`);
+    }
+
+    const [pitcherOsaCount, hitterOsaCount] = await Promise.all([
+      scoutingDataService.loadDefaultOsaData(gameDate),
+      hitterScoutingDataService.loadDefaultHitterOsaData(gameDate),
+    ]);
+    const totalOsaCount = pitcherOsaCount + hitterOsaCount;
+
+    await Promise.all(apiPromises);
+
+    if (totalOsaCount > 0) {
+      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', { detail: { source: 'osa' } }));
+    }
+
+    this.showOnboardingComplete(totalOsaCount, totalBundled);
   }
 
   private showOnboardingLoader(): void {
@@ -1006,6 +1081,19 @@ export class DataManagementView {
     if (this.onboardingClickBlocker) {
       document.removeEventListener('click', this.onboardingClickBlocker, true);
       this.onboardingClickBlocker = undefined;
+    }
+  }
+
+  /** Just remove the loading overlay — no modal. Used for DB-backed paths. */
+  private dismissOnboardingOverlay(): void {
+    if (this.onboardingMessageInterval) {
+      clearInterval(this.onboardingMessageInterval);
+      this.onboardingMessageInterval = undefined;
+    }
+    this.removeClickBlocker();
+    if (this.onboardingOverlay) {
+      this.onboardingOverlay.remove();
+      this.onboardingOverlay = undefined;
     }
   }
 

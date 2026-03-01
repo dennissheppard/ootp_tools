@@ -3,6 +3,7 @@ import { indexedDBService } from './IndexedDBService';
 import { ScoutingSource } from './ScoutingDataService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
 import { simpleHash } from '../utils/simpleHash';
+import { supabaseDataService } from './SupabaseDataService';
 
 type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'avoidK' | 'contact' | 'gap' | 'speed' | 'stealingAggressiveness' | 'stealingAbility' | 'injuryProneness' | 'age' | 'ovr' | 'pot' | 'leadership' | 'loyalty' | 'adaptability' | 'greed' | 'workEthic' | 'intelligence' | 'pos' | 'lev' | 'hsc' | 'dob';
 
@@ -198,8 +199,53 @@ class HitterScoutingDataService {
     }
   }
 
+  // In-memory cache for Supabase OSA scouting (avoids repeat queries within a session)
+  private supabaseOsaCache: HitterScoutingRatings[] | null = null;
+  private supabaseOsaLoading: Promise<HitterScoutingRatings[]> | null = null;
+
+  async getScoutingForPlayer(playerId: number, source: ScoutingSource = 'my'): Promise<HitterScoutingRatings | undefined> {
+    // Supabase: always do single-player query for full data (cache may have precomputed subset)
+    if (supabaseDataService.isConfigured && source === 'osa') {
+      try {
+        const rows = await supabaseDataService.query<any>('hitter_scouting', `select=*&source=eq.osa&player_id=eq.${playerId}`);
+        if (rows.length > 0) {
+          return supabaseDataService.transformHitterScoutingRow(rows[0]);
+        }
+        return undefined;
+      } catch { /* fall through */ }
+    }
+
+    // Check in-memory cache (non-Supabase path)
+    if (this.supabaseOsaCache && source === 'osa') {
+      return this.supabaseOsaCache.find(s => s.playerId === playerId);
+    }
+
+    // Fallback: load all and find
+    const all = await this.getLatestScoutingRatings(source);
+    return all.find(s => s.playerId === playerId);
+  }
+
   async getLatestScoutingRatings(source: ScoutingSource = 'my'): Promise<HitterScoutingRatings[]> {
     if (typeof window === 'undefined') return [];
+
+    // Supabase fast path for OSA data — skip IndexedDB entirely
+    if (supabaseDataService.isConfigured && source === 'osa') {
+      if (this.supabaseOsaCache) return this.supabaseOsaCache;
+      if (this.supabaseOsaLoading) return this.supabaseOsaLoading;
+      this.supabaseOsaLoading = (async () => {
+        try {
+          const ratings = await supabaseDataService.getHitterScouting() as HitterScoutingRatings[];
+          if (ratings.length > 0) {
+            this.supabaseOsaCache = ratings;
+            return ratings;
+          }
+        } catch (err) {
+          console.warn('⚠️ Supabase hitter scouting fetch failed:', err);
+        }
+        return [] as HitterScoutingRatings[];
+      })().finally(() => { this.supabaseOsaLoading = null; });
+      return this.supabaseOsaLoading;
+    }
 
     const allKeys = await this.getAllKeys(source);
     if (allKeys.length === 0) return [];
@@ -228,6 +274,11 @@ class HitterScoutingDataService {
 
   async getScoutingRatings(year: number, source: ScoutingSource = 'my'): Promise<HitterScoutingRatings[]> {
     if (typeof window === 'undefined') return [];
+
+    // Supabase fast path for OSA — same data regardless of year
+    if (supabaseDataService.isConfigured && source === 'osa') {
+      return this.getLatestScoutingRatings('osa');
+    }
 
     const relevantKeys = await this.findKeysForYear(year, source);
     if (relevantKeys.length === 0) {
@@ -259,6 +310,10 @@ class HitterScoutingDataService {
 
   async hasScoutingRatings(year: number, source: ScoutingSource = 'my'): Promise<boolean> {
     if (typeof window === 'undefined') return false;
+    if (supabaseDataService.isConfigured && source === 'osa') {
+      const data = await this.getLatestScoutingRatings('osa');
+      return data.length > 0;
+    }
     const keys = await this.findKeysForYear(year, source);
     return keys.length > 0;
   }
@@ -475,34 +530,46 @@ class HitterScoutingDataService {
     }
   }
 
+  /**
+   * Load default hitter OSA scouting data.
+   * Tries Supabase first, falls back to bundled CSV.
+   */
   async loadDefaultHitterOsaData(gameDate: string, force: boolean = false): Promise<number> {
     try {
       if (!force) {
         const existingOsa = await this.getLatestScoutingRatings('osa');
         if (existingOsa.length > 0) {
-          console.log(`Hitter OSA data already exists (${existingOsa.length} ratings), skipping load`);
           return 0;
         }
       }
 
+      // Try Supabase first
+      if (supabaseDataService.isConfigured) {
+        try {
+          const ratings = await supabaseDataService.getHitterScouting() as HitterScoutingRatings[];
+          if (ratings.length > 0) {
+            await this.saveScoutingRatings(gameDate, ratings, 'osa');
+            console.log(`✅ Loaded ${ratings.length} hitter OSA ratings from Supabase`);
+            return ratings.length;
+          }
+        } catch (error) {
+          console.warn('Supabase hitter scouting query failed, falling back to CSV:', error);
+        }
+      }
+
+      // Fallback: fetch bundled CSV
       const response = await fetch('/data/default_hitter_osa_scouting.csv');
       if (!response.ok) {
-        console.error(`Failed to fetch default hitter OSA data: ${response.status} ${response.statusText}`);
         throw new Error(`Failed to fetch default hitter OSA data: ${response.statusText}`);
       }
 
       const csvText = await response.text();
       const ratings = this.parseScoutingCsv(csvText, 'osa');
-
-      if (ratings.length === 0) {
-        console.warn('No valid hitter ratings found in default OSA CSV');
-        return 0;
-      }
+      if (ratings.length === 0) return 0;
 
       await this.saveScoutingRatings(gameDate, ratings, 'osa');
-      // Store content hash so checkAndUpdateBundledOsa() won't re-trigger on next visit
       localStorage.setItem(HitterScoutingDataService.OSA_HASH_KEY, simpleHash(csvText));
-      console.log(`Successfully loaded ${ratings.length} default hitter OSA scouting ratings`);
+      console.log(`✅ Loaded ${ratings.length} default hitter OSA ratings from CSV`);
 
       return ratings.length;
     } catch (error) {
@@ -514,12 +581,25 @@ class HitterScoutingDataService {
   private static readonly OSA_HASH_KEY = 'wbl-osa-hitter-bundled-hash';
 
   /**
-   * Check if bundled hitter OSA CSV has changed since last load.
-   * If so, force-reload into IndexedDB. Called on app startup.
-   * Returns true if data was updated.
+   * Check if hitter scouting data has been updated.
+   * With Supabase: checks data_version. Fallback: bundled CSV hash.
    */
   async checkAndUpdateBundledOsa(gameDate: string): Promise<boolean> {
     try {
+      if (supabaseDataService.isConfigured) {
+        const stale = await supabaseDataService.checkForUpdates();
+        if (stale.includes('hitter_scouting')) {
+          const ratings = await supabaseDataService.getHitterScouting() as HitterScoutingRatings[];
+          if (ratings.length > 0) {
+            await this.saveScoutingRatings(gameDate, ratings, 'osa');
+            console.log(`✅ Updated ${ratings.length} hitter OSA ratings from Supabase`);
+            return true;
+          }
+        }
+        return false;
+      }
+
+      // Fallback: check bundled CSV hash
       const response = await fetch('/data/default_hitter_osa_scouting.csv');
       if (!response.ok) return false;
 
@@ -529,16 +609,15 @@ class HitterScoutingDataService {
 
       if (newHash === storedHash) return false;
 
-      console.log(`🔄 Bundled hitter OSA scouting changed (${storedHash ?? 'none'} → ${newHash}), updating...`);
       const ratings = this.parseScoutingCsv(csvText, 'osa');
       if (ratings.length === 0) return false;
 
       await this.saveScoutingRatings(gameDate, ratings, 'osa');
       localStorage.setItem(HitterScoutingDataService.OSA_HASH_KEY, newHash);
-      console.log(`✅ Auto-updated ${ratings.length} hitter OSA ratings from bundled file`);
+      console.log(`✅ Updated ${ratings.length} hitter OSA ratings from bundled CSV`);
       return true;
     } catch (error) {
-      console.error('Failed to check bundled hitter OSA freshness:', error);
+      console.error('Failed to check hitter OSA freshness:', error);
       return false;
     }
   }

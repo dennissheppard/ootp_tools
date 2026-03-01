@@ -91,7 +91,7 @@ export class CellEditModal {
   show(
     context: CellEditContext,
     orgPlayers: Player[],
-    allPlayers: Player[],
+    searchPlayersFn: (query: string) => Promise<Player[]>,
     contractMap: Map<number, Contract>,
     playerRatingMap?: Map<number, number>,
     projectedDataMap?: Map<number, { projectedAge: number; projectedRating: number }>,
@@ -102,7 +102,7 @@ export class CellEditModal {
       const modal = this.overlay.querySelector<HTMLElement>('.cell-edit-modal')!;
 
       const hasIncumbent = context.incumbentCell && context.incumbentCell.playerId;
-      const incumbentPlayer = hasIncumbent ? allPlayers.find(p => p.id === context.incumbentCell!.playerId) : null;
+      const incumbentPlayer = hasIncumbent ? orgPlayers.find(p => p.id === context.incumbentCell!.playerId) : null;
 
       let currentInfo = '';
       if (context.currentCell && context.currentCell.playerId) {
@@ -347,15 +347,22 @@ export class CellEditModal {
         }
       });
 
-      // Search input
+      // Search input — lazy-loads all players on first search via searchPlayersFn
       const searchInput = modal.querySelector<HTMLInputElement>('.cell-edit-search-input');
       const searchList = modal.querySelector<HTMLElement>('.cell-edit-search-list');
       if (searchInput && searchList) {
         let debounceTimer: number | undefined;
         searchInput.addEventListener('input', () => {
           clearTimeout(debounceTimer);
-          debounceTimer = window.setTimeout(() => {
-            this.populateSearchList(searchList, allPlayers, contractMap, context, searchInput.value.trim());
+          debounceTimer = window.setTimeout(async () => {
+            const query = searchInput.value.trim();
+            if (query.length < 2) {
+              searchList.innerHTML = '<div class="cell-edit-no-results">Type at least 2 characters...</div>';
+              return;
+            }
+            searchList.innerHTML = '<div class="cell-edit-no-results">Searching...</div>';
+            const results = await searchPlayersFn(query);
+            this.populateSearchList(searchList, results, contractMap, context);
           }, 200);
         });
       }
@@ -564,28 +571,18 @@ export class CellEditModal {
 
   private populateSearchList(
     container: HTMLElement,
-    allPlayers: Player[],
+    results: Player[],
     contractMap: Map<number, Contract>,
     context: CellEditContext,
-    query: string,
   ): void {
-    if (query.length < 2) {
-      container.innerHTML = '<div class="cell-edit-no-results">Type at least 2 characters...</div>';
-      return;
-    }
-
-    const lowerQuery = query.toLowerCase();
-    const results = allPlayers.filter(p => {
-      const name = `${p.firstName} ${p.lastName}`.toLowerCase();
-      return name.includes(lowerQuery);
-    }).slice(0, 50);
-
     if (results.length === 0) {
       container.innerHTML = '<div class="cell-edit-no-results">No players found.</div>';
       return;
     }
 
-    container.innerHTML = results.map(p => {
+    const display = results.slice(0, 50);
+
+    container.innerHTML = display.map(p => {
       const sourceType = this.determineSourceType(p, contractMap, context);
       const badge = sourceType === 'trade-target' ? '<span class="search-badge badge-trade">TRADE</span>'
         : sourceType === 'fa-target' ? '<span class="search-badge badge-fa">FA</span>'
@@ -602,7 +599,7 @@ export class CellEditModal {
       el.addEventListener('click', () => {
         const id = parseInt(el.dataset.playerId!, 10);
         const sourceType = el.dataset.sourceType as OverrideSourceType;
-        const player = allPlayers.find(p => p.id === id);
+        const player = display.find(p => p.id === id);
         if (player) {
           this.resolve({
             action: 'search-select',

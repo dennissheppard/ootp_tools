@@ -9,6 +9,7 @@ import { hitterScoutingDataService } from './HitterScoutingDataService';
 import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { determinePitcherRole, PitcherRoleInput } from '../models/Player';
 import { DevelopmentSnapshotRecord } from './IndexedDBService';
+import { supabaseDataService } from './SupabaseDataService';
 import { apiFetch } from './ApiClient';
 import { indexedDBService } from './IndexedDBService';
 import { developmentSnapshotService } from './DevelopmentSnapshotService';
@@ -16,6 +17,7 @@ import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService
 import { minorLeagueStatsService } from './MinorLeagueStatsService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { fipWarService } from './FipWarService';
+import { teamService } from './TeamService';
 // Type-only imports to avoid circular dependency (both TFR services import trueRatingsService)
 import type { HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
 import type { TrueFutureRatingInput } from './TrueFutureRatingService';
@@ -166,6 +168,83 @@ class TrueRatingsService {
   private pitcherTrCache: Map<number, Map<number, TrueRatingResult>> = new Map();
   private pitcherTrInFlight: Map<number, Promise<Map<number, TrueRatingResult>>> = new Map();
 
+  /**
+   * Bulk-fetch stats from Supabase for a year range and populate per-year in-memory caches.
+   * Turns N individual queries into 1 bulk query. No-op if Supabase not configured or all years cached.
+   */
+  async prefetchPitchingStats(startYear: number, endYear: number): Promise<void> {
+    if (!supabaseDataService.isConfigured) return;
+    const needed = [];
+    for (let y = startYear; y <= endYear; y++) {
+      if (!this.inMemoryPitchingCache.has(y) && y >= LEAGUE_START_YEAR) needed.push(y);
+    }
+    if (needed.length === 0) return;
+
+    const allRows = await supabaseDataService.getPitchingStatsBulk(needed[0], needed[needed.length - 1], 200);
+    if (allRows.length === 0) return;
+
+    const players = await playerService.getAllPlayers();
+    const playerMap = new Map<number, Player>();
+    for (const p of players) playerMap.set(p.id, p);
+
+    const byYear = new Map<number, any[]>();
+    for (const row of allRows) {
+      if (!byYear.has(row.year)) byYear.set(row.year, []);
+      byYear.get(row.year)!.push(row);
+    }
+
+    for (const [year, rows] of byYear) {
+      if (this.inMemoryPitchingCache.has(year)) continue;
+      const processed = rows.map(stat => ({
+        ...stat,
+        playerName: playerMap.get(stat.player_id)
+          ? `${playerMap.get(stat.player_id)!.firstName} ${playerMap.get(stat.player_id)!.lastName}`
+          : 'Unknown Player',
+        position: playerMap.get(stat.player_id)?.position || 1,
+      })) as TruePlayerStats[];
+      this.inMemoryPitchingCache.set(year, this.combinePitchingStats(processed));
+    }
+  }
+
+  async prefetchBattingStats(startYear: number, endYear: number): Promise<void> {
+    if (!supabaseDataService.isConfigured) return;
+    const needed = [];
+    for (let y = startYear; y <= endYear; y++) {
+      if (!this.inMemoryBattingCache.has(y) && y >= LEAGUE_START_YEAR) needed.push(y);
+    }
+    if (needed.length === 0) return;
+
+    const allRows = await supabaseDataService.getBattingStatsBulk(needed[0], needed[needed.length - 1], 200);
+    if (allRows.length === 0) return;
+
+    const players = await playerService.getAllPlayers();
+    const playerMap = new Map<number, Player>();
+    for (const p of players) playerMap.set(p.id, p);
+
+    const byYear = new Map<number, any[]>();
+    for (const row of allRows) {
+      if (!byYear.has(row.year)) byYear.set(row.year, []);
+      byYear.get(row.year)!.push(row);
+    }
+
+    for (const [year, rows] of byYear) {
+      if (this.inMemoryBattingCache.has(year)) continue;
+      const processed = rows.map(stat => {
+        const b = stat as any;
+        b.avg = b.ab > 0 ? b.h / b.ab : 0;
+        b.obp = b.pa > 0 ? (b.h + b.bb + (b.hp || 0)) / b.pa : 0;
+        return {
+          ...stat,
+          playerName: playerMap.get(stat.player_id)
+            ? `${playerMap.get(stat.player_id)!.firstName} ${playerMap.get(stat.player_id)!.lastName}`
+            : 'Unknown Player',
+          position: playerMap.get(stat.player_id)?.position || (stat as any).position,
+        };
+      }) as TruePlayerBattingStats[];
+      this.inMemoryBattingCache.set(year, this.combineBattingStats(processed));
+    }
+  }
+
   public async getTruePitchingStats(year: number): Promise<TruePlayerStats[]> {
     if (year < LEAGUE_START_YEAR) return [];
 
@@ -174,15 +253,17 @@ class TrueRatingsService {
       return this.inMemoryPitchingCache.get(year)!;
     }
 
-    // Check IndexedDB cache
-    const cached = await this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
-    if (cached) {
-      const normalized = this.combinePitchingStats(cached);
-      this.inMemoryPitchingCache.set(year, normalized);
-      if (normalized.length !== cached.length) {
-        await this.saveToCache(year, normalized, 'pitching');
+    // Check IndexedDB cache (skip when Supabase configured — query on-demand)
+    if (!supabaseDataService.isConfigured) {
+      const cached = await this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
+      if (cached) {
+        const normalized = this.combinePitchingStats(cached);
+        this.inMemoryPitchingCache.set(year, normalized);
+        if (normalized.length !== cached.length) {
+          await this.saveToCache(year, normalized, 'pitching');
+        }
+        return normalized;
       }
-      return normalized;
     }
 
     // Check if request is already in-flight
@@ -207,9 +288,11 @@ class TrueRatingsService {
     const normalized = this.combinePitchingStats(playerStats);
     this.inMemoryPitchingCache.set(year, normalized);
 
-    // Cache permanently if the year is completed (historical)
-    const currentYear = await dateService.getCurrentYear();
-    await this.saveToCache(year, normalized, 'pitching', year < currentYear);
+    // Cache permanently if the year is completed (historical) — skip when Supabase is source of truth
+    if (!supabaseDataService.isConfigured) {
+      const currentYear = await dateService.getCurrentYear();
+      await this.saveToCache(year, normalized, 'pitching', year < currentYear);
+    }
 
     return normalized;
   }
@@ -234,15 +317,17 @@ class TrueRatingsService {
       return this.inMemoryBattingCache.get(year)!;
     }
 
-    // Check IndexedDB cache
-    const cached = await this.loadFromCache<TruePlayerBattingStats[]>(year, 'batting');
-    if (cached) {
-      const normalized = this.combineBattingStats(cached);
-      this.inMemoryBattingCache.set(year, normalized);
-      if (normalized.length !== cached.length) {
-        await this.saveToCache(year, normalized, 'batting');
+    // Check IndexedDB cache (skip when Supabase configured — query on-demand)
+    if (!supabaseDataService.isConfigured) {
+      const cached = await this.loadFromCache<TruePlayerBattingStats[]>(year, 'batting');
+      if (cached) {
+        const normalized = this.combineBattingStats(cached);
+        this.inMemoryBattingCache.set(year, normalized);
+        if (normalized.length !== cached.length) {
+          await this.saveToCache(year, normalized, 'batting');
+        }
+        return normalized;
       }
-      return normalized;
     }
 
     // Check if request is already in-flight
@@ -267,65 +352,101 @@ class TrueRatingsService {
     const normalized = this.combineBattingStats(playerStats);
     this.inMemoryBattingCache.set(year, normalized);
 
-    // Cache permanently if the year is completed (historical)
-    const currentYear = await dateService.getCurrentYear();
-    await this.saveToCache(year, normalized, 'batting', year < currentYear);
+    // Cache permanently if the year is completed (historical) — skip when Supabase is source of truth
+    if (!supabaseDataService.isConfigured) {
+      const currentYear = await dateService.getCurrentYear();
+      await this.saveToCache(year, normalized, 'batting', year < currentYear);
+    }
 
     return normalized;
   }
 
   /**
-   * Load bundled MLB pitching data from CSV files
-   * @returns Object with count of files loaded and any errors
+   * Load historical MLB pitching data.
+   * Tries Supabase bulk query first (1 request for all years), falls back to CSV files.
    */
   async loadDefaultMlbData(): Promise<{ loaded: number; errors: string[] }> {
     const startYear = LEAGUE_START_YEAR;
     const currentYear = await dateService.getCurrentYear();
-    const endYear = currentYear - 1; // Only load historical years; current year comes from API
+    const endYear = currentYear - 1;
 
     let loaded = 0;
     const errors: string[] = [];
 
-    console.log(`📦 Loading bundled MLB data (${startYear}-${endYear})...`);
-
+    // Determine which years are missing from cache
+    const missingYears: number[] = [];
     for (let year = startYear; year <= endYear; year++) {
+      const existing = await this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
+      if (!existing || existing.length === 0) {
+        missingYears.push(year);
+      }
+    }
+
+    if (missingYears.length === 0) {
+      console.log('📦 All MLB pitching data already cached');
+      return { loaded: 0, errors: [] };
+    }
+
+    console.log(`📦 Loading MLB pitching data (${missingYears.length} years missing)...`);
+
+    // Try Supabase bulk query first
+    if (supabaseDataService.isConfigured) {
       try {
-        const filename = `${year}.csv`;
-        const url = `/data/mlb/${filename}`;
+        const allRows = await supabaseDataService.getPitchingStatsBulk(
+          missingYears[0], missingYears[missingYears.length - 1], 200
+        );
 
-        // Check if data already exists in cache
-        const existing = await this.loadFromCache<TruePlayerStats[]>(year, 'pitching');
-        if (existing && existing.length > 0) {
-          console.log(`⏭️  Skipping ${filename} (already cached)`);
-          continue;
+        if (allRows.length > 0) {
+          const players = await playerService.getAllPlayers();
+          const playerMap = new Map<number, Player>();
+          for (const player of players) playerMap.set(player.id, player);
+
+          // Group by year
+          const byYear = new Map<number, any[]>();
+          for (const row of allRows) {
+            if (!byYear.has(row.year)) byYear.set(row.year, []);
+            byYear.get(row.year)!.push(row);
+          }
+
+          for (const [year, rows] of byYear) {
+            const processedStats = rows.map(stat => ({
+              ...stat,
+              playerName: playerMap.get(stat.player_id)
+                ? `${playerMap.get(stat.player_id)!.firstName} ${playerMap.get(stat.player_id)!.lastName}`
+                : 'Unknown Player',
+              position: playerMap.get(stat.player_id)?.position || 1
+            })) as TruePlayerStats[];
+
+            const normalized = this.combinePitchingStats(processedStats);
+            await this.saveToCache(year, normalized, 'pitching', true);
+            loaded++;
+          }
+
+          console.log(`📦 Loaded ${loaded} years of MLB pitching from Supabase`);
+          return { loaded, errors };
         }
+      } catch (error) {
+        console.warn('Supabase bulk query failed, falling back to CSV:', error);
+      }
+    }
 
-        // Fetch the bundled CSV
+    // Fallback: load from bundled CSV files
+    for (const year of missingYears) {
+      try {
+        const url = `/data/mlb/${year}.csv`;
         const response = await fetch(url);
         if (!response.ok) {
-          // Don't error on 404 - some years might not have data
-          if (response.status === 404) {
-            console.log(`⏭️  Skipping ${filename} (not in bundle)`);
-          } else {
-            errors.push(`${filename}: HTTP ${response.status}`);
-          }
+          if (response.status !== 404) errors.push(`${year}.csv: HTTP ${response.status}`);
           continue;
         }
 
         const csvText = await response.text();
         const rawStats = this.parseStatsCsv(csvText, 'pitching') as TruePitchingStats[];
+        if (rawStats.length === 0) continue;
 
-        if (rawStats.length === 0) {
-          console.warn(`⚠️  ${filename} parsed to 0 records, skipping`);
-          continue;
-        }
-
-        // Process stats to add player info (same as fetchAndProcessStats)
         const players = await playerService.getAllPlayers();
         const playerMap = new Map<number, Player>();
-        for (const player of players) {
-          playerMap.set(player.id, player);
-        }
+        for (const player of players) playerMap.set(player.id, player);
 
         const processedStats = rawStats
           .map(stat => ({
@@ -338,25 +459,20 @@ class TrueRatingsService {
           .filter(s => s.split_id === 1) as TruePlayerStats[];
 
         const normalized = this.combinePitchingStats(processedStats);
-
-        // Save to cache (permanent cache for historical data)
         await this.saveToCache(year, normalized, 'pitching', true);
         loaded++;
-        console.log(`✅ Loaded ${filename} (${normalized.length} players)`);
-
       } catch (error) {
         errors.push(`${year}: ${error}`);
-        console.error(`❌ Failed to load ${year}:`, error);
       }
     }
 
-    console.log(`📦 Bundled MLB data load complete: ${loaded} datasets loaded, ${errors.length} errors`);
+    console.log(`📦 MLB pitching load complete: ${loaded} datasets, ${errors.length} errors`);
     return { loaded, errors };
   }
 
   /**
-   * Load bundled MLB batting data from CSV files
-   * @returns Object with count of files loaded and any errors
+   * Load historical MLB batting data.
+   * Tries Supabase bulk query first, falls back to CSV files.
    */
   async loadDefaultMlbBattingData(): Promise<{ loaded: number; errors: string[] }> {
     const startYear = LEAGUE_START_YEAR;
@@ -366,41 +482,79 @@ class TrueRatingsService {
     let loaded = 0;
     const errors: string[] = [];
 
-    console.log(`📦 Loading bundled MLB batting data (${startYear}-${endYear})...`);
-
+    // Determine which years are missing from cache
+    const missingYears: number[] = [];
     for (let year = startYear; year <= endYear; year++) {
+      const existing = await this.loadFromCache<TruePlayerBattingStats[]>(year, 'batting');
+      if (!existing || existing.length === 0) {
+        missingYears.push(year);
+      }
+    }
+
+    if (missingYears.length === 0) {
+      console.log('📦 All MLB batting data already cached');
+      return { loaded: 0, errors: [] };
+    }
+
+    console.log(`📦 Loading MLB batting data (${missingYears.length} years missing)...`);
+
+    // Try Supabase bulk query first
+    if (supabaseDataService.isConfigured) {
       try {
-        const filename = `${year}_batting.csv`;
-        const url = `/data/mlb_batting/${filename}`;
+        const allRows = await supabaseDataService.getBattingStatsBulk(
+          missingYears[0], missingYears[missingYears.length - 1], 200
+        );
 
-        // Check if data already exists in cache
-        const existing = await this.loadFromCache<TruePlayerBattingStats[]>(year, 'batting');
-        if (existing && existing.length > 0) {
-          continue;
+        if (allRows.length > 0) {
+          const players = await playerService.getAllPlayers();
+          const playerMap = new Map<number, Player>();
+          for (const player of players) playerMap.set(player.id, player);
+
+          const byYear = new Map<number, any[]>();
+          for (const row of allRows) {
+            if (!byYear.has(row.year)) byYear.set(row.year, []);
+            byYear.get(row.year)!.push(row);
+          }
+
+          for (const [year, rows] of byYear) {
+            const processedStats = rows.map(stat => ({
+              ...stat,
+              playerName: playerMap.get(stat.player_id)
+                ? `${playerMap.get(stat.player_id)!.firstName} ${playerMap.get(stat.player_id)!.lastName}`
+                : 'Unknown Player',
+              position: playerMap.get(stat.player_id)?.position ?? stat.position ?? 0
+            })) as TruePlayerBattingStats[];
+
+            const normalized = this.combineBattingStats(processedStats);
+            await this.saveToCache(year, normalized, 'batting', true);
+            loaded++;
+          }
+
+          console.log(`📦 Loaded ${loaded} years of MLB batting from Supabase`);
+          return { loaded, errors };
         }
+      } catch (error) {
+        console.warn('Supabase bulk query failed, falling back to CSV:', error);
+      }
+    }
 
+    // Fallback: load from bundled CSV files
+    for (const year of missingYears) {
+      try {
+        const url = `/data/mlb_batting/${year}_batting.csv`;
         const response = await fetch(url);
         if (!response.ok) {
-          if (response.status !== 404) {
-            errors.push(`${filename}: HTTP ${response.status}`);
-          }
+          if (response.status !== 404) errors.push(`${year}_batting.csv: HTTP ${response.status}`);
           continue;
         }
 
         const csvText = await response.text();
         const rawStats = this.parseStatsCsv(csvText, 'batting') as TrueBattingStats[];
+        if (rawStats.length === 0) continue;
 
-        if (rawStats.length === 0) {
-          console.warn(`⚠️  ${filename} parsed to 0 records, skipping`);
-          continue;
-        }
-
-        // Process stats to add player info (same as fetchAndProcessStats)
         const players = await playerService.getAllPlayers();
         const playerMap = new Map<number, Player>();
-        for (const player of players) {
-          playerMap.set(player.id, player);
-        }
+        for (const player of players) playerMap.set(player.id, player);
 
         const processedStats = rawStats
           .map(stat => ({
@@ -413,23 +567,76 @@ class TrueRatingsService {
           .filter(s => s.split_id === 1) as TruePlayerBattingStats[];
 
         const normalized = this.combineBattingStats(processedStats);
-
         await this.saveToCache(year, normalized, 'batting', true);
         loaded++;
-        console.log(`✅ Loaded ${filename} (${normalized.length} players)`);
-
       } catch (error) {
         errors.push(`${year}: ${error}`);
-        console.error(`❌ Failed to load batting ${year}:`, error);
       }
     }
 
-    console.log(`📦 Bundled MLB batting data load complete: ${loaded} datasets loaded, ${errors.length} errors`);
+    console.log(`📦 MLB batting load complete: ${loaded} datasets, ${errors.length} errors`);
     return { loaded, errors };
   }
 
   private async fetchAndProcessStats(year: number, type: StatsType, apiEndpoint: string): Promise<(TruePlayerStats | TruePlayerBattingStats)[]> {
     if (year < LEAGUE_START_YEAR) return [];
+
+    // Try Supabase first (hero skips only for the current year — historical years are already in DB)
+    if (supabaseDataService.isConfigured) {
+      try {
+        const leagueId = 200; // MLB
+        const rows = type === 'pitching'
+          ? await supabaseDataService.getPitchingStats(year, leagueId)
+          : await supabaseDataService.getBattingStats(year, leagueId);
+
+        if (rows.length > 0) {
+          const ids = rows.map(r => r.player_id);
+
+          // For batting: always fetch player info (name + primary position from players table)
+          // because batting_stats.position can be 0/NULL for split_id=1, and the TR cache
+          // doesn't store hitter positions.
+          // For pitching: try TR cache first (position is always 1), fall back to info lookup.
+          let trNameMap: Map<number, { name: string; position: number }> | null = null;
+          let infoMap: Map<number, { name: string; position: number }> | null = null;
+
+          if (type === 'pitching') {
+            trNameMap = this.getPlayerNameMapFromTR(year, type);
+            if (!trNameMap || trNameMap.size === 0) {
+              infoMap = await playerService.getPlayerInfoByIds(ids);
+            }
+          } else {
+            // Batting: need positions from player table; try TR cache for names only
+            infoMap = await playerService.getPlayerInfoByIds(ids);
+            trNameMap = this.getPlayerNameMapFromTR(year, type);
+          }
+
+          return rows.map(stat => {
+            if (type === 'batting') {
+              const b = stat as any;
+              b.avg = b.ab > 0 ? b.h / b.ab : 0;
+              b.obp = b.pa > 0 ? (b.h + b.bb + (b.hp || 0)) / b.pa : 0;
+            }
+            const trEntry = trNameMap?.get(stat.player_id);
+            const info = infoMap?.get(stat.player_id);
+            const playerName = trEntry?.name
+              ?? info?.name
+              ?? `Player ${stat.player_id}`;
+            const position = info?.position || trEntry?.position || (type === 'pitching' ? 1 : stat.position);
+            return {
+              ...stat,
+              playerName,
+              position,
+            };
+          });
+        }
+      } catch (err) {
+        console.warn(`⚠️ Supabase fetch failed for ${type} ${year}, falling back to API:`, err);
+      }
+
+      // Supabase is configured but returned no data — don't fall through to API
+      console.warn(`⚠️ Supabase returned no ${type} stats for ${year} and API fallback is disabled`);
+      return [];
+    }
 
     const response = await apiFetch(`${API_BASE}/${apiEndpoint}/?year=${year}`);
     if (!response.ok) {
@@ -438,6 +645,7 @@ class TrueRatingsService {
 
     const csvText = await response.text();
     const stats = this.parseStatsCsv(csvText, type);
+
     const players = await playerService.getAllPlayers();
 
     const playerMap = new Map<number, Player>();
@@ -933,6 +1141,31 @@ class TrueRatingsService {
   }
 
   /**
+   * Extract player name+position map from cached TR data.
+   * Returns null if TR data isn't cached yet for this year.
+   * Used by fetchAndProcessStats to avoid 16-page playerService.getAllPlayers() call.
+   */
+  public getPlayerNameMapFromTR(year: number, type: 'pitching' | 'batting'): Map<number, { name: string; position: number }> | null {
+    if (type === 'pitching') {
+      const cached = this.pitcherTrCache.get(year);
+      if (!cached || cached.size === 0) return null;
+      const map = new Map<number, { name: string; position: number }>();
+      cached.forEach((result, playerId) => {
+        map.set(playerId, { name: result.playerName, position: 1 });
+      });
+      return map;
+    } else {
+      const cached = this.hitterTrCache.get(year);
+      if (!cached || cached.size === 0) return null;
+      const map = new Map<number, { name: string; position: number }>();
+      cached.forEach((result, playerId) => {
+        map.set(playerId, { name: result.playerName, position: 0 });
+      });
+      return map;
+    }
+  }
+
+  /**
    * Get player names for a set of player IDs
    * Useful for building TrueRatingInput objects
    *
@@ -940,17 +1173,24 @@ class TrueRatingsService {
    * @returns Map of playerId → playerName
    */
   public async getPlayerNames(playerIds: Iterable<number>): Promise<Map<number, string>> {
-    const players = await playerService.getAllPlayers();
-    const playerMap = new Map<number, string>();
+    const ids = [...playerIds];
+    if (ids.length === 0) return new Map();
 
-    const idSet = new Set(playerIds);
-    for (const player of players) {
-      if (idSet.has(player.id)) {
-        playerMap.set(player.id, `${player.firstName} ${player.lastName}`);
+    // If players are already cached, use the cache (no extra requests)
+    if (playerService.hasCachedPlayers()) {
+      const players = await playerService.getAllPlayers();
+      const playerMap = new Map<number, string>();
+      const idSet = new Set(ids);
+      for (const player of players) {
+        if (idSet.has(player.id)) {
+          playerMap.set(player.id, `${player.firstName} ${player.lastName}`);
+        }
       }
+      return playerMap;
     }
 
-    return playerMap;
+    // Targeted fetch: only the IDs we need (1 request instead of 15)
+    return playerService.getPlayerNamesByIds(ids);
   }
 
   /**
@@ -1052,6 +1292,39 @@ class TrueRatingsService {
    * - League averages: getDefaultLeagueAverages()
    * - League batting averages: year-specific from leagueBattingAveragesService
    */
+  /**
+   * Bulk-prefetch all data needed for local TR/TFR computation into in-memory caches.
+   * After this resolves, every service call in the computation paths hits cache.
+   * No-op when Supabase is not configured.
+   */
+  async warmCachesForComputation(year: number): Promise<void> {
+    if (!supabaseDataService.isConfigured) return;
+
+    const startYear = Math.max(LEAGUE_START_YEAR, year - 6);
+
+    await Promise.all([
+      // MLB batting + pitching stats: 1 bulk query each
+      this.prefetchBattingStats(startYear, year),
+      this.prefetchPitchingStats(startYear, year),
+      // MiLB stats: 3 years × 2 types = 6 queries
+      minorLeagueBattingStatsService.prefetchYear(year - 2),
+      minorLeagueBattingStatsService.prefetchYear(year - 1),
+      minorLeagueBattingStatsService.prefetchYear(year),
+      minorLeagueStatsService.prefetchYear(year - 2),
+      minorLeagueStatsService.prefetchYear(year - 1),
+      minorLeagueStatsService.prefetchYear(year),
+      // Entity caches (players loaded lazily by views that need them)
+      teamService.getAllTeams(),
+    ]);
+  }
+
+  public clearCaches(): void {
+    this.hitterTrCache.clear();
+    this.pitcherTrCache.clear();
+    this.hitterTrInFlight.clear();
+    this.pitcherTrInFlight.clear();
+  }
+
   public async getHitterTrueRatings(year: number): Promise<Map<number, HitterTrueRatingResult>> {
     // Return from cache if available
     const cached = this.hitterTrCache.get(year);
@@ -1069,6 +1342,23 @@ class TrueRatingsService {
   }
 
   private async computeHitterTrueRatings(year: number): Promise<Map<number, HitterTrueRatingResult>> {
+    // Follower fast path: use pre-computed TR from Supabase (skip when custom scouting uploaded)
+    if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
+      try {
+        const rows = await supabaseDataService.getPlayerRatings('hitter_tr');
+        if (rows.length > 0) {
+          console.log(`⚡ Loaded ${rows.length} pre-computed hitter TR from Supabase`);
+          const map = new Map<number, HitterTrueRatingResult>();
+          for (const row of rows) map.set(row.player_id, row.data);
+          this.hitterTrCache.set(year, map);
+          return map;
+        }
+        console.log('⚠️ player_ratings has 0 hitter_tr rows — falling back to computation');
+      } catch (err) {
+        console.warn('⚠️ Failed to load pre-computed hitter TR, falling back to computation:', err);
+      }
+    }
+
     const currentYear = await dateService.getCurrentYear();
 
     // Dynamic year weights for current season — rolling progress-based
@@ -1158,6 +1448,23 @@ class TrueRatingsService {
   }
 
   private async computePitcherTrueRatings(year: number): Promise<Map<number, TrueRatingResult>> {
+    // Follower fast path: use pre-computed TR from Supabase (skip when custom scouting uploaded)
+    if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
+      try {
+        const rows = await supabaseDataService.getPlayerRatings('pitcher_tr');
+        if (rows.length > 0) {
+          console.log(`⚡ Loaded ${rows.length} pre-computed pitcher TR from Supabase`);
+          const map = new Map<number, TrueRatingResult>();
+          for (const row of rows) map.set(row.player_id, row.data);
+          this.pitcherTrCache.set(year, map);
+          return map;
+        }
+        console.log('⚠️ player_ratings has 0 pitcher_tr rows — falling back to computation');
+      } catch (err) {
+        console.warn('⚠️ Failed to load pre-computed pitcher TR, falling back to computation:', err);
+      }
+    }
+
     const currentYear = await dateService.getCurrentYear();
 
     // Dynamic year weights for current season — rolling progress-based

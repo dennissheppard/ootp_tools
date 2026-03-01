@@ -5,11 +5,9 @@ import { ProjectedPlayer } from '../services/ProjectionService';
 import { Team } from '../models/Team';
 import { dateService } from '../services/DateService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
-import { PitcherScoutingRatings, HitterScoutingRatings } from '../models/ScoutingData';
 import { pitcherProfileModal } from './PitcherProfileModal';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
 import { ProjectedBatter } from '../services/BatterProjectionService';
-import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { teamRatingsService, RatedProspect, RatedHitterProspect, TeamPowerRanking, RatedPitcher, RatedBatter } from '../services/TeamRatingsService';
 import { contractService, Contract } from '../services/ContractService';
 import { trueRatingsService } from '../services/TrueRatingsService';
@@ -17,8 +15,11 @@ import { TrueRatingResult } from '../services/TrueRatingsCalculationService';
 import { HitterTrueRatingResult } from '../services/HitterTrueRatingsCalculationService';
 import { aiTradeAnalysisService, TradeContext, TradePlayerContext, TradePickContext } from '../services/AITradeAnalysisService';
 import { markdownToHtml } from '../services/AIScoutingService';
-import { hasComponentUpside } from '../utils/tfrUpside';
-import { canonicalCurrentProjectionService } from '../services/CanonicalCurrentProjectionService';
+import { resolveCanonicalPitcherData, resolveCanonicalBatterData, computePitcherProjection, computeBatterProjection } from '../services/ModalDataService';
+import type { PitcherProfileData } from './PitcherProfileModal';
+import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
+import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
+import { fipWarService } from '../services/FipWarService';
 import { emitDataSourceBadges } from '../utils/dataSourceBadges';
 import { teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
@@ -56,12 +57,10 @@ interface TradeAnalysis {
 
 export class TradeAnalyzerView {
   private container: HTMLElement;
-  private allPlayers: Player[] = [];
+  private teamPlayers: Map<number, Player[]> = new Map(); // per-org player cache
   private allTeams: Team[] = [];
   private allProjections: Map<number, ProjectedPlayer> = new Map();
-  private allScoutingRatings: Map<number, PitcherScoutingRatings> = new Map();
   private allBatterProjections: Map<number, ProjectedBatter> = new Map();
-  private allHitterScoutingRatings: Map<number, HitterScoutingRatings> = new Map();
   private currentYear: number = 2022;
   private batterProfileModal: BatterProfileModal;
   private scoutingDataMode: 'my' | 'osa' | 'mixed' | 'none' = 'none';
@@ -70,11 +69,13 @@ export class TradeAnalyzerView {
   private pitcherProspectMap: Map<number, RatedProspect> = new Map();
   private hitterProspectMap: Map<number, RatedHitterProspect> = new Map();
 
-  // Power rankings for team impact (Improvement 2)
+  // Power rankings for team impact — lazy-loaded on first trade analysis
   private powerRankingsMap: Map<number, TeamPowerRanking> = new Map();
+  private powerRankingsLoaded = false;
 
-  // Contracts for AI analysis (Improvement 3)
+  // Contracts — lazy-loaded on first team selection
   private allContracts: Map<number, Contract> = new Map();
+  private contractsLoaded = false;
 
   // Canonical True Ratings (consistent with profile modals)
   private canonicalPitcherTR: Map<number, TrueRatingResult> = new Map();
@@ -116,8 +117,16 @@ export class TradeAnalyzerView {
     });
   }
 
+  private findPlayer(playerId: number): Player | undefined {
+    for (const players of this.teamPlayers.values()) {
+      const found = players.find(p => p.id === playerId);
+      if (found) return found;
+    }
+    return undefined;
+  }
+
   private async openPlayerProfile(playerId: number): Promise<void> {
-    const player = this.allPlayers.find(p => p.id === playerId);
+    const player = this.findPlayer(playerId);
     if (!player) {
       console.warn(`Player ${playerId} not found`);
       return;
@@ -129,340 +138,55 @@ export class TradeAnalyzerView {
       const parent = this.allTeams.find(t => t.id === team.parentTeamId);
       parentTeam = parent?.nickname;
     }
+    const teamLabel = team ? `${team.name} ${team.nickname}` : undefined;
 
     if (isPitcher(player)) {
-      // Handle pitcher profile
-      const scouting = this.allScoutingRatings.get(playerId);
+      // Minimal profile data — the modal applies canonical TR/TFR overrides internally
       const projection = this.allProjections.get(playerId);
-      const prospect = this.pitcherProspectMap.get(playerId);
-      const isProspect = projection?.isProspect === true
-        || (!this.canonicalPitcherTR.has(playerId) && !!prospect);
-
-      // Estimated ratings: use development TR for prospects, projection for MLB
-      let estimatedStuff = projection?.projectedRatings?.stuff;
-      let estimatedControl = projection?.projectedRatings?.control;
-      let estimatedHra = projection?.projectedRatings?.hra;
-
-      // TFR fields for prospects
-      let trueFutureRating: number | undefined;
-      let tfrPercentile: number | undefined;
-      let tfrStuff: number | undefined;
-      let tfrControl: number | undefined;
-      let tfrHra: number | undefined;
-      let tfrBySource: any;
-
-      // Projection stats
-      let projWar: number | undefined;
-      let projIp: number | undefined;
-      let projFip: number | undefined;
-      let projK9: number | undefined;
-      let projBb9: number | undefined;
-      let projHr9: number | undefined;
-
-      if (isProspect && prospect) {
-        // Use farm data for prospect
-        estimatedStuff = prospect.developmentTR?.stuff ?? prospect.trueRatings?.stuff ?? estimatedStuff;
-        estimatedControl = prospect.developmentTR?.control ?? prospect.trueRatings?.control ?? estimatedControl;
-        estimatedHra = prospect.developmentTR?.hra ?? prospect.trueRatings?.hra ?? estimatedHra;
-
-        trueFutureRating = prospect.trueFutureRating;
-        tfrPercentile = prospect.percentile;
-        tfrStuff = prospect.trueRatings?.stuff;
-        tfrControl = prospect.trueRatings?.control;
-        tfrHra = prospect.trueRatings?.hra;
-        tfrBySource = prospect.tfrBySource;
-
-        projWar = prospect.peakWar;
-        projIp = prospect.peakIp ?? prospect.stats.ip;
-        projFip = prospect.peakFip;
-        projK9 = prospect.projK9 ?? prospect.stats.k9;
-        projBb9 = prospect.projBb9 ?? prospect.stats.bb9;
-        projHr9 = prospect.projHr9 ?? prospect.stats.hr9;
-      } else if (projection) {
-        // Use MLB projection
-        projWar = projection.projectedStats.war;
-        projIp = projection.projectedStats.ip;
-        projFip = projection.projectedStats.fip;
-        projK9 = projection.projectedStats.k9;
-        projBb9 = projection.projectedStats.bb9;
-        projHr9 = projection.projectedStats.hr9;
-
-        // MLB player may still have TFR data from farm system
-        if (prospect) {
-          trueFutureRating = prospect.trueFutureRating;
-          tfrPercentile = prospect.percentile;
-          tfrStuff = prospect.trueRatings?.stuff;
-          tfrControl = prospect.trueRatings?.control;
-          tfrHra = prospect.trueRatings?.hra;
-          tfrBySource = prospect.tfrBySource;
-        }
-      }
-
-      const hasTfrUpside = isProspect ? true
-        : (prospect ? ((trueFutureRating !== undefined && trueFutureRating > (projection?.currentTrueRating ?? 0))
-            || hasComponentUpside(
-              [estimatedStuff, estimatedControl, estimatedHra],
-              [tfrStuff, tfrControl, tfrHra]
-            ))
-          : false);
-
       const profileData = {
         playerId: player.id,
         playerName: getFullName(player),
-        team: team ? `${team.name} ${team.nickname}` : undefined,
-        parentTeam,
-        age: player.age,
-        positionLabel: getPositionLabel(player.position),
-        trueRating: projection?.currentTrueRating,
-        percentile: (projection as any)?.currentPercentile,
-        fipLike: (projection as any)?.fipLike,
-        estimatedStuff,
-        estimatedControl,
-        estimatedHra,
-        scoutStuff: scouting?.stuff,
-        scoutControl: scouting?.control,
-        scoutHra: scouting?.hra,
-        scoutStamina: scouting?.stamina,
-        injuryProneness: scouting?.injuryProneness,
-        scoutOvr: scouting?.ovr,
-        scoutPot: scouting?.pot,
-        pitchRatings: scouting?.pitches,
-        isProspect: Boolean(isProspect),
-        trueFutureRating,
-        tfrPercentile,
-        hasTfrUpside,
-        tfrStuff: tfrStuff ?? (isProspect ? estimatedStuff : undefined),
-        tfrControl: tfrControl ?? (isProspect ? estimatedControl : undefined),
-        tfrHra: tfrHra ?? (isProspect ? estimatedHra : undefined),
-        tfrBySource,
-        projWar,
-        projIp,
-        projFip,
-        projK9,
-        projBb9,
-        projHr9,
-      };
-
-      await pitcherProfileModal.show(profileData as any, this.currentYear);
-    } else {
-      // Handle batter profile
-      const batterProjection = this.allBatterProjections.get(playerId);
-      const prospect = this.hitterProspectMap.get(playerId);
-      const hitterScouting = this.allHitterScoutingRatings.get(playerId);
-      const isProspect = batterProjection?.isProspect === true
-        || (!this.canonicalBatterTR.has(playerId) && !!prospect);
-
-      // Projected stats
-      let projWar: number | undefined;
-      let projWoba: number | undefined;
-      let projAvg: number | undefined;
-      let projObp: number | undefined;
-      let projSlg: number | undefined;
-      let projPa: number | undefined;
-      let projBbPct: number | undefined;
-      let projKPct: number | undefined;
-      let projHrPct: number | undefined;
-      let projWrcPlus: number | undefined;
-
-      // True Ratings estimates
-      let estimatedPower: number | undefined;
-      let estimatedEye: number | undefined;
-      let estimatedAvoidK: number | undefined;
-      let estimatedContact: number | undefined;
-      let estimatedGap: number | undefined;
-      let estimatedSpeed: number | undefined;
-
-      // TFR fields
-      let trueFutureRating: number | undefined;
-      let tfrPercentile: number | undefined;
-      let hasTfrUpside: boolean | undefined;
-      let tfrPower: number | undefined;
-      let tfrEye: number | undefined;
-      let tfrAvoidK: number | undefined;
-      let tfrContact: number | undefined;
-      let tfrGap: number | undefined;
-      let tfrSpeed: number | undefined;
-      let tfrBbPct: number | undefined;
-      let tfrKPct: number | undefined;
-      let tfrHrPct: number | undefined;
-      let tfrAvg: number | undefined;
-      let tfrObp: number | undefined;
-      let tfrSlg: number | undefined;
-      let tfrPa: number | undefined;
-      let batterTfrBySource: any;
-
-      // Raw stats for MLB players
-      let pa: number | undefined;
-      let avg: number | undefined;
-      let obp: number | undefined;
-      let slg: number | undefined;
-      let hr: number | undefined;
-      let war: number | undefined;
-
-      if (isProspect && prospect) {
-        // Prospect: use farm data
-        projWar = prospect.projWar;
-        projWoba = prospect.projWoba;
-        projAvg = prospect.projAvg;
-        projObp = prospect.projObp;
-        projSlg = prospect.projSlg;
-        projPa = prospect.projPa;
-        projBbPct = prospect.projBbPct;
-        projKPct = prospect.projKPct;
-        projHrPct = prospect.projHrPct;
-        projWrcPlus = prospect.wrcPlus;
-
-        trueFutureRating = prospect.trueFutureRating;
-        tfrPercentile = prospect.percentile;
-        hasTfrUpside = true;
-
-        estimatedPower = prospect.developmentTR?.power ?? prospect.trueRatings.power;
-        estimatedEye = prospect.developmentTR?.eye ?? prospect.trueRatings.eye;
-        estimatedAvoidK = prospect.developmentTR?.avoidK ?? prospect.trueRatings.avoidK;
-        estimatedContact = prospect.developmentTR?.contact ?? prospect.trueRatings.contact;
-        estimatedGap = prospect.developmentTR?.gap ?? prospect.trueRatings.gap;
-        estimatedSpeed = prospect.developmentTR?.speed ?? prospect.trueRatings.speed;
-
-        // TFR ceiling = true ratings (peak potential)
-        tfrPower = prospect.trueRatings.power;
-        tfrEye = prospect.trueRatings.eye;
-        tfrAvoidK = prospect.trueRatings.avoidK;
-        tfrContact = prospect.trueRatings.contact;
-        tfrGap = prospect.trueRatings.gap;
-        tfrSpeed = prospect.trueRatings.speed;
-
-        // TFR blended rates
-        tfrBbPct = prospect.projBbPct;
-        tfrKPct = prospect.projKPct;
-        tfrHrPct = prospect.projHrPct;
-        tfrAvg = prospect.projAvg;
-        tfrObp = prospect.projObp;
-        tfrSlg = prospect.projSlg;
-        tfrPa = prospect.projPa;
-        batterTfrBySource = prospect.tfrBySource;
-      } else if (batterProjection) {
-        // MLB player with projection
-        projWar = batterProjection.projectedStats.war;
-        projAvg = batterProjection.projectedStats.avg;
-        projObp = batterProjection.projectedStats.obp;
-        projSlg = batterProjection.projectedStats.slg;
-        projPa = batterProjection.projectedStats.pa;
-        projBbPct = batterProjection.projectedStats.bbPct;
-        projKPct = batterProjection.projectedStats.kPct;
-        projHrPct = batterProjection.projectedStats.hrPct;
-        projWoba = batterProjection.projectedStats.woba;
-
-        // Estimated ratings from projection
-        estimatedPower = batterProjection.estimatedRatings?.power;
-        estimatedEye = batterProjection.estimatedRatings?.eye;
-        estimatedAvoidK = batterProjection.estimatedRatings?.avoidK;
-        estimatedContact = batterProjection.estimatedRatings?.contact;
-
-        // Raw stats (if available on projection)
-        pa = batterProjection.projectedStats.pa;
-        avg = batterProjection.projectedStats.avg;
-        obp = batterProjection.projectedStats.obp;
-        slg = batterProjection.projectedStats.slg;
-        hr = batterProjection.projectedStats.hr;
-        war = batterProjection.projectedStats.war;
-
-        // MLB player may still have TFR data from farm system
-        if (prospect) {
-          trueFutureRating = prospect.trueFutureRating;
-          tfrPercentile = prospect.percentile;
-          tfrPower = prospect.trueRatings.power;
-          tfrEye = prospect.trueRatings.eye;
-          tfrAvoidK = prospect.trueRatings.avoidK;
-          tfrContact = prospect.trueRatings.contact;
-          tfrGap = prospect.trueRatings.gap;
-          tfrSpeed = prospect.trueRatings.speed;
-          tfrBbPct = prospect.projBbPct;
-          tfrKPct = prospect.projKPct;
-          tfrHrPct = prospect.projHrPct;
-          tfrAvg = prospect.projAvg;
-          tfrObp = prospect.projObp;
-          tfrSlg = prospect.projSlg;
-          tfrPa = prospect.projPa;
-          batterTfrBySource = prospect.tfrBySource;
-          hasTfrUpside = (trueFutureRating > (batterProjection.currentTrueRating ?? 0))
-            || hasComponentUpside(
-              [estimatedPower, estimatedEye, estimatedAvoidK, estimatedContact, estimatedGap, estimatedSpeed],
-              [tfrPower, tfrEye, tfrAvoidK, tfrContact, tfrGap, tfrSpeed]
-            );
-        }
-      }
-
-      const profileData: BatterProfileData = {
-        playerId: player.id,
-        playerName: getFullName(player),
-        team: team ? `${team.name} ${team.nickname}` : undefined,
+        team: teamLabel,
         parentTeam,
         age: player.age,
         position: player.position,
         positionLabel: getPositionLabel(player.position),
-        trueRating: isProspect ? undefined : batterProjection?.currentTrueRating,
-        percentile: isProspect ? undefined : batterProjection?.percentile,
+        // Seed with projection data if available; modal overrides with canonical TR/TFR
+        trueRating: projection?.currentTrueRating,
+        estimatedStuff: projection?.projectedRatings?.stuff,
+        estimatedControl: projection?.projectedRatings?.control,
+        estimatedHra: projection?.projectedRatings?.hra,
+        projWar: projection?.projectedStats.war,
+        projIp: projection?.projectedStats.ip,
+        projFip: projection?.projectedStats.fip,
+        projK9: projection?.projectedStats.k9,
+        projBb9: projection?.projectedStats.bb9,
+        projHr9: projection?.projectedStats.hr9,
+        isProspect: projection?.isProspect,
+      };
 
-        // Estimated ratings
-        estimatedPower,
-        estimatedEye,
-        estimatedAvoidK,
-        estimatedContact,
-        estimatedGap,
-        estimatedSpeed,
-
-        // Scouting ratings
-        scoutPower: hitterScouting?.power,
-        scoutEye: hitterScouting?.eye,
-        scoutAvoidK: hitterScouting?.avoidK,
-        scoutContact: hitterScouting?.contact,
-        scoutGap: hitterScouting?.gap,
-        scoutSpeed: hitterScouting?.speed,
-        scoutOvr: hitterScouting?.ovr,
-        scoutPot: hitterScouting?.pot,
-        injuryProneness: (hitterScouting as any)?.injuryProneness ?? prospect?.injuryProneness,
-
-        // Raw stats
-        pa,
-        avg,
-        obp,
-        slg,
-        hr,
-        war,
-
-        // Projected stats
-        projWar,
-        projWoba,
-        projAvg,
-        projObp,
-        projSlg,
-        projPa,
-        projBbPct,
-        projKPct,
-        projHrPct,
-        projWrcPlus,
-
-        // TFR data
-        isProspect: Boolean(isProspect),
-        trueFutureRating,
-        tfrPercentile,
-        hasTfrUpside,
-        tfrPower,
-        tfrEye,
-        tfrAvoidK,
-        tfrContact,
-        tfrGap,
-        tfrSpeed,
-
-        // TFR blended rates
-        tfrBbPct,
-        tfrKPct,
-        tfrHrPct,
-        tfrAvg,
-        tfrObp,
-        tfrSlg,
-        tfrPa,
-        tfrBySource: batterTfrBySource,
+      await pitcherProfileModal.show(profileData as any, this.currentYear);
+    } else {
+      // Minimal profile data — the modal applies canonical TR/TFR overrides internally
+      const projection = this.allBatterProjections.get(playerId);
+      const profileData: BatterProfileData = {
+        playerId: player.id,
+        playerName: getFullName(player),
+        team: teamLabel,
+        parentTeam,
+        age: player.age,
+        position: player.position,
+        positionLabel: getPositionLabel(player.position),
+        // Seed with projection data if available; modal overrides with canonical TR/TFR
+        trueRating: projection?.currentTrueRating,
+        percentile: projection?.percentile,
+        estimatedPower: projection?.estimatedRatings?.power,
+        estimatedEye: projection?.estimatedRatings?.eye,
+        estimatedAvoidK: projection?.estimatedRatings?.avoidK,
+        estimatedContact: projection?.estimatedRatings?.contact,
+        projWar: projection?.projectedStats?.war,
+        projPa: projection?.projectedStats?.pa,
+        isProspect: projection?.isProspect,
       };
 
       await this.batterProfileModal.show(profileData, this.currentYear);
@@ -480,21 +204,12 @@ export class TradeAnalyzerView {
       this.currentYear = 2022;
     }
 
-    this.allPlayers = await playerService.getAllPlayers();
     this.allTeams = await teamService.getAllTeams();
 
-    // Projection snapshots are loaded lazily per-team in onTeamChange() to avoid
-    // computing projections for the entire league upfront.
-
-    // Load scouting ratings for fallback (for players without projections)
+    // Detect scouting data mode for badges (don't need to store all ratings —
+    // CanonicalCurrentProjectionService loads them internally)
     try {
-      console.log('Loading scouting ratings...');
       const scoutingResult = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
-      scoutingResult.ratings.forEach(rating => {
-        if (rating.playerId > 0) {
-          this.allScoutingRatings.set(rating.playerId, rating);
-        }
-      });
       this.scoutingDataMode = scoutingResult.metadata.fromMyScout > 0 && scoutingResult.metadata.fromOSA > 0
         ? 'mixed'
         : scoutingResult.metadata.fromMyScout > 0
@@ -503,75 +218,34 @@ export class TradeAnalyzerView {
             ? 'osa'
             : 'none';
       this.updateDataSourceBadges();
-      console.log(`Loaded ${this.allScoutingRatings.size} scouting ratings`);
     } catch (e) {
-      console.error('Failed to load scouting ratings:', e);
+      console.error('Failed to detect scouting data mode:', e);
     }
 
-    // Load hitter scouting ratings
+    // Load farm data and canonical TR in parallel (lightweight precomputed lookups).
+    // Power rankings + contracts are deferred to first trade analysis / team selection.
     try {
-      console.log('Loading hitter scouting ratings...');
-      const hitterScoutingList = await hitterScoutingDataService.getLatestScoutingRatings('osa');
-      hitterScoutingList.forEach(rating => {
-        if (rating.playerId > 0) {
-          this.allHitterScoutingRatings.set(rating.playerId, rating);
-        }
-      });
-      // Also try "my" scouting ratings (preferred)
-      const myHitterScouting = await hitterScoutingDataService.getLatestScoutingRatings('my');
-      myHitterScouting.forEach(rating => {
-        if (rating.playerId > 0) {
-          this.allHitterScoutingRatings.set(rating.playerId, rating);
-        }
-      });
-      if (this.scoutingDataMode !== 'mixed') {
-        const hasMy = myHitterScouting.length > 0;
-        const hasOsa = hitterScoutingList.length > 0;
-        this.scoutingDataMode = hasMy && hasOsa ? 'mixed' : hasMy ? 'my' : hasOsa ? 'osa' : this.scoutingDataMode;
-      }
-      this.updateDataSourceBadges();
-      console.log(`Loaded ${this.allHitterScoutingRatings.size} hitter scouting ratings`);
-    } catch (e) {
-      console.error('Failed to load hitter scouting ratings:', e);
-    }
-
-    // Load farm data, power rankings, contracts, and canonical TR in parallel
-    try {
-      const [pitcherUnifiedData, hitterUnifiedData, powerRankings, contracts, pitcherTR, batterTR] = await Promise.all([
+      const [pitcherUnifiedData, hitterUnifiedData, pitcherTR, batterTR] = await Promise.all([
         teamRatingsService.getUnifiedPitcherTfrData(this.currentYear).catch(e => { console.warn('Failed to load unified pitcher TFR data:', e); return null; }),
         teamRatingsService.getUnifiedHitterTfrData(this.currentYear).catch(e => { console.warn('Failed to load unified hitter TFR data:', e); return null; }),
-        teamRatingsService.getPowerRankings(this.currentYear).catch(e => { console.warn('Failed to load power rankings:', e); return null; }),
-        contractService.getAllContracts().catch(e => { console.warn('Failed to load contracts:', e); return null; }),
         trueRatingsService.getPitcherTrueRatings(this.currentYear).catch(e => { console.warn('Failed to load canonical pitcher TR:', e); return null; }),
         trueRatingsService.getHitterTrueRatings(this.currentYear).catch(e => { console.warn('Failed to load canonical batter TR:', e); return null; }),
       ]);
 
       if (pitcherUnifiedData) {
         pitcherUnifiedData.prospects.forEach(p => this.pitcherProspectMap.set(p.playerId, p));
-        console.log(`Loaded ${this.pitcherProspectMap.size} pitcher prospects into map`);
       }
       if (hitterUnifiedData) {
         hitterUnifiedData.prospects.forEach(p => this.hitterProspectMap.set(p.playerId, p));
-        console.log(`Loaded ${this.hitterProspectMap.size} hitter prospects into map`);
-      }
-      if (powerRankings) {
-        powerRankings.forEach(r => this.powerRankingsMap.set(r.teamId, r));
-        console.log(`Loaded ${this.powerRankingsMap.size} power rankings`);
-      }
-      if (contracts) {
-        this.allContracts = contracts;
-        console.log(`Loaded ${this.allContracts.size} contracts`);
       }
       if (pitcherTR) {
         this.canonicalPitcherTR = pitcherTR;
-        console.log(`Loaded ${this.canonicalPitcherTR.size} canonical pitcher TRs`);
       }
       if (batterTR) {
         this.canonicalBatterTR = batterTR;
-        console.log(`Loaded ${this.canonicalBatterTR.size} canonical batter TRs`);
       }
     } catch (e) {
-      console.error('Failed to load farm/ranking/contract data:', e);
+      console.error('Failed to load farm/ranking data:', e);
     }
 
     this.setupEventHandlers();
@@ -688,20 +362,27 @@ export class TradeAnalyzerView {
     this.renderBackButton();
 
     await this.setTeamById(1, myTeamId);
-    await this.setTeamById(2, targetTeamId);
 
+    // targetTeamId = 0 means "add player to team 1 side" (same-team / no saved team)
+    const addToTeam1 = !targetTeamId;
+    if (!addToTeam1) {
+      await this.setTeamById(2, targetTeamId);
+    }
+
+    const targetSide: 1 | 2 = addToTeam1 ? 1 : 2;
     if (targetIsProspect) {
-      const select = this.container.querySelector<HTMLSelectElement>('.trade-level-select[data-team="2"]');
+      const select = this.container.querySelector<HTMLSelectElement>(`.trade-level-select[data-team="${targetSide}"]`);
       if (select) {
+        const state = targetSide === 1 ? this.team1State : this.team2State;
         select.value = 'all-prospects';
-        this.team2State.minorLevel = 'all-prospects';
-        const toggleContainer = this.container.querySelector<HTMLElement>('.trade-player-type-toggle[data-team="2"]');
+        state.minorLevel = 'all-prospects';
+        const toggleContainer = this.container.querySelector<HTMLElement>(`.trade-player-type-toggle[data-team="${targetSide}"]`);
         if (toggleContainer) toggleContainer.style.display = 'flex';
-        this.updatePlayerList(2);
+        this.updatePlayerList(targetSide);
       }
     }
 
-    this.addPlayerToTrade(2, targetPlayerId);
+    this.addPlayerToTrade(targetSide, targetPlayerId);
 
     // Add the trade-match player to Team 1 if present (two-way match)
     if (matchPlayerId) {
@@ -778,13 +459,13 @@ export class TradeAnalyzerView {
   }
 
   private populateTeamDropdowns(): void {
-    const teamsWithPlayers = new Set<number>();
-    this.allPlayers.forEach(p => {
-      if (p.teamId) teamsWithPlayers.add(p.teamId);
-    });
-
+    // Filter to real MLB orgs — teams with minor league affiliates (excludes All-Star teams)
+    const orgsWithAffiliates = new Set<number>();
+    for (const t of this.allTeams) {
+      if (t.parentTeamId > 0) orgsWithAffiliates.add(t.parentTeamId);
+    }
     const mainTeams = this.allTeams
-      .filter(t => t.parentTeamId === 0 && teamsWithPlayers.has(t.id))
+      .filter(t => t.parentTeamId === 0 && orgsWithAffiliates.has(t.id))
       .sort((a, b) => a.nickname.localeCompare(b.nickname));
 
     ([1, 2] as const).forEach(teamNum => {
@@ -953,19 +634,18 @@ export class TradeAnalyzerView {
     state.tradingBatters = [];
     state.tradingPicks = [];
 
-    // Show skeleton placeholder while projections load
+    // Show skeleton placeholder while data loads
     if (teamId > 0) {
       this.showPlayerListSkeleton(teamNum);
     }
 
-    // Load projections lazily for this team (merges into cache)
-    if (teamId > 0) {
+    // Load players lazily for this team (projections computed on-demand when added to trade)
+    if (teamId > 0 && !this.teamPlayers.has(teamId)) {
       try {
-        const snapshot = await canonicalCurrentProjectionService.getSnapshotForTeams(this.currentYear, [teamId]);
-        for (const [id, p] of snapshot.pitchers) this.allProjections.set(id, p);
-        for (const [id, b] of snapshot.batters) this.allBatterProjections.set(id, b);
+        const teamPlayerList = await playerService.getPlayersByOrgId(teamId);
+        this.teamPlayers.set(teamId, teamPlayerList);
       } catch (e) {
-        console.warn('Failed to load projections for team:', e);
+        console.warn('Failed to load players for team:', e);
       }
     }
 
@@ -1005,49 +685,32 @@ export class TradeAnalyzerView {
   }
 
   private getPlayersByTeamAndLevel(teamId: number, level: string, showPitchers: boolean): Player[] {
-    if (teamId === 0) {
-      console.log('No team selected');
-      return [];
-    }
+    if (teamId === 0) return [];
 
-    console.log(`Filtering players: teamId=${teamId}, level=${level}, showPitchers=${showPitchers}, total players=${this.allPlayers.length}`);
+    const teamPlayerList = this.teamPlayers.get(teamId) ?? [];
 
-    let filtered = this.allPlayers.filter(p => {
+    let filtered = teamPlayerList.filter(p => {
       if (level === 'mlb') {
-        // MLB: teamId matches, level is 1, and NOT an IC player
-        // IC players have level 1 (same as MLB) but contract.leagueId === -200
-        if (p.teamId !== teamId || p.level !== 1) return false;
-        const contract = this.allContracts.get(p.id);
-        return !contract || contract.leagueId !== -200;
+        // MLB: level 1, excluding IC players (level 6)
+        return (p.teamId === teamId) && p.level === 1;
       } else if (level === 'all-prospects') {
-        // All minor league levels (AAA through Rookie) + IC players
-        const isMinorLeaguer = p.parentTeamId === teamId && p.level >= 2 && p.level <= 5;
-        const isIcPlayer = p.teamId === teamId && p.level === 1 &&
-          this.allContracts.get(p.id)?.leagueId === -200;
-        return isMinorLeaguer || isIcPlayer;
+        // All minor league levels (AAA through Rookie) + IC (level 6)
+        return (p.level >= 2 && p.level <= 5) || p.level === 6;
       } else if (level === 'ic') {
-        // International Complex: teamId matches, level is 1, contract.leagueId === -200
-        return p.teamId === teamId && p.level === 1 &&
-          this.allContracts.get(p.id)?.leagueId === -200;
+        return p.level === 6;
       } else if (level === 'aaa') {
-        return p.parentTeamId === teamId && p.level === 2;
+        return p.level === 2;
       } else if (level === 'aa') {
-        return p.parentTeamId === teamId && p.level === 3;
+        return p.level === 3;
       } else if (level === 'a') {
-        return p.parentTeamId === teamId && p.level === 4;
+        return p.level === 4;
       } else if (level === 'r') {
-        return p.parentTeamId === teamId && p.level === 5;
+        return p.level === 5;
       }
       return false;
     });
 
-    console.log(`After team/level filter: ${filtered.length} players`);
-
-    // Filter by player type (pitchers vs batters)
-    const result = filtered.filter(p => showPitchers ? isPitcher(p) : !isPitcher(p));
-    console.log(`After player type filter: ${result.length} ${showPitchers ? 'pitchers' : 'batters'}`);
-
-    return result;
+    return filtered.filter(p => showPitchers ? isPitcher(p) : !isPitcher(p));
   }
 
   private sortPlayers(players: Player[], sortKey: 'name' | 'position' | 'rating', sortDirection: 'asc' | 'desc', showPitchers: boolean): Player[] {
@@ -1129,39 +792,68 @@ export class TradeAnalyzerView {
     if (!tr && !prospect) return undefined;
 
     const team = this.allTeams.find(t => t.id === player.teamId);
-    const scouting = this.allScoutingRatings.get(player.id);
+    const teamName = team?.nickname ?? 'Unknown';
     const currentRating = tr?.trueRating ?? prospect?.trueFutureRating ?? 0.5;
     const projectedTrue = prospect?.trueFutureRating ?? currentRating;
+
+    // Build profile data and apply canonical TR/TFR
+    const data: PitcherProfileData = {
+      playerId: player.id,
+      playerName: getFullName(player),
+      team: teamName,
+      parentTeam: teamName,
+      age: player.age,
+      position: player.position,
+      positionLabel: getPositionLabel(player.position),
+    };
+    resolveCanonicalPitcherData(data, tr, prospect);
+
+    // Compute projection through canonical pipeline
+    const proj = computePitcherProjection(data, [], {
+      projectionMode: 'current',
+      scoutingData: null,
+      projectedIp: null,
+      estimateIp: (stamina, injury) => {
+        let baseIp: number;
+        if (stamina >= 65) baseIp = 180 + (stamina - 65) * 1.5;
+        else if (stamina >= 50) baseIp = 120 + (stamina - 50) * 4;
+        else if (stamina >= 35) baseIp = 65 + (stamina - 35) * 3.67;
+        else baseIp = 40 + (stamina - 20) * 1.67;
+        const mult: Record<string, number> = { 'Iron Man': 1.15, Durable: 1.10, Normal: 1.0, Fragile: 0.90, Wrecked: 0.75 };
+        return Math.round(baseIp * (mult[injury ?? 'Normal'] ?? 0.95));
+      },
+      calculateWar: (fip, ip) => fipWarService.calculateWar(fip, ip),
+    });
+
     const role = tr?.role;
-    const usablePitchCount = scouting?.pitches ? Object.values(scouting.pitches).filter(v => (v ?? 0) >= 45).length : 0;
-    const isSp = role ? role !== 'RP' : ((scouting?.stamina ?? 0) >= 30 && usablePitchCount >= 3);
+    const isSp = role ? role !== 'RP' : proj.projIp >= 100;
 
     return {
       playerId: player.id,
       name: getFullName(player),
       teamId: player.teamId,
-      teamName: team?.nickname ?? 'Unknown',
+      teamName,
       position: player.position,
       age: player.age,
       currentTrueRating: currentRating,
       currentPercentile: tr?.percentile,
       projectedTrueRating: projectedTrue,
       projectedStats: {
-        k9: tr?.blendedK9 ?? prospect?.projK9 ?? prospect?.stats.k9 ?? 7.2,
-        bb9: tr?.blendedBb9 ?? prospect?.projBb9 ?? prospect?.stats.bb9 ?? 3.2,
-        hr9: tr?.blendedHr9 ?? prospect?.projHr9 ?? prospect?.stats.hr9 ?? 1.1,
-        fip: tr?.fipLike ?? prospect?.peakFip ?? 4.2,
-        war: prospect?.peakWar ?? 0,
-        ip: prospect?.peakIp ?? 80,
+        k9: proj.projK9,
+        bb9: proj.projBb9,
+        hr9: proj.projHr9,
+        fip: proj.projFip,
+        war: proj.projWar,
+        ip: proj.projIp,
       },
       projectedRatings: {
-        stuff: tr?.estimatedStuff ?? prospect?.developmentTR?.stuff ?? prospect?.trueRatings?.stuff ?? 50,
-        control: tr?.estimatedControl ?? prospect?.developmentTR?.control ?? prospect?.trueRatings?.control ?? 50,
-        hra: tr?.estimatedHra ?? prospect?.developmentTR?.hra ?? prospect?.trueRatings?.hra ?? 50,
+        stuff: proj.ratings.stuff,
+        control: proj.ratings.control,
+        hra: proj.ratings.hra,
       },
       isSp,
       fipLike: tr?.fipLike,
-      isProspect: !tr,
+      isProspect: data.isProspect === true,
     };
   }
 
@@ -1171,49 +863,82 @@ export class TradeAnalyzerView {
     if (!tr && !prospect) return undefined;
 
     const team = this.allTeams.find(t => t.id === player.teamId);
-    const scouting = this.allHitterScoutingRatings.get(player.id);
+    const teamName = team?.nickname ?? 'Unknown';
     const currentRating = tr?.trueRating ?? prospect?.trueFutureRating ?? 0.5;
+
+    // Build profile data and apply canonical TR/TFR
+    const data: BatterProfileData = {
+      playerId: player.id,
+      playerName: getFullName(player),
+      team: teamName,
+      parentTeam: teamName,
+      age: player.age,
+      position: player.position,
+      positionLabel: getPositionLabel(player.position),
+    };
+    resolveCanonicalBatterData(data, tr, prospect);
+
+    // Compute projection through canonical pipeline
+    const computeWoba = (bbRate: number, avg: number, d: number, t: number, hr: number) => {
+      const abRate = 1 - bbRate;
+      const singlesPerAb = Math.max(0, avg - d - t - hr);
+      return 0.69 * bbRate + abRate * (0.89 * singlesPerAb + 1.27 * d + 1.62 * t + 2.10 * hr);
+    };
+
+    const proj = computeBatterProjection(data, [], {
+      projectionMode: 'current',
+      projectionYear: this.currentYear,
+      leagueAvg: null,
+      scoutingData: null,
+      expectedBbPct: (eye) => HitterRatingEstimatorService.expectedBbPct(eye),
+      expectedKPct: (avoidK) => HitterRatingEstimatorService.expectedKPct(avoidK),
+      expectedAvg: (contact) => HitterRatingEstimatorService.expectedAvg(contact),
+      expectedHrPct: (power) => HitterRatingEstimatorService.expectedHrPct(power),
+      expectedDoublesRate: (gap) => HitterRatingEstimatorService.expectedDoublesRate(gap),
+      expectedTriplesRate: (speed) => HitterRatingEstimatorService.expectedTriplesRate(speed),
+      getProjectedPa: (injury, age) => leagueBattingAveragesService.getProjectedPa(injury, age),
+      getProjectedPaWithHistory: (history, age, injury) => leagueBattingAveragesService.getProjectedPaWithHistory(history, age, injury),
+      calculateOpsPlus: (obp, slg, lg) => leagueBattingAveragesService.calculateOpsPlus(obp, slg, lg),
+      computeWoba,
+      calculateBaserunningRuns: (sb, cs) => leagueBattingAveragesService.calculateBaserunningRuns(sb, cs),
+      calculateBattingWar: (woba, pa, lg, sbRuns) => leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns),
+      projectStolenBases: (sr, ste, pa) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
+    });
 
     return {
       playerId: player.id,
       name: getFullName(player),
       teamId: player.teamId,
-      teamName: team?.nickname ?? 'Unknown',
+      teamName,
       position: player.position,
       positionLabel: getPositionLabel(player.position),
       age: player.age,
       currentTrueRating: currentRating,
       percentile: tr?.percentile ?? prospect?.percentile ?? 0,
       projectedStats: {
-        woba: tr?.woba ?? prospect?.projWoba ?? 0.300,
-        avg: tr?.blendedAvg ?? prospect?.projAvg ?? 0.245,
-        obp: tr ? (tr.blendedAvg + tr.blendedBbPct / 100) : (prospect?.projObp ?? 0.315),
-        slg: prospect?.projSlg ?? 0.390,
-        ops: prospect?.projOps ?? 0.705,
-        wrcPlus: prospect?.wrcPlus ?? 100,
-        war: prospect?.projWar ?? 0,
-        pa: prospect?.projPa ?? 520,
-        hr: Math.round((prospect?.projPa ?? 520) * ((prospect?.projHrPct ?? tr?.blendedHrPct ?? 2.5) / 100)),
-        rbi: Math.round((prospect?.projPa ?? 520) * 0.12),
-        sb: 0,
-        hrPct: prospect?.projHrPct ?? tr?.blendedHrPct,
-        bbPct: prospect?.projBbPct ?? tr?.blendedBbPct,
-        kPct: prospect?.projKPct ?? tr?.blendedKPct,
+        woba: proj.projWoba,
+        avg: proj.projAvg,
+        obp: proj.projObp,
+        slg: proj.projSlg,
+        ops: proj.projOps,
+        wrcPlus: proj.projOpsPlus,
+        war: proj.projWar,
+        pa: proj.projPa,
+        hr: proj.projHr,
+        rbi: Math.round(proj.projPa * 0.12),
+        sb: proj.projSb,
+        hrPct: proj.projHrPct,
+        bbPct: proj.projBbPct,
+        kPct: proj.projKPct,
       },
       estimatedRatings: {
-        power: tr?.estimatedPower ?? prospect?.developmentTR?.power ?? prospect?.trueRatings?.power ?? 50,
-        eye: tr?.estimatedEye ?? prospect?.developmentTR?.eye ?? prospect?.trueRatings?.eye ?? 50,
-        avoidK: tr?.estimatedAvoidK ?? prospect?.developmentTR?.avoidK ?? prospect?.trueRatings?.avoidK ?? 50,
-        contact: tr?.estimatedContact ?? prospect?.developmentTR?.contact ?? prospect?.trueRatings?.contact ?? 50,
+        power: proj.ratings.power,
+        eye: proj.ratings.eye,
+        avoidK: proj.ratings.avoidK,
+        contact: proj.ratings.contact,
       },
-      scoutingRatings: scouting ? {
-        power: scouting.power,
-        eye: scouting.eye,
-        avoidK: scouting.avoidK,
-        contact: scouting.contact,
-      } : undefined,
-      isProspect: !tr,
-    };
+      isProspect: data.isProspect === true,
+    } as ProjectedBatter;
   }
 
   private updatePlayerList(teamNum: 1 | 2): void {
@@ -1455,7 +1180,7 @@ export class TradeAnalyzerView {
 
   private addPlayerToTrade(teamNum: 1 | 2, playerId: number): void {
     const state = teamNum === 1 ? this.team1State : this.team2State;
-    const player = this.allPlayers.find(p => p.id === playerId);
+    const player = this.findPlayer(playerId);
     if (!player) {
       console.warn(`Player ${playerId} not found`);
       return;
@@ -1500,6 +1225,31 @@ export class TradeAnalyzerView {
     this.updateAnalysis();
   }
 
+  private async ensureTradeAnalysisData(): Promise<void> {
+    const promises: Promise<void>[] = [];
+    if (!this.powerRankingsLoaded) {
+      promises.push(
+        teamRatingsService.getPowerRankings(this.currentYear)
+          .then(rankings => {
+            rankings.forEach(r => this.powerRankingsMap.set(r.teamId, r));
+            this.powerRankingsLoaded = true;
+          })
+          .catch(e => { console.warn('Failed to load power rankings:', e); this.powerRankingsLoaded = true; })
+      );
+    }
+    if (!this.contractsLoaded) {
+      promises.push(
+        contractService.getAllContracts()
+          .then(contracts => {
+            this.allContracts = contracts;
+            this.contractsLoaded = true;
+          })
+          .catch(e => { console.warn('Failed to load contracts:', e); this.contractsLoaded = true; })
+      );
+    }
+    if (promises.length > 0) await Promise.all(promises);
+  }
+
   private updateAnalysis(): void {
     const contentDiv = this.container.querySelector<HTMLElement>('.trade-analysis-content');
     if (!contentDiv) return;
@@ -1518,6 +1268,11 @@ export class TradeAnalyzerView {
         </div>
       `;
       return;
+    }
+
+    // Kick off lazy-load of power rankings + contracts; re-render when ready
+    if (!this.powerRankingsLoaded || !this.contractsLoaded) {
+      this.ensureTradeAnalysisData().then(() => this.updateAnalysis());
     }
 
     const analysis = this.calculateTradeAnalysis();
@@ -2083,6 +1838,9 @@ export class TradeAnalyzerView {
     btn.disabled = true;
     btn.textContent = 'Analyzing...';
     resultDiv.innerHTML = '<div class="ai-loading"><span class="ai-loading-text">Generating trade analysis...</span></div>';
+
+    // Ensure power rankings + contracts are loaded before AI analysis
+    await this.ensureTradeAnalysisData();
 
     try {
       const team1 = this.allTeams.find(t => t.id === this.team1State.teamId);

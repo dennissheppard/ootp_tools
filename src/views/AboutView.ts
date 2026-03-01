@@ -583,7 +583,7 @@ export class AboutView {
         icon: '💾',
         title: 'Data Management',
         tab: 'tab-data-management',
-        desc: 'Upload custom scouting CSVs and manage historical stat data.',
+        desc: 'Upload custom pitcher or hitter scouting CSVs. The app works great with just OSA data — custom scouting is optional but will improve the TR/TFR blend.',
       },
     ];
 

@@ -21,6 +21,8 @@ import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../serv
 import { resolveCanonicalPitcherData, computePitcherProjection } from '../services/ModalDataService';
 import { computePitcherTags, renderTagsHtml, TagContext } from '../utils/playerTags';
 import { analyticsService } from '../services/AnalyticsService';
+import { playerService } from '../services/PlayerService';
+import { supabaseDataService } from '../services/SupabaseDataService';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -299,18 +301,34 @@ export class PitcherProfileModal {
     this.projectionYear = currentYear;
 
     // === Canonical data override — ensures consistency regardless of caller ===
-    // 1. Always fetch canonical TR (for MLB players)
-    const canonicalTR = await trueRatingsService.getPitcherTrueRatings(currentYear);
-    if (generation !== this.showGeneration) return;
-    const playerTR = canonicalTR.get(data.playerId);
-
-    // 2. Always fetch canonical TFR (for pitching prospects)
+    let playerTR: import('../services/TrueRatingsCalculationService').TrueRatingResult | undefined;
     let tfrEntry: import('../services/TeamRatingsService').RatedProspect | undefined;
-    try {
-      const farmData = await teamRatingsService.getUnifiedPitcherTfrData(currentYear);
-      if (generation !== this.showGeneration) return;
-      tfrEntry = farmData.prospects.find(p => p.playerId === data.playerId);
-    } catch { /* TFR data not available */ }
+
+    if (supabaseDataService.isConfigured) {
+      // Fast path: single-player rating lookup (1 query instead of bulk fetches)
+      try {
+        const rows = await supabaseDataService.getPlayerRating(data.playerId);
+        if (generation !== this.showGeneration) return;
+        for (const row of rows) {
+          if (row.rating_type === 'pitcher_tr') playerTR = row.data;
+          else if (row.rating_type === 'pitcher_tfr') tfrEntry = row.data;
+        }
+      } catch { /* ratings not available */ }
+    } else {
+      // 1. Fetch canonical TR (skip for prospects — they have no MLB stats)
+      if (!data.isProspect) {
+        const canonicalTR = await trueRatingsService.getPitcherTrueRatings(currentYear);
+        if (generation !== this.showGeneration) return;
+        playerTR = canonicalTR.get(data.playerId);
+      }
+
+      // 2. Always fetch canonical TFR (for pitching prospects)
+      try {
+        const farmData = await teamRatingsService.getUnifiedPitcherTfrData(currentYear);
+        if (generation !== this.showGeneration) return;
+        tfrEntry = farmData.prospects.find(p => p.playerId === data.playerId);
+      } catch { /* TFR data not available */ }
+    }
 
     this.top100Rank = (tfrEntry?.percentileRank !== undefined && tfrEntry.percentileRank <= 100)
       ? tfrEntry.percentileRank : undefined;
@@ -328,8 +346,14 @@ export class PitcherProfileModal {
     const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
 
     if (titleEl) {
-      titleEl.textContent = data.playerName;
-      titleEl.title = `ID: ${data.playerId}`;
+      const link = document.createElement('a');
+      link.href = `https://worldbaseballleague.org/#/player/${data.playerId}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = data.playerName;
+      link.title = `View on WBL.org (ID: ${data.playerId})`;
+      titleEl.textContent = '';
+      titleEl.appendChild(link);
     }
     if (teamEl) {
       const teamInfo = this.formatTeamInfo(data.team, data.parentTeam);
@@ -370,86 +394,26 @@ export class PitcherProfileModal {
     document.addEventListener('keydown', this.boundKeyHandler);
 
     try {
-      // Fetch scouting data, contract data, and league WAR ceiling
-      const [myScoutingAll, osaScoutingAll, allContracts, lastYearPitching, powerRankings] = await Promise.all([
-        scoutingDataService.getLatestScoutingRatings('my'),
-        scoutingDataService.getLatestScoutingRatings('osa'),
-        contractService.getAllContracts(),
-        trueRatingsService.getTruePitchingStats(currentYear - 1).catch(() => []),
-        teamRatingsService.getPowerRankings(currentYear).catch(() => [] as import('../services/TeamRatingsService').TeamPowerRanking[]),
+      // Fetch scouting + contract + league context in parallel
+      const [myScouting, osaScouting, playerContract, leagueCtx] = await Promise.all([
+        scoutingDataService.getScoutingForPlayer(data.playerId, 'my'),
+        scoutingDataService.getScoutingForPlayer(data.playerId, 'osa'),
+        contractService.getContractForPlayer(data.playerId),
+        supabaseDataService.isConfigured ? supabaseDataService.getPrecomputed('league_context') : Promise.resolve(null),
       ]);
       if (generation !== this.showGeneration) return; // Stale call
 
-      this.contract = allContracts.get(data.playerId) ?? null;
+      this.contract = playerContract ?? null;
 
-      // Compute tag context: league $/WAR distribution and blocking info
-      this.leagueDollarPerWar = undefined;
+      // Tag context
       this.blockingPlayer = undefined;
       this.blockingRating = undefined;
       this.blockingYears = undefined;
 
-      if (powerRankings.length > 0) {
-        // League $/WAR from pitchers (rotation + bullpen)
-        const dollarPerWarList: number[] = [];
-        for (const team of powerRankings) {
-          for (const player of [...team.rotation, ...team.bullpen]) {
-            const c = allContracts.get(player.playerId);
-            if (!c) continue;
-            const sal = contractService.getCurrentSalary(c);
-            const war = player.stats?.war;
-            if (sal >= 3_000_000 && war !== undefined && war > 0.5) {
-              dollarPerWarList.push(sal / war);
-            }
-          }
-        }
-        dollarPerWarList.sort((a, b) => a - b);
-        if (dollarPerWarList.length > 0) this.leagueDollarPerWar = dollarPerWarList;
-
-        // Blocking info for pitcher prospects
-        if (data.isProspect) {
-          const playerOrg = data.parentTeam ?? data.team;
-          const orgTeam = powerRankings.find(t => t.teamName === playerOrg);
-          if (orgTeam) {
-            // Check if all rotation spots are occupied by strong pitchers with long contracts
-            const strongRotation = orgTeam.rotation.filter(p => {
-              const c = allContracts.get(p.playerId);
-              return p.trueRating >= 3.5 && c && contractService.getYearsRemaining(c) >= 3;
-            });
-            if (strongRotation.length >= 5) {
-              // All 5 rotation spots blocked
-              const weakest = strongRotation.reduce((min, p) => p.trueRating < min.trueRating ? p : min);
-              const weakestContract = allContracts.get(weakest.playerId);
-              this.blockingPlayer = `full rotation`;
-              this.blockingRating = weakest.trueRating;
-              this.blockingYears = weakestContract ? contractService.getYearsRemaining(weakestContract) : 3;
-            }
-          }
-        }
-      }
-
-      // Compute league WAR ceiling and FIP distribution from last year's pitchers
-      if (lastYearPitching.length > 0) {
-        const maxWar = lastYearPitching.reduce((max, p) => Math.max(max, p.war ?? 0), 0);
-        this.leagueWarMax = Math.max(4, maxWar);
-
-        // Build FIP distribution from pitchers with 50+ IP
-        this.leagueFipDistribution = lastYearPitching
-          .filter(p => {
-            const ip = typeof p.ip === 'string' ? parseFloat(p.ip) : (p.outs ?? 0) / 3;
-            return ip >= 50;
-          })
-          .map(p => {
-            const ip = typeof p.ip === 'string' ? parseFloat(p.ip) : (p.outs ?? 0) / 3;
-            const k9 = (p.k / ip) * 9;
-            const bb9 = (p.bb / ip) * 9;
-            const hr9 = (p.hra / ip) * 9;
-            return ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47;
-          })
-          .sort((a, b) => a - b);
-      }
-
-      const myScouting = myScoutingAll.find(s => s.playerId === data.playerId);
-      const osaScouting = osaScoutingAll.find(s => s.playerId === data.playerId);
+      // League context: WAR ceiling + FIP distribution + $/WAR distribution
+      this.leagueWarMax = leagueCtx?.pitcherWarMax ?? 6;
+      this.leagueFipDistribution = leagueCtx?.fipDistribution ?? [];
+      this.leagueDollarPerWar = leagueCtx?.dollarPerWar?.length > 0 ? leagueCtx.dollarPerWar : undefined;
 
       this.myScoutingData = myScouting ?? null;
       this.osaScoutingData = osaScouting ?? null;
@@ -497,21 +461,53 @@ export class PitcherProfileModal {
         console.warn('No minor league pitching stats found');
       }
 
-      // Fetch MLB pitching stats using getPlayerYearlyStats (pre-computes k9/bb9/hr9/fip)
+      // Fetch MLB pitching stats
       let mlbStats: PitcherSeasonStats[] = [];
       try {
-        const yearlyDetails = await trueRatingsService.getPlayerYearlyStats(data.playerId, currentYear, 5);
-        mlbStats = yearlyDetails.map(s => ({
-          year: s.year,
-          level: 'MLB',
-          ip: s.ip,
-          fip: s.fip,
-          k9: s.k9,
-          bb9: s.bb9,
-          hr9: s.hr9,
-          war: s.war,
-          gs: s.gs,
-        }));
+        if (supabaseDataService.isConfigured) {
+          // Single query for this player's MLB pitching across all years
+          const rows = await supabaseDataService.query<any>(
+            'pitching_stats',
+            `select=*&player_id=eq.${data.playerId}&league_id=eq.200&split_id=eq.1&year=gte.${currentYear - 4}&year=lte.${currentYear}&order=year.desc`
+          );
+          // Dedup by year (keep row with most IP — the season total)
+          const dedupByYear = new Map<number, any>();
+          for (const r of rows) {
+            const existing = dedupByYear.get(r.year);
+            const rIp = typeof r.ip === 'string' ? parseFloat(r.ip) : (r.ip || 0);
+            const eIp = existing ? (typeof existing.ip === 'string' ? parseFloat(existing.ip) : (existing.ip || 0)) : -1;
+            if (!existing || rIp > eIp) dedupByYear.set(r.year, r);
+          }
+          const byYear = new Map<number, { ipOuts: number; er: number; k: number; bb: number; hr: number; war: number; gs: number }>();
+          for (const r of dedupByYear.values()) {
+            const ip = typeof r.ip === 'string' ? parseFloat(r.ip) : (r.ip || 0);
+            const whole = Math.floor(ip);
+            const frac = Math.round((ip - whole) * 10);
+            const outs = whole * 3 + frac;
+            if (!byYear.has(r.year)) byYear.set(r.year, { ipOuts: 0, er: 0, k: 0, bb: 0, hr: 0, war: 0, gs: 0 });
+            const e = byYear.get(r.year)!;
+            e.ipOuts += outs; e.er += r.er ?? 0; e.k += r.k ?? 0;
+            e.bb += r.bb ?? 0; e.hr += r.hra ?? r.hr ?? 0; e.war += r.war ?? 0; e.gs += r.gs ?? 0;
+          }
+          for (const [year, t] of byYear) {
+            const ip = t.ipOuts / 3;
+            if (ip > 0) {
+              const k9 = (t.k / ip) * 9, bb9 = (t.bb / ip) * 9, hr9 = (t.hr / ip) * 9;
+              mlbStats.push({
+                year, level: 'MLB', ip,
+                fip: ((13 * hr9) + (3 * bb9) - (2 * k9)) / 9 + 3.47,
+                k9, bb9, hr9, war: t.war, gs: t.gs,
+              });
+            }
+          }
+          mlbStats.sort((a, b) => b.year - a.year);
+        } else {
+          const yearlyDetails = await trueRatingsService.getPlayerYearlyStats(data.playerId, currentYear, 5);
+          mlbStats = yearlyDetails.map(s => ({
+            year: s.year, level: 'MLB', ip: s.ip, fip: s.fip,
+            k9: s.k9, bb9: s.bb9, hr9: s.hr9, war: s.war, gs: s.gs,
+          }));
+        }
       } catch (e) {
         console.warn('No MLB pitching stats found');
       }
@@ -1069,7 +1065,17 @@ export class PitcherProfileModal {
         <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
         <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
         <button class="profile-tab" data-tab="development">Development</button>
-        ${tagsHtml}
+        <div class="profile-tab-actions">
+          ${tagsHtml}
+          <div class="modal-action-buttons">
+            <button class="modal-action-btn" data-action="share" title="Copy link to clipboard">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+            </button>
+            <button class="modal-action-btn" data-action="trade" title="Add to Trade Analyzer">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+            </button>
+          </div>
+        </div>
       </div>
       <div class="profile-tab-content">
         <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
@@ -1975,11 +1981,53 @@ export class PitcherProfileModal {
 
   // ─── Event Binding ──────────────────────────────────────────────────
 
+  private bindActionButtons(): void {
+    const shareBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="share"]');
+    const tradeBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="trade"]');
+
+    shareBtn?.addEventListener('click', () => {
+      if (!this.currentData) return;
+      const url = new URL(window.location.href);
+      url.search = '';
+      url.searchParams.set('player', String(this.currentData.playerId));
+      navigator.clipboard.writeText(url.toString()).then(() => {
+        shareBtn.classList.add('action-success');
+        shareBtn.title = 'Copied!';
+        setTimeout(() => {
+          shareBtn.classList.remove('action-success');
+          shareBtn.title = 'Copy link to clipboard';
+        }, 1500);
+      });
+    });
+
+    tradeBtn?.addEventListener('click', async () => {
+      if (!this.currentData) return;
+      const player = await playerService.getPlayerById(this.currentData.playerId);
+      const playerTeamId = player?.teamId ?? 0;
+      const savedTeamId = parseInt(localStorage.getItem('wbl-selected-team') ?? '0', 10);
+      const isProspect = this.currentData.isProspect === true;
+      const playerId = this.currentData.playerId;
+      this.hide();
+      if (savedTeamId > 0 && savedTeamId !== playerTeamId) {
+        // Different saved team: my team on side 1, player on side 2
+        window.dispatchEvent(new CustomEvent('wbl:open-trade-analyzer', {
+          detail: { myTeamId: savedTeamId, targetTeamId: playerTeamId, targetPlayerId: playerId, targetIsProspect: isProspect },
+        }));
+      } else {
+        // Same team or no saved team: player's team on side 1, player on side 1
+        window.dispatchEvent(new CustomEvent('wbl:open-trade-analyzer', {
+          detail: { myTeamId: playerTeamId, targetTeamId: 0, targetPlayerId: playerId, targetIsProspect: isProspect },
+        }));
+      }
+    });
+  }
+
   private bindBodyEvents(): void {
     this.bindScoutSourceToggle();
     this.bindTabSwitching();
     this.bindProjectionToggle();
     this.bindAnalysisToggle();
+    this.bindActionButtons();
     // Bind flip cards in pre-rendered projection content
     const flipCells = this.overlay?.querySelectorAll<HTMLElement>('.projection-section .flip-cell');
     flipCells?.forEach(cell => {

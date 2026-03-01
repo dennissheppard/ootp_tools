@@ -23,6 +23,7 @@ import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { hitterAgingService } from './HitterAgingService';
 import { dateService } from './DateService';
 import { HitterScoutingRatings } from '../models/ScoutingData';
+import { supabaseDataService } from './SupabaseDataService';
 
 export interface ProjectedBatter {
   playerId: number;
@@ -168,6 +169,12 @@ class BatterProjectionService {
     year: number,
     options?: { tracePlayerId?: number; trace?: BatterProjectionCalculationTrace; preSeasonOnly?: boolean }
   ): Promise<BatterProjectionContext> {
+    // Fast-path: return precomputed projections from CLI sync
+    if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
+      const cached = await supabaseDataService.getPrecomputed('batter_projections');
+      if (cached) return cached as BatterProjectionContext;
+    }
+
     const preSeasonOnly = options?.preSeasonOnly ?? false;
     const leagueAvgYear = preSeasonOnly ? year - 1 : year;
     // Get all required data

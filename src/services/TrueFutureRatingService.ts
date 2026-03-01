@@ -17,8 +17,8 @@ import { minorLeagueStatsService } from './MinorLeagueStatsService';
 import { scoutingDataFallbackService } from './ScoutingDataFallbackService';
 import { trueRatingsService } from './TrueRatingsService';
 import { trueRatingsCalculationService } from './TrueRatingsCalculationService';
-import { contractService } from './ContractService';
 import { playerService } from './PlayerService';
+import { supabaseDataService } from './SupabaseDataService';
 
 // ============================================================================
 // Interfaces
@@ -246,6 +246,15 @@ class TrueFutureRatingService {
   async buildMLBPercentileDistribution(): Promise<MLBPercentileDistribution> {
     if (this._mlbDistCache) return this._mlbDistCache;
 
+    // Check precomputed cache (static 2015-2020 data that never changes between syncs)
+    if (supabaseDataService.isConfigured) {
+      const cached = await supabaseDataService.getPrecomputed('pitcher_mlb_distribution');
+      if (cached) {
+        this._mlbDistCache = cached;
+        return cached;
+      }
+    }
+
     const years = [2015, 2016, 2017, 2018, 2019, 2020];
     const allK9: number[] = [];
     const allBb9: number[] = [];
@@ -255,7 +264,10 @@ class TrueFutureRatingService {
     // Load DOB data to filter by age
     const dobMap = await this.loadPlayerDOBs();
 
-    // Load MLB data for all years
+    // Bulk-fetch all years in 1 query (populates per-year caches)
+    await trueRatingsService.prefetchPitchingStats(2015, 2020);
+
+    // Load MLB data for all years (now served from in-memory cache)
     for (const year of years) {
       try {
         const mlbStats = await trueRatingsService.getTruePitchingStats(year);
@@ -302,12 +314,7 @@ class TrueFutureRatingService {
     allHr9.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
     allFip.sort((a, b) => a - b); // Ascending: lower values = lower percentile (better)
 
-    console.log(`📊 Built MLB distributions: ${allK9.length} peak-age pitchers (ages 25-32) from 2015-2020`);
-    if (allFip.length > 0) {
-      const p = (pct: number) => allFip[Math.min(Math.floor(pct / 100 * allFip.length), allFip.length - 1)];
-      console.log(`📊 MLB FIP distribution: min=${allFip[0].toFixed(2)}, p5=${p(5).toFixed(2)}, p25=${p(25).toFixed(2)}, p50=${p(50).toFixed(2)}, p75=${p(75).toFixed(2)}, p97=${p(97).toFixed(2)}, max=${allFip[allFip.length - 1].toFixed(2)}`);
-      console.log(`📊 MLB HR9 distribution: min=${allHr9[0].toFixed(3)}, max=${allHr9[allHr9.length - 1].toFixed(3)}`);
-    }
+    // Distribution built from peak-age pitchers (ages 25-32, 2015-2020)
 
     this._mlbDistCache = {
       k9Values: allK9,
@@ -315,36 +322,53 @@ class TrueFutureRatingService {
       hr9Values: allHr9,
       fipValues: allFip,
     };
+
+    // Cache for future syncs (this data never changes)
+    if (supabaseDataService.isConfigured) {
+      supabaseDataService.setPrecomputed('pitcher_mlb_distribution', this._mlbDistCache)
+        .catch(err => console.warn('Failed to cache pitcher MLB distribution:', err));
+    }
+
     return this._mlbDistCache;
   }
 
   /**
-   * Load player DOBs from mlb_dob.csv
+   * Load player DOBs. Tries Supabase players table first, falls back to CSV.
    */
   private async loadPlayerDOBs(): Promise<Map<number, Date>> {
     try {
+      // Try Supabase first
+      if (supabaseDataService.isConfigured) {
+        try {
+          const dobMap = await supabaseDataService.getPlayerDOBs();
+          if (dobMap.size > 0) {
+            console.log(`📅 Loaded ${dobMap.size} player DOBs from Supabase`);
+            return dobMap;
+          }
+        } catch (error) {
+          console.warn('Supabase DOB query failed, falling back to CSV:', error);
+        }
+      }
+
+      // Fallback: CSV
       const response = await fetch('/data/mlb_dob.csv');
       const csvText = await response.text();
 
       const lines = csvText.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
       const dobMap = new Map<number, Date>();
 
-      // Skip header
       for (let i = 1; i < lines.length; i++) {
         const [idStr, dobStr] = lines[i].split(',');
         const playerId = parseInt(idStr, 10);
-
         if (!playerId || !dobStr) continue;
 
-        // Parse MM/DD/YYYY format
         const [month, day, year] = dobStr.split('/').map(s => parseInt(s, 10));
         if (!month || !day || !year) continue;
 
-        const dob = new Date(year, month - 1, day);
-        dobMap.set(playerId, dob);
+        dobMap.set(playerId, new Date(year, month - 1, day));
       }
 
-      console.log(`📅 Loaded ${dobMap.size} player DOBs`);
+      console.log(`📅 Loaded ${dobMap.size} player DOBs from CSV`);
       return dobMap;
     } catch (error) {
       console.warn('Failed to load DOB data, using all ages:', error);
@@ -836,8 +860,7 @@ class TrueFutureRatingService {
     // Fetch career MLB IP to exclude veterans (>50 IP)
     const careerIpMap = await this.getCareerMlbIpMap(year);
     
-    // Fetch contracts to identify affiliated players who haven't played yet (e.g. IC/DSL)
-    const contracts = await contractService.getAllContracts();
+    // Players table used to identify affiliated players (teamId set = signed professional)
 
     // Build prospect inputs
     const prospectInputs: TrueFutureRatingInput[] = [];
@@ -869,18 +892,13 @@ class TrueFutureRatingService {
       // UNLESS they are signed to a pro team (e.g. International Complex players with no stats)
       const totalIp = minorStats.reduce((sum, stat) => sum + stat.ip, 0);
 
-      if (totalIp === 0) {
-          // If no stats, check if they have a professional contract
-          // Amateurs (Draft Pool) usually don't have a contract entry or have league_id=0/null
-          const contract = contracts.get(scouting.playerId);
-          if (!contract || contract.leagueId === 0) {
-              continue; // Truly amateur/unsigned, skip
-          }
-          // If they have a contract (e.g. league_id = -200 for IC, or others), include them
-      }
-
       // Get age from player database (preferred), then scouting CSV, then fallback to 22
       const player = playerMap.get(scouting.playerId);
+
+      if (totalIp === 0) {
+          // No stats — player must be on a team (signed professional) to include
+          if (!player?.teamId) continue;
+      }
       const age = player?.age ?? scouting.age ?? 22;
 
       prospectInputs.push({
@@ -902,11 +920,15 @@ class TrueFutureRatingService {
    */
   private async getCareerMlbIpMap(currentYear: number): Promise<Map<number, number>> {
       const startYear = Math.max(2000, currentYear - 10);
+
+      // Bulk-fetch all years in 1 query (populates per-year caches)
+      await trueRatingsService.prefetchPitchingStats(startYear, currentYear);
+
       const promises = [];
       for (let y = startYear; y <= currentYear; y++) {
           promises.push(trueRatingsService.getTruePitchingStats(y));
       }
-      
+
       const results = await Promise.all(promises);
       const map = new Map<number, number>();
       

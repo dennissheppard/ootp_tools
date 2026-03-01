@@ -1,0 +1,69 @@
+name: Sync DB
+
+on:
+  schedule:
+    # Every 10 min, 12:00-17:50 UTC (7am-1pm ET, covers DST shift)
+    - cron: '*/10 12-17 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: sync-db
+  cancel-in-progress: false
+
+jobs:
+  check-and-sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for date change
+        id: check
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          # Manual trigger always syncs
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual trigger — forcing sync"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          API_DATE=$(curl -sf "https://atl-01.statsplus.net/world/api/date/" | tr -d '[:space:]')
+          echo "API date: $API_DATE"
+
+          DB_DATE=$(curl -sf "${SUPABASE_URL}/rest/v1/data_version?table_name=eq.game_state&select=game_date&limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Accept: application/json" | jq -r '.[0].game_date // empty')
+          echo "DB date: ${DB_DATE:-<null>}"
+
+          if [ -z "$API_DATE" ]; then
+            echo "::warning::Could not fetch API date — skipping"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          elif [ "$API_DATE" = "$DB_DATE" ]; then
+            echo "Dates match — nothing to do"
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Date changed ($DB_DATE → $API_DATE)"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Checkout
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        if: steps.check.outputs.changed == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.check.outputs.changed == 'true'
+        run: npm ci
+
+      - name: Run sync
+        if: steps.check.outputs.changed == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: npx tsx tools/sync-db.ts
