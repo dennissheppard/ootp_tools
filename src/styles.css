@@ -92,6 +92,13 @@ body::before {
   padding: 2rem;
 }
 
+/* Utility: horizontal scroll wrapper for wide tables/grids on small screens */
+.scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  width: 100%;
+}
+
 /* Header */
 .app-header {
   display: flex;
@@ -3798,7 +3805,7 @@ th .stat-tooltip {
 }
 
 /* Responsive adjustments */
-@media (max-width: 640px) {
+@media (max-width: 639px) {
   #app {
     padding: 1rem;
   }
@@ -3841,8 +3848,24 @@ th .stat-tooltip {
     width: 100%;
   }
 
+  /* Mobile tab strip: horizontally scrollable instead of wrapping */
   .tabs {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    justify-content: flex-start;
+    scrollbar-width: none;
+    padding-bottom: 2px; /* prevent box-shadow clipping on active tab */
+  }
+
+  .tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  .tab-button {
+    flex-shrink: 0;
+    flex-grow: 0;
+    white-space: nowrap;
   }
 
   .player-header,
@@ -10408,5 +10431,59 @@ th .stat-tooltip {
 @media (max-width: 768px) {
   .trade-market-overview {
     grid-template-columns: 1fr;
+  }
+}
+
+/* =============================================================
+   RESPONSIVE: TrueRatingsView
+   ============================================================= */
+
+@media (max-width: 639px) {
+  /* Hide the explanatory subtitle — wastes vertical space on mobile */
+  .true-ratings-content > .section-subtitle {
+    display: none;
+  }
+
+  /* Filter bar: horizontally scrollable strip instead of wrapping */
+  .true-ratings-controls .filter-bar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+
+  .true-ratings-controls .filter-bar::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Hide the "Filters:" label — saves space, controls are self-evident */
+  .true-ratings-controls .filter-bar > label {
+    display: none;
+  }
+
+  /* Hide overlay scroll arrow buttons — native touch scroll handles it */
+  .table-wrapper-outer .scroll-btn {
+    display: none;
+  }
+
+  /* Hide lowest-priority counting stat columns.
+     Leaves in raw mode: Pos, Name, Age, IP, WAR, K/9, BB/9, HR/9, FIP
+     TR mode columns (estimated components) are already narrow enough. */
+  .true-ratings-table th[data-col-key="k"],
+  .true-ratings-table td[data-col-key="k"],
+  .true-ratings-table th[data-col-key="bb"],
+  .true-ratings-table td[data-col-key="bb"],
+  .true-ratings-table th[data-col-key="hra"],
+  .true-ratings-table td[data-col-key="hra"],
+  .true-ratings-table th[data-col-key="r"],
+  .true-ratings-table td[data-col-key="r"],
+  .true-ratings-table th[data-col-key="er"],
+  .true-ratings-table td[data-col-key="er"],
+  .true-ratings-table th[data-col-key="ra9war"],
+  .true-ratings-table td[data-col-key="ra9war"],
+  .true-ratings-table th[data-col-key="wpa"],
+  .true-ratings-table td[data-col-key="wpa"] {
+    display: none;
   }
 }
