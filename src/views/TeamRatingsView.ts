@@ -56,6 +56,7 @@ export class TeamRatingsView {
   private actualStandingsMap: Map<string, ActualStanding> | null = null;
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
   private currentGameYear: number | null = null;
+  private projectionDisplayYear: number | null = null;
   private scoutingDataMode: ScoutingDataMode = 'none';
   private batterProfileModal: BatterProfileModal;
   private playerRowLookup: Map<string, PlayerRowContext> = new Map();
@@ -320,11 +321,11 @@ export class TeamRatingsView {
           });
         }
 
-        // If switching to projections or standings, force current game year
+        // If switching to projections or standings, force current game year (display projection target year)
         if ((this.viewMode === 'projected' || this.viewMode === 'standings') && this.currentGameYear !== null) {
           this.selectedYear = this.currentGameYear;
           const displaySpan = this.container.querySelector('#selected-year-display');
-          if (displaySpan) displaySpan.textContent = String(this.currentGameYear);
+          if (displaySpan) displaySpan.textContent = String(this.projectionDisplayYear ?? this.currentGameYear);
         }
 
         // Update button active states
@@ -392,10 +393,11 @@ export class TeamRatingsView {
   }
 
   private renderTableLoadingState(): string {
+      const dispYear = this.projectionDisplayYear ?? this.selectedYear;
       const title = this.isAllTime ? 'All-Time Power Rankings'
           : this.viewMode === 'power-rankings' ? 'Team Power Rankings'
-          : this.viewMode === 'standings' ? 'Projected Standings'
-          : 'Team Projections';
+          : this.viewMode === 'standings' ? `${dispYear} Projected Standings`
+          : `${dispYear} Team Projections`;
       const columnCount = this.viewMode === 'power-rankings'
           ? this.powerRankingsColumns.length
           : this.viewMode === 'standings'
@@ -630,7 +632,7 @@ export class TeamRatingsView {
       // Render full table spanning both grid columns
       const tableHtml = `
         <div class="stats-table-container">
-            <h3 class="section-title">Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3>
+            <h3 class="section-title">${this.projectionDisplayYear ?? this.selectedYear} Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3>
             <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">Total is a weighted composite: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench. Uses a blend of past seasons to project, so even at the end of this season it won't be 100% correct.</p>
             <table class="stats-table projections-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
@@ -1111,7 +1113,7 @@ export class TeamRatingsView {
 
       const tableHtml = `
         <div class="stats-table-container">
-            <h3 class="section-title">Projected Standings <span class="note-text">(Ranked by ${this.getStandingsSortLabel()})</span></h3><p class="note-text">Uses projected WAR, not actual season wins. So even at the end of the season, this won't be 100% right</p>
+            <h3 class="section-title">${this.projectionDisplayYear ?? this.selectedYear} Projected Standings <span class="note-text">(Ranked by ${this.getStandingsSortLabel()})</span></h3><p class="note-text">Uses projected WAR, not actual season wins. So even at the end of the season, this won't be 100% right</p>
             <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">
               ${descriptionText}
             </p>
@@ -1211,7 +1213,7 @@ export class TeamRatingsView {
 
       const tableHtml = `
         <div class="stats-table-container">
-          <h3 class="section-title">Projected Standings</h3>
+          <h3 class="section-title">${this.projectionDisplayYear ?? this.selectedYear} Projected Standings</h3>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
             ${divisionHtmls}
           </div>
@@ -2788,8 +2790,10 @@ export class TeamRatingsView {
   private async loadCurrentGameYear(): Promise<void> {
       try {
           this.currentGameYear = await dateService.getCurrentYear();
+          this.projectionDisplayYear = await dateService.getProjectionTargetYear();
       } catch {
           this.currentGameYear = null;
+          this.projectionDisplayYear = null;
       }
   }
 

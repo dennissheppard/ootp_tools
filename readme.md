@@ -57,7 +57,7 @@ StatsPlus API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
 | `pitcher_projections` | sync-db Step 5.5 | ProjectionService | Full `ProjectionContext` (projections array + metadata) — replaces 10+ Supabase requests + expensive computation |
 | `batter_projections` | sync-db Step 5.5 | BatterProjectionService | Full `BatterProjectionContext` (projections array + metadata) |
 
-**RPC functions:** `clear_for_sync()` (wipes contracts + ratings), `complete_sync(date)` (sets game_date)
+**RPC functions:** `clear_for_sync()` (wipes contracts + ratings), `complete_sync(date)` (sets game_date), `career_pitching_ip()` (server-side career MLB IP aggregation), `career_batting_aggregates()` (server-side career MLB batting aggregation)
 
 ### IndexedDB (Local-Only, v12)
 
@@ -82,7 +82,7 @@ npx tsx tools/sync-db.ts --force         # Re-sync even if DB is up to date
 
 **Env vars** (`.env.local`): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
-**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts → Patch IC player levels (contract league_id=-200 → level=6) → Compute TR (pitcher + hitter) → Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Compute projections (pitcher + batter) → Compute league context + build scouting/contract/DOB lookups → Set game_date
+**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts → Patch IC player levels (contract league_id=-200 → level=6) → Build SyncContext (15 parallel queries including career aggregate RPCs) → Compute TR (pitcher + hitter) → Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Compute projections (pitcher + batter) → Compute league context + build scouting/contract/DOB lookups → Set game_date
 
 **Skip detection:** The CLI compares the DB's `game_date` (set as the very last step of a successful sync) against the StatsPlus API date. If they match, the sync exits early — no work needed. Use `--force` to override.
 
@@ -595,7 +595,7 @@ See [Data Architecture](#data-architecture) above for the full Supabase table la
 | `tools/sync-db.ts` | **Primary data pipeline.** Fetches all data from StatsPlus API, writes to Supabase, computes and stores TR/TFR ratings. See [Sync Pipeline](#sync-pipeline) below. | `npx tsx tools/sync-db.ts [--year=N] [--skip-compute]` |
 | `tools/migrate-to-supabase.ts` | One-time migration: historical DOBs, stats, scouting to Supabase | `npx tsx tools/migrate-to-supabase.ts` |
 | `tools/check-db.ts` | Diagnostic: verify Supabase data integrity (player counts, join checks) | `npx tsx tools/check-db.ts` |
-| `tools/lib/supabase-client.ts` | Shared PostgREST helpers (query, upsert, rpc, CSV parsing) used by all CLI tools | — |
+| `tools/lib/supabase-client.ts` | Shared PostgREST helpers (query, upsert with concurrent batching, rpc, CSV parsing) used by all CLI tools | — |
 
 ### Debugging & Validation
 
@@ -633,6 +633,7 @@ The CLI explain flow uses instrumented service calls so output stays in sync wit
 1. **Detect game date** — fetches `/api/date/` from StatsPlus, parses year (or uses `--year=N`)
 2. **Clear stale data** — calls `clear_for_sync()` RPC (deletes contracts + player_ratings; players/teams/stats are upserted)
 3. **Sync data** — fetches players, teams, contracts, pitching stats (MLB + minors), batting stats (MLB + minors). Upserts everything to Supabase.
+3.5. **Build SyncContext** — fires ~15 Supabase queries in parallel (all players, teams, scouting, 4-year stats, contracts, career aggregates via RPCs, precomputed distributions). Builds Maps for all downstream compute steps. Steps 4-6 make zero Supabase queries — all data comes from the context.
 4. **Compute TR** — pitcher TR + hitter TR. Writes to `player_ratings` table as JSONB.
 5. **Compute TFR** — pitcher TFR + hitter TFR. Writes to `player_ratings`. Also stores full TFR prospect arrays in `precomputed_cache` (`pitcher_tfr_prospects`, `hitter_tfr_prospects`) for single-request loading.
 5.5. **Compute projections** — pitcher + batter projections using the same pipeline as the browser (TR → aging → ensemble/rates → IP/PA → WAR). Stores full `ProjectionContext` and `BatterProjectionContext` in `precomputed_cache`. Browser fast-paths in `ProjectionService` and `BatterProjectionService` return these directly (skipped when `hasCustomScouting` is true).
@@ -647,7 +648,7 @@ The CLI explain flow uses instrumented service calls so output stays in sync wit
 
 **Self-healing:** If the tool crashes mid-run, `complete_sync` never fires → `game_date` stays stale → next run retries the full sync.
 
-**Runtime:** ~15 seconds typical.
+**Runtime:** ~45 seconds typical (limited by Supabase write throughput for ~9k player_ratings rows).
 
 **Concurrency safety:** `claim_sync(date)` RPC uses odd/even version locking with a 2-minute timeout. `complete_sync` bumps version back to even. Multiple concurrent runs won't corrupt data (all writes are upserts), but only the last `complete_sync` sets the final date.
 

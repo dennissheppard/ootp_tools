@@ -79,6 +79,7 @@ export class ProjectionsView {
   private teamOptions: string[] = [];
   private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i);
   private isOffseason = false;
+  private projectionTargetYear: number | null = null;
   private statsYearUsed: number | null = null;
   private usedFallbackStats = false;
   private scoutingMetadata?: { fromMyScout: number; fromOSA: number };
@@ -517,7 +518,9 @@ export class ProjectionsView {
 
       try {
           const currentYear = await dateService.getCurrentYear();
-          const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : currentYear;
+          const targetYear = this.viewMode === 'backcasting'
+            ? this.selectedYear
+            : await dateService.getProjectionTargetYear();
           const statsBaseYear = targetYear - 1;
 
           // Handle batter projections separately
@@ -620,7 +623,9 @@ export class ProjectionsView {
 
       try {
           const currentYear = await dateService.getCurrentYear();
-          const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : currentYear;
+          const targetYear = this.viewMode === 'backcasting'
+            ? this.selectedYear
+            : await dateService.getProjectionTargetYear();
 
           const context = await batterProjectionService.getProjectionsWithContext(statsBaseYear);
           let combinedBatters: ProjectedBatterWithActuals[] = [...context.projections];
@@ -3375,8 +3380,10 @@ export class ProjectionsView {
       // Use saved year if it exists in valid range, otherwise game year
       const savedYear = parseInt(localStorage.getItem('wbl-proj-year') ?? '', 10);
       this.selectedYear = (savedYear >= 2000 && savedYear <= year + 1) ? savedYear : year;
-      // Offseason if Oct-Dec or Jan-Mar
-      this.isOffseason = month >= 10 || month < 4;
+      // Offseason if Nov-Mar
+      this.isOffseason = month >= 11 || month <= 3;
+      // Nov-Dec: game year hasn't rolled (2021) → target 2022. Jan-Mar: already 2022 → target 2022.
+      this.projectionTargetYear = month >= 11 ? year + 1 : year;
 
       this.updateYearOptions(this.selectedYear);
       this.updateModeControls();
@@ -3461,7 +3468,7 @@ export class ProjectionsView {
     const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
     if (!subtitle) return;
 
-    const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : (this.yearOptions[0] ?? this.selectedYear);
+    const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : (this.projectionTargetYear ?? this.yearOptions[0] ?? this.selectedYear);
     const baseYear = this.statsYearUsed ?? (targetYear - 1);
     
     const poolNote = '<br><span class="note-text">Only players with MLB stats. For rookie projections, search for a player or see the True Ratings page.</span>';

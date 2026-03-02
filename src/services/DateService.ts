@@ -155,6 +155,38 @@ class DateService {
   }
 
   /**
+   * Get the month from the current game date (1-12).
+   */
+  async getGameMonth(): Promise<number> {
+    const date = await this.getCurrentDate();
+    return parseInt(date.split('-')[1], 10);
+  }
+
+  /**
+   * Whether the game is in the offseason (Nov–Mar).
+   * Nov-Dec: game year hasn't rolled yet (e.g. 2021-11-xx).
+   * Jan-Mar: OOTP rolled to next calendar year (e.g. 2022-01-xx).
+   */
+  async isOffseason(): Promise<boolean> {
+    const month = await this.getGameMonth();
+    return month >= 11 || month <= 3;
+  }
+
+  /**
+   * The year that projections should target.
+   * Nov-Dec: game year is still current (2021) → target next year (2022).
+   * Jan-Mar: OOTP already rolled to 2022 → target is currentYear (2022).
+   * Apr-Oct (in-season): target is currentYear.
+   */
+  async getProjectionTargetYear(): Promise<number> {
+    const [currentYear, month] = await Promise.all([
+      this.getCurrentYear(),
+      this.getGameMonth()
+    ]);
+    return month >= 11 ? currentYear + 1 : currentYear;
+  }
+
+  /**
    * Clear the cached date (useful for testing or forcing a refresh).
    */
   clearCache(): void {
