@@ -116,6 +116,44 @@ export class PlayerService {
     return map;
   }
 
+  async getPlayersByIds(ids: number[]): Promise<Player[]> {
+    if (ids.length === 0) return [];
+
+    // If full cache exists, use it
+    if (this.players.length > 0) {
+      const idSet = new Set(ids);
+      return this.players.filter(p => idSet.has(p.id));
+    }
+
+    // Supabase: targeted query by IDs
+    if (supabaseDataService.isConfigured) {
+      try {
+        const idList = ids.join(',');
+        const rows = await supabaseDataService.query<any>('players',
+          `select=*&first_name=not.is.null&id=in.(${idList})`);
+        if (rows.length > 0) {
+          return rows.map((r: any) => ({
+            id: r.id,
+            firstName: r.first_name,
+            lastName: r.last_name,
+            teamId: r.team_id,
+            parentTeamId: r.parent_team_id,
+            level: typeof r.level === 'string' ? parseInt(r.level, 10) : r.level,
+            position: r.position as Position,
+            role: r.role,
+            age: r.age,
+            retired: r.retired ?? false,
+          }));
+        }
+      } catch { /* fall through */ }
+    }
+
+    // Fallback: load all and filter
+    const all = await this.getAllPlayers();
+    const idSet = new Set(ids);
+    return all.filter(p => idSet.has(p.id));
+  }
+
   async getPlayersByOrgId(orgTeamId: number): Promise<Player[]> {
     // If full cache exists, just filter it
     if (this.players.length > 0) {

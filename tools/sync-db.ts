@@ -57,7 +57,15 @@ import { HitterRatingEstimatorService } from '../src/services/HitterRatingEstima
 
 const API_BASE = 'https://atl-01.statsplus.net/world/api';
 const LEAGUE_START_YEAR = 2000;
-const BATCH_SIZE = 500;
+const BATCH_SIZE = 1000;
+
+// Timing helper
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  const start = Date.now();
+  const result = await fn();
+  console.log(`  ⏱ ${label}: ${((Date.now() - start) / 1000).toFixed(1)}s`);
+  return result;
+}
 
 // Parse CLI args
 const args = process.argv.slice(2);
@@ -189,6 +197,196 @@ function parseContractsCsv(csv: string): any[] {
 }
 
 // ──────────────────────────────────────────────
+// SyncContext — fetch once, pass everywhere
+// ──────────────────────────────────────────────
+
+interface SyncContext {
+  year: number;
+
+  // Raw arrays
+  mlbPitchingStats: any[];      // 4-year window, league_id=200, split_id=1
+  mlbBattingStats: any[];       // 4-year window
+  milbPitchingStats: any[];     // 3-year MiLB
+  milbBattingStats: any[];      // 3-year MiLB
+  contracts: any[];
+
+  // Derived maps
+  playerMap: Map<number, any>;
+  dobMap: Map<number, Date>;
+  directAgeMap: Map<number, number>;
+  teamMap: Map<number, any>;
+  teamNicknameMap: Map<number, string>;
+
+  pitcherScoutMap: Map<number, any>;
+  hitterScoutMapOsa: Map<number, any>;
+  hitterScoutMapCombined: Map<number, any>;
+
+  careerIpMap: Map<number, number>;
+  careerAbMap: Map<number, number>;
+  careerMlbBattingMap: Map<number, { ab: number; h: number; bb: number; k: number; hr: number; pa: number }>;
+
+  icPlayerIds: Set<number>;
+  aaaOrAaPlayerIds: Set<number>;
+
+  // Current-year subsets
+  currentYearPitching: any[];
+  currentYearBatting: any[];
+
+  // Precomputed distributions (from precomputed_cache)
+  precomputedPitcherDist: any | null;
+  precomputedHitterDist: any | null;
+}
+
+async function buildSyncContext(year: number): Promise<SyncContext> {
+  console.log('\n=== Building sync context ===');
+
+  const pitchingYears = [year, year - 1, year - 2, year - 3].filter(y => y >= LEAGUE_START_YEAR);
+  const battingYears = [...pitchingYears];
+  const milbYears = [year, year - 1, year - 2].filter(y => y >= LEAGUE_START_YEAR);
+
+  const [
+    allPlayersRaw,
+    teamsRaw,
+    pitcherScoutOsa,
+    hitterScoutOsa,
+    hitterScoutMy,
+    mlbPitching,
+    mlbBatting,
+    milbPitching,
+    milbBatting,
+    contractsRaw,
+    precomputedDists,
+    careerIpRows,
+    careerBatRows,
+    aaaStatsRows,
+    aaStatsRows,
+  ] = await Promise.all([
+    supabaseQuery<any>('players', 'select=*&order=id'),
+    supabaseQuery<any>('teams', 'select=*&order=id'),
+    supabaseQuery<any>('pitcher_scouting', 'select=*&source=eq.osa&order=snapshot_date.desc'),
+    supabaseQuery<any>('hitter_scouting', 'select=*&source=eq.osa&order=snapshot_date.desc'),
+    supabaseQuery<any>('hitter_scouting', 'select=*&source=eq.my&order=snapshot_date.desc'),
+    supabaseQuery<any>('pitching_stats', `select=*&league_id=eq.200&split_id=eq.1&year=in.(${pitchingYears.join(',')})&order=player_id`),
+    supabaseQuery<any>('batting_stats', `select=*&league_id=eq.200&split_id=eq.1&year=in.(${battingYears.join(',')})&order=player_id`),
+    supabaseQuery<any>('pitching_stats', `select=*&league_id=in.(201,202,203,204)&split_id=eq.1&year=in.(${milbYears.join(',')})&order=player_id`),
+    supabaseQuery<any>('batting_stats', `select=*&league_id=in.(201,202,203,204)&split_id=eq.1&year=in.(${milbYears.join(',')})&order=player_id`),
+    supabaseQuery<any>('contracts', 'select=*&order=player_id'),
+    supabaseQuery<any>('precomputed_cache', 'select=*&key=like.*distribution*'),
+    supabaseRpc<any[]>('career_pitching_ip'),
+    supabaseRpc<any[]>('career_batting_aggregates'),
+    supabaseQuery<any>('pitching_stats', `select=player_id&league_id=eq.201&split_id=eq.1&year=eq.${year}&order=player_id`),
+    supabaseQuery<any>('pitching_stats', `select=player_id&league_id=eq.202&split_id=eq.1&year=eq.${year}&order=player_id`),
+  ]);
+
+  // Build player maps
+  const playerMap = new Map<number, any>();
+  const dobMap = new Map<number, Date>();
+  const directAgeMap = new Map<number, number>();
+  for (const p of allPlayersRaw) {
+    if (p.first_name) playerMap.set(p.id, p);
+    if (p.dob) dobMap.set(p.id, new Date(p.dob));
+    if (p.age && !p.dob) directAgeMap.set(p.id, typeof p.age === 'string' ? parseInt(p.age, 10) : p.age);
+  }
+
+  // Build team maps
+  const teamMap = new Map<number, any>();
+  const teamNicknameMap = new Map<number, string>();
+  for (const t of teamsRaw) {
+    teamMap.set(t.id, t);
+    teamNicknameMap.set(t.id, t.nickname);
+  }
+
+  // Build scouting maps (latest per player, ordered desc)
+  const pitcherScoutMap = new Map<number, any>();
+  for (const s of pitcherScoutOsa) {
+    if (!pitcherScoutMap.has(s.player_id)) pitcherScoutMap.set(s.player_id, s);
+  }
+
+  const hitterScoutMapOsa = new Map<number, any>();
+  for (const s of hitterScoutOsa) {
+    if (!hitterScoutMapOsa.has(s.player_id)) hitterScoutMapOsa.set(s.player_id, s);
+  }
+
+  // Combined: start with OSA, override with my
+  const hitterScoutMapCombined = new Map(hitterScoutMapOsa);
+  for (const s of hitterScoutMy) {
+    if (!hitterScoutMapCombined.has(s.player_id)) hitterScoutMapCombined.set(s.player_id, s);
+  }
+
+  // Career IP map (from RPC)
+  const careerIpMap = new Map<number, number>();
+  for (const row of (careerIpRows || [])) {
+    careerIpMap.set(row.player_id, parseFloat(String(row.total_ip)) || 0);
+  }
+
+  // Career batting aggregates (from RPC)
+  const careerAbMap = new Map<number, number>();
+  const careerMlbBattingMap = new Map<number, { ab: number; h: number; bb: number; k: number; hr: number; pa: number }>();
+  for (const row of (careerBatRows || [])) {
+    const ab = Number(row.total_ab) || 0;
+    careerAbMap.set(row.player_id, ab);
+    careerMlbBattingMap.set(row.player_id, {
+      ab,
+      h: Number(row.total_h) || 0,
+      bb: Number(row.total_bb) || 0,
+      k: Number(row.total_k) || 0,
+      hr: Number(row.total_hr) || 0,
+      pa: Number(row.total_pa) || 0,
+    });
+  }
+
+  // IC player IDs
+  const icPlayerIds = new Set<number>();
+  for (const c of contractsRaw) {
+    if (c.league_id === -200) icPlayerIds.add(c.player_id);
+  }
+
+  // AAA/AA readiness
+  const aaaOrAaPlayerIds = new Set<number>([
+    ...aaaStatsRows.map((s: any) => s.player_id),
+    ...aaStatsRows.map((s: any) => s.player_id),
+  ]);
+
+  // Current-year subsets
+  const currentYearPitching = mlbPitching.filter(r => r.year === year);
+  const currentYearBatting = mlbBatting.filter(r => r.year === year);
+
+  // Precomputed distributions
+  let precomputedPitcherDist: any = null;
+  let precomputedHitterDist: any = null;
+  for (const row of precomputedDists) {
+    if (row.key === 'pitcher_mlb_distribution') precomputedPitcherDist = row.data;
+    if (row.key?.startsWith('hitter_mlb_distribution_')) precomputedHitterDist = row.data;
+  }
+
+  console.log(`  Players: ${playerMap.size} (${dobMap.size} with DOB)`);
+  console.log(`  Teams: ${teamMap.size}`);
+  console.log(`  Pitcher scouting: ${pitcherScoutMap.size}`);
+  console.log(`  Hitter scouting: ${hitterScoutMapOsa.size} OSA, ${hitterScoutMapCombined.size} combined`);
+  console.log(`  MLB pitching: ${mlbPitching.length} rows (4yr), ${currentYearPitching.length} current`);
+  console.log(`  MLB batting: ${mlbBatting.length} rows (4yr), ${currentYearBatting.length} current`);
+  console.log(`  MiLB: ${milbPitching.length} pitching, ${milbBatting.length} batting`);
+  console.log(`  Contracts: ${contractsRaw.length}, IC players: ${icPlayerIds.size}`);
+  console.log(`  Career maps: ${careerIpMap.size} IP, ${careerAbMap.size} AB`);
+
+  return {
+    year,
+    mlbPitchingStats: mlbPitching,
+    mlbBattingStats: mlbBatting,
+    milbPitchingStats: milbPitching,
+    milbBattingStats: milbBatting,
+    contracts: contractsRaw,
+    playerMap, dobMap, directAgeMap,
+    teamMap, teamNicknameMap,
+    pitcherScoutMap, hitterScoutMapOsa, hitterScoutMapCombined,
+    careerIpMap, careerAbMap, careerMlbBattingMap,
+    icPlayerIds, aaaOrAaPlayerIds,
+    currentYearPitching, currentYearBatting,
+    precomputedPitcherDist, precomputedHitterDist,
+  };
+}
+
+// ──────────────────────────────────────────────
 // Step 1: Detect game date + year
 // ──────────────────────────────────────────────
 
@@ -294,7 +492,7 @@ async function fetchAndWriteData(year: number): Promise<WriteStats> {
     const rows = parseStatsCsv(csv);
     const filtered = filterColumns(rows, PITCHING_COLS);
     const deduped = dedupRows(filtered, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
-    stats.mlbPitching = await supabaseUpsertBatches('pitching_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id');
+    stats.mlbPitching = await supabaseUpsertBatches('pitching_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id', 4);
     console.log(`  ✅ MLB pitching: ${stats.mlbPitching} rows`);
   })());
 
@@ -305,7 +503,7 @@ async function fetchAndWriteData(year: number): Promise<WriteStats> {
     const rows = parseStatsCsv(csv);
     const filtered = filterColumns(rows, BATTING_COLS);
     const deduped = dedupRows(filtered, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
-    stats.mlbBatting = await supabaseUpsertBatches('batting_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id');
+    stats.mlbBatting = await supabaseUpsertBatches('batting_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id', 4);
     console.log(`  ✅ MLB batting: ${stats.mlbBatting} rows`);
   })());
 
@@ -369,36 +567,21 @@ async function fetchAndWriteData(year: number): Promise<WriteStats> {
 // Step 4: Compute TR
 // ──────────────────────────────────────────────
 
-async function computeTrueRatings(year: number): Promise<{ pitcherTr: number; hitterTr: number; rows: any[] }> {
+async function computeTrueRatings(ctx: SyncContext): Promise<{ pitcherTr: number; hitterTr: number; rows: any[] }> {
   console.log('\n=== Step 4: Compute True Ratings ===');
   const ratingRows: { player_id: number; rating_type: string; data: any }[] = [];
+  const year = ctx.year;
 
   // --- Pitcher TR ---
   console.log('  Computing pitcher TR...');
 
-  // Fetch multi-year pitching stats (current year + 2 prior)
-  const pitchingYears = [year, year - 1, year - 2].filter(y => y >= LEAGUE_START_YEAR);
-  const pitchingStats = await supabaseQuery<any>(
-    'pitching_stats',
-    `select=*&league_id=eq.200&split_id=eq.1&year=in.(${pitchingYears.join(',')})&order=player_id`
-  );
+  // Filter multi-year pitching stats from context
+  const pitchingYearsSet = new Set([year, year - 1, year - 2].filter(y => y >= LEAGUE_START_YEAR));
+  const pitchingStats = ctx.mlbPitchingStats.filter(r => pitchingYearsSet.has(r.year));
 
-  // Fetch scouting data (latest OSA snapshot)
-  const pitcherScouting = await supabaseQuery<any>(
-    'pitcher_scouting',
-    `select=*&source=eq.osa&order=snapshot_date.desc`
-  );
-
-  // Fetch players for names + roles
-  const allPlayers = await supabaseQuery<any>('players', 'select=id,first_name,last_name,role&first_name=not.is.null');
-  const playerMap = new Map<number, any>();
-  for (const p of allPlayers) playerMap.set(p.id, p);
-
-  // Build scouting lookup (latest per player)
-  const scoutingMap = new Map<number, any>();
-  for (const s of pitcherScouting) {
-    if (!scoutingMap.has(s.player_id)) scoutingMap.set(s.player_id, s);
-  }
+  // Aliases from context
+  const playerMap = ctx.playerMap;
+  const scoutingMap = ctx.pitcherScoutMap;
 
   // Group pitching stats by player → yearly stats
   const playerYearlyStats = new Map<number, YearlyPitchingStats[]>();
@@ -458,31 +641,11 @@ async function computeTrueRatings(year: number): Promise<{ pitcherTr: number; hi
   // --- Hitter TR ---
   console.log('  Computing hitter TR...');
 
-  const battingYears = [year, year - 1, year - 2].filter(y => y >= LEAGUE_START_YEAR);
-  const battingStats = await supabaseQuery<any>(
-    'batting_stats',
-    `select=*&league_id=eq.200&split_id=eq.1&year=in.(${battingYears.join(',')})&order=player_id`
-  );
+  const battingYearsSet = new Set([year, year - 1, year - 2].filter(y => y >= LEAGUE_START_YEAR));
+  const battingStats = ctx.mlbBattingStats.filter(r => battingYearsSet.has(r.year));
 
-  // Fetch hitter scouting data (latest OSA snapshot)
-  const hitterScouting = await supabaseQuery<any>(
-    'hitter_scouting',
-    `select=*&source=eq.osa&order=snapshot_date.desc`
-  );
-
-  const hitterScoutingMap = new Map<number, any>();
-  for (const s of hitterScouting) {
-    if (!hitterScoutingMap.has(s.player_id)) hitterScoutingMap.set(s.player_id, s);
-  }
-
-  // Fetch "my" scouting to override OSA
-  const myHitterScouting = await supabaseQuery<any>(
-    'hitter_scouting',
-    `select=*&source=eq.my&order=snapshot_date.desc`
-  );
-  for (const s of myHitterScouting) {
-    if (!hitterScoutingMap.has(s.player_id)) hitterScoutingMap.set(s.player_id, s);
-  }
+  // Use combined hitter scouting from context (my overrides OSA)
+  const hitterScoutingMap = ctx.hitterScoutMapCombined;
 
   // Group batting stats by player → yearly arrays
   const playerBattingStats = new Map<number, any[]>();
@@ -566,11 +729,12 @@ async function computeTrueRatings(year: number): Promise<{ pitcherTr: number; hi
 // ──────────────────────────────────────────────
 
 async function computeTrueFutureRatings(
-  year: number,
+  ctx: SyncContext,
   trRows: { player_id: number; rating_type: string; data: any }[]
 ): Promise<{ pitcherTfr: number; hitterTfr: number; rows: any[] }> {
   console.log('\n=== Step 5: Compute True Future Ratings ===');
   const ratingRows: { player_id: number; rating_type: string; data: any }[] = [];
+  const year = ctx.year;
 
   // Build TR lookup for comparison
   const pitcherTrMap = new Map<number, number>();
@@ -580,14 +744,9 @@ async function computeTrueFutureRatings(
     if (row.rating_type === 'hitter_tr') hitterTrMap.set(row.player_id, row.data.trueRating);
   }
 
-  // Fetch DOBs + direct age from players table
-  const playerDobs = await supabaseQuery<any>('players', 'select=id,dob,age');
-  const dobMap = new Map<number, Date>();
-  const directAgeMap = new Map<number, number>();
-  for (const p of playerDobs) {
-    if (p.dob) dobMap.set(p.id, new Date(p.dob));
-    if (p.age && !p.dob) directAgeMap.set(p.id, typeof p.age === 'string' ? parseInt(p.age, 10) : p.age);
-  }
+  // Aliases from context
+  const dobMap = ctx.dobMap;
+  const directAgeMap = ctx.directAgeMap;
 
   function calculateAge(dob: Date | undefined, referenceYear: number, playerId?: number): number | null {
     if (dob) {
@@ -615,40 +774,16 @@ async function computeTrueFutureRatings(
     }
   }
 
-  // Build IC player set from contracts (leagueId === -200)
-  const contractRows = await supabaseQuery<{ player_id: number; league_id: number }>('contracts', 'select=player_id,league_id&league_id=eq.-200');
-  const icPlayerIds = new Set(contractRows.map(r => r.player_id));
+  // IC player set from context
+  const icPlayerIds = ctx.icPlayerIds;
 
   // --- Pitcher TFR ---
   console.log('  Computing pitcher TFR...');
 
-  // Fetch pitcher scouting (latest OSA)
-  const pitcherScouting = await supabaseQuery<any>(
-    'pitcher_scouting',
-    'select=*&source=eq.osa&order=snapshot_date.desc'
-  );
-  const pitcherScoutMap = new Map<number, any>();
-  for (const s of pitcherScouting) {
-    if (!pitcherScoutMap.has(s.player_id)) pitcherScoutMap.set(s.player_id, s);
-  }
-
-  // Aggregate career MLB IP per pitcher
-  const careerIp = await supabaseQuery<any>(
-    'pitching_stats',
-    'select=player_id,ip&league_id=eq.200&split_id=eq.1'
-  );
-  const careerIpMap = new Map<number, number>();
-  for (const row of careerIp) {
-    const ip = typeof row.ip === 'string' ? parseFloat(row.ip) : (row.ip || 0);
-    careerIpMap.set(row.player_id, (careerIpMap.get(row.player_id) || 0) + ip);
-  }
-
-  // Fetch MiLB pitching stats (2-3 recent years)
-  const milbYears = [year, year - 1, year - 2].filter(y => y >= LEAGUE_START_YEAR);
-  const milbPitching = await supabaseQuery<any>(
-    'pitching_stats',
-    `select=*&league_id=in.(201,202,203,204)&split_id=eq.1&year=in.(${milbYears.join(',')})&order=player_id`
-  );
+  // Aliases from context
+  const pitcherScoutMap = ctx.pitcherScoutMap;
+  const careerIpMap = ctx.careerIpMap;
+  const milbPitching = ctx.milbPitchingStats;
 
   const leagueToLevel: Record<number, string> = { 201: 'aaa', 202: 'aa', 203: 'a', 204: 'r' };
 
@@ -676,17 +811,15 @@ async function computeTrueFutureRatings(
     });
   }
 
-  // Build MLB distribution (check precomputed cache first)
-  let pitcherDist = await supabaseQuery<any>('precomputed_cache', "select=data&key=eq.pitcher_mlb_distribution");
+  // Build MLB distribution (from context or compute on first run)
   let pitcherMlbDist: MLBPercentileDistribution;
 
-  if (pitcherDist.length > 0 && pitcherDist[0].data) {
-    pitcherMlbDist = pitcherDist[0].data;
+  if (ctx.precomputedPitcherDist) {
+    pitcherMlbDist = ctx.precomputedPitcherDist;
     console.log('  Loaded pitcher MLB distribution from precomputed cache');
   } else {
     console.log('  Building pitcher MLB distribution from stats...');
     pitcherMlbDist = await buildPitcherMlbDistribution(dobMap);
-    // Save to precomputed cache
     await supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_mlb_distribution', data: pitcherMlbDist }], 1, 'key');
   }
 
@@ -729,15 +862,9 @@ async function computeTrueFutureRatings(
 
   const pitcherTfrResults = await trueFutureRatingService.calculateTrueFutureRatings(pitcherTfrInputs);
 
-  // Fetch all players for team info
-  const allPlayers = await supabaseQuery<any>('players', 'select=id,team_id,parent_team_id,first_name,last_name,level,position&first_name=not.is.null');
-  const allPlayerMap = new Map<number, any>();
-  for (const p of allPlayers) allPlayerMap.set(p.id, p);
-
-  // Fetch teams
-  const allTeams = await supabaseQuery<any>('teams', 'select=id,name,nickname,parent_team_id');
-  const teamMap = new Map<number, any>();
-  for (const t of allTeams) teamMap.set(t.id, t);
+  // Aliases from context
+  const allPlayerMap = ctx.playerMap;
+  const teamMap = ctx.teamMap;
 
   // Build RatedProspect objects
   for (const result of pitcherTfrResults) {
@@ -865,42 +992,11 @@ async function computeTrueFutureRatings(
   // --- Hitter TFR ---
   console.log('  Computing hitter TFR...');
 
-  // Fetch hitter scouting
-  const hitterScouting = await supabaseQuery<any>(
-    'hitter_scouting',
-    'select=*&source=eq.osa&order=snapshot_date.desc'
-  );
-  const hitterScoutMap = new Map<number, any>();
-  for (const s of hitterScouting) {
-    if (!hitterScoutMap.has(s.player_id)) hitterScoutMap.set(s.player_id, s);
-  }
-
-  // Aggregate career MLB stats per hitter (for farm-eligibility + mlbForTR adjustment)
-  const careerBatting = await supabaseQuery<any>(
-    'batting_stats',
-    'select=player_id,ab,h,bb,k,hr,pa&league_id=eq.200&split_id=eq.1'
-  );
-  const careerAbMap = new Map<number, number>();
-  const careerMlbBattingMap = new Map<number, { ab: number; h: number; bb: number; k: number; hr: number; pa: number }>();
-  for (const row of careerBatting) {
-    const ab = row.ab ?? 0;
-    careerAbMap.set(row.player_id, (careerAbMap.get(row.player_id) || 0) + ab);
-    const prev = careerMlbBattingMap.get(row.player_id) ?? { ab: 0, h: 0, bb: 0, k: 0, hr: 0, pa: 0 };
-    careerMlbBattingMap.set(row.player_id, {
-      ab: prev.ab + ab,
-      h: prev.h + (row.h ?? 0),
-      bb: prev.bb + (row.bb ?? 0),
-      k: prev.k + (row.k ?? 0),
-      hr: prev.hr + (row.hr ?? 0),
-      pa: prev.pa + (row.pa ?? 0),
-    });
-  }
-
-  // Fetch MiLB batting stats
-  const milbBatting = await supabaseQuery<any>(
-    'batting_stats',
-    `select=*&league_id=in.(201,202,203,204)&split_id=eq.1&year=in.(${milbYears.join(',')})&order=player_id`
-  );
+  // Aliases from context
+  const hitterScoutMap = ctx.hitterScoutMapOsa;
+  const careerAbMap = ctx.careerAbMap;
+  const careerMlbBattingMap = ctx.careerMlbBattingMap;
+  const milbBatting = ctx.milbBattingStats;
 
   // Group MiLB batting stats by player
   const milbBattingByPlayer = new Map<number, MinorLeagueBattingStatsWithLevel[]>();
@@ -939,11 +1035,9 @@ async function computeTrueFutureRatings(
     });
   }
 
-  // Build hitter MLB distribution
-  const hitterDistRows = await supabaseQuery<any>('precomputed_cache', "select=data&key=like.hitter_mlb_distribution_*");
-  if (hitterDistRows.length > 0 && hitterDistRows[0].data) {
-    // Use the first cached distribution
-    (hitterTrueFutureRatingService as any)._mlbDistCache = hitterDistRows[0].data;
+  // Build hitter MLB distribution (from context or compute on first run)
+  if (ctx.precomputedHitterDist) {
+    (hitterTrueFutureRatingService as any)._mlbDistCache = ctx.precomputedHitterDist;
     (hitterTrueFutureRatingService as any)._mlbDistCacheKey = 'def_def_def';
     console.log('  Loaded hitter MLB distribution from precomputed cache');
   } else {
@@ -951,7 +1045,6 @@ async function computeTrueFutureRatings(
     const hitterDist = await buildHitterMlbDistribution(dobMap);
     (hitterTrueFutureRatingService as any)._mlbDistCache = hitterDist;
     (hitterTrueFutureRatingService as any)._mlbDistCacheKey = 'def_def_def';
-    // Save to precomputed cache
     await supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_mlb_distribution_def_def_def', data: hitterDist }], 1, 'key');
   }
 
@@ -1303,10 +1396,11 @@ function getValueAtPercentile(pct: number, distribution: number[]): number {
 }
 
 async function computeProjections(
-  year: number,
+  ctx: SyncContext,
   trRows: { player_id: number; rating_type: string; data: any }[]
 ): Promise<{ pitcherProj: number; batterProj: number }> {
   console.log('\n=== Step 5.5: Compute Projections ===');
+  const year = ctx.year;
 
   // Build canonical TR lookups from Step 4
   const pitcherTrMap = new Map<number, any>();
@@ -1316,54 +1410,19 @@ async function computeProjections(
     if (row.rating_type === 'hitter_tr') hitterTrMap.set(row.player_id, row.data);
   }
 
-  // ────────── Gather data from Supabase ──────────
+  // ────────── Data from SyncContext ──────────
 
-  // Multi-year MLB pitching stats (3 years prior for projection TR)
-  const pitchingYears = [year - 1, year - 2, year - 3].filter(y => y >= LEAGUE_START_YEAR);
-  // Current-year stats (for IP distributions + stamina mapping)
-  const currentPitchingYears = [year, ...pitchingYears];
+  const allPitchingStats = ctx.mlbPitchingStats;
+  const currentYearPitching = ctx.currentYearPitching;
+  const battingYearsSet = new Set([year - 1, year - 2, year - 3].filter(y => y >= LEAGUE_START_YEAR));
+  const allBattingStats = ctx.mlbBattingStats.filter(r => battingYearsSet.has(r.year));
+  const currentYearBatting = ctx.currentYearBatting;
 
-  const [
-    allPitchingStats, currentYearPitching,
-    allBattingStats, currentYearBatting,
-    allPlayers, allTeams,
-    pitcherScouting, hitterScouting,
-    aaaStatsRows, aaStatsRows,
-  ] = await Promise.all([
-    supabaseQuery<any>('pitching_stats', `select=*&league_id=eq.200&split_id=eq.1&year=in.(${currentPitchingYears.join(',')})&order=player_id`),
-    supabaseQuery<any>('pitching_stats', `select=*&league_id=eq.200&split_id=eq.1&year=eq.${year}&order=player_id`),
-    supabaseQuery<any>('batting_stats', `select=*&league_id=eq.200&split_id=eq.1&year=in.(${[year - 1, year - 2, year - 3].filter(y => y >= LEAGUE_START_YEAR).join(',')})&order=player_id`),
-    supabaseQuery<any>('batting_stats', `select=*&league_id=eq.200&split_id=eq.1&year=eq.${year}&order=player_id`),
-    supabaseQuery<any>('players', 'select=id,first_name,last_name,role,position,age,team_id,retired&first_name=not.is.null'),
-    supabaseQuery<any>('teams', 'select=id,nickname'),
-    supabaseQuery<any>('pitcher_scouting', 'select=*&source=eq.osa&order=snapshot_date.desc'),
-    supabaseQuery<any>('hitter_scouting', 'select=*&source=eq.osa&order=snapshot_date.desc'),
-    supabaseQuery<any>('pitching_stats', `select=player_id&league_id=eq.201&split_id=eq.1&year=eq.${year}&order=player_id`),
-    supabaseQuery<any>('pitching_stats', `select=player_id&league_id=eq.202&split_id=eq.1&year=eq.${year}&order=player_id`),
-  ]);
-
-  const playerMap = new Map<number, any>();
-  for (const p of allPlayers) playerMap.set(p.id, p);
-
-  const teamMap = new Map<number, string>();
-  for (const t of allTeams) teamMap.set(t.id, t.nickname);
-
-  // Build scouting maps
-  const pitcherScoutMap = new Map<number, any>();
-  for (const s of pitcherScouting) {
-    if (!pitcherScoutMap.has(s.player_id)) pitcherScoutMap.set(s.player_id, s);
-  }
-
-  const hitterScoutMap = new Map<number, any>();
-  for (const s of hitterScouting) {
-    if (!hitterScoutMap.has(s.player_id)) hitterScoutMap.set(s.player_id, s);
-  }
-
-  // Minor league readiness (AAA/AA players)
-  const aaaOrAaPlayerIds = new Set<number>([
-    ...aaaStatsRows.map((s: any) => s.player_id),
-    ...aaStatsRows.map((s: any) => s.player_id),
-  ]);
+  const playerMap = ctx.playerMap;
+  const teamMap = ctx.teamNicknameMap;
+  const pitcherScoutMap = ctx.pitcherScoutMap;
+  const hitterScoutMap = ctx.hitterScoutMapOsa;
+  const aaaOrAaPlayerIds = ctx.aaaOrAaPlayerIds;
 
   // Compute league stats for pitcher projections
   let totalIp = 0, totalK = 0, totalBb = 0, totalHr = 0, totalEr = 0;
@@ -1412,9 +1471,9 @@ async function computeProjections(
     };
   }
 
-  // If current year has no data, try prior year
+  // If current year has no data, try prior year from context
   if (!leagueAvg) {
-    const priorBatting = await supabaseQuery<any>('batting_stats', `select=pa,ab,h,d,t,hr,bb,hp,sf,r&year=eq.${year - 1}&league_id=eq.200&split_id=eq.1`);
+    const priorBatting = ctx.mlbBattingStats.filter(r => r.year === year - 1);
     let pPa = 0, pAb = 0, pH = 0, pD = 0, pT = 0, pHr = 0, pBb = 0, pHp = 0, pSf = 0, pR = 0;
     for (const r of priorBatting) {
       const pa = r.pa ?? 0; if (pa < 1) continue;
@@ -1525,9 +1584,9 @@ async function computeProjections(
   spStaminaDistribution.sort((a, b) => a - b);
   const spMaxIp = spIpDistribution.length > 0 ? spIpDistribution[spIpDistribution.length - 1] : 240;
 
-  // If current year distributions are empty, try prior year
+  // If current year distributions are empty, try prior year from context
   if (spIpDistribution.length === 0) {
-    const priorPitching = await supabaseQuery<any>('pitching_stats', `select=ip,gs&league_id=eq.200&split_id=eq.1&year=eq.${year - 1}`);
+    const priorPitching = ctx.mlbPitchingStats.filter(r => r.year === year - 1);
     for (const r of priorPitching) {
       if ((r.gs ?? 0) >= MIN_GS_FOR_PEAK) {
         const ip = parseIp(r.ip);
@@ -1733,6 +1792,8 @@ async function computeProjections(
       teamId,
       teamName: teamMap.get(teamId) || 'FA',
       position: player.position,
+      level: typeof player.level === 'string' ? parseInt(player.level, 10) : (player.level ?? 1),
+      parentTeamId: player.parent_team_id ?? 0,
       age: playerAge,
       currentTrueRating: tr.trueRating,
       currentPercentile: tr.percentile,
@@ -2050,6 +2111,7 @@ async function computeProjections(
       projWar = Math.round(((wRAA + replacementRuns + sbRuns) / leagueAvg.runsPerWin) * 10) / 10;
     }
 
+    const playerForBatter = playerMap.get(trResult.playerId);
     batterProjections.push({
       playerId: trResult.playerId,
       name,
@@ -2057,6 +2119,8 @@ async function computeProjections(
       teamName,
       position,
       positionLabel: POSITION_LABELS[position] || 'UT',
+      level: playerForBatter ? (typeof playerForBatter.level === 'string' ? parseInt(playerForBatter.level, 10) : (playerForBatter.level ?? 1)) : 1,
+      parentTeamId: playerForBatter?.parent_team_id ?? 0,
       age,
       currentTrueRating: trResult.trueRating,
       percentile: trResult.percentile,
@@ -2139,32 +2203,14 @@ async function computeProjections(
 // Step 6: League Context
 // ──────────────────────────────────────────────
 
-async function computeLeagueContext(year: number): Promise<void> {
+async function computeLeagueContext(ctx: SyncContext): Promise<void> {
   console.log('\n=== Step 6: Compute league context ===');
+  const year = ctx.year;
 
-  // Fetch batting + pitching stats (with player_id for $/WAR) + contracts + scouting in parallel
-  const [battingRows, pitchingRows, contracts, pitcherScoutRows, hitterScoutRows] = await Promise.all([
-    supabaseQuery<{ player_id: number; war: number }>(
-      'batting_stats',
-      `select=player_id,war&league_id=eq.200&split_id=eq.1&year=eq.${year}&war=not.is.null`
-    ),
-    supabaseQuery<{ player_id: number; war: number; ip: string; k: number; bb: number; hra: number }>(
-      'pitching_stats',
-      `select=player_id,war,ip,k,bb,hra&league_id=eq.200&split_id=eq.1&year=eq.${year}&war=not.is.null`
-    ),
-    supabaseQuery<{ player_id: number; salaries: number[]; current_year: number; league_id: number; years: number }>(
-      'contracts',
-      'select=player_id,salaries,current_year,league_id,years'
-    ),
-    supabaseQuery<any>(
-      'pitcher_scouting',
-      'select=player_id,stuff,control,hra,ovr,pot,lev,hsc,player_name,age,stamina&source=eq.osa&order=snapshot_date.desc'
-    ),
-    supabaseQuery<any>(
-      'hitter_scouting',
-      'select=player_id,contact,power,eye,avoid_k,gap,speed,ovr,pot,lev,hsc,player_name,age&source=eq.osa&order=snapshot_date.desc'
-    ),
-  ]);
+  // Filter current-year stats with WAR from context
+  const battingRows = ctx.currentYearBatting.filter(r => r.war != null);
+  const pitchingRows = ctx.currentYearPitching.filter(r => r.war != null);
+  const contracts = ctx.contracts;
 
   // Batter WAR max
   const batterWarMax = battingRows.reduce((mx, r) => Math.max(mx, r.war ?? 0), 0);
@@ -2215,10 +2261,7 @@ async function computeLeagueContext(year: number): Promise<void> {
   // League batting averages (current year + prior year for projections)
   const leagueAverages: Record<string, any> = {};
   for (const y of [year, year - 1]) {
-    const rows = await supabaseQuery<any>(
-      'batting_stats',
-      `select=pa,ab,h,d,t,hr,bb,hp,sf,r&year=eq.${y}&league_id=eq.200&split_id=eq.1`
-    );
+    const rows = ctx.mlbBattingStats.filter(r => r.year === y);
     let totalPa = 0, totalAb = 0, totalH = 0, totalD = 0, totalT = 0;
     let totalHr = 0, totalBb = 0, totalHp = 0, totalSf = 0, totalR = 0;
     for (const r of rows) {
@@ -2264,40 +2307,37 @@ async function computeLeagueContext(year: number): Promise<void> {
   console.log('  Building scouting + contract lookups...');
 
   const pitcherScoutLookup: Record<string, (number | string)[]> = {};
-  for (const s of pitcherScoutRows) {
-    if (pitcherScoutLookup[s.player_id]) continue; // latest snapshot only (ordered desc)
+  for (const [pid, s] of ctx.pitcherScoutMap) {
     const lev = s.lev || '';
     const base = [s.stuff, s.control, s.hra, s.ovr ?? 0, s.pot ?? 0, lev, s.hsc || ''];
     if (lev === '-' || lev === '') {
       // Draftees/FAs: include extra fields for buildScoutingOnlyRows
       base.push(s.player_name || '', s.age || 0, s.stamina || 0);
     }
-    pitcherScoutLookup[s.player_id] = base;
+    pitcherScoutLookup[pid] = base;
   }
 
   const hitterScoutLookup: Record<string, (number | string)[]> = {};
-  for (const s of hitterScoutRows) {
-    if (hitterScoutLookup[s.player_id]) continue;
+  for (const [hPid, s] of ctx.hitterScoutMapOsa) {
     const lev = s.lev || '';
     const base = [s.contact ?? 50, s.power, s.eye, s.avoid_k, s.gap ?? 50, s.speed ?? 50, s.ovr ?? 0, s.pot ?? 0, lev, s.hsc || ''];
     if (lev === '-' || lev === '') {
       base.push(s.player_name || '', s.age || 0);
     }
-    hitterScoutLookup[s.player_id] = base;
+    hitterScoutLookup[hPid] = base;
   }
 
   // Contract lookup: { [playerId]: [salary, leagueId, yearsRemaining] }
   const contractLookup: Record<string, number[]> = {};
-  for (const c of contracts) {
+  for (const c of ctx.contracts) {
     const salary = (c.salaries ?? [])[c.current_year ?? 0] ?? 0;
     contractLookup[c.player_id] = [salary, c.league_id ?? 0, (c.years ?? 0) - (c.current_year ?? 0)];
   }
 
-  // DOB lookup: { [playerId]: birthYear } — replaces 12-page players?select=id,dob fetch
-  const dobRows = await supabaseQuery<{ id: number; dob: string }>('players', 'select=id,dob&dob=not.is.null');
+  // DOB lookup from context
   const dobLookup: Record<string, number> = {};
-  for (const r of dobRows) {
-    if (r.dob) dobLookup[r.id] = new Date(r.dob).getFullYear();
+  for (const [id, dob] of ctx.dobMap) {
+    dobLookup[id] = dob.getFullYear();
   }
 
   await Promise.all([
@@ -2342,49 +2382,51 @@ async function main(): Promise<void> {
   }
 
   // Step 2
-  await clearStaleData();
+  await timed('Clear stale data', clearStaleData);
 
   // Step 3
-  const writeStats = await fetchAndWriteData(year);
+  const writeStats = await timed('Fetch + write data', () => fetchAndWriteData(year));
 
   let trCounts = { pitcherTr: 0, hitterTr: 0 };
   let tfrCounts = { pitcherTfr: 0, hitterTfr: 0 };
   let projCounts = { pitcherProj: 0, batterProj: 0 };
 
   if (!skipCompute) {
+    // Build shared context (parallel burst of ~15 queries)
+    const ctx = await timed('Build sync context', () => buildSyncContext(year));
+
     // Step 4
-    const trResult = await computeTrueRatings(year);
+    const trResult = await timed('Compute TR', () => computeTrueRatings(ctx));
     trCounts = { pitcherTr: trResult.pitcherTr, hitterTr: trResult.hitterTr };
 
     // Step 5
-    const tfrResult = await computeTrueFutureRatings(year, trResult.rows);
+    const tfrResult = await timed('Compute TFR', () => computeTrueFutureRatings(ctx, trResult.rows));
     tfrCounts = { pitcherTfr: tfrResult.pitcherTfr, hitterTfr: tfrResult.hitterTfr };
 
-    // Write all ratings to Supabase
+    // Start rating writes in background — projections/league context don't depend on them
     const allRatingRows = [...trResult.rows, ...tfrResult.rows];
+    let writePromise: Promise<void> = Promise.resolve();
     if (allRatingRows.length > 0) {
-      console.log(`\n  Writing ${allRatingRows.length} rating rows to player_ratings...`);
       const deduped = dedupRows(allRatingRows, r => `${r.player_id}_${r.rating_type}`);
-      await supabaseUpsertBatches('player_ratings', deduped, BATCH_SIZE, 'player_id,rating_type');
-      console.log(`  ✅ Wrote ${deduped.length} ratings`);
-
-      // Store TFR arrays in precomputed_cache (1 request per type instead of 3-4 paginated requests)
       const pitcherTfrData = tfrResult.rows.filter((r: any) => r.rating_type === 'pitcher_tfr').map((r: any) => r.data);
       const hitterTfrData = tfrResult.rows.filter((r: any) => r.rating_type === 'hitter_tfr').map((r: any) => r.data);
-      await Promise.all([
-        supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_tfr_prospects', data: pitcherTfrData }], 1, 'key'),
-        supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_tfr_prospects', data: hitterTfrData }], 1, 'key'),
-      ]);
-      console.log(`  ✅ TFR precomputed cache: ${pitcherTfrData.length} pitchers, ${hitterTfrData.length} hitters`);
+
+      writePromise = timed('Write ratings + TFR cache', async () => {
+        await Promise.all([
+          supabaseUpsertBatches('player_ratings', deduped, BATCH_SIZE, 'player_id,rating_type', 8),
+          supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_tfr_prospects', data: pitcherTfrData }], 1, 'key'),
+          supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_tfr_prospects', data: hitterTfrData }], 1, 'key'),
+        ]);
+        console.log(`  ✅ Wrote ${deduped.length} ratings, TFR: ${pitcherTfrData.length} pitchers, ${hitterTfrData.length} hitters`);
+      });
     }
 
-    // Step 5.5 — Projections
-    projCounts = await computeProjections(year, trResult.rows);
-  }
+    // Step 5.5 + 6 run concurrently with rating writes
+    projCounts = await timed('Compute projections', () => computeProjections(ctx, trResult.rows));
+    await timed('Compute league context', () => computeLeagueContext(ctx));
 
-  // Step 6 — league context (only when computing ratings)
-  if (!skipCompute) {
-    await computeLeagueContext(year);
+    // Ensure writes complete before finalize
+    await writePromise;
   }
 
   // Step 7

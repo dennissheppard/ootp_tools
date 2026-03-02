@@ -111,14 +111,19 @@ export async function supabaseUpsertBatches(
   rows: any[],
   batchSize = 500,
   onConflict?: string,
+  concurrency = 1,
 ): Promise<number> {
   if (rows.length === 0) return 0;
 
   const url = `${SUPABASE_URL}/rest/v1/${table}${onConflict ? `?on_conflict=${onConflict}` : ''}`;
   let uploaded = 0;
 
+  const batches: any[][] = [];
   for (let i = 0; i < rows.length; i += batchSize) {
-    const batch = rows.slice(i, i + batchSize);
+    batches.push(rows.slice(i, i + batchSize));
+  }
+
+  async function postBatch(batch: any[], batchIdx: number): Promise<void> {
     const response = await fetch(url, {
       method: 'POST',
       headers: { ...HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
@@ -127,12 +132,23 @@ export async function supabaseUpsertBatches(
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new Error(`POST ${table} batch ${Math.floor(i / batchSize)} failed (${response.status}): ${body}`);
+      throw new Error(`POST ${table} batch ${batchIdx} failed (${response.status}): ${body}`);
     }
 
     uploaded += batch.length;
     if (uploaded % 5000 === 0 || uploaded === rows.length) {
       console.log(`  ${table}: ${uploaded}/${rows.length} rows`);
+    }
+  }
+
+  if (concurrency <= 1) {
+    for (let i = 0; i < batches.length; i++) {
+      await postBatch(batches[i], i);
+    }
+  } else {
+    for (let i = 0; i < batches.length; i += concurrency) {
+      const chunk = batches.slice(i, i + concurrency);
+      await Promise.all(chunk.map((batch, j) => postBatch(batch, i + j)));
     }
   }
 

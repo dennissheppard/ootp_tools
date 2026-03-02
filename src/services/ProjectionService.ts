@@ -18,6 +18,8 @@ export interface ProjectedPlayer {
   teamId: number;
   teamName: string;
   position?: number;
+  level?: number;
+  parentTeamId?: number;
   age: number;
   currentTrueRating: number;
   currentPercentile?: number;
@@ -426,6 +428,8 @@ class ProjectionService {
             teamId,
             teamName: team ? team.nickname : 'FA',
             position: player.position,
+            level: player.level,
+            parentTeamId: player.parentTeamId,
             age: ageInYear + 1, // Show historical projected age
             currentTrueRating: tr.trueRating,
             currentPercentile: tr.percentile,

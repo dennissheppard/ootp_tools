@@ -22,9 +22,9 @@ StatsPlus API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
                                               Browser (read-only)
 ```
 
-1. **CLI sync** (`npx tsx tools/sync-db.ts`): Fetches current-year data from StatsPlus API, writes players/teams/stats/contracts to Supabase, computes TR and TFR, writes pre-computed ratings to `player_ratings` table
+1. **CLI sync** (`npx tsx tools/sync-db.ts`): Fetches current-year data from StatsPlus API, writes players/teams/stats/contracts to Supabase, computes TR, TFR, and projections, writes pre-computed ratings to `player_ratings` table and projections to `precomputed_cache`
 2. **Browser**: When Supabase is configured, all StatsPlus API calls are blocked (`ApiClient.ts` guard) — the only allowed API call is `/api/date/`. Services read exclusively from Supabase. Without Supabase, the app falls back to CSV/API for dev mode.
-3. **Pre-computed ratings**: TR and TFR are computed by the CLI and stored as JSONB in `player_ratings`. The browser loads them directly — no expensive computation on page load.
+3. **Pre-computed ratings + projections**: TR, TFR, and pitcher/batter projections are computed by the CLI and stored as JSONB in `player_ratings` / `precomputed_cache`. The browser loads them directly — no expensive computation on page load.
 
 ### Supabase Tables
 
@@ -54,6 +54,8 @@ StatsPlus API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
 | `pitcher_mlb_distribution` | sync-db Step 5 | sync-db (cached) | MLB peak-age distribution for TFR percentile calculation |
 | `hitter_mlb_distribution` | sync-db Step 5 | sync-db (cached) | Same for hitters |
 | `league_context` | sync-db Step 6 | LeagueBattingAveragesService | League-wide averages, $/WAR thresholds |
+| `pitcher_projections` | sync-db Step 5.5 | ProjectionService | Full `ProjectionContext` (projections array + metadata) — replaces 10+ Supabase requests + expensive computation |
+| `batter_projections` | sync-db Step 5.5 | BatterProjectionService | Full `BatterProjectionContext` (projections array + metadata) |
 
 **RPC functions:** `clear_for_sync()` (wipes contracts + ratings), `complete_sync(date)` (sets game_date)
 
@@ -80,7 +82,7 @@ npx tsx tools/sync-db.ts --force         # Re-sync even if DB is up to date
 
 **Env vars** (`.env.local`): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
-**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts → Patch IC player levels (contract league_id=-200 → level=6) → Compute TR (pitcher + hitter) → Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Compute league context + build scouting/contract/DOB lookups → Set game_date
+**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts → Patch IC player levels (contract league_id=-200 → level=6) → Compute TR (pitcher + hitter) → Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Compute projections (pitcher + batter) → Compute league context + build scouting/contract/DOB lookups → Set game_date
 
 **Skip detection:** The CLI compares the DB's `game_date` (set as the very last step of a successful sync) against the StatsPlus API date. If they match, the sync exits early — no work needed. Use `--force` to override.
 
@@ -633,6 +635,7 @@ The CLI explain flow uses instrumented service calls so output stays in sync wit
 3. **Sync data** — fetches players, teams, contracts, pitching stats (MLB + minors), batting stats (MLB + minors). Upserts everything to Supabase.
 4. **Compute TR** — pitcher TR + hitter TR. Writes to `player_ratings` table as JSONB.
 5. **Compute TFR** — pitcher TFR + hitter TFR. Writes to `player_ratings`. Also stores full TFR prospect arrays in `precomputed_cache` (`pitcher_tfr_prospects`, `hitter_tfr_prospects`) for single-request loading.
+5.5. **Compute projections** — pitcher + batter projections using the same pipeline as the browser (TR → aging → ensemble/rates → IP/PA → WAR). Stores full `ProjectionContext` and `BatterProjectionContext` in `precomputed_cache`. Browser fast-paths in `ProjectionService` and `BatterProjectionService` return these directly (skipped when `hasCustomScouting` is true).
 6. **Compute league context + lookups** — league-wide averages, compact scouting/contract/DOB lookups → `precomputed_cache`. These replace bulk table scans in the browser.
 7. **Finalize** — calls `complete_sync(game_date)` RPC, which sets `game_date` on `data_version` (the "data is ready" signal) and bumps table versions so browser clients invalidate caches
 
@@ -683,7 +686,8 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 | `playerTags.test.ts` | 43 | Player tags: shared (overperformer, underperformer, expensive, bargain, ready for promotion, blocked), pitcher workload (workhorse, full-time starter, innings eater), batter profile (workhorse, 3-outcomes, gap hitter, triples machine) + edge cases |
 | `ModalDataService.test.ts` | 17 | Resolve and projection functions across prospect/MLB player archetypes (batter and pitcher) |
 | `RatingEstimatorService.test.ts` | 20 | Pitcher rating estimation with confidence intervals |
-| `ProjectionService.test.ts` | 8 | IP projection pipeline |
+| `ProjectionService.test.ts` | 10 | IP projection pipeline, precomputed fast-path |
+| `BatterProjectionService.test.ts` | 3 | Precomputed fast-path (Supabase configured, custom scouting bypass, null cache fallthrough) |
 | `ProspectDevelopmentCurveService.test.ts` | 19 | Hitter/pitcher development curves: age-based TR scaling, rawStats adjustment, MLB stats boost, clamping, gap/speed avg devFraction, diagnostics |
 | `PlayerService.test.ts` | 12 | Cache-path queries: name/info lookup, org filtering, search (case-insensitive, reverse name), hasCachedPlayers |
 | `ContractService.test.ts` | 13 | Utility methods (yearsRemaining, FA year, salary access, last year check), team/player filtering, cache state |
@@ -695,6 +699,7 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 ### Data Layer
 - **Browser = pure reader**: All services try Supabase first when configured (`supabaseDataService.isConfigured`), fall back to CSV/API. No browser writes to Supabase.
 - **Pre-computed TR/TFR**: `player_ratings` table stores JSONB per player+type. CLI writes, browser reads. Eliminates expensive computation on page load. Rating types: `pitcher_tr`, `hitter_tr`, `pitcher_tfr`, `hitter_tfr`
+- **Pre-computed projections**: Pitcher and batter projections are computed by the CLI and stored in `precomputed_cache` (`pitcher_projections`, `batter_projections`). `ProjectionService` and `BatterProjectionService` return these directly when Supabase is configured and no custom scouting is active — eliminating 10+ Supabase requests and expensive computation per page load. Falls through to live computation when `hasCustomScouting` is true.
 - **Deep link fast path**: `TrueRatingsView.openPlayerDeepLinkFast(playerId)` fetches single-player ratings from `player_ratings` → builds modal data directly → instant open
 - **Lazy loading**: Scouting data and standings CSVs deferred to tab activation. Minor league stats skipped when pre-computed data available. Hitter scouting skipped in pitcher mode.
 - **In-flight dedup**: `ScoutingDataService` and `HitterScoutingDataService` deduplicate concurrent Supabase queries via `supabaseOsaLoading` promise pattern

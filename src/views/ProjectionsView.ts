@@ -16,7 +16,6 @@ import { batterProjectionAnalysisService, BatterAggregateAnalysisReport } from '
 import { standingsService } from '../services/StandingsService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
-import type { Player } from '../models/Player';
 import { analyticsService } from '../services/AnalyticsService';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
@@ -114,7 +113,6 @@ export class ProjectionsView {
   private hasBatterActualStats = false;
   private showMlbPlayers = true;
   private showMinorLeaguers = false;
-  private playerLookup: Map<number, Player> = new Map();
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -131,7 +129,7 @@ export class ProjectionsView {
     const defaults: ColumnConfig[] = [
         { key: 'position', label: 'Pos', sortKey: 'position', accessor: p => this.renderPositionLabel(p) },
         { key: 'name', label: 'Name', accessor: p => this.renderPlayerName(p) },
-        { key: 'teamName', label: 'Team', accessor: p => this.renderTeamWithLevel(p.teamId, p.playerId, p.teamName) },
+        { key: 'teamName', label: 'Team', accessor: p => this.renderTeamWithLevel(p.teamId, p, p.teamName) },
         { key: 'age', label: 'Age', accessor: p => this.renderAge(p) },
         { key: 'currentTrueRating', label: 'Current TR', sortKey: 'currentTrueRating', accessor: p => this.renderRatingBadge(p) },
         { key: 'projK9', label: 'Proj K/9', sortKey: 'projectedStats.k9', accessor: p => {
@@ -166,7 +164,7 @@ export class ProjectionsView {
     const batterDefaults: BatterColumnConfig[] = [
       { key: 'position', label: 'Pos', sortKey: 'position', accessor: b => this.renderBatterPositionBadge(b.position) },
       { key: 'name', label: 'Name', accessor: b => this.renderBatterName(b) },
-      { key: 'teamName', label: 'Team', accessor: b => this.renderTeamWithLevel(b.teamId, b.playerId, b.teamName) },
+      { key: 'teamName', label: 'Team', accessor: b => this.renderTeamWithLevel(b.teamId, b, b.teamName) },
       { key: 'age', label: 'Age' },
       { key: 'currentTrueRating', label: 'TR', sortKey: 'currentTrueRating', accessor: b => this.renderBatterRatingBadge(b.currentTrueRating) },
       { key: 'projWoba', label: 'Proj wOBA', sortKey: 'projectedStats.woba', accessor: b => b.projectedStats.woba.toFixed(3) },
@@ -593,12 +591,8 @@ export class ProjectionsView {
           this.initColumns();
 
           // Populate team filter - only include MLB teams (parent_team_id === 0)
-          const [allTeams, rosterPlayers] = await Promise.all([
-            teamService.getAllTeams(),
-            playerService.getAllPlayers(),
-          ]);
+          const allTeams = await teamService.getAllTeams();
           this.teamLookup = new Map(allTeams.map(t => [t.id, t]));
-          this.playerLookup = new Map(rosterPlayers.map(p => [p.id, p]));
 
           // Build set of MLB parent org names
           const mlbTeamNames = new Set<string>();
@@ -721,12 +715,8 @@ export class ProjectionsView {
           this.initColumns();
 
           // Populate team filter
-          const [allTeams, rosterPlayers] = await Promise.all([
-            teamService.getAllTeams(),
-            playerService.getAllPlayers(),
-          ]);
+          const allTeams = await teamService.getAllTeams();
           this.teamLookup = new Map(allTeams.map(t => [t.id, t]));
-          this.playerLookup = new Map(rosterPlayers.map(p => [p.id, p]));
 
           const mlbTeamNames = new Set<string>();
           for (const batter of this.allBatterStats) {
@@ -2090,7 +2080,7 @@ export class ProjectionsView {
 
       // Filter by MLB vs minor leaguers
       filtered = filtered.filter(p => {
-        const isMinor = this.isMinorLeaguer(p.playerId);
+        const isMinor = this.isMinorLeaguer(p);
         if (isMinor && !this.showMinorLeaguers) return false;
         if (!isMinor && !this.showMlbPlayers) return false;
         return true;
@@ -2122,7 +2112,7 @@ export class ProjectionsView {
 
       // Filter by MLB vs minor leaguers
       filtered = filtered.filter(b => {
-        const isMinor = this.isMinorLeaguer(b.playerId);
+        const isMinor = this.isMinorLeaguer(b);
         if (isMinor && !this.showMinorLeaguers) return false;
         if (!isMinor && !this.showMlbPlayers) return false;
         return true;
@@ -2215,12 +2205,10 @@ export class ProjectionsView {
   }
 
   /**
-   * Check if a projected player is a minor leaguer based on their player record.
+   * Check if a projected player is a minor leaguer based on projection data.
    */
-  private isMinorLeaguer(playerId: number): boolean {
-    const player = this.playerLookup.get(playerId);
-    if (!player) return false;
-    return player.parentTeamId !== 0 && player.level !== 1;
+  private isMinorLeaguer(proj: { parentTeamId?: number; level?: number }): boolean {
+    return (proj.parentTeamId != null && proj.parentTeamId !== 0) && proj.level !== 1;
   }
 
   /**
@@ -2230,10 +2218,7 @@ export class ProjectionsView {
     return this.selectedTeam === 'all' || this.showMinorLeaguers;
   }
 
-  private renderTeamWithLevel(teamId: number, playerId: number, fallbackName: string): string {
-    const player = this.playerLookup.get(playerId);
-    if (!player) return fallbackName;
-
+  private renderTeamWithLevel(teamId: number, proj: { parentTeamId?: number; level?: number }, fallbackName: string): string {
     const team = this.teamLookup.get(teamId);
     if (!team) return fallbackName;
 
@@ -2245,10 +2230,11 @@ export class ProjectionsView {
     };
 
     // Minor league player: show parent org + level badge
-    if (player.parentTeamId !== 0) {
-      const parent = this.teamLookup.get(team.parentTeamId || player.parentTeamId);
+    const parentId = proj.parentTeamId ?? 0;
+    if (parentId !== 0) {
+      const parent = this.teamLookup.get(team.parentTeamId || parentId);
       if (parent) {
-        const levelLabel = this.getLevelLabelFromId(player.level);
+        const levelLabel = this.getLevelLabelFromId(proj.level ?? 1);
         const display = levelLabel
           ? `${parent.nickname} <span class="league-level">${levelLabel}</span>`
           : parent.nickname;

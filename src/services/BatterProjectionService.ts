@@ -32,6 +32,8 @@ export interface ProjectedBatter {
   teamName: string;
   position: number;
   positionLabel: string;
+  level?: number;
+  parentTeamId?: number;
   age: number;
   /** Current True Rating (0.5-5.0) */
   currentTrueRating: number;
@@ -155,6 +157,8 @@ interface BatterProjectionPlayerInfo {
   teamId: number;
   teamName: string;
   position: number;
+  level?: number;
+  parentTeamId?: number;
   name: string;
   scouting?: HitterScoutingRatings;
   fromMyScout: boolean;
@@ -290,6 +294,8 @@ class BatterProjectionService {
         teamId,
         teamName,
         position,
+        level: player.level,
+        parentTeamId: player.parentTeamId,
         name: playerName,
         scouting: scoutingInfo?.rating,
         fromMyScout: scoutingInfo?.fromMyScout ?? false,
@@ -371,7 +377,7 @@ class BatterProjectionService {
     historicalStats: YearlyHittingStats[] = [],
     trace?: BatterProjectionCalculationTrace
   ): ProjectedBatter {
-    const { age, teamId, teamName, position, name, scouting, fromMyScout } = info;
+    const { age, teamId, teamName, position, level, parentTeamId, name, scouting, fromMyScout } = info;
 
     const currentRatings = {
       power: trResult.estimatedPower,
@@ -533,6 +539,8 @@ class BatterProjectionService {
       teamName,
       position,
       positionLabel: POSITION_LABELS[position] || 'UT',
+      level,
+      parentTeamId,
       age,
       currentTrueRating: trResult.trueRating,
       percentile: trResult.percentile,
