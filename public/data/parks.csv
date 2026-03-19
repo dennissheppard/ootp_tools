@@ -1,0 +1,37 @@
+park_id,distances0,distances1,distances2,distances3,distances4,distances5,distances6,wall_heights0,wall_heights1,wall_heights2,wall_heights3,wall_heights4,wall_heights5,wall_heights6,name,picture,picture_night,nation_id,capacity,type,foul_ground,turf
+1,330,363,388,400,388,370,334,10,10,10,10,10,10,10,Outlaws Park,default_grass.jpg,default_grass.jpg,0,45000,0,0,0
+2,311,337,380,401,366,326,309,7,7,7,7,7,7,7,Tigers Park,default_turf.jpg,default_turf.jpg,0,45000,2,0,1
+3,330,360,390,405,390,360,330,11,11,11,11,11,11,11,Air Canada Centre,default_grass.jpg,default_grass.jpg,0,44800,0,0,0
+4,325,350,381,398,383,350,325,11,11,11,11,11,11,11,P&O Cruises Stadium,default_grass.jpg,default_grass.jpg,0,39800,0,0,0
+5,336,357,390,396,396,363,322,4,4,8,7,10,10,10,The Web,default_grass.jpg,default_grass.jpg,0,45000,0,0,0
+6,325,355,385,400,389,365,333,8,8,8,8,8,8,8,McQueen Stadium,default_grass.jpg,default_grass.jpg,0,38450,0,0,0
+7,260,340,405,420,405,340,275,20,20,25,25,25,20,20,The Heineken,default_grass.jpg,default_grass.jpg,0,42090,0,0,0
+8,329,355,395,410,375,350,335,15,15,15,10,10,10,10,Hunting Grounds,default_grass.jpg,default_grass.jpg,0,42000,0,0,0
+9,365,385,410,423,410,355,310,10,20,15,7,20,15,5,El Palacio del Azúcar,default_grass.jpg,default_grass.jpg,0,42042,0,0,0
+10,345,360,390,405,390,360,345,6,6,6,6,6,6,6,The Ballpark at Ball Park,default_grass.jpg,default_grass.jpg,0,45000,0,0,0
+11,320,345,370,398,390,355,340,8,8,9,10,10,13,10,Sun Chasers Grounds,default_turf.jpg,default_turf.jpg,0,40500,0,0,0
+12,350,420,300,300,300,420,325,20,20,30,10,10,10,10,Hilo Park,default_turf.jpg,default_turf.jpg,0,40000,0,0,0
+13,340,365,390,400,375,340,320,8,8,8,8,8,15,15,The Shell,default_grass.jpg,default_grass.jpg,0,41615,2,0,0
+14,330,360,390,402,378,343,317,11,11,11,10,10,10,10,Pitons Park,default_grass.jpg,default_grass.jpg,0,45000,0,0,0
+15,330,360,375,405,360,345,325,20,20,20,8,7,4,4,The Cove,citi_field_d.webp,citi_field_n.webp,0,41050,0,0,0
+16,325,369,394,394,377,351,312,40,40,25,11,10,10,10,Black Mambas Fields,default_grass.jpg,default_grass.jpg,0,45000,0,0,0
+17,323,350,400,416,385,340,319,7,7,7,7,7,7,7,Lightning Grove,default_grass.jpg,default_grass.jpg,0,21100,0,0,0
+61,330,362,385,410,385,362,330,8,8,8,8,8,8,8,Anse La Ray Stadium,kauffman_stadium_d.webp,kauffman_stadium_n.webp,0,37903,0,0,0
+77,331,347,373,408,384,375,330,8,8,8,11,18,8,8,Gunma Field,citi_field_d.webp,citi_field_n.webp,0,41922,0,0,0
+82,338,345,365,408,352,340,327,12,12,12,7,7,23,23,ScandiDome,default_turf.jpg,default_turf.jpg,0,39750,1,0,1
+83,255,340,440,494,440,340,255,50,50,15,15,15,50,50,Flavian Amphitheater,default_grass.jpg,default_grass.jpg,0,45000,0,0,0
+84,301,330,366,405,393,341,320,9,9,12,17,16,20,20,Krk Fields,default_grass.jpg,default_grass.jpg,0,47500,2,0,0
+85,305,335,376,408,407,355,323,6,6,8,9,13,17,17,Spectres Field,default_grass.jpg,default_grass.jpg,0,42900,0,0,0
+86,312,345,369,400,378,324,291,15,15,11,13,7,7,7,Rhinos Park,default_grass.jpg,default_grass.jpg,0,47100,0,0,0
+88,328,349,402,414,382,334,308,17,17,9,13,9,9,9,Crusaders Grounds,default_turf.jpg,default_turf.jpg,0,47800,1,0,1
+89,324,352,405,419,405,350,325,9,9,9,9,9,9,9,Pharoahs Grounds,default_grass.jpg,default_grass.jpg,0,42300,0,0,0
+90,307,326,360,395,372,330,309,7,7,7,7,7,7,7,Merchants Park,default_grass.jpg,default_grass.jpg,0,47500,0,0,0
+92,345,365,395,415,395,365,345,6,6,6,6,6,6,6,Lords Baseball Grounds,default_grass.jpg,default_grass.jpg,0,36000,0,0,0
+93,330,362,385,410,385,362,330,8,8,8,8,8,8,8,The Oil Field at Dubai,default_grass.jpg,default_grass.jpg,0,40500,0,0,0
+94,318,344,389,409,393,346,316,10,10,10,14,10,10,10,Dublin Stadium,default_grass.jpg,default_grass.jpg,0,42600,0,0,0
+95,339,366,424,428,408,353,318,18,18,10,10,10,10,10,Lochs Field,default_grass.jpg,default_grass.jpg,0,42600,0,0,0
+96,320,341,385,411,386,341,320,10,10,10,10,10,10,10,Vikings Ballpark,default_grass.jpg,default_grass.jpg,0,57100,2,0,0
+98,309,337,377,400,373,319,297,18,18,14,10,10,10,10,Falcons Park,default_grass.jpg,default_grass.jpg,0,47500,0,0,0
+99,315,341,370,400,375,323,295,18,18,10,14,7,7,7,Scorpions Ballpark,default_grass.jpg,default_grass.jpg,0,42600,2,0,0
+100,316,346,388,411,393,346,319,7,7,7,7,7,7,7,Ballpark of Al Ain,default_grass.jpg,default_grass.jpg,0,47800,2,0,0
+101,325,355,385,400,385,355,325,10,10,10,10,10,10,10,Blue Wave Stadium,default_grass.jpg,default_grass.jpg,0,42000,0,0,0
