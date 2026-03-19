@@ -333,9 +333,7 @@ class ProjectionService {
 
         // Debug prospect scouting data - log first 3 prospects
         //if (!hasRecentMlb && scouting && tempProjections.length < 3 && console && typeof console.log === 'function') {
-            console.log(`[Scouting Data Check] Player ${tr.playerId} (${tr.playerName}) scouting:`, scouting);
-            const pitchCount = scouting?.pitches ? Object.keys(scouting?.pitches).length : 0;
-            console.log(`[Scouting Data Check] Has ${pitchCount} pitches:`, scouting?.pitches);
+            
         //}
 
         if (!isMlbReady) {

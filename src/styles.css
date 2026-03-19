@@ -7296,14 +7296,64 @@ th .stat-tooltip {
 
 .batter-profile-modal .ratings-layout {
   display: flex;
-  gap: 0;
-  align-items: flex-start;
+  gap: 10px;
+  align-items: stretch;
 }
 
-.batter-profile-modal .ratings-radar-col {
-  flex: 1 1 auto;
-  min-width: 0;  
-  margin-top: 12px;
+/* ── Panel cards ── */
+.batter-profile-modal .ratings-panel {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 6px 10px 8px;
+  overflow: hidden;
+}
+
+.batter-profile-modal .ratings-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: rgba(255, 255, 255, 0.3);
+  margin-bottom: 0;
+}
+
+.batter-profile-modal .ratings-panel-header svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+  opacity: 0.7;
+}
+
+/* Top padding below header so axis labels stay inside the card */
+.batter-profile-modal .ratings-panel-hitting .radar-chart-wrapper {
+  margin-top: 30px;
+}
+
+.batter-profile-modal .ratings-panel-running .running-radar-wrapper,
+.batter-profile-modal .ratings-panel-running .radar-chart-placeholder {
+  margin-top: 20px;
+}
+
+.batter-profile-modal .ratings-panel-fielding .fielding-content-row {
+  margin-top: 10px;
+}
+
+.batter-profile-modal .ratings-panel-hitting {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 480px;
+}
+
+.batter-profile-modal .ratings-sidebar {
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 280px;
 }
 
 /* Radar Chart Wrapper with positioned axis labels */
@@ -7378,77 +7428,109 @@ th .stat-tooltip {
 }
 
 /* 5-axis positions: Contact(top), Eye(upper-right), Power(lower-right), Gap(lower-left), AvoidK(upper-left)
-   Polygon center shifted left by offsetX:-40 within SVG + wrapper translateX(-40px).
-   Contact label offset to match polygon top vertex. */
+   Chart centered with offsetX:-20 (mild left nudge for label balance). */
 .batter-profile-modal .radar-axis-top {
   top: -17%;
-  left: calc(32% - 30px);
-  transform: translateX(50%);
+  left: 46%;
+  transform: translateX(-50%);
   align-items: center;
 }
 
 .batter-profile-modal .radar-axis-upper-right {
   top: 22%;
-  right: 28%;
+  right: 14%;
   align-items: center;
 }
 
 .batter-profile-modal .radar-axis-lower-right {
-  bottom: 2%;
-  right: 35%;
+  bottom: 5%;
+  right: 22%;
   align-items: center;
 }
 
 .batter-profile-modal .radar-axis-lower-left {
-  bottom: 2%;
-  left: 5%;
+  bottom: 5%;
+  left: 12%;
   align-items: center;
 }
 
 .batter-profile-modal .radar-axis-upper-left {
   top: 28%;
-  left: 0%;
+  left: 4%;
   align-items: center;
 }
 
-/* Running Radar Column */
-/* Right column: 2-row grid — running on top, fielding+bars on bottom */
-.batter-profile-modal .right-ratings-col {
-  flex: 1 1 auto;
-  min-width: 0;
-  margin-left: -120px;
+/* Running panel */
+.batter-profile-modal .ratings-panel-running {
   display: flex;
   flex-direction: column;
+  align-items: center;
   overflow: visible;
 }
 
-.batter-profile-modal .right-row-running {
-  display: flex;
-  justify-content: flex-start;
-  margin-left: 180px;
+.batter-profile-modal .ratings-panel-running .ratings-panel-header {
+  align-self: flex-start;
 }
 
 .batter-profile-modal .running-radar-wrapper {
-  margin-top: 8px;
-  width: 150px;
+  width: 170px;
   overflow: visible;
 }
 
-.batter-profile-modal .right-row-fielding {
+/* Fielding panel */
+.batter-profile-modal .ratings-panel-fielding {
+  flex: 1;
+  overflow: visible !important;
+  padding-bottom: 24px;
+}
+
+.batter-profile-modal .fielding-content-row {
   display: flex;
-  align-items: center;
-  gap: 0;
-  margin-left: 10px;
+  align-items: flex-start;
+  gap: 6px;
 }
 
 .batter-profile-modal .fielding-chart-col {
-  flex: 0 0 148px;
+  flex: 1 1 auto;
   overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .batter-profile-modal .position-bars-col {
-  flex: 0 0 90px;
-  min-width: 150px;
+  flex: 0 0 125px;
+  padding-top: 4px;
+}
+
+/* Position bars: compact layout for sidebar */
+.batter-profile-modal .position-bars-col .position-ratings-bars {
+  padding: 0;
+}
+
+.batter-profile-modal .position-bars-col .chart-section-sublabel {
+  font-size: 0.6rem;
+  margin-bottom: 3px;
+}
+
+.batter-profile-modal .position-bars-col .pos-rating-row {
+  gap: 3px;
+  margin-bottom: 2px;
+  font-size: 10px;
+}
+
+.batter-profile-modal .position-bars-col .pos-bar-track {
+  height: 6px;
+}
+
+.batter-profile-modal .position-bars-col .pos-label {
+  width: 18px;
+  font-size: 10px;
+}
+
+.batter-profile-modal .position-bars-col .pos-value {
+  width: 16px;
+  font-size: 10px;
 }
 
 /* Radar chart placeholder for missing scouting data */
@@ -7513,9 +7595,31 @@ th .stat-tooltip {
 }
 .batter-profile-modal .legend-dot:first-child { margin-left: 0; }
 .batter-profile-modal .legend-dot-true { background: #1d9bf0; }
-.batter-profile-modal .legend-dot-scout { background: #22c55e; }
+.batter-profile-modal .legend-dot-tfr { background: #34d399; }
+.batter-profile-modal .legend-dot-scout { background: #8b949e; }
 .batter-profile-modal .legend-dot-proj { background: #d4a574; }
 .batter-profile-modal .legend-text { color: #aab; }
+
+.batter-profile-modal .legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: opacity 0.15s;
+}
+
+.batter-profile-modal .legend-item:hover {
+  opacity: 0.8;
+}
+
+.batter-profile-modal .legend-item.legend-inactive {
+  opacity: 0.3;
+}
+
+.batter-profile-modal .legend-item .legend-dot { margin-left: 0; }
 
 /* ── Fielding section ── */
 .batter-profile-modal .fielding-section {
@@ -7535,10 +7639,10 @@ th .stat-tooltip {
 
 .batter-profile-modal .fielding-tab-toggle {
   display: flex;
+  flex-direction: column;
   gap: 2px;
-  justify-content: center;
-  margin: 25px 0 0 60px;
-  width: 95px;
+  align-self: center;
+  width: auto;
 }
 
 .batter-profile-modal .fielding-tab-toggle .fielding-tab-btn {
@@ -7556,6 +7660,7 @@ th .stat-tooltip {
 .batter-profile-modal .fielding-radar-wrapper {
   margin-top: 0;
   position: relative;
+  max-width: 150px;
 }
 
 /* Fielding axis labels — positioned around the chart */
@@ -7587,14 +7692,14 @@ th .stat-tooltip {
 }
 
 /* Triangle (3-axis) positions */
-.batter-profile-modal .fielding-axis-top { top: -4%; left: 35%; transform: translateX(-50%); }
-.batter-profile-modal .fielding-axis-lower-right { bottom: 15px; right: 30%; }
-.batter-profile-modal .fielding-axis-lower-left { bottom: 15px; left: 8%; }
+.batter-profile-modal .fielding-axis-top { top: -6%; left: 50%; transform: translateX(-50%); }
+.batter-profile-modal .fielding-axis-lower-right { bottom: 10px; right: -2%; }
+.batter-profile-modal .fielding-axis-lower-left { bottom: 10px; left: -2%; }
 
 /* Quad (4-axis) positions */
-.batter-profile-modal .fielding-axis-right { top: 50%; right: 35%; transform: translateY(-50%); }
-.batter-profile-modal .fielding-axis-bottom { bottom: -12%; left: 35%; transform: translateX(-50%); }
-.batter-profile-modal .fielding-axis-left { top: 50%; left: 1%; transform: translateY(-50%); }
+.batter-profile-modal .fielding-axis-right { top: 45%; right: -13%; transform: translateY(-50%); }
+.batter-profile-modal .fielding-axis-bottom { bottom: -10%; left: 50%; transform: translateX(-50%); }
+.batter-profile-modal .fielding-axis-left { top: 45%; left: -13%; transform: translateY(-50%); }
 
 /* ── Position rating bars ── */
 .batter-profile-modal .position-ratings-bars {
@@ -7687,8 +7792,8 @@ th .stat-tooltip {
   gap: 2px;
   pointer-events: none;
   z-index: 2;
-  top: -28%;
-  left: 60%;
+  top: -22%;
+  left: 50%;
   transform: translateX(-50%);
 }
 
@@ -7700,8 +7805,8 @@ th .stat-tooltip {
   gap: 2px;
   pointer-events: none;
   z-index: 2;
-  bottom: 8%;
-  right: -33%;
+  bottom: 10%;
+  right: -13%;
 }
 
 .batter-profile-modal .running-axis-lower-left {
@@ -7712,8 +7817,8 @@ th .stat-tooltip {
   gap: 2px;
   pointer-events: none;
   z-index: 2;
-  bottom: 8%;
-  left: -4%;
+  bottom: 10%;
+  left: -8%;
 }
 
 /* Projected Stat Badges — inline: value + label side by side for compactness */
@@ -7820,12 +7925,12 @@ th .stat-tooltip {
   .batter-profile-modal .ratings-layout {
     flex-direction: column;
   }
-  .batter-profile-modal .right-ratings-col {
-    flex: 1 1 auto;
-    width: 100%;
-    margin-left: 0;
+  .batter-profile-modal .ratings-sidebar {
+    flex-direction: row;
+    max-width: 100%;
+    min-width: 0;
   }
-  .batter-profile-modal .right-row-fielding {
+  .batter-profile-modal .fielding-content-row {
     flex-direction: column;
   }
 }

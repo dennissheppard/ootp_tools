@@ -100,6 +100,18 @@ export class RadarChart {
     }
   }
 
+  showSeries(seriesName: string): void {
+    if (this.chart) {
+      this.chart.showSeries(seriesName);
+    }
+  }
+
+  hideSeries(seriesName: string): void {
+    if (this.chart) {
+      this.chart.hideSeries(seriesName);
+    }
+  }
+
   destroy(): void {
     if (this.chart) {
       this.chart.destroy();

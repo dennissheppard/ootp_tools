@@ -2869,25 +2869,7 @@ export class TeamRatingsView {
         showYearLabel: !!playerSeasonYear
       };
 
-      // Look up TFR data for peak potential / radar overlay
-      try {
-        const farmData = await teamRatingsService.getFarmData(playerSeasonYear ?? this.selectedYear);
-        const farmProspect = farmData.prospects.find(p => p.playerId === playerId);
-        if (farmProspect) {
-          (profileData as any).trueFutureRating = farmProspect.trueFutureRating;
-          (profileData as any).tfrPercentile = farmProspect.percentile;
-          (profileData as any).tfrStuff = farmProspect.trueRatings?.stuff;
-          (profileData as any).tfrControl = farmProspect.trueRatings?.control;
-          (profileData as any).tfrHra = farmProspect.trueRatings?.hra;
-          (profileData as any).tfrBySource = farmProspect.tfrBySource;
-          (profileData as any).hasTfrUpside = (farmProspect.trueFutureRating > (profileData.trueRating ?? 0))
-            || hasComponentUpside(
-              [profileData.estimatedStuff, profileData.estimatedControl, profileData.estimatedHra],
-              [farmProspect.trueRatings?.stuff, farmProspect.trueRatings?.control, farmProspect.trueRatings?.hra]
-            );
-        }
-      } catch (e) { /* TFR data not available */ }
-
+      // TFR skipped here — modal fetches canonical TFR internally
       await pitcherProfileModal.show(profileData as any, playerSeasonYear ?? this.selectedYear);
     } else {
       // Batter
@@ -2943,37 +2925,7 @@ export class TeamRatingsView {
         projWoba: playerData.woba,
       };
 
-      // Look up TFR data for peak potential / radar overlay
-      try {
-        const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(playerSeasonYear ?? this.selectedYear);
-        const tfrEntry = unifiedData.prospects.find(p => p.playerId === playerId);
-        if (tfrEntry) {
-          profileData.trueFutureRating = tfrEntry.trueFutureRating;
-          profileData.tfrPercentile = tfrEntry.percentile;
-          profileData.tfrPower = tfrEntry.trueRatings.power;
-          profileData.tfrEye = tfrEntry.trueRatings.eye;
-          profileData.tfrAvoidK = tfrEntry.trueRatings.avoidK;
-          profileData.tfrContact = tfrEntry.trueRatings.contact;
-          profileData.tfrGap = tfrEntry.trueRatings.gap;
-          profileData.tfrSpeed = tfrEntry.trueRatings.speed;
-          profileData.tfrBbPct = tfrEntry.projBbPct;
-          profileData.tfrKPct = tfrEntry.projKPct;
-          profileData.tfrHrPct = tfrEntry.projHrPct;
-          profileData.tfrAvg = tfrEntry.projAvg;
-          profileData.tfrObp = tfrEntry.projObp;
-          profileData.tfrSlg = tfrEntry.projSlg;
-          profileData.tfrPa = tfrEntry.projPa;
-          profileData.tfrBySource = tfrEntry.tfrBySource;
-          profileData.hasTfrUpside = (tfrEntry.trueFutureRating > (profileData.trueRating ?? 0))
-            || hasComponentUpside(
-              [profileData.estimatedPower, profileData.estimatedEye, profileData.estimatedAvoidK,
-               profileData.estimatedContact, profileData.estimatedGap, profileData.estimatedSpeed],
-              [tfrEntry.trueRatings.power, tfrEntry.trueRatings.eye, tfrEntry.trueRatings.avoidK,
-               tfrEntry.trueRatings.contact, tfrEntry.trueRatings.gap, tfrEntry.trueRatings.speed]
-            );
-        }
-      } catch (e) { /* TFR data not available */ }
-
+      // TFR skipped here — modal fetches canonical TFR internally
       await this.batterProfileModal.show(profileData, playerSeasonYear ?? this.selectedYear);
     }
   }
@@ -3063,37 +3015,7 @@ export class TeamRatingsView {
         projHr: this.viewMode === 'projected' ? row.stats?.hr : undefined,
       };
 
-      // Look up TFR data for peak potential / radar overlay
-      try {
-        const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(seasonYear);
-        const tfrEntry = unifiedData.prospects.find(p => p.playerId === row.playerId);
-        if (tfrEntry) {
-          profileData.trueFutureRating = tfrEntry.trueFutureRating;
-          profileData.tfrPercentile = tfrEntry.percentile;
-          profileData.tfrPower = tfrEntry.trueRatings.power;
-          profileData.tfrEye = tfrEntry.trueRatings.eye;
-          profileData.tfrAvoidK = tfrEntry.trueRatings.avoidK;
-          profileData.tfrContact = tfrEntry.trueRatings.contact;
-          profileData.tfrGap = tfrEntry.trueRatings.gap;
-          profileData.tfrSpeed = tfrEntry.trueRatings.speed;
-          profileData.tfrBbPct = tfrEntry.projBbPct;
-          profileData.tfrKPct = tfrEntry.projKPct;
-          profileData.tfrHrPct = tfrEntry.projHrPct;
-          profileData.tfrAvg = tfrEntry.projAvg;
-          profileData.tfrObp = tfrEntry.projObp;
-          profileData.tfrSlg = tfrEntry.projSlg;
-          profileData.tfrPa = tfrEntry.projPa;
-          profileData.tfrBySource = tfrEntry.tfrBySource;
-          profileData.hasTfrUpside = (tfrEntry.trueFutureRating > (profileData.trueRating ?? 0))
-            || hasComponentUpside(
-              [profileData.estimatedPower, profileData.estimatedEye, profileData.estimatedAvoidK,
-               profileData.estimatedContact, profileData.estimatedGap, profileData.estimatedSpeed],
-              [tfrEntry.trueRatings.power, tfrEntry.trueRatings.eye, tfrEntry.trueRatings.avoidK,
-               tfrEntry.trueRatings.contact, tfrEntry.trueRatings.gap, tfrEntry.trueRatings.speed]
-            );
-        }
-      } catch (e) { /* TFR data not available */ }
-
+      // TFR skipped here — modal fetches canonical TFR internally
       await this.batterProfileModal.show(profileData, seasonYear);
       return;
     }
@@ -3189,25 +3111,7 @@ export class TeamRatingsView {
         : undefined
     };
 
-    // Look up TFR data for peak potential / radar overlay
-    try {
-      const farmData = await teamRatingsService.getFarmData(seasonYear);
-      const farmProspect = farmData.prospects.find(p => p.playerId === row.playerId);
-      if (farmProspect) {
-        (profileData as any).trueFutureRating = farmProspect.trueFutureRating;
-        (profileData as any).tfrPercentile = farmProspect.percentile;
-        (profileData as any).tfrStuff = farmProspect.trueRatings?.stuff;
-        (profileData as any).tfrControl = farmProspect.trueRatings?.control;
-        (profileData as any).tfrHra = farmProspect.trueRatings?.hra;
-        (profileData as any).tfrBySource = farmProspect.tfrBySource;
-        (profileData as any).hasTfrUpside = (farmProspect.trueFutureRating > (profileData.trueRating ?? 0))
-          || hasComponentUpside(
-            [profileData.estimatedStuff, profileData.estimatedControl, profileData.estimatedHra],
-            [farmProspect.trueRatings?.stuff, farmProspect.trueRatings?.control, farmProspect.trueRatings?.hra]
-          );
-      }
-    } catch (e) { /* TFR data not available */ }
-
+    // TFR skipped here — modal fetches canonical TFR internally
     await pitcherProfileModal.show(profileData as any, seasonYear);
   }
 

@@ -88,7 +88,10 @@
       "mcp__claude-in-chrome__read_page",
       "mcp__claude-in-chrome__find",
       "mcp__claude-in-chrome__get_page_text",
-      "WebFetch(domain:localhost)"
+      "WebFetch(domain:localhost)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh api:*)"
     ]
   },
   "enabledPlugins": {

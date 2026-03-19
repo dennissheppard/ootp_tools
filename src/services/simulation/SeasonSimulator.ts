@@ -323,16 +323,39 @@ function findBenchSub(bench: BatterSnapshot[], position: string, currentLineup: 
       ?? bench.find(b => !usedIds.has(b.playerId));
 }
 
+// Replacement-level batter used when no backup catcher is available
+const REPLACEMENT_CATCHER: BatterSnapshot = {
+  playerId: -1,
+  name: 'Replacement C',
+  position: 'C',
+  pBB: 0.065, pK: 0.230, pHR: 0.018,
+  pTriple: 0.003, pDouble: 0.040, pSingle: 0.170,
+  pOut: 0.474,
+  projectedPa: 200,
+  injuryTier: 'Normal',
+  speed: 30, stealAggression: 20, stealAbility: 20,
+  woba: 0.280, positionRating: 40, defRuns: -2,
+};
+
 function buildGameLineup(team: TeamSnapshot, state: TeamSeasonState): { snapshot: TeamSnapshot; catcherRested: boolean } {
   const lineup = [...team.lineup];
   let catcherRested = false;
 
-  // Check catcher rest (every 5 games)
+  // Catcher rest: determine frequency from projectedPa to match expected workload.
+  // A full-time player gets ~4.5 PA/game over 162 games = ~729 PA max.
+  // If projectedPa < 729, the catcher needs (162 - projectedPa/4.5) rest days.
+  // Frequency = games between rest days = 162 / restDays.
   const catcherSlot = lineup.findIndex(b => b.position === 'C');
-  if (catcherSlot >= 0 && state.catcherGamesPlayed >= 5) {
-    const backupC = team.bench.find(b => b.position === 'C');
-    if (backupC) {
-      lineup[catcherSlot] = backupC;
+  if (catcherSlot >= 0) {
+    const catcher = lineup[catcherSlot];
+    const maxPa = 162 * 4.5;
+    const targetPa = Math.min(catcher.projectedPa, maxPa);
+    const restDays = Math.max(1, Math.round(162 - targetPa / 4.5));
+    const restFreq = Math.max(2, Math.floor((162 - restDays) / restDays)); // Games between rest days
+    if (state.catcherGamesPlayed >= restFreq) {
+      const backupC = team.bench.find(b => b.position === 'C');
+      const sub = backupC ?? REPLACEMENT_CATCHER;
+      lineup[catcherSlot] = sub;
       state.restingSlots.add(catcherSlot);
       catcherRested = true;
     }
@@ -447,6 +470,10 @@ function simulateOneSeason(
   const seasonStates = new Map<number, TeamSeasonState>();
   for (const t of teams) seasonStates.set(t.teamId, initTeamSeasonState());
 
+  // Catcher rest diagnostic (first sim only)
+  const catcherRestCounts = new Map<number, number>(); // teamId → times catcher was rested
+  const isDebugSim = simIndex === 0;
+
   // Per-sim batter and pitcher stats
   const batterStats = new Map<number, PlayerGameStats>();
   const pitcherStats = new Map<number, PitcherGameStats>();
@@ -515,6 +542,11 @@ function simulateOneSeason(
 
     const { snapshot: home, catcherRested: homeCatcherRested } = buildGameLineup(homeBase, homeSeasonState);
     const { snapshot: away, catcherRested: awayCatcherRested } = buildGameLineup(awayBase, awaySeasonState);
+
+    if (isDebugSim) {
+      if (homeCatcherRested) catcherRestCounts.set(game.homeTeamId, (catcherRestCounts.get(game.homeTeamId) ?? 0) + 1);
+      if (awayCatcherRested) catcherRestCounts.set(game.awayTeamId, (catcherRestCounts.get(game.awayTeamId) ?? 0) + 1);
+    }
 
     const homeStarter = rotationIdx.get(home.teamId) ?? 0;
     const awayStarter = rotationIdx.get(away.teamId) ?? 0;
@@ -589,6 +621,21 @@ function simulateOneSeason(
     // Update season state for rest management
     updateSeasonState(homeSeasonState, home, homeBaseRaw, homeCatcherRested);
     updateSeasonState(awaySeasonState, away, awayBase, awayCatcherRested);
+  }
+
+  // Catcher rest diagnostic (first sim only)
+  if (isDebugSim) {
+    console.log('[Sim] 🧤 Catcher rest diagnostics (sim #0):');
+    for (const t of teams) {
+      const restCount = catcherRestCounts.get(t.teamId) ?? 0;
+      const catcher = t.lineup.find(b => b.position === 'C');
+      const backupC = t.bench.find(b => b.position === 'C');
+      const catcherPa = catcher ? (batterStats.get(catcher.playerId)?.pa ?? 0) : 0;
+      const state = seasonStates.get(t.teamId)!;
+      if (catcher) {
+        console.log(`  ${t.abbr}: ${catcher.name} (${catcherPa} PA) rested ${restCount}x | backup: ${backupC?.name ?? 'NONE'} | final catcherGamesPlayed: ${state.catcherGamesPlayed}`);
+      }
+    }
   }
 
   if (config.includePlayoffs) {

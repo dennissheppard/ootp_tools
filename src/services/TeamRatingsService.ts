@@ -629,10 +629,18 @@ class TeamRatingsService {
         console.warn(`[TeamRatings] ${team.name}: Missing lineup positions: ${missing.join(', ')} (${ratedBatters.length} batters available)`);
       }
 
-      const bench = ratedBatters
+      // Build bench: top 4 remaining batters, but ensure a backup catcher is included
+      const benchCandidates = ratedBatters
         .filter(b => !lineup.some(l => l.playerId === b.playerId))
-        .sort((a, b) => b.trueRating - a.trueRating)
-        .slice(0, 4);
+        .sort((a, b) => b.trueRating - a.trueRating);
+      const bench = benchCandidates.slice(0, 4);
+      // If no catcher on bench but one exists in remaining candidates, swap in the best backup C
+      if (!bench.some(b => b.position === 2) && lineup.some(b => b.position === 2)) {
+        const backupC = benchCandidates.find(b => b.position === 2);
+        if (backupC && !bench.some(b => b.playerId === backupC.playerId)) {
+          bench[bench.length - 1] = backupC; // Replace worst bench player
+        }
+      }
 
       // Calculate component scores
       const rotationRating = rotation.length > 0 ? rotation.reduce((sum, p) => sum + p.trueRating, 0) / rotation.length : 0;
@@ -1974,10 +1982,17 @@ class TeamRatingsService {
           const allBattersForTeam: RatedBatter[] = (group as any).batters;
           const lineup = this.constructOptimalLineup(allBattersForTeam, (b) => b.stats?.war ?? 0);
           const usedIds = new Set(lineup.map((b: RatedBatter) => b.playerId));
-          const bench = allBattersForTeam
+          const benchCandidates = allBattersForTeam
             .filter(b => !usedIds.has(b.playerId))
-            .sort((a, b) => (b.stats?.war ?? 0) - (a.stats?.war ?? 0))
-            .slice(0, 4);
+            .sort((a, b) => (b.stats?.war ?? 0) - (a.stats?.war ?? 0));
+          const bench = benchCandidates.slice(0, 4);
+          // Ensure a backup catcher is on the bench (same logic as getPowerRankings)
+          if (!bench.some(b => b.position === 2) && lineup.some((b: RatedBatter) => b.position === 2)) {
+            const backupC = benchCandidates.find(b => b.position === 2);
+            if (backupC && !bench.some(b => b.playerId === backupC.playerId)) {
+              bench[bench.length - 1] = backupC; // Replace worst bench player
+            }
+          }
 
           // Calculate WAR
           const lineupWar = lineup.reduce((sum: number, b: RatedBatter) => sum + (b.stats?.war ?? 0), 0);

@@ -376,6 +376,63 @@ export class BatterProfileModal {
     // Store current data for re-rendering on toggle
     this.currentData = data;
 
+    // === Show modal shell immediately with what we have ===
+    const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
+    const teamEl = this.overlay.querySelector<HTMLElement>('.player-team-info');
+    const ageEl = this.overlay.querySelector<HTMLElement>('.player-age-info');
+    const posBadgeSlot = this.overlay.querySelector<HTMLElement>('.position-badge-slot');
+    const ratingsSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
+    const warSlot = this.overlay.querySelector<HTMLElement>('.war-header-slot');
+    const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
+
+    if (titleEl) {
+      const link = document.createElement('a');
+      link.href = `https://worldbaseballleague.org/#/player/${data.playerId}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = data.playerName;
+      link.title = `View on WBL.org (ID: ${data.playerId})`;
+      titleEl.textContent = '';
+      titleEl.appendChild(link);
+    }
+    if (teamEl) {
+      const teamInfo = this.formatTeamInfo(data.team, data.parentTeam);
+      teamEl.innerHTML = teamInfo;
+      teamEl.style.display = teamInfo ? '' : 'none';
+    }
+    if (posBadgeSlot) posBadgeSlot.innerHTML = this.renderPositionBadge(data);
+    if (ageEl) ageEl.textContent = data.age ? `Age: ${data.age}` : '';
+    // Clear slots that depend on canonical data — will be filled after async
+    if (ratingsSlot) ratingsSlot.innerHTML = '';
+    if (warSlot) warSlot.innerHTML = '';
+    if (vitalsSlot) vitalsSlot.innerHTML = '';
+
+    // Set header logo watermark
+    const watermark = this.overlay.querySelector<HTMLImageElement>('.modal-logo-watermark');
+    if (watermark) {
+      const logoUrl = this.getTeamLogoUrl(data.team) ?? this.getTeamLogoUrl(data.parentTeam);
+      if (logoUrl) {
+        watermark.src = logoUrl;
+        watermark.style.display = '';
+      } else {
+        watermark.style.display = 'none';
+      }
+    }
+
+    const bodyEl = this.overlay.querySelector<HTMLElement>('.modal-body');
+    if (bodyEl) bodyEl.innerHTML = this.renderLoadingContent();
+
+    this.overlay.classList.add('visible');
+    this.overlay.setAttribute('aria-hidden', 'false');
+
+    // Bind escape key
+    this.boundKeyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') this.hide();
+    };
+    document.addEventListener('keydown', this.boundKeyHandler);
+
+    // === Async data loading (modal is already visible with loading skeleton) ===
+
     // Store projection year (next year during offseason)
     const currentYear = await dateService.getCurrentYear();
     if (generation !== this.showGeneration) return; // Stale call
@@ -481,64 +538,6 @@ export class BatterProfileModal {
       if (customSnapshot) data.trBySource.my = customSnapshot;
       if (osaSnapshot) data.trBySource.osa = osaSnapshot;
     }
-
-    // Update header
-    const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
-    const teamEl = this.overlay.querySelector<HTMLElement>('.player-team-info');
-    const ageEl = this.overlay.querySelector<HTMLElement>('.player-age-info');
-    const posBadgeSlot = this.overlay.querySelector<HTMLElement>('.position-badge-slot');
-    const ratingsSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
-    const warSlot = this.overlay.querySelector<HTMLElement>('.war-header-slot');
-    const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
-
-    if (titleEl) {
-      const link = document.createElement('a');
-      link.href = `https://worldbaseballleague.org/#/player/${data.playerId}`;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.textContent = data.playerName;
-      link.title = `View on WBL.org (ID: ${data.playerId})`;
-      titleEl.textContent = '';
-      titleEl.appendChild(link);
-    }
-    if (teamEl) {
-      const teamInfo = this.formatTeamInfo(data.team, data.parentTeam);
-      teamEl.innerHTML = teamInfo;
-      teamEl.style.display = teamInfo ? '' : 'none';
-    }
-    if (posBadgeSlot) {
-      posBadgeSlot.innerHTML = this.renderPositionBadge(data);
-    }
-    if (ageEl) {
-      ageEl.textContent = data.age ? `Age: ${data.age}` : '';
-    }
-
-    // Set header logo watermark
-    const watermark = this.overlay.querySelector<HTMLImageElement>('.modal-logo-watermark');
-    if (watermark) {
-      const logoUrl = this.getTeamLogoUrl(data.team) ?? this.getTeamLogoUrl(data.parentTeam);
-      if (logoUrl) {
-        watermark.src = logoUrl;
-        watermark.style.display = '';
-      } else {
-        watermark.style.display = 'none';
-      }
-    }
-
-    // Show modal with loading state
-    const bodyEl = this.overlay.querySelector<HTMLElement>('.modal-body');
-    if (bodyEl) {
-      bodyEl.innerHTML = this.renderLoadingContent();
-    }
-
-    this.overlay.classList.add('visible');
-    this.overlay.setAttribute('aria-hidden', 'false');
-
-    // Bind escape key
-    this.boundKeyHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') this.hide();
-    };
-    document.addEventListener('keydown', this.boundKeyHandler);
 
     // Fetch additional data
     try {
@@ -811,17 +810,15 @@ export class BatterProfileModal {
     return `
       <div class="player-modal-loading">
         <div class="ratings-layout loading-skeleton">
-          <div class="ratings-radar-col">
+          <div class="ratings-panel ratings-panel-hitting">
             <div class="skeleton-radar-placeholder"></div>
           </div>
-          <div class="ratings-physicals-col">
-            <div class="physicals-box">
-              <div class="skeleton-line sm" style="margin-bottom: 0.5rem;"></div>
-              <div class="physicals-gauges">
-                <div class="skeleton-gauge"></div>
-                <div class="skeleton-gauge"></div>
-                <div class="skeleton-gauge"></div>
-              </div>
+          <div class="ratings-sidebar">
+            <div class="ratings-panel ratings-panel-running" style="min-height: 140px;">
+              <div class="skeleton-radar-placeholder" style="height: 120px;"></div>
+            </div>
+            <div class="ratings-panel ratings-panel-fielding" style="min-height: 140px;">
+              <div class="skeleton-radar-placeholder" style="height: 120px;"></div>
             </div>
           </div>
         </div>
@@ -1408,7 +1405,7 @@ export class BatterProfileModal {
         }
       }
       if (bars.length > 0) {
-        positionBarsHtml = `<div class="position-ratings-bars"><div class="chart-section-sublabel">Position Ratings</div>${bars.join('')}</div>`;
+        positionBarsHtml = `<div class="position-ratings-bars"><div class="chart-section-sublabel">Positions</div>${bars.join('')}</div>`;
       }
     }
 
@@ -1417,20 +1414,23 @@ export class BatterProfileModal {
         <div class="ratings-top-bar">
           ${scoutToggleHtml}
           <div class="legend-inline">
-            <span class="legend-dot legend-dot-true"></span><span class="legend-text">True Rating</span>
-            ${s ? '<span class="legend-dot legend-dot-scout"></span><span class="legend-text">My Scout</span>' : ''}
-            <span class="legend-dot legend-dot-proj"></span><span class="legend-text">Stat Projections</span>
+            <span class="legend-item" data-series="True Rating"><span class="legend-dot legend-dot-true"></span><span class="legend-text">True Rating</span></span>
+            ${hasTfrCeiling ? '<span class="legend-item" data-series="True Future Rating"><span class="legend-dot legend-dot-tfr"></span><span class="legend-text">True Future Rating</span></span>' : ''}
+            ${s ? `<span class="legend-item" data-series="scout"><span class="legend-dot legend-dot-scout"></span><span class="legend-text">${this.scoutingIsOsa ? 'OSA' : 'My Scout'}</span></span>` : ''}
+            <span class="legend-item" data-series="Stat Projections"><span class="legend-dot legend-dot-proj"></span><span class="legend-text">Stat Projections</span></span>
           </div>
         </div>
         <div class="ratings-layout">
-          <div class="ratings-radar-col">
+          <div class="ratings-panel ratings-panel-hitting">
+            <div class="ratings-panel-header"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="1.5"/></svg>Hitting</div>
             <div class="radar-chart-wrapper">
               <div id="batter-radar-chart-${this.instanceId}"></div>
               ${hittingAxisLabelsHtml}
             </div>
           </div>
-          <div class="right-ratings-col">
-            <div class="right-row-running">
+          <div class="ratings-sidebar">
+            <div class="ratings-panel ratings-panel-running">
+              <div class="ratings-panel-header"><svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>Running</div>
               ${hasRunningData ? `
               <div class="radar-chart-wrapper running-radar-wrapper">
                 <div id="batter-running-radar-chart-${this.instanceId}"></div>
@@ -1448,16 +1448,19 @@ export class BatterProfileModal {
               `}
             </div>
             ${hasFielding ? `
-            <div class="right-row-fielding">
-              <div class="fielding-chart-col">
-                <div class="radar-chart-wrapper fielding-radar-wrapper">
-                  <div id="batter-fielding-radar-chart-${this.instanceId}"></div>
-                  <div class="fielding-axis-labels"></div>
-                </div>
+            <div class="ratings-panel ratings-panel-fielding">
+              <div class="ratings-panel-header"><svg viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z" fill="none" stroke="currentColor" stroke-width="2"/></svg>Fielding</div>
+              <div class="fielding-content-row">
                 ${fieldingTabHtml}
-              </div>
-              <div class="position-bars-col">
-                ${positionBarsHtml}
+                <div class="fielding-chart-col">
+                  <div class="radar-chart-wrapper fielding-radar-wrapper">
+                    <div id="batter-fielding-radar-chart-${this.instanceId}"></div>
+                    <div class="fielding-axis-labels"></div>
+                  </div>
+                </div>
+                <div class="position-bars-col">
+                  ${positionBarsHtml}
+                </div>
               </div>
             </div>
             ` : ''}
@@ -1638,51 +1641,44 @@ export class BatterProfileModal {
       });
     }
 
-    // If no series at all, don't render
-    if (series.length === 0) return;
+    // Filter out hidden series
+    const visibleSeries = series.filter(s2 => !this.hiddenSeries.has(s2.name));
+
+    // If no visible series, render with transparent placeholder to keep the grid visible
+    const chartSeries = visibleSeries.length > 0 ? visibleSeries : [{
+      name: '_empty',
+      data: categories.map(() => 20), // min value
+      color: 'transparent',
+    }];
 
     this.radarChart = new RadarChart({
       containerId: `batter-radar-chart-${this.instanceId}`,
       categories,
-      series,
+      series: chartSeries,
       height: 280,
       radarSize: 125,
       min: 20,
       max: 85,
       showLegend: false,
-      offsetX: -55,
-      onLegendClick: (seriesName) => {
-        if (this.hiddenSeries.has(seriesName)) {
-          this.hiddenSeries.delete(seriesName);
-        } else {
-          this.hiddenSeries.add(seriesName);
-        }
-        this.updateAxisBadgeVisibility();
-        // ApexCharts re-renders legend DOM on toggle, so re-inject custom item
-        requestAnimationFrame(() => this.addProjectionLegendItem());
+      offsetX: -20,
+      onLegendClick: () => {
+        // Legend toggling handled by inline legend bar (bindLegendToggle)
       },
       onUpdated: () => {},
     });
     this.radarChart.render();
 
-    // Defer series toggles until ApexCharts has fully initialized its DOM
-    const seriesNames = new Set(series.map(s => s.name));
-    const seriesToHide = [...this.hiddenSeries].filter(n => n !== 'Stat Projections' && seriesNames.has(n));
-    if (seriesToHide.length > 0 || this.hiddenSeries.size > 0) {
+    // Apply badge visibility for any previously hidden series
+    if (this.hiddenSeries.size > 0) {
       requestAnimationFrame(() => {
-        for (const name of seriesToHide) {
-          this.radarChart?.toggleSeries(name);
-        }
-        requestAnimationFrame(() => {
-          this.updateAxisBadgeVisibility();
-        });
+        this.updateAxisBadgeVisibility();
       });
     }
   }
 
   /** Inject a custom "Stat Projections" toggle into the hitting chart legend */
   private addProjectionLegendItem(): void {
-    const legendContainer = this.overlay?.querySelector<HTMLElement>('.ratings-radar-col .apexcharts-legend');
+    const legendContainer = this.overlay?.querySelector<HTMLElement>('.ratings-panel-hitting .apexcharts-legend');
     if (!legendContainer) return;
 
     // Remove existing custom item if present (re-injection after ApexCharts re-render)
@@ -1751,8 +1747,8 @@ export class BatterProfileModal {
       max: 85,
       legendPosition: 'top',
       showLegend: false,
-      offsetX: 15,
-      offsetY: -10,
+      offsetX: 0,
+      offsetY: 0,
     });
     this.runningRadarChart.render();
   }
@@ -1815,8 +1811,8 @@ export class BatterProfileModal {
       max: 85,
       legendPosition: 'top',
       showLegend: false,
-      offsetX: -45,
-      offsetY: 4,
+      offsetX: 0,
+      offsetY: 0,
     });
     this.fieldingRadarChart.render();
   }
@@ -2350,7 +2346,7 @@ export class BatterProfileModal {
 
     for (const [seriesName, badgeClass] of Object.entries(badgeMap)) {
       const isHidden = this.hiddenSeries.has(seriesName);
-      const badges = this.overlay.querySelectorAll<HTMLElement>(`.ratings-radar-col .${badgeClass}`);
+      const badges = this.overlay.querySelectorAll<HTMLElement>(`.ratings-section .${badgeClass}`);
       badges.forEach(badge => {
         badge.style.display = isHidden ? 'none' : '';
       });
@@ -2361,6 +2357,48 @@ export class BatterProfileModal {
     const projBadges = this.overlay.querySelectorAll<HTMLElement>('.radar-proj-badge');
     projBadges.forEach(badge => {
       badge.style.display = projHidden ? 'none' : '';
+    });
+  }
+
+  /** Wire up the inline legend dots as series toggles */
+  private bindLegendToggle(): void {
+    const items = this.overlay?.querySelectorAll<HTMLElement>('.legend-item[data-series]');
+    if (!items) return;
+
+    // Apply initial state (e.g. if hiddenSeries carried over from previous show)
+    items.forEach(item => {
+      const series = item.dataset.series!;
+      const resolvedName = series === 'scout'
+        ? (this.scoutingIsOsa ? 'OSA Scout' : 'My Scout')
+        : series;
+      if (this.hiddenSeries.has(resolvedName)) {
+        item.classList.add('legend-inactive');
+      }
+    });
+
+    items.forEach(item => {
+      item.addEventListener('click', () => {
+        const series = item.dataset.series!;
+        // "scout" resolves to the active scout source name
+        const resolvedName = series === 'scout'
+          ? (this.scoutingIsOsa ? 'OSA Scout' : 'My Scout')
+          : series;
+
+        if (this.hiddenSeries.has(resolvedName)) {
+          this.hiddenSeries.delete(resolvedName);
+          item.classList.remove('legend-inactive');
+        } else {
+          this.hiddenSeries.add(resolvedName);
+          item.classList.add('legend-inactive');
+        }
+
+        // Re-render chart from scratch with only visible series
+        // (ApexCharts hideSeries/showSeries/toggleSeries are unreliable)
+        if (series !== 'Stat Projections' && this.currentData) {
+          this.initRadarChart(this.currentData);
+        }
+        this.updateAxisBadgeVisibility();
+      });
     });
   }
 
@@ -2425,6 +2463,7 @@ export class BatterProfileModal {
     this.initRunningRadarChart(this.currentData!);
     this.initFieldingRadarChart();
     this.bindFieldingTabEvents();
+    this.bindLegendToggle();
     this.lockTabContentHeight();
 
     // Auto-fetch analysis if it's the default view (skip for retired players)
@@ -2860,6 +2899,7 @@ export class BatterProfileModal {
         if (ratingsSection) {
           ratingsSection.outerHTML = this.renderRatingsSection(this.currentData);
           this.bindScoutSourceToggle(); // Re-bind after re-render
+          this.bindLegendToggle(); // Re-bind legend toggles after re-render
           this.initRadarChart(this.currentData); // Re-init radar with new scout data
           this.initRunningRadarChart(this.currentData); // Re-init running radar
           this.initFieldingRadarChart();

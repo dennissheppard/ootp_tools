@@ -308,6 +308,62 @@ export class PitcherProfileModal {
     this.hiddenSeries.clear();
     this.currentData = data;
 
+    // === Show modal shell immediately with what we have ===
+    const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
+    const teamEl = this.overlay.querySelector<HTMLElement>('.player-team-info');
+    const ageEl = this.overlay.querySelector<HTMLElement>('.player-age-info');
+    const posBadgeSlot = this.overlay.querySelector<HTMLElement>('.position-badge-slot');
+    const ratingsSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
+    const warSlot = this.overlay.querySelector<HTMLElement>('.war-header-slot');
+    const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
+
+    if (titleEl) {
+      const link = document.createElement('a');
+      link.href = `https://worldbaseballleague.org/#/player/${data.playerId}`;
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.textContent = data.playerName;
+      link.title = `View on WBL.org (ID: ${data.playerId})`;
+      titleEl.textContent = '';
+      titleEl.appendChild(link);
+    }
+    if (teamEl) {
+      const teamInfo = this.formatTeamInfo(data.team, data.parentTeam);
+      teamEl.innerHTML = teamInfo;
+      teamEl.style.display = teamInfo ? '' : 'none';
+    }
+    if (posBadgeSlot) posBadgeSlot.innerHTML = this.renderPositionBadge(data);
+    if (ageEl) ageEl.textContent = data.age ? `Age: ${data.age}` : '';
+    // Clear slots that depend on canonical data — will be filled after async
+    if (ratingsSlot) ratingsSlot.innerHTML = '';
+    if (warSlot) warSlot.innerHTML = '';
+    if (vitalsSlot) vitalsSlot.innerHTML = '';
+
+    // Set logo watermark
+    const watermark = this.overlay.querySelector<HTMLImageElement>('.modal-logo-watermark');
+    if (watermark) {
+      const logoUrl = this.getTeamLogoUrl(data.team) ?? this.getTeamLogoUrl(data.parentTeam);
+      if (logoUrl) {
+        watermark.src = logoUrl;
+        watermark.style.display = '';
+      } else {
+        watermark.style.display = 'none';
+      }
+    }
+
+    const bodyEl = this.overlay.querySelector<HTMLElement>('.modal-body');
+    if (bodyEl) bodyEl.innerHTML = this.renderLoadingContent();
+
+    this.overlay.classList.add('visible');
+    this.overlay.setAttribute('aria-hidden', 'false');
+
+    this.boundKeyHandler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') this.hide();
+    };
+    document.addEventListener('keydown', this.boundKeyHandler);
+
+    // === Async data loading (modal is already visible with loading skeleton) ===
+
     const currentYear = await dateService.getCurrentYear();
     if (generation !== this.showGeneration) return; // Stale call
     this.projectionYear = await dateService.getProjectionTargetYear();
@@ -371,63 +427,6 @@ export class PitcherProfileModal {
       if (customSnapshot) data.trBySource.my = customSnapshot;
       if (osaSnapshot) data.trBySource.osa = osaSnapshot;
     }
-
-    // Update header
-    const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
-    const teamEl = this.overlay.querySelector<HTMLElement>('.player-team-info');
-    const ageEl = this.overlay.querySelector<HTMLElement>('.player-age-info');
-    const posBadgeSlot = this.overlay.querySelector<HTMLElement>('.position-badge-slot');
-    const ratingsSlot = this.overlay.querySelector<HTMLElement>('.ratings-header-slot');
-    const warSlot = this.overlay.querySelector<HTMLElement>('.war-header-slot');
-    const vitalsSlot = this.overlay.querySelector<HTMLElement>('.header-vitals');
-
-    if (titleEl) {
-      const link = document.createElement('a');
-      link.href = `https://worldbaseballleague.org/#/player/${data.playerId}`;
-      link.target = '_blank';
-      link.rel = 'noopener';
-      link.textContent = data.playerName;
-      link.title = `View on WBL.org (ID: ${data.playerId})`;
-      titleEl.textContent = '';
-      titleEl.appendChild(link);
-    }
-    if (teamEl) {
-      const teamInfo = this.formatTeamInfo(data.team, data.parentTeam);
-      teamEl.innerHTML = teamInfo;
-      teamEl.style.display = teamInfo ? '' : 'none';
-    }
-    if (posBadgeSlot) {
-      posBadgeSlot.innerHTML = this.renderPositionBadge(data);
-    }
-    if (ageEl) {
-      ageEl.textContent = data.age ? `Age: ${data.age}` : '';
-    }
-
-    // Set logo watermark
-    const watermark = this.overlay.querySelector<HTMLImageElement>('.modal-logo-watermark');
-    if (watermark) {
-      const logoUrl = this.getTeamLogoUrl(data.team) ?? this.getTeamLogoUrl(data.parentTeam);
-      if (logoUrl) {
-        watermark.src = logoUrl;
-        watermark.style.display = '';
-      } else {
-        watermark.style.display = 'none';
-      }
-    }
-
-    // Show modal with loading state
-    const bodyEl = this.overlay.querySelector<HTMLElement>('.modal-body');
-    if (bodyEl) {
-      bodyEl.innerHTML = this.renderLoadingContent();
-    }
-
-    this.overlay.classList.add('visible');
-    this.overlay.setAttribute('aria-hidden', 'false');
-
-    this.boundKeyHandler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') this.hide();
-    };
-    document.addEventListener('keydown', this.boundKeyHandler);
 
     try {
       // Fetch scouting + contract + league context in parallel
