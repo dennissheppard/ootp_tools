@@ -1363,8 +1363,9 @@ class TrueRatingsService {
 
     // Dynamic year weights for current season — rolling progress-based
     let yearWeights: number[] | undefined;
-    if (year === currentYear) {
-      const progress = await dateService.getSeasonProgress();
+    if (year >= currentYear) {
+      // Current year: use season progress. Future year (offseason projections): progress=0.
+      const progress = year === currentYear ? await dateService.getSeasonProgress() : 0;
       yearWeights = getHitterYearWeights(progress);
     }
 
@@ -1412,6 +1413,7 @@ class TrueRatingsService {
         playerName: nameMap.get(pid) ?? 'Unknown',
         yearlyStats: stats,
         scoutingRatings: scoutingById.get(pid),
+        targetYear: year,
       });
     });
 
@@ -1469,8 +1471,8 @@ class TrueRatingsService {
 
     // Dynamic year weights for current season — rolling progress-based
     let yearWeights: number[] | undefined;
-    if (year === currentYear) {
-      const progress = await dateService.getSeasonProgress();
+    if (year >= currentYear) {
+      const progress = year === currentYear ? await dateService.getSeasonProgress() : 0;
       yearWeights = getPitcherYearWeights(progress);
     }
 
@@ -1525,6 +1527,7 @@ class TrueRatingsService {
         yearlyStats: stats,
         scoutingRatings: scouting,
         role: determinePitcherRole(roleInput),
+        targetYear: year,
       });
     });
 
@@ -1590,6 +1593,7 @@ class TrueRatingsService {
             playerId: pid,
             playerName: '',
             yearlyStats: stats,
+            targetYear: year,
           });
         });
 
@@ -1666,6 +1670,7 @@ class TrueRatingsService {
             playerId: pid,
             playerName: '',
             yearlyStats: stats,
+            targetYear: year,
           });
         });
 

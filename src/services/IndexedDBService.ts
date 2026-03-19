@@ -231,7 +231,18 @@ class IndexedDBService {
   private initPromise: Promise<void> | null = null;
 
   async init(): Promise<void> {
-    if (this.db) return;
+    // Detect stale/closed connection and force re-open
+    if (this.db) {
+      try {
+        // Probe the connection — throws if closing/closed
+        this.db.transaction([SCOUTING_STORE], 'readonly');
+        return;
+      } catch {
+        console.warn('⚠️ IndexedDB connection was closed, re-opening...');
+        this.db = null;
+        this.initPromise = null;
+      }
+    }
     if (this.initPromise) return this.initPromise;
 
     this.initPromise = new Promise((resolve, reject) => {
@@ -240,6 +251,14 @@ class IndexedDBService {
       request.onerror = () => reject(request.error);
       request.onsuccess = () => {
         this.db = request.result;
+
+        // Auto-reconnect if another tab triggers a version change
+        this.db.onversionchange = () => {
+          console.warn('⚠️ IndexedDB version change detected — closing connection for upgrade');
+          this.db?.close();
+          this.db = null;
+          this.initPromise = null;
+        };
 
         // Warn if not on latest version (user needs to close ALL tabs and reopen)
         if (this.db.version < DB_VERSION) {

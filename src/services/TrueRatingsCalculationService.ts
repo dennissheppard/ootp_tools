@@ -20,6 +20,7 @@
 import { PotentialStatsService } from './PotentialStatsService';
 import type { SeasonStage } from './DateService';
 import { PitcherRole } from '../models/Player';
+import { applyPitcherTrendAdjustment, type PitcherTrendTrace } from './TrendAdjustmentService';
 
 // ============================================================================
 // Interfaces
@@ -65,6 +66,9 @@ export interface TrueRatingInput {
   scoutingRatings?: PitcherScoutingRatings;
   /** Pitcher role (SP/SW/RP) - if provided, overrides IP-based tier detection */
   role?: PitcherRole;
+  /** Target year for weight alignment — ensures missing MLB seasons get zero weight
+   *  instead of shifting weights onto older data */
+  targetYear?: number;
 }
 
 /**
@@ -147,6 +151,7 @@ export interface PitcherTrueRatingTrace {
     regressedRates: { k9: number; bb9: number; hr9: number };
     blendedRates: { k9: number; bb9: number; hr9: number };
   };
+  trendAdjustment?: PitcherTrendTrace;
   output?: {
     blendedK9: number;
     blendedBb9: number;
@@ -457,7 +462,21 @@ class TrueRatingsCalculationService {
     const resolvedYearWeights = yearWeights ?? YEAR_WEIGHTS;
 
     // Step 1: Multi-year weighted average
-    const weighted = this.calculateWeightedRates(input.yearlyStats, resolvedYearWeights);
+    const weighted = this.calculateWeightedRates(input.yearlyStats, resolvedYearWeights, input.targetYear);
+
+    // Staleness discount: when a pitcher's most recent MLB data is older than the
+    // target year, discount effective IP so regression strengthens and scouting
+    // blend gets more weight. Each gap year halves effective IP.
+    let effectiveIp = weighted.totalIp;
+    let recencyGap = 0;
+    if (input.targetYear !== undefined && input.yearlyStats.length > 0) {
+      const mostRecentYear = Math.max(...input.yearlyStats.map(s => s.year));
+      recencyGap = input.targetYear - mostRecentYear;
+      const excessGap = Math.max(0, recencyGap - 1);
+      if (excessGap > 0) {
+        effectiveIp = weighted.totalIp * Math.pow(0.5, excessGap);
+      }
+    }
 
     if (trace) {
       trace.input = {
@@ -469,9 +488,12 @@ class TrueRatingsCalculationService {
         hasScouting: !!input.scoutingRatings,
       };
       trace.weightedRates = { ...weighted };
+      if (recencyGap > 0) {
+        (trace as any).recencyGap = recencyGap;
+        (trace as any).effectiveIp = Math.round(effectiveIp);
+      }
     }
 
-    // DEBUG: Log input for specific player
     // Use tier-based league averages (role-based if provided, else IP-based)
     const tierBasedAverages = getLeagueAveragesByRole(input.role, weighted.totalIp);
     const tierRole = input.role ?? getRoleFromIp(weighted.totalIp);
@@ -522,13 +544,13 @@ class TrueRatingsCalculationService {
     };
 
     let regressedK9 = this.regressToLeagueMean(
-      weighted.k9, weighted.totalIp, tierBasedAverages.avgK9, STABILIZATION.k9, 'k9', weighted, input.role, trace ? k9Trace : undefined
+      weighted.k9, effectiveIp, tierBasedAverages.avgK9, STABILIZATION.k9, 'k9', weighted, input.role, trace ? k9Trace : undefined
     );
     let regressedBb9 = this.regressToLeagueMean(
-      weighted.bb9, weighted.totalIp, tierBasedAverages.avgBb9, STABILIZATION.bb9, 'bb9', weighted, input.role, trace ? bb9Trace : undefined
+      weighted.bb9, effectiveIp, tierBasedAverages.avgBb9, STABILIZATION.bb9, 'bb9', weighted, input.role, trace ? bb9Trace : undefined
     );
     let regressedHr9 = this.regressToLeagueMean(
-      weighted.hr9, weighted.totalIp, tierBasedAverages.avgHr9, STABILIZATION.hr9, 'hr9', weighted, input.role, trace ? hr9Trace : undefined
+      weighted.hr9, effectiveIp, tierBasedAverages.avgHr9, STABILIZATION.hr9, 'hr9', weighted, input.role, trace ? hr9Trace : undefined
     );
 
     if (trace) {
@@ -545,9 +567,9 @@ class TrueRatingsCalculationService {
     let blendedHr9 = regressedHr9;
 
     if (input.scoutingRatings) {
-      const effectiveDevRatio = this.getEffectiveDevRatio(input.scoutingRatings, weighted.totalIp);
+      const effectiveDevRatio = this.getEffectiveDevRatio(input.scoutingRatings, effectiveIp);
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings, effectiveDevRatio);
-      const blendWeights = this.getScoutingBlendWeights(weighted.totalIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
+      const blendWeights = this.getScoutingBlendWeights(effectiveIp, SCOUTING_BLEND_CONFIDENCE_IP, effectiveDevRatio);
 
       blendedK9 = (1 - blendWeights.scoutWeight) * regressedK9 + blendWeights.scoutWeight * scoutExpected.k9;
       blendedBb9 = (1 - blendWeights.scoutWeight) * regressedBb9 + blendWeights.scoutWeight * scoutExpected.bb9;
@@ -573,6 +595,20 @@ class TrueRatingsCalculationService {
           },
         };
       }
+    }
+
+    // Step 3.5: Trend adjustment — pull blended rates toward recent year
+    // when a consistent multi-year trend exists
+    const trendAdj = applyPitcherTrendAdjustment(
+      input.yearlyStats, resolvedYearWeights, input.targetYear,
+      { k9: blendedK9, bb9: blendedBb9, hr9: blendedHr9 },
+    );
+    blendedK9 = trendAdj.rates.k9;
+    blendedBb9 = trendAdj.rates.bb9;
+    blendedHr9 = trendAdj.rates.hr9;
+
+    if (trace) {
+      trace.trendAdjustment = trendAdj.trace;
     }
 
     // Estimate ratings from blended rates (using inverse formulas)
@@ -602,9 +638,9 @@ class TrueRatingsCalculationService {
     return {
       playerId: input.playerId,
       playerName: input.playerName,
-      blendedK9: Math.round(blendedK9 * 100) / 100,
-      blendedBb9: Math.round(blendedBb9 * 100) / 100,
-      blendedHr9: Math.round(blendedHr9 * 100) / 100,
+      blendedK9: Math.round(blendedK9 * 1000) / 1000,
+      blendedBb9: Math.round(blendedBb9 * 1000) / 1000,
+      blendedHr9: Math.round(blendedHr9 * 1000) / 1000,
       estimatedStuff: Math.round(estimatedStuff),
       estimatedControl: Math.round(estimatedControl),
       estimatedHra: Math.round(estimatedHra),
@@ -628,7 +664,8 @@ class TrueRatingsCalculationService {
    */
   calculateWeightedRates(
     yearlyStats: YearlyPitchingStats[],
-    yearWeights: number[] = YEAR_WEIGHTS
+    yearWeights: number[] = YEAR_WEIGHTS,
+    targetYear?: number
   ): WeightedRates {
     if (yearlyStats.length === 0) {
       return { k9: 0, bb9: 0, hr9: 0, totalIp: 0 };
@@ -640,12 +677,15 @@ class TrueRatingsCalculationService {
     let totalWeight = 0;
     let totalIp = 0;
 
-    // Process up to the number of weights provided
-    const yearsToProcess = Math.min(yearlyStats.length, yearWeights.length);
-
-    for (let i = 0; i < yearsToProcess; i++) {
+    for (let i = 0; i < yearlyStats.length; i++) {
       const stats = yearlyStats[i];
-      const yearWeight = yearWeights[i];
+
+      // Determine weight: by year offset when targetYear is known, positional otherwise
+      const weightIdx = targetYear !== undefined
+        ? targetYear - stats.year
+        : i;
+      if (weightIdx < 0 || weightIdx >= yearWeights.length) continue;
+      const yearWeight = yearWeights[weightIdx];
 
       // Skip years with 0 weight (e.g., early season before current year counts)
       if (yearWeight === 0) continue;

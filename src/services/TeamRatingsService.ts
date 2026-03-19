@@ -28,6 +28,8 @@ export interface RatedPlayer {
   trueHra: number;
   pitchCount: number;
   isSp: boolean;
+  stamina?: number;
+  injuryProneness?: string;
   stats: {
     ip: number;
     k9: number;
@@ -328,6 +330,11 @@ export interface RatedBatter {
   woba?: number;
   projWar?: number;
   percentile?: number;
+  injuryProneness?: string;   // 'Iron Man' | 'Durable' | 'Normal' | 'Fragile' | 'Wrecked'
+  positionRating?: number;    // 20-80 scouting rating at their assigned position
+  defRuns?: number;           // projected defensive runs above average (from DefensiveProjectionService)
+  stealAggression?: number;   // 20-80 SR rating
+  stealAbility?: number;      // 20-80 STE rating
   stats?: {
     pa: number;
     avg: number;
@@ -405,7 +412,8 @@ class TeamRatingsService {
    * Get Power Rankings for all MLB teams
    * Ranks teams by weighted Team Rating = 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench
    */
-  async getPowerRankings(year: number): Promise<TeamPowerRanking[]> {
+  async getPowerRankings(year: number, options?: { rosterYear?: number }): Promise<TeamPowerRanking[]> {
+    void options; // reserved for future roster-year override
     // 1. Fetch all required data
     const [allTeams, pitchingStats, battingStats, myScoutingRatings, osaScoutingRatings, pitcherTrMap, multiYearPitchingStats, pitcherScoutingFallback] = await Promise.all([
       teamService.getAllTeams(),
@@ -1329,7 +1337,7 @@ class TeamRatingsService {
 
           // Calculate derived stats
           const projSlg = tfr.projAvg + tfr.projIso;
-          const projObp = tfr.projAvg + (tfr.projBbPct / 100); // Simplified OBP
+          const projObp = tfr.projAvg + (tfr.projBbPct / 100) * (1 - tfr.projAvg);
           const projOps = projObp + projSlg;
           const injury = scouting.injuryProneness ?? 'Normal';
           const projPa = empiricalPaByInjury.get(injury)
@@ -1424,7 +1432,7 @@ class TeamRatingsService {
           // Build tfrBySource from both TFR runs
           const buildBatterTfrSource = (t: typeof tfr): BatterTfrSourceData => {
               const pSlg = t.projAvg + t.projIso;
-              const pObp = t.projAvg + (t.projBbPct / 100);
+              const pObp = t.projAvg + (t.projBbPct / 100) * (1 - t.projAvg);
               return {
                   trueFutureRating: t.trueFutureRating,
                   tfrPercentile: t.percentile,
@@ -1746,7 +1754,7 @@ class TeamRatingsService {
           case 2: return 'AAA';
           case 3: return 'AA';
           case 4: return 'A';
-          case 5: return 'Short-A'; // Not used in WBL
+          case 5: return 'R'; // WBL uses level 5 as Rookie (generic OOTP = Short-A)
           case 6: return 'R'; // Rookie
           case 7: return 'R'; // Also Rookie (fallback)
           case 8: return 'IC'; // International Complex
@@ -1789,6 +1797,8 @@ class TeamRatingsService {
               trueHra: p.projectedRatings.hra,
               pitchCount: 0, // Not available in projection output, but used for classification which is already done
               isSp,
+              stamina: (p as any).stamina ?? 50,
+              injuryProneness: (p as any).injuryProneness ?? 'Normal',
               stats: {
                   ip: p.projectedStats.ip,
                   k9: p.projectedStats.k9,
@@ -1830,9 +1840,12 @@ class TeamRatingsService {
               blendedKPct: b.projectedStats.kPct,
               blendedHrPct: b.projectedStats.hrPct,
               blendedAvg: b.projectedStats.avg,
+              stealAggression: (b as any).scoutingData?.stealingAggressiveness ?? 50,
+              stealAbility: (b as any).scoutingData?.stealingAbility ?? 50,
               woba: b.projectedStats.woba,
               projWar: b.projectedStats.war,
               percentile: b.percentile,
+              defRuns: (b.projectedStats as any).defRuns ?? 0,
               stats: {
                   pa: b.projectedStats.pa,
                   avg: b.projectedStats.avg,
@@ -1956,11 +1969,15 @@ class TeamRatingsService {
       const results: TeamRatingResult[] = teamRunTotals.map(r => {
           const group = r.group;
 
-          // Sort batters by projected WAR — top 9 are lineup, next 4 are bench.
-          // Matches the calibration tool pipeline (simple WAR sort, no position scarcity).
-          const sortedBatters = (group as any).batters.sort((a: RatedBatter, b: RatedBatter) => (b.stats?.war ?? 0) - (a.stats?.war ?? 0));
-          const lineup = sortedBatters.slice(0, 9);
-          const bench = sortedBatters.slice(9, 13);
+          // Build lineup with position-aware assignment (scarcity-based, avoids duplicate positions).
+          // Uses projected WAR as the value function so best players get priority.
+          const allBattersForTeam: RatedBatter[] = (group as any).batters;
+          const lineup = this.constructOptimalLineup(allBattersForTeam, (b) => b.stats?.war ?? 0);
+          const usedIds = new Set(lineup.map((b: RatedBatter) => b.playerId));
+          const bench = allBattersForTeam
+            .filter(b => !usedIds.has(b.playerId))
+            .sort((a, b) => (b.stats?.war ?? 0) - (a.stats?.war ?? 0))
+            .slice(0, 4);
 
           // Calculate WAR
           const lineupWar = lineup.reduce((sum: number, b: RatedBatter) => sum + (b.stats?.war ?? 0), 0);
@@ -2173,6 +2190,8 @@ class TeamRatingsService {
             trueHra: trData?.estimatedHra ?? fallback?.estimatedHra ?? 20,
             pitchCount: usablePitchCount,
             isSp,
+            stamina,
+            injuryProneness: scouting?.injuryProneness ?? 'Normal',
             stats: {
                 ip, k9, bb9, hr9, gs: stat.gs,
                 era, fip,

@@ -11,12 +11,15 @@ const MINOR_LEVELS = new Set(['AAA', 'AA', 'A', 'R', 'INT']);
  * - Future Draftee: lev === '-' AND hsc has a real value
  * - Free Agent: everything else (lev === '-' with no hsc, or unknown)
  */
-export function classifyPlayer(lev?: string, hsc?: string): PlayerCategory {
+export function classifyPlayer(lev?: string, hsc?: string, age?: number): PlayerCategory {
   if (!lev) return 'freeAgent'; // No lev column → fallback
   if (lev === 'MLB') return 'mlb';
   if (MINOR_LEVELS.has(lev)) return 'minors';
   if (lev === '-') {
+    // Draftee if has hsc value, OR young player with no team/level (draft-eligible)
     if (hsc && hsc !== '-' && hsc.trim() !== '') return 'draftee';
+    // Age heuristic: players under 22 with no team are draft-eligible, not free agents
+    if (age !== undefined && age > 0 && age < 22) return 'draftee';
     return 'freeAgent';
   }
   return 'freeAgent';

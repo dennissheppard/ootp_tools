@@ -1,4 +1,5 @@
 import { teamService } from '../services/TeamService';
+import { osaBannerHtml, bindOsaBannerEvents } from '../utils/scoutingBanner';
 import { dateService } from '../services/DateService';
 import { playerService } from '../services/PlayerService';
 import { contractService, Contract } from '../services/ContractService';
@@ -193,7 +194,9 @@ export class TeamPlanningView {
   private cellEditModal: CellEditModal;
   private messageModal: MessageModal;
   private hasLoadedData = false;
-  private scoutingDataMode: ScoutingDataMode = 'none';
+  private scoutingDataMode: ScoutingDataMode = supabaseDataService.isConfigured
+    ? (supabaseDataService.hasCustomScouting ? 'mixed' : 'osa')
+    : 'none';
   private viewMode: 'grid' | 'analysis' | 'market' = (localStorage.getItem('wbl-tp-viewMode') as 'grid' | 'analysis' | 'market') || 'grid';
   private collapsedSections: Set<string> = new Set();
 
@@ -307,6 +310,7 @@ export class TeamPlanningView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
+        ${osaBannerHtml()}
         <div class="draft-header">
           <p class="section-subtitle">Rosters are auto-filled assuming players fully develop. Edit the grid, look at team needs, draft strategy, and see what trades might make sense for your org</p>
         </div>
@@ -333,6 +337,7 @@ export class TeamPlanningView {
     `;
 
     this.bindEvents();
+    bindOsaBannerEvents(this.container);
   }
 
   private bindEvents(): void {

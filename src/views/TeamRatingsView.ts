@@ -1,4 +1,5 @@
 import { teamRatingsService, TeamRatingResult, RatedPlayer, TeamPowerRanking } from '../services/TeamRatingsService';
+import { osaBannerHtml, bindOsaBannerEvents } from '../utils/scoutingBanner';
 import { RatingEstimatorService } from '../services/RatingEstimatorService';
 import { dateService } from '../services/DateService';
 import { pitcherProfileModal } from './PitcherProfileModal';
@@ -14,6 +15,9 @@ import { hasComponentUpside } from '../utils/tfrUpside';
 import { emitDataSourceBadges, ScoutingDataMode, SeasonDataMode } from '../utils/dataSourceBadges';
 import { teamLogoImg } from '../utils/teamLogos';
 import { supabaseDataService } from '../services/SupabaseDataService';
+import { runSimulation } from '../services/simulation/SimulationService';
+import type { SimulationResults } from '../services/simulation/SimulationTypes';
+import { DEFAULT_SIM_CONFIG } from '../services/simulation/SimulationTypes';
 
 // WAR→Wins calibration constants
 // Recalibrated Feb 2026: piecewise projection-based calibration on 236 team-seasons (2005-2020).
@@ -50,14 +54,19 @@ export class TeamRatingsView {
   private isAllTime: boolean = false;
   private viewMode: 'projected' | 'power-rankings' | 'standings' = (localStorage.getItem('wbl-teamratings-viewMode') as 'projected' | 'power-rankings' | 'standings') || 'power-rankings';
   private showByDivision: boolean = false;
+  private standingsMode: 'war' | 'simulation' = 'war';
+  private simulationResults: SimulationResults | null = null;
+  private isSimulating: boolean = false;
   private statsMode: 'preseason' | 'current' = (localStorage.getItem('wbl-teamratings-statsMode') as 'preseason' | 'current') || 'preseason';
   private results: TeamRatingResult[] = [];
   private powerRankings: TeamPowerRanking[] = [];
   private actualStandingsMap: Map<string, ActualStanding> | null = null;
-  private yearOptions = Array.from({ length: 22 }, (_, i) => 2021 - i); // 2021 down to 2000
+  private yearOptions: number[] = [];
   private currentGameYear: number | null = null;
   private projectionDisplayYear: number | null = null;
-  private scoutingDataMode: ScoutingDataMode = 'none';
+  private scoutingDataMode: ScoutingDataMode = supabaseDataService.isConfigured
+    ? (supabaseDataService.hasCustomScouting ? 'mixed' : 'osa')
+    : 'none';
   private batterProfileModal: BatterProfileModal;
   private playerRowLookup: Map<string, PlayerRowContext> = new Map();
   private teamResultLookup: Map<string, TeamRatingResult> = new Map();
@@ -121,7 +130,11 @@ export class TeamRatingsView {
   private async init(): Promise<void> {
     // Load current game year first so we can default to it
     await this.loadCurrentGameYear();
-    if (this.currentGameYear !== null) {
+    const maxYear = this.projectionDisplayYear ?? this.currentGameYear!;
+    this.yearOptions = Array.from({ length: maxYear - 2000 + 1 }, (_, i) => maxYear - i);
+    if (this.viewMode === 'projected' || this.viewMode === 'standings') {
+      this.selectedYear = this.projectionDisplayYear ?? this.currentGameYear!;
+    } else if (this.currentGameYear !== null) {
       this.selectedYear = this.currentGameYear;
     }
     this.renderLayout();
@@ -131,6 +144,7 @@ export class TeamRatingsView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
+        ${osaBannerHtml()}
         <div class="true-ratings-controls">
           <div class="filter-bar">
             <label>Filters:</label>
@@ -138,7 +152,7 @@ export class TeamRatingsView {
               <!-- Year Dropdown -->
               <div class="filter-dropdown" data-filter="year">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
-                  Year: <span id="selected-year-display">${this.isAllTime ? 'All-Time' : this.selectedYear}</span> ▾
+                  Season: <span id="selected-year-display">${this.isAllTime ? 'All-Time' : this.selectedYear}</span> ▾
                 </button>
                 <div class="filter-dropdown-menu" id="year-dropdown-menu">
                   <div class="filter-dropdown-item ${this.isAllTime ? 'selected' : ''}"
@@ -167,12 +181,6 @@ export class TeamRatingsView {
                       aria-pressed="${this.viewMode === 'standings'}">
                 Win Projections
               </button>
-              <button class="toggle-btn ${this.showByDivision ? 'active' : ''}"
-                      id="by-division-toggle"
-                      style="${this.viewMode === 'standings' ? '' : 'display: none;'}"
-                      aria-pressed="${this.showByDivision}">
-                By Division
-              </button>
               <span id="stats-mode-toggle"
                     class="stats-mode-toggle"
                     style="${this.viewMode === 'projected' || this.viewMode === 'standings' ? '' : 'display: none;'}">
@@ -192,6 +200,26 @@ export class TeamRatingsView {
           </div>
         </div>
 
+        <div id="standings-sub-bar" class="standings-sub-bar" style="${this.viewMode === 'standings' ? '' : 'display: none;'}">
+          <span class="standings-sub-label">Method:</span>
+          <button class="toggle-btn toggle-btn-sm ${this.standingsMode === 'war' ? 'active' : ''}"
+                  data-standings-mode="war"
+                  aria-pressed="${this.standingsMode === 'war'}">
+            WAR-Based
+          </button>
+          <button class="toggle-btn toggle-btn-sm ${this.standingsMode === 'simulation' ? 'active' : ''}"
+                  data-standings-mode="simulation"
+                  aria-pressed="${this.standingsMode === 'simulation'}">
+            Simulation
+          </button>
+          <div class="filter-separator"></div>
+          <button class="toggle-btn toggle-btn-sm ${this.showByDivision ? 'active' : ''}"
+                  id="by-division-toggle"
+                  aria-pressed="${this.showByDivision}">
+            By Division
+          </button>
+        </div>
+
         <div class="team-ratings-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-top: 1rem;">
             <div id="rotation-rankings">
                 ${this.renderTableLoadingState()}
@@ -203,6 +231,7 @@ export class TeamRatingsView {
     `;
 
     this.bindEvents();
+    bindOsaBannerEvents(this.container);
   }
 
   private bindEvents(): void {
@@ -255,6 +284,7 @@ export class TeamRatingsView {
         } else {
           this.isAllTime = false;
           this.selectedYear = parseInt(value, 10);
+          this.simulationResults = null; // clear stale sim results
         }
 
         // Update display
@@ -294,12 +324,10 @@ export class TeamRatingsView {
           this.showByDivision = false;
         }
 
-        // Show/hide "By Division" button
-        const divToggle = this.container.querySelector('#by-division-toggle') as HTMLElement;
-        if (divToggle) {
-          divToggle.style.display = mode === 'standings' ? '' : 'none';
-          divToggle.classList.toggle('active', this.showByDivision);
-          divToggle.setAttribute('aria-pressed', String(this.showByDivision));
+        // Show/hide standings sub-bar
+        const subBar = this.container.querySelector('#standings-sub-bar') as HTMLElement;
+        if (subBar) {
+          subBar.style.display = mode === 'standings' ? '' : 'none';
         }
 
         // Show/hide stats mode toggle
@@ -311,9 +339,7 @@ export class TeamRatingsView {
         // All-Time is only available in power-rankings mode — switch off if going to projections/standings
         if (this.isAllTime && (mode === 'projected' || mode === 'standings')) {
           this.isAllTime = false;
-          if (this.currentGameYear !== null) {
-            this.selectedYear = this.currentGameYear;
-          }
+          this.selectedYear = this.projectionDisplayYear ?? this.currentGameYear!;
           // Update dropdown selected state
           this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(i => {
             const val = (i as HTMLElement).dataset.value;
@@ -321,11 +347,16 @@ export class TeamRatingsView {
           });
         }
 
-        // If switching to projections or standings, force current game year (display projection target year)
-        if ((this.viewMode === 'projected' || this.viewMode === 'standings') && this.currentGameYear !== null) {
-          this.selectedYear = this.currentGameYear;
+        // If switching to projections or standings, default to projection target year
+        if ((this.viewMode === 'projected' || this.viewMode === 'standings')) {
+          this.selectedYear = this.projectionDisplayYear ?? this.currentGameYear!;
           const displaySpan = this.container.querySelector('#selected-year-display');
-          if (displaySpan) displaySpan.textContent = String(this.projectionDisplayYear ?? this.currentGameYear);
+          if (displaySpan) displaySpan.textContent = String(this.selectedYear);
+          // Update dropdown selected state
+          this.container.querySelectorAll('#year-dropdown-menu .filter-dropdown-item').forEach(i => {
+            const val = (i as HTMLElement).dataset.value;
+            i.classList.toggle('selected', val === String(this.selectedYear));
+          });
         }
 
         // Update button active states
@@ -353,6 +384,26 @@ export class TeamRatingsView {
       });
     }
 
+    // Standings mode toggle (WAR vs Simulation)
+    this.container.querySelectorAll('[data-standings-mode]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const mode = (e.target as HTMLElement).dataset.standingsMode as 'war' | 'simulation';
+        if (mode === this.standingsMode) return;
+
+        this.standingsMode = mode;
+
+        // Update button states
+        this.container.querySelectorAll('[data-standings-mode]').forEach(b => {
+          const el = b as HTMLElement;
+          const isActive = el.dataset.standingsMode === mode;
+          el.classList.toggle('active', isActive);
+          el.setAttribute('aria-pressed', String(isActive));
+        });
+
+        this.renderLists();
+      });
+    });
+
     // Stats mode toggle (Pre-Season vs Current Year Stats)
     this.container.querySelectorAll('[data-stats-mode]').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -360,6 +411,7 @@ export class TeamRatingsView {
         if (mode === this.statsMode) return;
 
         this.statsMode = mode;
+        this.simulationResults = null; // different stats basis → clear cached sim
         try { localStorage.setItem('wbl-teamratings-statsMode', mode); } catch { /* ignore */ }
 
         // Update button active states
@@ -393,7 +445,7 @@ export class TeamRatingsView {
   }
 
   private renderTableLoadingState(): string {
-      const dispYear = this.projectionDisplayYear ?? this.selectedYear;
+      const dispYear = this.selectedYear;
       const title = this.isAllTime ? 'All-Time Power Rankings'
           : this.viewMode === 'power-rankings' ? 'Team Power Rankings'
           : this.viewMode === 'standings' ? `${dispYear} Projected Standings`
@@ -447,7 +499,11 @@ export class TeamRatingsView {
             );
             this.results = [];
         } else if (this.viewMode === 'power-rankings') {
-            this.powerRankings = await teamRatingsService.getPowerRankings(this.selectedYear);
+            // Power Rankings use actual stats — cap at latest season with data
+            // but use current rosters when viewing a future year
+            const statsYear = this.currentGameYear ? Math.min(this.selectedYear, this.currentGameYear) : this.selectedYear;
+            const rosterYear = this.selectedYear > statsYear ? this.selectedYear : undefined;
+            this.powerRankings = await teamRatingsService.getPowerRankings(statsYear, { rosterYear });
             this.results = [];
         } else if (this.viewMode === 'projected' || this.viewMode === 'standings') {
             console.log('Fetching projections...', teamRatingsService);
@@ -455,7 +511,8 @@ export class TeamRatingsView {
                 console.error('getProjectedTeamRatings is missing on teamRatingsService!', teamRatingsService);
                 throw new Error('Service method missing. Please refresh the page.');
             }
-            this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear, { preSeasonOnly: this.statsMode === 'preseason' });
+            // selectedYear is the target season; getProjectedTeamRatings expects the stats base year (target - 1)
+            this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear - 1, { preSeasonOnly: this.statsMode === 'preseason' });
             this.powerRankings = [];
         }
 
@@ -632,7 +689,7 @@ export class TeamRatingsView {
       // Render full table spanning both grid columns
       const tableHtml = `
         <div class="stats-table-container">
-            <h3 class="section-title">${this.projectionDisplayYear ?? this.selectedYear} Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3>
+            <h3 class="section-title">${this.selectedYear} Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3>
             <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">Total is a weighted composite: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench. Uses a blend of past seasons to project, so even at the end of this season it won't be 100% correct.</p>
             <table class="stats-table projections-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
@@ -927,6 +984,10 @@ export class TeamRatingsView {
   }
 
   private async renderStandingsTable(rotContainer: Element, penContainer: Element): Promise<void> {
+      if (this.standingsMode === 'simulation') {
+        await this.renderSimulationStandings(rotContainer, penContainer);
+        return;
+      }
       if (this.showByDivision) {
         this.renderDivisionStandings(rotContainer, penContainer);
         return;
@@ -1113,7 +1174,7 @@ export class TeamRatingsView {
 
       const tableHtml = `
         <div class="stats-table-container">
-            <h3 class="section-title">${this.projectionDisplayYear ?? this.selectedYear} Projected Standings <span class="note-text">(Ranked by ${this.getStandingsSortLabel()})</span></h3><p class="note-text">Uses projected WAR, not actual season wins. So even at the end of the season, this won't be 100% right</p>
+            <h3 class="section-title">${this.selectedYear} Projected Standings <span class="note-text">(Ranked by ${this.getStandingsSortLabel()})</span></h3><p class="note-text">Uses projected WAR, not actual season wins. So even at the end of the season, this won't be 100% right</p>
             <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">
               ${descriptionText}
             </p>
@@ -1213,7 +1274,7 @@ export class TeamRatingsView {
 
       const tableHtml = `
         <div class="stats-table-container">
-          <h3 class="section-title">${this.projectionDisplayYear ?? this.selectedYear} Projected Standings</h3>
+          <h3 class="section-title">${this.selectedYear} Projected Standings</h3>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
             ${divisionHtmls}
           </div>
@@ -1227,6 +1288,369 @@ export class TeamRatingsView {
 
   private lookupActualStanding(teamName: string): ActualStanding | null {
       return this.actualStandingsMap?.get(teamName) ?? null;
+  }
+
+  private async renderSimulationStandings(rotContainer: Element, penContainer: Element): Promise<void> {
+      (rotContainer as HTMLElement).style.gridColumn = '1 / -1';
+      penContainer.innerHTML = '';
+
+      // Load actual standings for backtesting comparison
+      if (!this.actualStandingsMap) {
+        this.actualStandingsMap = await standingsService.getStandingsMap(this.selectedYear);
+      }
+
+      // If we already have results for this year, render them
+      if (this.simulationResults && this.simulationResults.config.year === this.selectedYear - 1) {
+        this.renderSimulationResultsTable(rotContainer);
+        return;
+      }
+
+      // Show controls + run button
+      rotContainer.innerHTML = `
+        <div class="stats-table-container">
+          <h3 class="section-title">${this.selectedYear} Simulated Standings</h3>
+          <p class="note-text" style="margin: 0.25rem 0 0.75rem; line-height: 1.4;">
+            Monte Carlo simulation — plays out thousands of seasons game-by-game using projected player rates and log5 matchup formulas.
+          </p>
+          <div style="display: flex; align-items: center; gap: 1rem; margin-bottom: 1rem; flex-wrap: wrap;">
+            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--color-text-muted);">
+              Simulations:
+              <select id="sim-count-select" style="padding: 0.3rem 0.5rem; border-radius: 4px; border: 1px solid var(--color-border, #444); background: var(--color-bg-secondary, #0f0f1a); color: var(--color-text, #eee); font-size: 0.85rem;">
+                <option value="100">100 (fast)</option>
+                <option value="500" selected>500</option>
+                <option value="1000">1,000</option>
+                <option value="2000">2,000</option>
+              </select>
+            </label>
+            <label style="display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--color-text-muted);">
+              <input type="checkbox" id="sim-playoffs-check" checked>
+              Include Playoffs
+            </label>
+            <button id="sim-run-btn" class="toggle-btn active" style="padding: 0.4rem 1.2rem; font-weight: 600;">
+              Run Simulation
+            </button>
+          </div>
+          <div id="sim-progress-area" style="display: none; margin-bottom: 1rem;">
+            <div style="display: flex; align-items: center; gap: 0.75rem;">
+              <div style="flex: 1; height: 6px; background: var(--color-border, #333); border-radius: 3px; overflow: hidden;">
+                <div id="sim-progress-fill" style="height: 100%; width: 0%; background: var(--accent-color, #4a9eff); transition: width 0.1s; border-radius: 3px;"></div>
+              </div>
+              <span id="sim-progress-label" style="font-size: 0.8rem; color: var(--color-text-muted); min-width: 80px;">0%</span>
+            </div>
+          </div>
+          <div id="sim-results-area"></div>
+        </div>
+      `;
+
+      // Bind run button
+      const runBtn = rotContainer.querySelector('#sim-run-btn') as HTMLButtonElement;
+      runBtn?.addEventListener('click', () => this.runSimulationInline(rotContainer));
+  }
+
+  private async runSimulationInline(container: Element): Promise<void> {
+      if (this.isSimulating) return;
+      this.isSimulating = true;
+
+      const runBtn = container.querySelector('#sim-run-btn') as HTMLButtonElement;
+      const progressArea = container.querySelector('#sim-progress-area') as HTMLElement;
+      const progressFill = container.querySelector('#sim-progress-fill') as HTMLElement;
+      const progressLabel = container.querySelector('#sim-progress-label') as HTMLElement;
+      const resultsArea = container.querySelector('#sim-results-area') as HTMLElement;
+      const countSelect = container.querySelector('#sim-count-select') as HTMLSelectElement;
+      const playoffsCheck = container.querySelector('#sim-playoffs-check') as HTMLInputElement;
+
+      if (runBtn) {
+        runBtn.disabled = true;
+        runBtn.textContent = 'Loading data...';
+      }
+      if (progressArea) progressArea.style.display = '';
+      if (resultsArea) resultsArea.innerHTML = '';
+
+      const numSims = parseInt(countSelect?.value ?? '500', 10);
+      const includePlayoffs = playoffsCheck?.checked ?? true;
+
+      try {
+        // Always use prior year stats for simulation.
+        // "Current Year Stats" affects the WAR-based path (which blends in-progress data),
+        // but the sim engine needs a full season of rates to build PA vectors.
+        // Mid-season, getPowerRankings(currentYear) would have partial stats that
+        // the True Ratings multi-year blend already incorporates via the prior year.
+        const statsYear = this.selectedYear - 1;
+        if (runBtn) runBtn.textContent = 'Loading team data...';
+        await new Promise(r => setTimeout(r, 0)); // let UI show "Loading..."
+
+        this.simulationResults = await runSimulation(
+          { ...DEFAULT_SIM_CONFIG, numSimulations: numSims, includePlayoffs, year: statsYear },
+          (completed, total, status) => {
+            const pct = Math.round((completed / total) * 100);
+            if (progressFill) progressFill.style.width = `${pct}%`;
+            if (progressLabel) progressLabel.textContent = status ? `${pct}% — ${status}` : `${pct}%`;
+            if (runBtn) runBtn.textContent = `Simulating... ${pct}%`;
+          }
+        );
+
+        this.renderSimulationResultsTable(container.closest('#rotation-rankings') ?? container);
+      } catch (err) {
+        if (resultsArea) {
+          resultsArea.innerHTML = `<div style="color: #ff6b6b; padding: 0.75rem; background: rgba(255,107,107,0.1); border-radius: 6px;">Simulation failed: ${(err as Error).message}</div>`;
+        }
+      } finally {
+        this.isSimulating = false;
+        if (runBtn) { runBtn.disabled = false; runBtn.textContent = 'Run Simulation'; }
+        if (progressArea) progressArea.style.display = 'none';
+      }
+  }
+
+  private renderSimulationResultsTable(container: Element): void {
+      if (!this.simulationResults) return;
+      const { teamSummaries, config, elapsedMs } = this.simulationResults;
+      const elapsed = (elapsedMs / 1000).toFixed(1);
+      const hasActuals = this.actualStandingsMap !== null && this.actualStandingsMap.size > 0;
+
+      let tableContent: string;
+
+      if (this.showByDivision) {
+        // Division-grouped view
+        const divisionHtmls = DIVISIONS.map(div => {
+          const divTeams = div.teams
+            .map(name => teamSummaries.find(s => s.teamName === name))
+            .filter((s): s is NonNullable<typeof s> => s !== undefined)
+            .sort((a, b) => b.meanWins - a.meanWins);
+
+          if (divTeams.length === 0) return '';
+          const leader = divTeams[0].meanWins;
+
+          const rows = divTeams.map((s, i) => {
+            const nickname = s.teamName.split(' ').pop() ?? '';
+            const gb = i === 0 ? '—' : ((leader - s.meanWins) / 1).toFixed(1);
+            return `
+              <tr>
+                <td style="font-weight: bold; color: var(--color-text-muted);">${i + 1}</td>
+                <td style="font-weight: 600; text-align: left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(nickname, 'team-btn-logo')}${s.teamName}</div></td>
+                <td style="text-align: center;"><span class="standings-record standings-wins">${s.meanWins}</span></td>
+                <td style="text-align: center;">${Math.round(162 - s.meanWins)}</td>
+                <td style="text-align: center;">${(s.meanWins / 162).toFixed(3).replace(/^0/, '')}</td>
+                <td style="text-align: center;">${gb}</td>
+                <td style="text-align: center; font-weight: 500;">${s.playoffPct}%</td>
+              </tr>
+            `;
+          }).join('');
+
+          return `
+            <div class="stats-table-container" style="margin-bottom: 0;">
+              <h3 class="section-title" style="font-size: 0.95rem;">${div.name}</h3>
+              <table class="stats-table standings-table" style="width: 100%;">
+                <thead>
+                  <tr>
+                    <th style="width: 30px;">#</th>
+                    <th style="text-align: left;">Team</th>
+                    <th style="text-align: center;">W</th>
+                    <th style="text-align: center;">L</th>
+                    <th style="text-align: center;">Win%</th>
+                    <th style="text-align: center;">GB</th>
+                    <th style="text-align: center;">Playoff%</th>
+                  </tr>
+                </thead>
+                <tbody>${rows}</tbody>
+              </table>
+            </div>
+          `;
+        }).join('');
+
+        tableContent = `
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem;">
+            ${divisionHtmls}
+          </div>
+        `;
+      } else {
+        // Full league table
+        const headerCols = [
+          '<th style="width: 40px;">#</th>',
+          '<th style="text-align: left;">Team</th>',
+          '<th style="text-align: center;" title="Mean projected wins across all simulations">Mean W</th>',
+          '<th style="text-align: center;" title="Median projected wins">Med W</th>',
+          '<th style="text-align: center;" title="Standard deviation of wins">SD</th>',
+          '<th style="text-align: center;" title="10th-90th percentile range">P10-P90</th>',
+          '<th style="text-align: center;" title="Minimum and maximum wins observed">Min-Max</th>',
+          ...(hasActuals ? ['<th style="text-align: center;" title="Actual wins">Act W</th>', '<th style="text-align: center;" title="Mean projected − actual">Diff</th>'] : []),
+          '<th style="text-align: center;" title="% of simulations where team made playoffs">Playoff%</th>',
+          '<th style="text-align: center;" title="% of simulations where team won division">Div%</th>',
+          ...(config.includePlayoffs ? ['<th style="text-align: center;" title="% of simulations where team won championship">Champ%</th>'] : []),
+        ];
+
+        const rows = teamSummaries.map((s, i) => {
+          const nickname = s.teamName.split(' ').pop() ?? '';
+          const actual = hasActuals ? (this.actualStandingsMap?.get(s.teamName) ?? null) : null;
+          const diff = actual ? s.meanWins - actual.wins : null;
+
+          const diffCell = diff !== null
+            ? (() => {
+                const absDiff = Math.abs(Math.round(diff));
+                const diffClass = absDiff <= 5 ? 'diff-close' : absDiff <= 10 ? 'diff-mid' : 'diff-far';
+                const sign = diff > 0 ? '+' : '';
+                return `<td style="text-align: center;"><span class="standings-diff ${diffClass}">${sign}${Math.round(diff)}</span></td>`;
+              })()
+            : '<td style="text-align: center;">-</td>';
+
+          return `
+            <tr>
+              <td style="font-weight: bold; color: var(--color-text-muted);">${i + 1}</td>
+              <td style="font-weight: 600; text-align: left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(nickname, 'team-btn-logo')}${s.teamName}</div></td>
+              <td style="text-align: center;"><span class="standings-record standings-wins">${s.meanWins}</span></td>
+              <td style="text-align: center;">${s.medianWins}</td>
+              <td style="text-align: center; color: var(--color-text-muted);">${s.stdDev}</td>
+              <td style="text-align: center;">${s.p10Wins}-${s.p90Wins}</td>
+              <td style="text-align: center; color: var(--color-text-muted); font-size: 0.8rem;">${s.minWins}-${s.maxWins}</td>
+              ${hasActuals ? `<td style="text-align: center;">${actual ? `<span class="standings-record">${actual.wins}</span>` : '-'}</td>${diffCell}` : ''}
+              <td style="text-align: center; font-weight: 500;">${s.playoffPct}%</td>
+              <td style="text-align: center;">${s.divisionWinPct}%</td>
+              ${config.includePlayoffs ? `<td style="text-align: center; ${s.championshipPct > 0 ? 'color: var(--accent-color, #4a9eff); font-weight: 700;' : ''}">${s.championshipPct}%</td>` : ''}
+            </tr>
+          `;
+        }).join('');
+
+        tableContent = `
+          <table class="stats-table standings-table" style="width: 100%;">
+            <thead><tr>${headerCols.join('')}</tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        `;
+      }
+
+      const leaderboardHtml = this.renderSimLeaderboards(this.simulationResults.leaderboards);
+
+      container.innerHTML = `
+        <div class="stats-table-container">
+          <h3 class="section-title">${this.selectedYear} Simulated Standings
+            <span class="note-text">(${config.numSimulations.toLocaleString()} seasons in ${elapsed}s)</span>
+          </h3>
+          <p class="note-text" style="margin: 0.25rem 0 0.75rem; line-height: 1.4;">
+            Each season simulates every game using per-PA matchup probabilities (batter vs pitcher via log5). Includes division-weighted scheduling, rotation cycling, and bullpen management.
+          </p>
+          <div style="margin-bottom: 0.75rem;">
+            <button id="sim-rerun-btn" class="toggle-btn" style="padding: 0.35rem 1rem; font-size: 0.8rem;">
+              Re-run Simulation
+            </button>
+          </div>
+          ${tableContent}
+          ${leaderboardHtml}
+        </div>
+      `;
+
+      // Bind re-run button
+      const rerunBtn = container.querySelector('#sim-rerun-btn');
+      rerunBtn?.addEventListener('click', () => {
+        this.simulationResults = null;
+        this.renderLists();
+      });
+
+      // Bind player name links in leaderboards
+      this.bindPlayerNameClicks();
+  }
+
+  private renderSimLeaderboards(leaderboards: import('../services/simulation/SimulationTypes').SimLeaderboards | undefined): string {
+    if (!leaderboards) return '';
+
+    // Build teamId → teamName lookup from simulation results
+    const teamNameMap = new Map<number, string>();
+    if (this.simulationResults) {
+      for (const s of this.simulationResults.teamSummaries) {
+        teamNameMap.set(s.teamId, s.teamName.split(' ').pop() ?? '');
+      }
+    }
+    const logoCell = (teamId: number) => {
+      const nickname = teamNameMap.get(teamId) ?? '';
+      return `<td style="width:24px;padding:2px 4px;">${teamLogoImg(nickname, 'team-btn-logo')}</td>`;
+    };
+
+    const batterTable = (title: string, batters: import('../services/simulation/SimulationTypes').SimPlayerBattingStats[]) => {
+      if (batters.length === 0) return '';
+      const rows = batters.map((b, i) => `
+        <tr>
+          <td style="color:var(--color-text-muted);font-weight:bold;">${i + 1}</td>
+          ${logoCell(b.teamId)}
+          <td style="text-align:left;font-weight:600;"><button class="btn-link player-name-link" data-player-id="${b.playerId}">${b.name}</button></td>
+          <td style="text-align:center;font-weight:600;">${b.war.toFixed(1)}</td>
+          <td style="text-align:center;">${Math.round(b.pa)}</td>
+          <td style="text-align:center;">${b.avg.toFixed(3).replace(/^0/, '')}</td>
+          <td style="text-align:center;">${b.obp.toFixed(3).replace(/^0/, '')}</td>
+          <td style="text-align:center;">${b.slg.toFixed(3).replace(/^0/, '')}</td>
+          <td style="text-align:center;">${b.woba.toFixed(3).replace(/^0/, '')}</td>
+          <td style="text-align:center;">${Math.round(b.hr)}</td>
+        </tr>`).join('');
+      return `
+        <div>
+          <h4 class="section-label" style="margin-bottom:0.5rem;">${title}</h4>
+          <table class="stats-table" style="width:100%;">
+            <thead><tr>
+              <th style="width:28px;">#</th>
+              <th style="width:24px;"></th>
+              <th style="text-align:left;">Player</th>
+              <th style="text-align:center;">WAR</th>
+              <th style="text-align:center;">PA</th>
+              <th style="text-align:center;">AVG</th>
+              <th style="text-align:center;">OBP</th>
+              <th style="text-align:center;">SLG</th>
+              <th style="text-align:center;">wOBA</th>
+              <th style="text-align:center;">HR</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    };
+
+    const pitcherTable = (title: string, pitchers: import('../services/simulation/SimulationTypes').SimPlayerPitchingStats[]) => {
+      if (pitchers.length === 0) return '';
+      const rows = pitchers.map((p, i) => `
+        <tr>
+          <td style="color:var(--color-text-muted);font-weight:bold;">${i + 1}</td>
+          ${logoCell(p.teamId)}
+          <td style="text-align:left;font-weight:600;"><button class="btn-link player-name-link" data-player-id="${p.playerId}">${p.name}</button></td>
+          <td style="text-align:center;font-weight:600;">${p.war.toFixed(1)}</td>
+          <td style="text-align:center;">${Math.round(p.ip)}</td>
+          <td style="text-align:center;">${p.era.toFixed(2)}</td>
+          <td style="text-align:center;color:${Math.abs(p.fip - p.era) > 1 ? 'var(--color-warning)' : 'inherit'};">${p.fip.toFixed(2)}</td>
+          <td style="text-align:center;">${Math.round(p.k)}</td>
+          <td style="text-align:center;">${Math.round(p.bb)}</td>
+          <td style="text-align:center;">${Math.round(p.hr)}</td>
+          <td style="text-align:center;">${Math.round(p.saves)}</td>
+        </tr>`).join('');
+      return `
+        <div>
+          <h4 class="section-label" style="margin-bottom:0.5rem;">${title}</h4>
+          <table class="stats-table" style="width:100%;">
+            <thead><tr>
+              <th style="width:28px;">#</th>
+              <th style="width:24px;"></th>
+              <th style="text-align:left;">Player</th>
+              <th style="text-align:center;">WAR</th>
+              <th style="text-align:center;">IP</th>
+              <th style="text-align:center;">ERA</th>
+              <th style="text-align:center;">FIP</th>
+              <th style="text-align:center;">K</th>
+              <th style="text-align:center;">BB</th>
+              <th style="text-align:center;">HR</th>
+              <th style="text-align:center;">SV</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    };
+
+    const nb = batterTable('Northern League — Top Batters', leaderboards.northernBatters);
+    const sb = batterTable('Southern League — Top Batters', leaderboards.southernBatters);
+    const np = pitcherTable('Northern League — Top Pitchers', leaderboards.northernPitchers);
+    const sp = pitcherTable('Southern League — Top Pitchers', leaderboards.southernPitchers);
+
+    if (!nb && !sb && !np && !sp) return '';
+
+    return `
+      <div style="margin-top:2rem;">
+        <h3 class="section-title" style="margin-bottom:1rem;">Simulated Statistical Leaders</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+          ${nb}${sb}${np}${sp}
+        </div>
+      </div>`;
   }
 
   private bindStandingsTableEvents(): void {

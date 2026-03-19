@@ -1,1456 +1,895 @@
-import { PotentialStatsService, LeagueContext } from '../services/PotentialStatsService';
-import { leagueStatsService } from '../services/LeagueStatsService';
+/**
+ * DraftBoardView — Hidden draft board accessed via double-tap D.
+ *
+ * Two panels:
+ * 1. Player List — browse draft-eligible players with checkboxes to add to board
+ * 2. Draft Board — selected players, drag-reorderable, combined pitchers + batters
+ */
 
-type DraftMode = 'pitchers' | 'hitters';
+import { playerService } from '../services/PlayerService';
+import { teamRatingsService } from '../services/TeamRatingsService';
+import { scoutingDataService } from '../services/ScoutingDataService';
+import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
+import { supabaseDataService } from '../services/SupabaseDataService';
+import { dateService } from '../services/DateService';
+import { projectionService } from '../services/ProjectionService';
+import { batterProjectionService } from '../services/BatterProjectionService';
+import { pitcherProfileModal } from './PitcherProfileModal';
+import type { Player } from '../models/Player';
 
-type RatingColumn = { key: string; label: string };
-type ProjectionColumn = { key: keyof ProjectionStats; label: string };
+// ──────────────────────────────────────────────
+// Types
+// ──────────────────────────────────────────────
 
-type ProjectionStats = {
-  proj_ip: number;
-  proj_k: number;
-  proj_bb: number;
-  proj_hr: number;
-  proj_k9: number;
-  proj_bb9: number;
-  proj_hr9: number;
-  proj_fip: number;
-  proj_war: number;
-};
+type PanelMode = 'player-list' | 'draft-board';
+type PlayerTypeMode = 'pitchers' | 'batters';
+type ColumnMode = 'tfr' | 'scout' | 'projections';
 
-type PitcherRow = {
+interface DraftPlayer {
   id: number;
   name: string;
-  ratings: Record<string, string>;
-  projection: ProjectionStats;
+  position: number;
+  posLabel: string;
+  age: number;
+  type: 'pitcher' | 'batter';
+  tfrStar: number;
+  // TFR ratings
+  tfrRatings?: Record<string, number>;
+  // Scout ratings
+  scoutRatings?: Record<string, number>;
+  // Projections
+  projStats?: Record<string, number>;
+}
+
+const POS_LABELS: Record<number, string> = {
+  1: 'P', 2: 'C', 3: '1B', 4: '2B', 5: '3B', 6: 'SS', 7: 'LF', 8: 'CF', 9: 'RF', 10: 'DH',
 };
 
-type HitterRow = {
-  id: number;
-  pos: string;
-  name: string;
-  age: string;
-  bats: string;
-  ratings: Record<string, string>;
-};
+const BATTER_POSITIONS = ['All', 'C', '1B', '2B', '3B', 'SS', 'LF', 'CF', 'RF'];
+const PITCHER_POSITIONS = ['All', 'SP', 'RP'];
 
-type HitterHeaderKey =
-  | 'pos'
-  | 'name'
-  | 'age'
-  | 'bats'
-  | 'con'
-  | 'gap'
-  | 'pow'
-  | 'eye'
-  | 'k'
-  | 'c_abi'
-  | 'c_frm'
-  | 'c_arm'
-  | 'if_rng'
-  | 'if_err'
-  | 'if_arm'
-  | 'tdp'
-  | 'of_rng'
-  | 'of_err'
-  | 'of_arm'
-  | 'spe'
-  | 'ste'
-  | 'run';
+const STORAGE_KEY = 'wbl-draft-board';
 
-type BoardState = {
-  pitchers?: {
-    rows: PitcherRow[];
-    sortKey?: string;
-    sortDirection?: 'asc' | 'desc';
-  };
-  hitters?: {
-    rows: HitterRow[];
-    sortKey?: string;
-    sortDirection?: 'asc' | 'desc';
-  };
-};
+// ──────────────────────────────────────────────
+// View
+// ──────────────────────────────────────────────
 
-const PITCHER_COLUMNS: RatingColumn[] = [
-  { key: 'stu', label: 'STU P' },
-  { key: 'mov', label: 'MOV P' },
-  { key: 'con', label: 'CON P' },
-  { key: 'babip', label: 'PBABIP P' },
-  { key: 'hra', label: 'HRR P' },
-  { key: 'fb', label: 'FBP' },
-  { key: 'ch', label: 'CHP' },
-  { key: 'cb', label: 'CBP' },
-  { key: 'sl', label: 'SLP' },
-  { key: 'si', label: 'SIP' },
-  { key: 'sp', label: 'SPP' },
-  { key: 'ct', label: 'CTP' },
-  { key: 'fo', label: 'FOP' },
-  { key: 'cc', label: 'CCP' },
-  { key: 'sc', label: 'SCP' },
-  { key: 'kc', label: 'KCP' },
-  { key: 'kn', label: 'KNP' },
-  { key: 'vt', label: 'VT' },
-  { key: 'stm', label: 'STM' },
-];
-
-const PROJECTION_COLUMNS: ProjectionColumn[] = [
-  { key: 'proj_ip', label: 'IP' },
-  { key: 'proj_k', label: 'K' },
-  { key: 'proj_bb', label: 'BB' },
-  { key: 'proj_hr', label: 'HR' },
-  { key: 'proj_k9', label: 'K/9' },
-  { key: 'proj_bb9', label: 'BB/9' },
-  { key: 'proj_hr9', label: 'HR/9' },
-  { key: 'proj_fip', label: 'FIP' },
-  { key: 'proj_war', label: 'WAR' },
-];
-
-const HITTER_COLUMNS: RatingColumn[] = [
-  { key: 'pos', label: 'POS' },
-  { key: 'age', label: 'AGE' },
-  { key: 'bats', label: 'B' },
-  { key: 'con', label: 'CON P' },
-  { key: 'gap', label: 'GAP P' },
-  { key: 'pow', label: 'POW P' },
-  { key: 'eye', label: 'EYE P' },
-  { key: 'k', label: 'K P' },
-  { key: 'c_abi', label: 'C ABI' },
-  { key: 'c_frm', label: 'C FRM' },
-  { key: 'c_arm', label: 'C ARM' },
-  { key: 'if_rng', label: 'IF RNG' },
-  { key: 'if_err', label: 'IF ERR' },
-  { key: 'if_arm', label: 'IF ARM' },
-  { key: 'tdp', label: 'TDP' },
-  { key: 'of_rng', label: 'OF RNG' },
-  { key: 'of_err', label: 'OF ERR' },
-  { key: 'of_arm', label: 'OF ARM' },
-  { key: 'spe', label: 'SPE' },
-  { key: 'ste', label: 'STE' },
-  { key: 'run', label: 'RUN' },
-];
-
-const HITTER_HEADER_ALIASES: Record<HitterHeaderKey, string[]> = {
-  pos: ['pos', 'position'],
-  name: ['name', 'player'],
-  age: ['age'],
-  bats: ['b', 'bat', 'bats', 'hand'],
-  con: ['conp', 'con', 'contact'],
-  gap: ['gapp', 'gap'],
-  pow: ['powp', 'pow', 'power'],
-  eye: ['eyep', 'eye', 'discipline'],
-  k: ['kp', 'k', 'avoidk', 'avoidks'],
-  c_abi: ['cabi', 'c_abi', 'catcherability'],
-  c_frm: ['cfrm', 'c_frm', 'frame', 'framing', 'catcherframing'],
-  c_arm: ['carm', 'c_arm', 'catcherarm'],
-  if_rng: ['ifrng', 'if_rng', 'infrange'],
-  if_err: ['iferr', 'if_err', 'infielderror', 'iferror'],
-  if_arm: ['ifarm', 'if_arm', 'infarm', 'infieldarm'],
-  tdp: ['tdp', 'turndp', 'dp'],
-  of_rng: ['ofrng', 'of_rng', 'outrange'],
-  of_err: ['oferr', 'of_err', 'outerr', 'outfielderror'],
-  of_arm: ['ofarm', 'of_arm', 'outarm', 'outfieldarm'],
-  spe: ['spe', 'speed'],
-  ste: ['ste', 'steal', 'stealing'],
-  run: ['run', 'running'],
-};
-
-const HITTER_FALLBACK_INDEX: Record<HitterHeaderKey, number> = {
-  pos: 0,
-  name: 1,
-  age: 2,
-  bats: 3,
-  con: 4,
-  gap: 5,
-  pow: 6,
-  eye: 7,
-  k: 8,
-  c_abi: 9,
-  c_frm: 10,
-  c_arm: 11,
-  if_rng: 12,
-  if_err: 13,
-  if_arm: 14,
-  tdp: 15,
-  of_rng: 16,
-  of_err: 17,
-  of_arm: 18,
-  spe: 19,
-  ste: 20,
-  run: 21,
-};
-
-const PITCH_COLUMNS = new Set([
-  'fb',
-  'ch',
-  'cb',
-  'sl',
-  'si',
-  'sp',
-  'ct',
-  'fo',
-  'cc',
-  'sc',
-  'kc',
-  'kn',
-]);
 export class DraftBoardView {
   private container: HTMLElement;
-  private mode: DraftMode = 'pitchers';
-  private pitcherRows: PitcherRow[] = [];
-  private hitterRows: HitterRow[] = [];
-  private sortKey?: string;
-  private sortDirection: 'asc' | 'desc' = 'asc';
-  private hitterSortKey?: string;
-  private hitterSortDirection: 'asc' | 'desc' = 'asc';
-  private preferences: { hideUploadInfo: boolean; hidePitchRatings: boolean; [key: string]: unknown };
-  private pendingPitcherSortSave = false;
-  private pendingHitterSortSave = false;
-  private readonly prefKey = 'wbl-prefs';
-  private readonly draftKey = 'wbl-draft-board';
-  private leagueContext?: LeagueContext;
+  private panelMode: PanelMode = 'player-list';
+  private playerTypeMode: PlayerTypeMode = 'batters';
+  private columnMode: ColumnMode = 'projections';
+  private selectedPosition = 'All';
+
+  private allPlayers: DraftPlayer[] = [];
+  private draftBoardIds: number[] = [];
+  private loaded = false;
+  private sortKey = 'tfrStar';
+  private sortDir: 'asc' | 'desc' = 'desc';
+
+  // Board sort state (null = use board order)
+  private boardSortKey: string | null = null;
+  private boardSortDir: 'asc' | 'desc' = 'desc';
+
+  // Drag state
+  private dragSourceIndex: number | null = null;
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.preferences = this.loadPreferences();
-    this.loadDraftBoard();
+    this.loadBoard();
     this.render();
-    this.bindModeToggle();
-    // Defer league stats loading until first user interaction
-    // this.loadLeagueStats();
-    this.bindPitcherUpload();
-    this.bindHitterUpload();
-    this.bindPitcherInstructionToggles();
-    this.bindHitterInstructionToggles();
-  }
 
-  private hasLoadedLeagueStats = false; // Track if stats have been loaded
-
-  private async ensureLeagueStatsLoaded(): Promise<void> {
-    if (!this.hasLoadedLeagueStats) {
-      await this.loadLeagueStats();
-    }
-  }
-
-  private async loadLeagueStats(): Promise<void> {
-    try {
-      const stats = await leagueStatsService.getLeagueStats(2020);
-      this.hasLoadedLeagueStats = true;
-      this.leagueContext = {
-        fipConstant: stats.fipConstant,
-        avgFip: stats.avgFip,
-      };
-      // Re-render if we have data to update projections with proper league stats
-      if (this.pitcherRows.length > 0) {
-        this.recalculateProjections();
-        this.renderPitcherTable();
+    // Refresh when custom scouting is loaded
+    window.addEventListener('scoutingDataUpdated', () => {
+      this.loaded = false;
+      this.allPlayers = [];
+      const content = this.container.querySelector('.draft-content');
+      if (content) {
+        content.innerHTML = '<div class="loading-message">Refreshing with new scouting data...</div>';
+        this.loadData().then(() => this.renderContent());
       }
-    } catch (e) {
-      console.warn('Could not load league stats for draft board, using defaults', e);
-    }
+    });
   }
 
-  private recalculateProjections(): void {
-    for (const row of this.pitcherRows) {
-      row.projection = this.calculateProjection(row.ratings);
-    }
+  // ── Persistence ──
+
+  private loadBoard(): void {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) this.draftBoardIds = JSON.parse(raw);
+    } catch { /* ignore */ }
   }
+
+  private saveBoard(): void {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.draftBoardIds));
+    } catch { /* ignore */ }
+  }
+
+  // ── Data Loading ──
+
+  private async loadData(): Promise<void> {
+    if (this.loaded) return;
+
+    const year = await dateService.getCurrentYear();
+    const [allPlayersList, pitcherFarm, hitterFarm] = await Promise.all([
+      playerService.getAllPlayers(),
+      teamRatingsService.getFarmData(year),
+      teamRatingsService.getUnifiedHitterTfrData(year),
+    ]);
+
+    // Build draftee player set
+    const drafteeIds = new Set<number>();
+    for (const p of allPlayersList) {
+      if (p.draftEligible) {
+        drafteeIds.add(p.id);
+      }
+    }
+
+    const playerMap = new Map<number, Player>(allPlayersList.map(p => [p.id, p]));
+
+    // Load scouting for both sources
+    const [pitcherScoutMy, pitcherScoutOsa, hitterScoutMy, hitterScoutOsa] = await Promise.all([
+      scoutingDataService.getLatestScoutingRatings('my'),
+      scoutingDataService.getLatestScoutingRatings('osa'),
+      hitterScoutingDataService.getLatestScoutingRatings('my'),
+      hitterScoutingDataService.getLatestScoutingRatings('osa'),
+    ]);
+
+    // Build scouting maps (prefer my over osa)
+    const pitcherScoutMap = new Map<number, any>();
+    for (const s of pitcherScoutOsa) pitcherScoutMap.set(s.playerId, s);
+    for (const s of pitcherScoutMy) pitcherScoutMap.set(s.playerId, s);
+
+    const hitterScoutMap = new Map<number, any>();
+    for (const s of hitterScoutOsa) hitterScoutMap.set(s.playerId, s);
+    for (const s of hitterScoutMy) hitterScoutMap.set(s.playerId, s);
+
+    // Load projections via services (respects hasCustomScouting — recalculates if needed)
+    const statsBaseYear = year - 1;
+    const [pitcherProjCtx, batterProjCtx] = await Promise.all([
+      projectionService.getProjectionsWithContext(statsBaseYear).catch(() => null),
+      batterProjectionService.getProjectionsWithContext(statsBaseYear).catch(() => null),
+    ]);
+
+    const pitcherProjMap = new Map<number, any>();
+    if (pitcherProjCtx?.projections) {
+      for (const p of pitcherProjCtx.projections) {
+        if (drafteeIds.has(p.playerId)) pitcherProjMap.set(p.playerId, p);
+      }
+    }
+    const batterProjMap = new Map<number, any>();
+    if (batterProjCtx?.projections) {
+      for (const p of batterProjCtx.projections) {
+        if (drafteeIds.has(p.playerId)) batterProjMap.set(p.playerId, p);
+      }
+    }
+
+    // Build pitcher TFR map
+    const pitcherTfrMap = new Map<number, any>();
+    if (pitcherFarm?.prospects) {
+      for (const p of pitcherFarm.prospects) {
+        if (drafteeIds.has(p.playerId)) pitcherTfrMap.set(p.playerId, p);
+      }
+    }
+
+    // Build hitter TFR map
+    const hitterTfrMap = new Map<number, any>();
+    if (hitterFarm?.prospects) {
+      for (const p of hitterFarm.prospects) {
+        if (drafteeIds.has(p.playerId)) hitterTfrMap.set(p.playerId, p);
+      }
+    }
+
+    // Build unified player list
+    this.allPlayers = [];
+
+    for (const pid of drafteeIds) {
+      const player = playerMap.get(pid);
+      if (!player) continue;
+      const pos = player.position || 0;
+      const isPitcher = pos === 1;
+      const age = player.age || 0;
+
+      if (isPitcher) {
+        const tfr = pitcherTfrMap.get(pid);
+        const scout = pitcherScoutMap.get(pid);
+        const proj = pitcherProjMap.get(pid);
+        if (!tfr && !scout && !proj) continue;
+
+        this.allPlayers.push({
+          id: pid,
+          name: `${player.firstName} ${player.lastName}`,
+          position: pos,
+          posLabel: proj?.isSp === false ? 'RP' : 'SP',
+          age,
+          type: 'pitcher',
+          tfrStar: tfr?.trueFutureRating ?? proj?.currentTrueRating ?? 0,
+          tfrRatings: tfr?.trueRatings ? {
+            stuff: tfr.trueRatings.stuff, control: tfr.trueRatings.control, hra: tfr.trueRatings.hra,
+          } : undefined,
+          scoutRatings: scout ? {
+            stuff: scout.stuff, control: scout.control, hra: scout.hra,
+            stamina: scout.stamina,
+          } : undefined,
+          projStats: proj ? {
+            k9: proj.projectedStats.k9, bb9: proj.projectedStats.bb9, hr9: proj.projectedStats.hr9,
+            fip: proj.projectedStats.fip, war: proj.projectedStats.war, ip: proj.projectedStats.ip,
+          } : undefined,
+        });
+      } else {
+        const tfr = hitterTfrMap.get(pid);
+        const scout = hitterScoutMap.get(pid);
+        const proj = batterProjMap.get(pid);
+        if (!tfr && !scout && !proj) continue;
+
+        this.allPlayers.push({
+          id: pid,
+          name: `${player.firstName} ${player.lastName}`,
+          position: pos,
+          posLabel: POS_LABELS[pos] || 'UT',
+          age,
+          type: 'batter',
+          tfrStar: tfr?.trueFutureRating ?? proj?.currentTrueRating ?? 0,
+          tfrRatings: tfr?.trueRatings ? {
+            power: tfr.trueRatings.power, eye: tfr.trueRatings.eye,
+            avoidK: tfr.trueRatings.avoidK, contact: tfr.trueRatings.contact,
+            gap: tfr.trueRatings.gap, speed: tfr.trueRatings.speed,
+          } : undefined,
+          scoutRatings: scout ? {
+            power: scout.power, eye: scout.eye, avoidK: scout.avoidK,
+            contact: scout.contact, gap: scout.gap, speed: scout.speed,
+          } : undefined,
+          projStats: proj ? {
+            avg: proj.projectedStats.avg, obp: proj.projectedStats.obp, slg: proj.projectedStats.slg,
+            ops: proj.projectedStats.ops, opsPlus: proj.projectedStats.wrcPlus,
+            war: proj.projectedStats.war, pa: proj.projectedStats.pa, hr: proj.projectedStats.hr,
+          } : undefined,
+        });
+      }
+    }
+
+    // Prune stale board IDs
+    const validIds = new Set(this.allPlayers.map(p => p.id));
+    this.draftBoardIds = this.draftBoardIds.filter(id => validIds.has(id));
+    this.saveBoard();
+
+    this.loaded = true;
+  }
+
+  // ── Filtering & Sorting ──
+
+  private getFilteredPlayers(): DraftPlayer[] {
+    let players = this.allPlayers.filter(p =>
+      this.playerTypeMode === 'pitchers' ? p.type === 'pitcher' : p.type === 'batter'
+    );
+
+    if (this.selectedPosition !== 'All') {
+      players = players.filter(p => p.posLabel === this.selectedPosition);
+    }
+
+    const key = this.sortKey;
+    const dir = this.sortDir === 'asc' ? 1 : -1;
+
+    players.sort((a, b) => {
+      let va: number, vb: number;
+      if (key === 'tfrStar') { va = a.tfrStar; vb = b.tfrStar; }
+      else if (key === 'age') { va = a.age; vb = b.age; }
+      else if (key === 'name') { return dir * a.name.localeCompare(b.name); }
+      else if (key.startsWith('tfr.')) {
+        const k = key.slice(4);
+        va = a.tfrRatings?.[k] ?? 0; vb = b.tfrRatings?.[k] ?? 0;
+      } else if (key.startsWith('scout.')) {
+        const k = key.slice(6);
+        va = a.scoutRatings?.[k] ?? 0; vb = b.scoutRatings?.[k] ?? 0;
+      } else if (key.startsWith('proj.')) {
+        const k = key.slice(5);
+        va = a.projStats?.[k] ?? 0; vb = b.projStats?.[k] ?? 0;
+      } else { va = 0; vb = 0; }
+      return dir * (va - vb);
+    });
+
+    return players;
+  }
+
+  // ── Rendering ──
 
   private render(): void {
     this.container.innerHTML = `
-      <div class="draft-board">
-        <div class="draft-header">
+      <div class="draft-board-view">
+        <div class="view-header">
           <h2>Draft Board</h2>
-          <div class="toggle-group" role="tablist" aria-label="Draft type">
-            <button class="toggle-btn ${this.mode === 'pitchers' ? 'active' : ''}" data-mode="pitchers" role="tab" aria-selected="${this.mode === 'pitchers'}">Pitchers</button>
-            <button class="toggle-btn ${this.mode === 'hitters' ? 'active' : ''}" data-mode="hitters" role="tab" aria-selected="${this.mode === 'hitters'}">Hitters</button>
-          </div>
-        </div>
-
-        <div class="draft-section ${this.mode === 'pitchers' ? '' : 'hidden'}" data-section="pitchers">
-          <div class="draft-upload">
-            <div class="upload-info ${this.preferences.hideUploadInfo ? 'collapsed' : ''}" id="upload-info-pitchers">
-              <button type="button" class="instructions-dismiss" data-dismiss-pitcher aria-label="Hide instructions">x</button>
-              <p class="draft-subtitle">Upload pitcher CSV (one row per player)</p>
-              <pre class="csv-sample"><code>${this.samplePitcherCsv()}</code></pre>
-            </div>
-            <div class="upload-actions">
-              <div class="csv-upload-area" id="pitcher-drop-zone" ${this.pitcherRows.length ? 'style="display:none;"' : ''}>
-                <input type="file" id="pitcher-file-input" accept=".csv" hidden>
-                <p>Drop CSV here or <button type="button" class="btn-link" id="pitcher-browse-btn">browse</button></p>
-              </div>
-              <div class="upload-buttons">
-                <button type="button" class="btn-link show-instructions" id="show-instructions-pitchers" ${this.preferences.hideUploadInfo ? '' : 'style="display:none;"'}>
-                  Show instructions
-                </button>
-                <span class="saved-note" id="pitcher-saved-note" ${this.pitcherRows.length ? '' : 'style="display:none;"'}>
-                  Using your saved draft list from last upload.
-                  <button type="button" class="btn-link" id="pitcher-clear-link">clear</button>
-                </span>
-              </div>
+          <div class="header-controls">
+            <div class="toggle-group panel-toggle">
+              <button class="toggle-btn ${this.panelMode === 'player-list' ? 'active' : ''}" data-panel="player-list">Player List</button>
+              <button class="toggle-btn ${this.panelMode === 'draft-board' ? 'active' : ''}" data-panel="draft-board">
+                My Board <span class="board-count">(${this.draftBoardIds.length})</span>
+              </button>
             </div>
           </div>
-
-          <div class="draft-results" id="draft-results"></div>
         </div>
-
-        <div class="draft-section ${this.mode === 'hitters' ? '' : 'hidden'}" data-section="hitters">
-          <div class="draft-upload">
-            <div class="upload-info ${this.preferences.hideUploadInfo ? 'collapsed' : ''}" id="upload-info-hitters">
-              <button type="button" class="instructions-dismiss" data-dismiss-hitter aria-label="Hide instructions">x</button>
-              <p class="draft-subtitle">Upload hitter CSV (one row per player)</p>
-              <pre class="csv-sample"><code>${this.sampleHitterCsv()}</code></pre>
-            </div>
-            <div class="upload-actions">
-              <div class="csv-upload-area" id="hitter-drop-zone" ${this.hitterRows.length ? 'style="display:none;"' : ''}>
-                <input type="file" id="hitter-file-input" accept=".csv" hidden>
-                <p>Drop CSV here or <button type="button" class="btn-link" id="hitter-browse-btn">browse</button></p>
-              </div>
-              <div class="upload-buttons">
-                <button type="button" class="btn-link show-instructions" id="show-instructions-hitters" ${this.preferences.hideUploadInfo ? '' : 'style="display:none;"'}>
-                  Show instructions
-                </button>
-                <span class="saved-note" id="hitter-saved-note" ${this.hitterRows.length ? '' : 'style="display:none;"'}>
-                  Using your saved draft list from last upload.
-                  <button type="button" class="btn-link" id="hitter-clear-link">clear</button>
-                </span>
-              </div>
-            </div>
-          </div>
-
-          <div class="draft-results" id="hitter-results"></div>
-        </div>
+        <div class="draft-content"></div>
       </div>
     `;
-    this.renderPitcherTable();
-    this.renderHitterTable();
+
+    this.bindPanelToggle();
+
+    if (!this.loaded) {
+      this.container.querySelector('.draft-content')!.innerHTML = '<div class="loading-message">Loading draft class...</div>';
+      this.loadData().then(() => this.renderContent());
+    } else {
+      this.renderContent();
+    }
   }
-  private bindModeToggle(): void {
-    const buttons = this.container.querySelectorAll<HTMLButtonElement>('.toggle-btn');
-    buttons.forEach((btn) => {
+
+  private renderContent(): void {
+    const content = this.container.querySelector('.draft-content');
+    if (!content) return;
+
+    if (this.panelMode === 'player-list') {
+      this.renderPlayerList(content as HTMLElement);
+    } else {
+      this.renderDraftBoard(content as HTMLElement);
+    }
+  }
+
+  // ── Player List Panel ──
+
+  private renderPlayerList(content: HTMLElement): void {
+    const positions = this.playerTypeMode === 'pitchers' ? PITCHER_POSITIONS : BATTER_POSITIONS;
+    const filtered = this.getFilteredPlayers();
+    const boardSet = new Set(this.draftBoardIds);
+
+    content.innerHTML = `
+      <div class="filter-bar" style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap;">
+        <div class="toggle-group">
+          <button class="toggle-btn ${this.playerTypeMode === 'batters' ? 'active' : ''}" data-ptype="batters">Batters</button>
+          <button class="toggle-btn ${this.playerTypeMode === 'pitchers' ? 'active' : ''}" data-ptype="pitchers">Pitchers</button>
+        </div>
+        <div class="toggle-group">
+          ${positions.map(p => `<button class="toggle-btn ${this.selectedPosition === p ? 'active' : ''}" data-pos="${p}">${p}</button>`).join('')}
+        </div>
+        <div class="toggle-group">
+          <button class="toggle-btn ${this.columnMode === 'tfr' ? 'active' : ''}" data-colmode="tfr">TFR Ratings</button>
+          <button class="toggle-btn ${this.columnMode === 'scout' ? 'active' : ''}" data-colmode="scout">Scout Ratings</button>
+          <button class="toggle-btn ${this.columnMode === 'projections' ? 'active' : ''}" data-colmode="projections">Peak Projections</button>
+        </div>
+        <button class="btn btn-primary btn-sm" id="draft-add-all" style="margin-left: auto;">Add All (${filtered.filter(p => !boardSet.has(p.id)).length})</button>
+      </div>
+      <div class="draft-table-wrap" style="max-height: calc(100vh - 200px); overflow-y: auto;">
+        <table class="stats-table draft-list-table">
+          <thead><tr>${this.getPlayerListHeaders(boardSet)}</tr></thead>
+          <tbody>${this.getPlayerListRows(filtered, boardSet)}</tbody>
+        </table>
+      </div>
+      <div style="margin-top: 0.5rem; color: var(--color-text-muted); font-size: 0.8em;">
+        ${filtered.length} players shown · ${boardSet.size} on board
+      </div>
+    `;
+
+    this.bindPlayerListEvents(content);
+  }
+
+  private getPlayerListHeaders(boardSet: Set<number>): string {
+    const allChecked = this.getFilteredPlayers().every(p => boardSet.has(p.id));
+    let cols = `<th style="width:30px"><input type="checkbox" class="draft-check-all" ${allChecked && this.getFilteredPlayers().length > 0 ? 'checked' : ''}></th>`;
+    cols += this.sortHeader('name', 'Name');
+    cols += this.sortHeader('', 'Pos', false);
+    cols += this.sortHeader('age', 'Age');
+    cols += this.sortHeader('tfrStar', 'TFR');
+
+    if (this.columnMode === 'tfr') {
+      cols += this.getTfrHeaders();
+    } else if (this.columnMode === 'scout') {
+      cols += this.getScoutHeaders();
+    } else {
+      cols += this.getProjectionHeaders();
+    }
+    return cols;
+  }
+
+  private sortHeader(key: string, label: string, sortable = true): string {
+    if (!sortable) return `<th>${label}</th>`;
+    const isActive = this.sortKey === key;
+    const arrow = isActive ? (this.sortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th class="sortable ${isActive ? 'sort-active' : ''}" data-sort="${key}" style="cursor:pointer">${label}${arrow}</th>`;
+  }
+
+  private getTfrHeaders(): string {
+    if (this.playerTypeMode === 'pitchers') {
+      return ['stuff', 'control', 'hra'].map(k => this.sortHeader(`tfr.${k}`, k.charAt(0).toUpperCase() + k.slice(1))).join('');
+    }
+    return ['power', 'eye', 'avoidK', 'contact', 'gap', 'speed'].map(k => {
+      const labels: Record<string, string> = { power: 'Pow', eye: 'Eye', avoidK: 'AvK', contact: 'Con', gap: 'Gap', speed: 'Spd' };
+      return this.sortHeader(`tfr.${k}`, labels[k] || k);
+    }).join('');
+  }
+
+  private getScoutHeaders(): string {
+    if (this.playerTypeMode === 'pitchers') {
+      return ['stuff', 'control', 'hra', 'stamina'].map(k => {
+        const labels: Record<string, string> = { stuff: 'Stuff', control: 'Ctrl', hra: 'HRA', stamina: 'Stam' };
+        return this.sortHeader(`scout.${k}`, labels[k] || k);
+      }).join('');
+    }
+    return ['power', 'eye', 'avoidK', 'contact', 'gap', 'speed'].map(k => {
+      const labels: Record<string, string> = { power: 'Pow', eye: 'Eye', avoidK: 'AvK', contact: 'Con', gap: 'Gap', speed: 'Spd' };
+      return this.sortHeader(`scout.${k}`, labels[k] || k);
+    }).join('');
+  }
+
+  private getProjectionHeaders(): string {
+    if (this.playerTypeMode === 'pitchers') {
+      return ['k9', 'bb9', 'hr9', 'fip', 'war', 'ip'].map(k => {
+        const labels: Record<string, string> = { k9: 'K/9', bb9: 'BB/9', hr9: 'HR/9', fip: 'FIP', war: 'WAR', ip: 'IP' };
+        return this.sortHeader(`proj.${k}`, labels[k] || k);
+      }).join('');
+    }
+    return ['avg', 'obp', 'slg', 'opsPlus', 'war', 'hr'].map(k => {
+      const labels: Record<string, string> = { avg: 'AVG', obp: 'OBP', slg: 'SLG', opsPlus: 'OPS+', war: 'WAR', hr: 'HR' };
+      return this.sortHeader(`proj.${k}`, labels[k] || k);
+    }).join('');
+  }
+
+  private getPlayerListRows(players: DraftPlayer[], boardSet: Set<number>): string {
+    return players.map(p => {
+      const checked = boardSet.has(p.id) ? 'checked' : '';
+      let cells = `<td><input type="checkbox" class="draft-check" data-pid="${p.id}" ${checked}></td>`;
+      cells += `<td><button class="player-name-link draft-name" data-pid="${p.id}">${p.name}</button></td>`;
+      cells += `<td style="text-align:center">${p.posLabel}</td>`;
+      cells += `<td style="text-align:center">${p.age}</td>`;
+      cells += `<td style="text-align:center">${this.renderTfrBadge(p.tfrStar)}</td>`;
+
+      if (this.columnMode === 'tfr') {
+        cells += this.getTfrCells(p);
+      } else if (this.columnMode === 'scout') {
+        cells += this.getScoutCells(p);
+      } else {
+        cells += this.getProjectionCells(p);
+      }
+      return `<tr class="${checked ? 'row-selected' : ''}">${cells}</tr>`;
+    }).join('');
+  }
+
+  private getTfrCells(p: DraftPlayer): string {
+    const r = p.tfrRatings;
+    if (!r) return this.emptyCells(this.playerTypeMode === 'pitchers' ? 3 : 6);
+    if (p.type === 'pitcher') {
+      return [r.stuff, r.control, r.hra].map(v => `<td style="text-align:center">${this.ratingCell(v)}</td>`).join('');
+    }
+    return [r.power, r.eye, r.avoidK, r.contact, r.gap, r.speed].map(v => `<td style="text-align:center">${this.ratingCell(v)}</td>`).join('');
+  }
+
+  private getScoutCells(p: DraftPlayer): string {
+    const r = p.scoutRatings;
+    if (p.type === 'pitcher') {
+      if (!r) return this.emptyCells(4);
+      return [r.stuff, r.control, r.hra, r.stamina].map(v => `<td style="text-align:center">${this.ratingCell(v)}</td>`).join('');
+    }
+    if (!r) return this.emptyCells(6);
+    return [r.power, r.eye, r.avoidK, r.contact, r.gap, r.speed].map(v => `<td style="text-align:center">${this.ratingCell(v)}</td>`).join('');
+  }
+
+  private getProjectionCells(p: DraftPlayer): string {
+    const s = p.projStats;
+    if (p.type === 'pitcher') {
+      if (!s) return this.emptyCells(6);
+      return [
+        s.k9?.toFixed(1), s.bb9?.toFixed(1), s.hr9?.toFixed(1),
+        s.fip?.toFixed(2), s.war?.toFixed(1), Math.round(s.ip ?? 0),
+      ].map(v => `<td style="text-align:center">${v ?? ''}</td>`).join('');
+    }
+    if (!s) return this.emptyCells(6);
+    return [
+      s.avg?.toFixed(3), s.obp?.toFixed(3), s.slg?.toFixed(3),
+      Math.round(s.opsPlus ?? 0), s.war?.toFixed(1), Math.round(s.hr ?? 0),
+    ].map(v => `<td style="text-align:center">${v ?? ''}</td>`).join('');
+  }
+
+  private emptyCells(n: number): string {
+    return '<td></td>'.repeat(n);
+  }
+
+  private ratingCell(v: number | undefined): string {
+    if (v === undefined) return '';
+    const cls = v >= 70 ? 'rating-elite' : v >= 60 ? 'rating-plus' : v >= 45 ? 'rating-avg' : 'rating-below';
+    return `<span class="${cls}">${v}</span>`;
+  }
+
+  private renderTfrBadge(star: number): string {
+    if (!star || star <= 0) return '<span class="rating-badge rating-none">--</span>';
+    const cls = star >= 4.5 ? 'rating-elite' : star >= 3.5 ? 'rating-plus' : star >= 2.5 ? 'rating-avg' : 'rating-below';
+    return `<span class="rating-badge ${cls}">${star.toFixed(1)}</span>`;
+  }
+
+  // ── Draft Board Panel ──
+
+  private renderDraftBoard(content: HTMLElement): void {
+    const playerMap = new Map(this.allPlayers.map(p => [p.id, p]));
+    const boardPlayers = this.draftBoardIds.map(id => playerMap.get(id)).filter(Boolean) as DraftPlayer[];
+
+    // Apply temp sort if active
+    let displayPlayers = boardPlayers;
+    const isTempSorted = this.boardSortKey !== null;
+    if (isTempSorted) {
+      displayPlayers = [...boardPlayers];
+      const key = this.boardSortKey!;
+      const dir = this.boardSortDir === 'asc' ? 1 : -1;
+      displayPlayers.sort((a, b) => {
+        let va: number, vb: number;
+        if (key === 'name') return dir * a.name.localeCompare(b.name);
+        if (key === 'tfrStar') { va = a.tfrStar; vb = b.tfrStar; }
+        else if (key === 'age') { va = a.age; vb = b.age; }
+        else if (key === 'war') { va = a.projStats?.war ?? 0; vb = b.projStats?.war ?? 0; }
+        else if (key === 'keyStat') {
+          va = a.type === 'pitcher' ? (a.projStats?.fip ?? 99) : (a.projStats?.opsPlus ?? 0);
+          vb = b.type === 'pitcher' ? (b.projStats?.fip ?? 99) : (b.projStats?.opsPlus ?? 0);
+        }
+        else { va = 0; vb = 0; }
+        return dir * (va - vb);
+      });
+    }
+
+    // Build board rank lookup (original order) for the # column
+    const boardRank = new Map<number, number>();
+    this.draftBoardIds.forEach((id, i) => boardRank.set(id, i + 1));
+
+    const sortArrow = (key: string, defaultDir: 'asc' | 'desc' = 'desc'): string => {
+      if (this.boardSortKey !== key) return '';
+      return this.boardSortDir === 'asc' ? ' ▲' : ' ▼';
+    };
+
+    content.innerHTML = `
+      <div class="filter-bar" style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
+        <span style="color: var(--color-text-muted); font-size: 0.85em;">${boardPlayers.length} players on board${isTempSorted ? '' : ' — drag to reorder'}</span>
+        <button class="btn btn-danger btn-sm" id="draft-clear-all" style="margin-left: auto;" ${boardPlayers.length === 0 ? 'disabled' : ''}>Clear All</button>
+      </div>
+      ${isTempSorted ? `
+        <div class="board-sort-bar" style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; padding: 0.5rem 0.75rem; background: rgba(99, 102, 241, 0.1); border-radius: var(--border-radius); border: 1px solid rgba(99, 102, 241, 0.3);">
+          <span style="font-size: 0.85em;">Sorted by ${this.boardSortKey}. Use this as new board rankings?</span>
+          <button class="btn btn-primary btn-sm" id="board-apply-sort">Apply Rankings</button>
+          <button class="btn btn-sm" id="board-reset-sort" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);">Reset</button>
+        </div>
+      ` : ''}
+      ${boardPlayers.length === 0
+        ? '<div style="text-align:center; padding: 3rem; color: var(--color-text-muted);">No players on your board yet. Switch to Player List to add some.</div>'
+        : `<div class="draft-table-wrap" style="max-height: calc(100vh - 200px); overflow-y: auto;">
+            <table class="stats-table draft-board-table">
+              <thead><tr>
+                <th style="width:24px"></th>
+                <th style="width:30px">#</th>
+                <th class="board-sort-header" data-bsort="name" style="cursor:pointer">Name${sortArrow('name')}</th>
+                <th>Pos</th>
+                <th class="board-sort-header" data-bsort="age" style="cursor:pointer">Age${sortArrow('age')}</th>
+                <th class="board-sort-header" data-bsort="tfrStar" style="cursor:pointer">TFR${sortArrow('tfrStar')}</th>
+                <th class="board-sort-header" data-bsort="war" style="cursor:pointer">WAR${sortArrow('war')}</th>
+                <th class="board-sort-header" data-bsort="keyStat" style="cursor:pointer">Key Stat${sortArrow('keyStat')}</th>
+                <th style="width:30px"></th>
+              </tr></thead>
+              <tbody>${displayPlayers.map(p => this.renderBoardRow(p, boardRank.get(p.id) ?? 0)).join('')}</tbody>
+            </table>
+          </div>`
+      }
+    `;
+
+    this.bindDraftBoardEvents(content);
+  }
+
+  private renderBoardRow(p: DraftPlayer, rank: number): string {
+    const war = p.projStats?.war?.toFixed(1) ?? '--';
+    let keyStat = '';
+    if (p.type === 'pitcher') {
+      keyStat = p.projStats?.fip !== undefined ? `${p.projStats.fip.toFixed(2)} FIP` : '--';
+    } else {
+      keyStat = p.projStats?.opsPlus !== undefined ? `${Math.round(p.projStats.opsPlus)} OPS+` : '--';
+    }
+
+    const isTempSorted = this.boardSortKey !== null;
+    return `<tr class="board-row" data-pid="${p.id}" ${isTempSorted ? '' : 'draggable="true"'}>
+      <td class="drag-handle" style="cursor:${isTempSorted ? 'default' : 'grab'}; text-align:center; color: var(--color-text-muted);">${isTempSorted ? '' : '⠿'}</td>
+      <td style="text-align:center; color: var(--color-text-muted);">${rank}</td>
+      <td><button class="player-name-link draft-name" data-pid="${p.id}">${p.name}</button></td>
+      <td style="text-align:center">${p.posLabel}</td>
+      <td style="text-align:center">${p.age}</td>
+      <td style="text-align:center">${this.renderTfrBadge(p.tfrStar)}</td>
+      <td style="text-align:center">${war}</td>
+      <td style="text-align:center">${keyStat}</td>
+      <td><button class="btn-icon draft-remove" data-pid="${p.id}" title="Remove">✕</button></td>
+    </tr>`;
+  }
+
+  // ── Event Binding ──
+
+  private bindPanelToggle(): void {
+    this.container.querySelectorAll<HTMLElement>('.panel-toggle .toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
-        const mode = btn.dataset.mode as DraftMode | undefined;
-        if (mode && mode !== this.mode) {
-          this.setMode(mode);
+        const panel = btn.dataset.panel as PanelMode;
+        if (panel && panel !== this.panelMode) {
+          this.panelMode = panel;
+          this.container.querySelectorAll('.panel-toggle .toggle-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          this.container.querySelector('.board-count')!.textContent = `(${this.draftBoardIds.length})`;
+          this.renderContent();
         }
       });
     });
   }
 
-  private setMode(mode: DraftMode): void {
-    this.mode = mode;
-    const buttons = this.container.querySelectorAll<HTMLButtonElement>('.toggle-btn');
-    buttons.forEach((btn) => {
-      const isActive = btn.dataset.mode === mode;
-      btn.classList.toggle('active', isActive);
-      btn.setAttribute('aria-selected', String(isActive));
-    });
-
-    const sections = this.container.querySelectorAll<HTMLElement>('.draft-section');
-    sections.forEach((section) => {
-      const matches = section.dataset.section === mode;
-      section.classList.toggle('hidden', !matches);
-    });
-  }
-
-  private bindPitcherUpload(): void {
-    const fileInput = this.container.querySelector<HTMLInputElement>('#pitcher-file-input');
-    const browseBtn = this.container.querySelector<HTMLButtonElement>('#pitcher-browse-btn');
-    const dropZone = this.container.querySelector<HTMLDivElement>('#pitcher-drop-zone');
-    const clearLink = this.container.querySelector<HTMLButtonElement>('#pitcher-clear-link');
-
-    browseBtn?.addEventListener('click', () => fileInput?.click());
-    clearLink?.addEventListener('click', () => {
-      this.clearPitchers();
-      if (fileInput) fileInput.value = '';
-    });
-
-    fileInput?.addEventListener('change', (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) this.handlePitcherFile(file);
-      (e.target as HTMLInputElement).value = '';
-    });
-
-    dropZone?.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('drag-over');
-    });
-
-    dropZone?.addEventListener('dragleave', () => {
-      dropZone.classList.remove('drag-over');
-    });
-
-    dropZone?.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      const file = e.dataTransfer?.files[0];
-      if (file && file.name.endsWith('.csv')) {
-        this.handlePitcherFile(file);
-      }
-    });
-  }
-
-  private bindHitterUpload(): void {
-    const fileInput = this.container.querySelector<HTMLInputElement>('#hitter-file-input');
-    const browseBtn = this.container.querySelector<HTMLButtonElement>('#hitter-browse-btn');
-    const dropZone = this.container.querySelector<HTMLDivElement>('#hitter-drop-zone');
-    const clearLink = this.container.querySelector<HTMLButtonElement>('#hitter-clear-link');
-
-    browseBtn?.addEventListener('click', () => fileInput?.click());
-    clearLink?.addEventListener('click', () => {
-      this.clearHitters();
-      if (fileInput) fileInput.value = '';
-    });
-
-    fileInput?.addEventListener('change', (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) this.handleHitterFile(file);
-      (e.target as HTMLInputElement).value = '';
-    });
-
-    dropZone?.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('drag-over');
-    });
-
-    dropZone?.addEventListener('dragleave', () => {
-      dropZone.classList.remove('drag-over');
-    });
-
-    dropZone?.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      const file = e.dataTransfer?.files[0];
-      if (file && file.name.endsWith('.csv')) {
-        this.handleHitterFile(file);
-      }
-    });
-  }
-
-  private bindPitcherInstructionToggles(): void {
-    const info = this.container.querySelector<HTMLDivElement>('#upload-info-pitchers');
-    const dismiss = this.container.querySelector<HTMLButtonElement>('[data-dismiss-pitcher]');
-    const showBtn = this.container.querySelector<HTMLButtonElement>('#show-instructions-pitchers');
-
-    const applyVisibility = (hidden: boolean) => {
-      if (info) info.classList.toggle('collapsed', hidden);
-      if (showBtn) showBtn.style.display = hidden ? 'inline-block' : 'none';
-      this.preferences.hideUploadInfo = hidden;
-      this.savePreferences();
-    };
-
-    dismiss?.addEventListener('click', () => applyVisibility(true));
-    showBtn?.addEventListener('click', () => applyVisibility(false));
-  }
-
-  private bindHitterInstructionToggles(): void {
-    const info = this.container.querySelector<HTMLDivElement>('#upload-info-hitters');
-    const dismiss = this.container.querySelector<HTMLButtonElement>('[data-dismiss-hitter]');
-    const showBtn = this.container.querySelector<HTMLButtonElement>('#show-instructions-hitters');
-
-    const applyVisibility = (hidden: boolean) => {
-      if (info) info.classList.toggle('collapsed', hidden);
-      if (showBtn) showBtn.style.display = hidden ? 'inline-block' : 'none';
-      this.preferences.hideUploadInfo = hidden;
-      this.savePreferences();
-    };
-
-    dismiss?.addEventListener('click', () => applyVisibility(true));
-    showBtn?.addEventListener('click', () => applyVisibility(false));
-  }
-  private handlePitcherFile(file: File): void {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      // Ensure league stats are loaded before processing
-      await this.ensureLeagueStatsLoaded();
-
-      const content = e.target?.result as string;
-      this.parsePitcherCsv(content);
-      this.saveDraftBoard();
-      this.renderPitcherTable();
-    };
-    reader.readAsText(file);
-  }
-
-  private handleHitterFile(file: File): void {
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-      // Ensure league stats are loaded before processing
-      await this.ensureLeagueStatsLoaded();
-
-      const content = e.target?.result as string;
-      this.parseHitterCsv(content);
-      this.saveDraftBoard();
-      this.renderHitterTable();
-    };
-    reader.readAsText(file);
-  }
-
-  private parsePitcherCsv(content: string): void {
-    const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    if (lines.length === 0) {
-      this.pitcherRows = [];
-      this.sortKey = undefined;
-      this.sortDirection = 'asc';
-      return;
-    }
-
-    const rows: PitcherRow[] = [];
-    const firstCells = this.splitCsvLine(lines[0]);
-    const firstCell = this.normalizeHeader(firstCells[0] ?? '');
-    const hasHeader = firstCell === 'name' || firstCell === 'player';
-    const dataLines = hasHeader ? lines.slice(1) : lines;
-
-    dataLines.forEach((line, index) => {
-      const cells = this.splitCsvLine(line);
-      if (cells.length === 0 || !cells[0]) return;
-
-      const ratings: Record<string, string> = {};
-      PITCHER_COLUMNS.forEach((col, colIndex) => {
-        ratings[col.key] = cells[colIndex + 1] ?? '-';
-      });
-
-      rows.push({
-        id: index,
-        name: cells[0],
-        ratings,
-        projection: this.calculateProjection(ratings),
+  private bindPlayerListEvents(content: HTMLElement): void {
+    // Player type toggle
+    content.querySelectorAll<HTMLElement>('[data-ptype]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type = btn.dataset.ptype as PlayerTypeMode;
+        if (type && type !== this.playerTypeMode) {
+          this.playerTypeMode = type;
+          this.selectedPosition = 'All';
+          this.renderContent();
+        }
       });
     });
 
-    this.pitcherRows = rows;
-    this.sortKey = undefined;
-    this.sortDirection = 'asc';
-    this.pendingPitcherSortSave = false;
-  }
-
-  private parseHitterCsv(content: string): void {
-    const lines = content.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    if (lines.length === 0) {
-      this.hitterRows = [];
-      this.hitterSortKey = undefined;
-      this.hitterSortDirection = 'asc';
-      return;
-    }
-
-    const rows: HitterRow[] = [];
-    const headerCells = this.splitCsvLine(lines[0]);
-    const { indexMap, hasHeader } = this.buildHitterHeaderMap(headerCells);
-    const dataLines = hasHeader ? lines.slice(1) : lines;
-
-    dataLines.forEach((line, index) => {
-      const cells = this.splitCsvLine(line);
-      const valueFor = (key: HitterHeaderKey): string => {
-        const idx = indexMap[key];
-        const fallbackIndex = HITTER_FALLBACK_INDEX[key];
-        const fromCells = typeof idx === 'number' ? cells[idx] : cells[fallbackIndex];
-        return fromCells ?? '-';
-      };
-
-      const name = valueFor('name');
-      if (!name) return;
-
-      const ratings: Record<string, string> = {};
-      ratings.pos = valueFor('pos');
-      ratings.age = valueFor('age');
-      ratings.bats = valueFor('bats');
-      ratings.con = valueFor('con');
-      ratings.gap = valueFor('gap');
-      ratings.pow = valueFor('pow');
-      ratings.eye = valueFor('eye');
-      ratings.k = valueFor('k');
-      ratings.c_abi = valueFor('c_abi');
-      ratings.c_frm = valueFor('c_frm');
-      ratings.c_arm = valueFor('c_arm');
-      ratings.if_rng = valueFor('if_rng');
-      ratings.if_err = valueFor('if_err');
-      ratings.if_arm = valueFor('if_arm');
-      ratings.tdp = valueFor('tdp');
-      ratings.of_rng = valueFor('of_rng');
-      ratings.of_err = valueFor('of_err');
-      ratings.of_arm = valueFor('of_arm');
-      ratings.spe = valueFor('spe');
-      ratings.ste = valueFor('ste');
-      ratings.run = valueFor('run');
-
-      rows.push({
-        id: index,
-        pos: ratings.pos,
-        name,
-        age: ratings.age,
-        bats: ratings.bats,
-        ratings,
+    // Position filter
+    content.querySelectorAll<HTMLElement>('[data-pos]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pos = btn.dataset.pos;
+        if (pos && pos !== this.selectedPosition) {
+          this.selectedPosition = pos;
+          this.renderContent();
+        }
       });
     });
 
-    this.hitterRows = rows;
-    this.hitterSortKey = undefined;
-    this.hitterSortDirection = 'asc';
-    this.pendingHitterSortSave = false;
-  }
-  private renderPitcherTable(): void {
-    const results = this.container.querySelector<HTMLDivElement>('#draft-results');
-    if (!results) return;
+    // Column mode
+    content.querySelectorAll<HTMLElement>('[data-colmode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.colmode as ColumnMode;
+        if (mode && mode !== this.columnMode) {
+          this.columnMode = mode;
+          this.renderContent();
+        }
+      });
+    });
 
-    if (this.pitcherRows.length === 0) {
-      results.innerHTML = '<p class="no-results">Upload a CSV to see pitchers on your board.</p>';
-      this.updatePitcherSavedStateUI();
-      return;
-    }
-
-    const body = this.getSortedPitcherRows().map((row, index) => this.renderPitcherRows(row, index)).join('');
-    const sortPrompt = this.sortKey && this.pendingPitcherSortSave
-      ? `
-        <div class="sort-save-banner" role="status">
-          <span>Do you want to save the order of your draft board?</span>
-          <div class="sort-save-actions">
-            <button type="button" class="btn-link" id="pitcher-save-sort">Save order</button>
-            <button type="button" class="btn-link" id="pitcher-dismiss-sort">Not now</button>
-          </div>
-        </div>
-      `
-      : '';
-
-    results.innerHTML = `
-      <div class="table-wrapper">
-        ${sortPrompt}
-        <table class="stats-table draft-table draft-compact">
-          <thead>
-            <tr>
-              <th class="rank-header" data-sort-key="rank">#</th>
-              <th data-sort-key="name">Player</th>
-              <th>
-                <div class="details-header-content">
-                  <span>Details</span>
-                  <label class="hide-pitches-toggle">
-                    <input type="checkbox" id="toggle-hide-pitches" ${this.preferences.hidePitchRatings ? 'checked' : ''}>
-                    Hide pitches
-                  </label>
-                </div>
-              </th>
-            </tr>
-          </thead>
-          <tbody>${body}</tbody>
-        </table>
-      </div>
-    `;
-
-    this.bindPitcherSortHeaders();
-    this.bindPitcherDragAndDrop();
-    this.bindPitcherSortSavePrompt();
-    this.bindHidePitchesToggle();
-    this.updatePitcherSavedStateUI();
-  }
-
-  private renderHitterTable(): void {
-    const results = this.container.querySelector<HTMLDivElement>('#hitter-results');
-    if (!results) return;
-
-    if (this.hitterRows.length === 0) {
-      results.innerHTML = '<p class="no-results">Upload a CSV to see hitters on your board.</p>';
-      this.updateHitterSavedStateUI();
-      return;
-    }
-
-    const body = this.getSortedHitterRows().map((row, index) => this.renderHitterRow(row, index)).join('');
-    const sortPrompt = this.hitterSortKey && this.pendingHitterSortSave
-      ? `
-        <div class="sort-save-banner" role="status">
-          <span>Do you want to save the order of your draft board?</span>
-          <div class="sort-save-actions">
-            <button type="button" class="btn-link" id="hitter-save-sort">Save order</button>
-            <button type="button" class="btn-link" id="hitter-dismiss-sort">Not now</button>
-          </div>
-        </div>
-      `
-      : '';
-
-    results.innerHTML = `
-      <div class="table-wrapper">
-        ${sortPrompt}
-        <table class="stats-table draft-table draft-compact">
-          <thead>
-            <tr>
-              <th class="rank-header" data-hitter-sort="rank">#</th>
-              <th data-hitter-sort="name">Player</th>
-              <th>Details</th>
-            </tr>
-          </thead>
-          <tbody>${body}</tbody>
-        </table>
-      </div>
-    `;
-
-    this.bindHitterSortHeaders();
-    this.bindHitterDragAndDrop();
-    this.bindHitterSortSavePrompt();
-    this.updateHitterSavedStateUI();
-  }
-  private renderPitcherRows(row: PitcherRow, displayIndex: number): string {
-    const rank = displayIndex + 1;
-    const rankClass = rank <= 10 ? 'rank-badge rank-top' : 'rank-badge';
-
-    const projection = this.ensureProjection(row);
-    const ratingCells = PITCHER_COLUMNS.map((col) => {
-      const value = row.ratings[col.key] ?? '-';
-      const valueNum = this.parseNumericValue(value) ?? 0;
-      const tier = this.getRatingTier(valueNum);
-      const isActive = this.sortKey === col.key;
-      const pitchClass = PITCH_COLUMNS.has(col.key) ? 'pitch-column' : '';
-      return `
-        <div class="cell rating-cell rating-${tier} ${pitchClass} ${isActive ? 'sort-active' : ''}">
-          <button type="button" class="cell-label" data-sort-key="${col.key}">
-            ${this.escape(col.label)}
-          </button>
-          <div class="cell-value">${this.escape(value)}</div>
-        </div>
-      `;
-    }).join('');
-    const projectionCells = [
-      ['proj_ip', 0],
-      ['proj_k', 0],
-      ['proj_bb', 0],
-      ['proj_hr', 0],
-      ['proj_k9', 1],
-      ['proj_bb9', 1],
-      ['proj_hr9', 2],
-      ['proj_fip', 2],
-      ['proj_war', 1],
-    ].map(([key, digits]) => {
-      const value = projection[key as keyof ProjectionStats];
-      const isActive = this.sortKey === key;
-      return `
-        <div class="cell ${isActive ? 'sort-active' : ''}">
-          <button type="button" class="cell-label" data-sort-key="${key}">
-            ${this.escape(this.getProjectionLabel(key as keyof ProjectionStats))}
-          </button>
-          <div class="cell-value">${this.formatNumber(value, digits as number)}</div>
-        </div>
-      `;
-    }).join('');
-
-    return `
-      <tr class="draft-row rating-row" data-index="${displayIndex}">
-        <td class="${rankClass} drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-          ${rank}.
-        </td>
-        <td class="player-cell player-name drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-          <div class="cell-label" data-sort-key="name">Name</div>
-          <div class="cell-value">${this.escape(row.name)}</div>
-        </td>
-        <td class="details-cell drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-          <div class="grid rating-grid ${this.preferences.hidePitchRatings ? 'pitches-hidden' : ''}">
-            ${ratingCells}
-          </div>
-        </td>
-      </tr>
-      <tr class="draft-row projection-row" data-index="${displayIndex}">
-        <td class="drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-        </td>
-        <td class="player-cell projection-label drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-          <div class="cell-label">Projected</div>
-          <div class="cell-value">Stats</div>
-        </td>
-        <td class="details-cell drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-          <div class="grid projection-grid">
-            ${projectionCells}
-          </div>
-        </td>
-      </tr>
-    `;
-  }
-
-  private renderHitterRow(row: HitterRow, displayIndex: number): string {
-    const rank = displayIndex + 1;
-    const rankClass = rank <= 10 ? 'rank-badge rank-top' : 'rank-badge';
-
-    const ratingCells = HITTER_COLUMNS.map((col) => {
-      const value = row.ratings[col.key] ?? '-';
-      const valueNum = this.parseNumericValue(value) ?? 0;
-      const tier = this.getRatingTier(valueNum);
-      const isActive = this.hitterSortKey === col.key;
-      return `
-        <div class="cell rating-cell rating-${tier} ${isActive ? 'sort-active' : ''}">
-          <button type="button" class="cell-label" data-hitter-sort="${col.key}">
-            ${this.escape(col.label)}
-          </button>
-          <div class="cell-value">${this.escape(value)}</div>
-        </div>
-      `;
-    }).join('');
-
-    return `
-      <tr class="draft-row rating-row" data-index="${displayIndex}">
-        <td class="${rankClass} drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-          ${rank}.
-        </td>
-        <td class="player-cell player-name drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-          <div class="cell-label" data-hitter-sort="name">Name</div>
-          <div class="cell-value">${this.escape(row.name)}</div>
-        </td>
-        <td class="details-cell drag-cell">
-          <div class="drag-overlay" draggable="true" data-index="${displayIndex}"></div>
-          <div class="grid rating-grid">
-            ${ratingCells}
-          </div>
-        </td>
-      </tr>
-    `;
-  }
-
-  private bindPitcherSortHeaders(): void {
-    const clickable = this.container.querySelectorAll<HTMLElement>('[data-sort-key]');
-    clickable.forEach((el) => {
-      el.addEventListener('click', (event) => {
-        const key = el.dataset.sortKey;
-        if (!key) return;
+    // Sort headers
+    content.querySelectorAll<HTMLElement>('[data-sort]').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.sort!;
         if (this.sortKey === key) {
-          this.sortDirection = this.sortDirection === 'asc' ? 'desc' : 'asc';
+          this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
         } else {
           this.sortKey = key;
-          this.sortDirection = 'asc';
+          this.sortDir = key === 'name' || key === 'age' ? 'asc' : 'desc';
         }
-        this.pendingPitcherSortSave = true;
-        this.showSortHint(event as MouseEvent);
-        this.renderPitcherTable();
+        this.renderContent();
       });
     });
-  }
 
-  private bindHitterSortHeaders(): void {
-    const clickable = this.container.querySelectorAll<HTMLElement>('[data-hitter-sort]');
-    clickable.forEach((el) => {
-      el.addEventListener('click', () => {
-        const key = el.dataset.hitterSort;
-        if (!key) return;
-        if (this.hitterSortKey === key) {
-          this.hitterSortDirection = this.hitterSortDirection === 'asc' ? 'desc' : 'asc';
+    // Individual checkboxes
+    content.querySelectorAll<HTMLInputElement>('.draft-check').forEach(cb => {
+      cb.addEventListener('change', () => {
+        const pid = parseInt(cb.dataset.pid!, 10);
+        if (cb.checked) {
+          if (!this.draftBoardIds.includes(pid)) this.draftBoardIds.push(pid);
         } else {
-          this.hitterSortKey = key;
-          this.hitterSortDirection = 'asc';
+          this.draftBoardIds = this.draftBoardIds.filter(id => id !== pid);
         }
-        this.pendingHitterSortSave = true;
-        this.renderHitterTable();
-      });
-    });
-  }
-  private createDropPlaceholder(): HTMLTableRowElement {
-    const placeholder = document.createElement('tr');
-    placeholder.className = 'draft-placeholder';
-    placeholder.innerHTML = `
-      <td colspan="3">
-        <div class="placeholder-box">Drop here</div>
-      </td>
-    `;
-    return placeholder;
-  }
-
-  private bindPitcherDragAndDrop(): void {
-    const overlays = this.container.querySelectorAll<HTMLDivElement>('#draft-results .drag-overlay');
-    const rows = this.container.querySelectorAll<HTMLTableRowElement>('#draft-results .draft-row.rating-row');
-    let dragIndex: number | null = null;
-    let placeholder: HTMLTableRowElement | null = null;
-    let currentTarget: HTMLTableRowElement | null = null;
-    let draggedRow: HTMLTableRowElement | null = null;
-
-    const removePlaceholder = () => {
-      if (placeholder && placeholder.parentNode) {
-        placeholder.parentNode.removeChild(placeholder);
-      }
-      placeholder = null;
-      currentTarget = null;
-    };
-
-    // Bind drag start to overlays
-    overlays.forEach((overlay) => {
-      overlay.addEventListener('dragstart', (e) => {
-        dragIndex = Number(overlay.dataset.index);
-        const row = overlay.closest('tr') as HTMLTableRowElement;
-        draggedRow = row.classList.contains('rating-row') ? row : row.previousElementSibling as HTMLTableRowElement;
-
-        if (draggedRow) {
-          draggedRow.classList.add('dragging');
-          const nextRow = draggedRow.nextElementSibling;
-          if (nextRow?.classList.contains('projection-row')) {
-            nextRow.classList.add('dragging');
-          }
-          e.dataTransfer?.setData('text/plain', String(dragIndex));
-          e.dataTransfer?.setDragImage(draggedRow, 10, 10);
-        }
-      });
-
-      overlay.addEventListener('dragend', () => {
-        if (draggedRow) {
-          draggedRow.classList.remove('dragging');
-          const nextRow = draggedRow.nextElementSibling;
-          if (nextRow?.classList.contains('projection-row')) {
-            nextRow.classList.remove('dragging');
-          }
-        }
-        draggedRow = null;
-        removePlaceholder();
+        this.saveBoard();
+        this.updateBoardCount();
+        cb.closest('tr')?.classList.toggle('row-selected', cb.checked);
       });
     });
 
-    // Bind dragover/drop to rating rows
-    rows.forEach((row) => {
-      row.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (currentTarget === row) return;
-
-        removePlaceholder();
-        currentTarget = row;
-        placeholder = this.createDropPlaceholder();
-        row.parentNode?.insertBefore(placeholder, row);
-      });
-
-      row.addEventListener('drop', (e) => {
-        e.preventDefault();
-        removePlaceholder();
-        const targetIndex = Number(row.dataset.index);
-        if (dragIndex === null || Number.isNaN(targetIndex)) return;
-        this.reorderPitchers(dragIndex, targetIndex);
-        dragIndex = null;
-      });
-    });
-
-    // Handle dragover on the table body to catch drops between rows
-    const tbody = this.container.querySelector<HTMLTableSectionElement>('#draft-results tbody');
-    tbody?.addEventListener('dragleave', (e) => {
-      const relatedTarget = e.relatedTarget as Node | null;
-      if (!relatedTarget || !tbody.contains(relatedTarget)) {
-        removePlaceholder();
-      }
-    });
-  }
-
-  private bindHitterDragAndDrop(): void {
-    const overlays = this.container.querySelectorAll<HTMLDivElement>('#hitter-results .drag-overlay');
-    const rows = this.container.querySelectorAll<HTMLTableRowElement>('#hitter-results .draft-row');
-    let dragIndex: number | null = null;
-    let placeholder: HTMLTableRowElement | null = null;
-    let currentTarget: HTMLTableRowElement | null = null;
-    let draggedRow: HTMLTableRowElement | null = null;
-
-    const removePlaceholder = () => {
-      if (placeholder && placeholder.parentNode) {
-        placeholder.parentNode.removeChild(placeholder);
-      }
-      placeholder = null;
-      currentTarget = null;
-    };
-
-    // Bind drag start to overlays
-    overlays.forEach((overlay) => {
-      overlay.addEventListener('dragstart', (e) => {
-        dragIndex = Number(overlay.dataset.index);
-        draggedRow = overlay.closest('tr') as HTMLTableRowElement;
-
-        if (draggedRow) {
-          draggedRow.classList.add('dragging');
-          e.dataTransfer?.setData('text/plain', String(dragIndex));
-          e.dataTransfer?.setDragImage(draggedRow, 10, 10);
-        }
-      });
-
-      overlay.addEventListener('dragend', () => {
-        if (draggedRow) {
-          draggedRow.classList.remove('dragging');
-        }
-        draggedRow = null;
-        removePlaceholder();
-      });
-    });
-
-    // Bind dragover/drop to rows
-    rows.forEach((row) => {
-      row.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (currentTarget === row) return;
-
-        removePlaceholder();
-        currentTarget = row;
-        placeholder = this.createDropPlaceholder();
-        row.parentNode?.insertBefore(placeholder, row);
-      });
-
-      row.addEventListener('drop', (e) => {
-        e.preventDefault();
-        removePlaceholder();
-        const targetIndex = Number(row.dataset.index);
-        if (dragIndex === null || Number.isNaN(targetIndex)) return;
-        this.reorderHitters(dragIndex, targetIndex);
-        dragIndex = null;
-      });
-    });
-
-    const tbody = this.container.querySelector<HTMLTableSectionElement>('#hitter-results tbody');
-    tbody?.addEventListener('dragleave', (e) => {
-      const relatedTarget = e.relatedTarget as Node | null;
-      if (!relatedTarget || !tbody.contains(relatedTarget)) {
-        removePlaceholder();
-      }
-    });
-  }
-
-  private reorderPitchers(from: number, to: number): void {
-    if (from === to) return;
-    const sorted = this.getSortedPitcherRows();
-    const [moved] = sorted.splice(from, 1);
-    sorted.splice(to, 0, moved);
-    this.pitcherRows = sorted.map((row, idx) => ({ ...row, id: idx }));
-    this.sortKey = undefined;
-    this.pendingPitcherSortSave = false;
-    this.saveDraftBoard();
-    this.renderPitcherTable();
-  }
-
-  private reorderHitters(from: number, to: number): void {
-    if (from === to) return;
-    const sorted = this.getSortedHitterRows();
-    const [moved] = sorted.splice(from, 1);
-    sorted.splice(to, 0, moved);
-    this.hitterRows = sorted.map((row, idx) => ({ ...row, id: idx }));
-    this.hitterSortKey = undefined;
-    this.pendingHitterSortSave = false;
-    this.saveDraftBoard();
-    this.renderHitterTable();
-  }
-  private getSortedPitcherRows(): PitcherRow[] {
-    if (!this.sortKey || this.sortKey === 'rank') {
-      return [...this.pitcherRows];
-    }
-
-    const isProjection = PROJECTION_COLUMNS.some((col) => col.key === this.sortKey);
-    const isRating = PITCHER_COLUMNS.some((col) => col.key === this.sortKey);
-
-    const sorted = [...this.pitcherRows].sort((a, b) => {
-      const aVal = this.getPitcherSortValue(a, this.sortKey!, isProjection, isRating);
-      const bVal = this.getPitcherSortValue(b, this.sortKey!, isProjection, isRating);
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return aVal - bVal;
-      }
-      return String(aVal).localeCompare(String(bVal));
-    });
-
-    if (this.sortDirection === 'desc') sorted.reverse();
-    return sorted;
-  }
-
-  private getSortedHitterRows(): HitterRow[] {
-    if (!this.hitterSortKey || this.hitterSortKey === 'rank') {
-      return [...this.hitterRows];
-    }
-
-    const sorted = [...this.hitterRows].sort((a, b) => {
-      const aVal = this.getHitterSortValue(a, this.hitterSortKey!);
-      const bVal = this.getHitterSortValue(b, this.hitterSortKey!);
-      if (typeof aVal === 'number' && typeof bVal === 'number') {
-        return aVal - bVal;
-      }
-      return String(aVal).localeCompare(String(bVal));
-    });
-
-    if (this.hitterSortDirection === 'desc') sorted.reverse();
-    return sorted;
-  }
-
-  private getPitcherSortValue(row: PitcherRow, key: string, isProjection: boolean, isRating: boolean): string | number {
-    if (key === 'name') return row.name;
-    if (key === 'rank') return row.id;
-    if (isProjection) return (row.projection as Record<string, number>)[key] ?? 0;
-    if (isRating) return this.parseNumericValue(row.ratings[key]) ?? 0;
-    return 0;
-  }
-
-  private getHitterSortValue(row: HitterRow, key: string): string | number {
-    if (key === 'name') return row.name;
-    if (key === 'rank') return row.id;
-    const value = row.ratings[key];
-    const num = this.parseNumericValue(value);
-    return num ?? value ?? '';
-  }
-
-  private calculateProjection(ratings: Record<string, string>): ProjectionStats {
-    const ratingNumber = (value: string): number => {
-      const parsed = this.parseNumericValue(value);
-      if (parsed === null) return 50;
-      const clamped = Math.min(Math.max(parsed, 20), 80);
-      return clamped;
-    };
-
-    const inputs = {
-      stuff: ratingNumber(ratings.stu),
-      control: ratingNumber(ratings.con),
-      hra: ratingNumber(ratings.hra),
-      movement: ratingNumber(ratings.mov),
-      babip: ratingNumber(ratings.babip),
-    };
-
-    const ip = 180;
-    const stats = PotentialStatsService.calculatePitchingStats(inputs, ip, this.leagueContext);
-
-    return {
-      proj_ip: ip,
-      proj_k: this.safeNumber(stats.k),
-      proj_bb: this.safeNumber(stats.bb),
-      proj_hr: this.safeNumber(stats.hr),
-      proj_k9: this.safeNumber(stats.k9),
-      proj_bb9: this.safeNumber(stats.bb9),
-      proj_hr9: this.safeNumber(stats.hr9),
-      proj_fip: this.safeNumber(stats.fip),
-      proj_war: this.safeNumber(stats.war),
-    };
-  }
-
-  private parseNumericValue(value: string | undefined): number | null {
-    if (!value) return null;
-    if (value.trim() === '-') return null;
-    const matches = value.match(/(\d+(?:\.\d+)?)/g);
-    if (!matches || matches.length === 0) return null;
-    const nums = matches.map(Number).filter((n) => !Number.isNaN(n));
-    if (nums.length === 0) return null;
-    const avg = nums.reduce((sum, n) => sum + n, 0) / nums.length;
-    return avg;
-  }
-
-  private escape(value: string): string {
-    const div = document.createElement('div');
-    div.textContent = value;
-    return div.innerHTML;
-  }
-
-  private formatNumber(value: number, digits: number): string {
-    if (!Number.isFinite(value)) return '-';
-    return value.toFixed(digits);
-  }
-
-  private safeNumber(value: number): number {
-    if (!Number.isFinite(value)) return 0;
-    return value;
-  }
-
-  private ensureProjection(row: PitcherRow): ProjectionStats {
-    if (!row.projection) {
-      row.projection = this.calculateProjection(row.ratings);
-      return row.projection;
-    }
-    const keys = Object.keys(row.projection) as Array<keyof ProjectionStats>;
-    for (const key of keys) {
-      const val = row.projection[key];
-      row.projection[key] = Number.isFinite(val) ? val : 0;
-    }
-    return row.projection;
-  }
-
-  private getProjectionLabel(key: keyof ProjectionStats): string {
-    const mapping: Record<keyof ProjectionStats, string> = {
-      proj_ip: 'IP',
-      proj_k: 'K',
-      proj_bb: 'BB',
-      proj_hr: 'HR',
-      proj_k9: 'K/9',
-      proj_bb9: 'BB/9',
-      proj_hr9: 'HR/9',
-      proj_fip: 'FIP',
-      proj_war: 'WAR',
-    };
-    return mapping[key] ?? key;
-  }
-
-  private getRatingTier(value: number): string {
-    if (value >= 70) return 'elite';
-    if (value >= 60) return 'plus';
-    if (value >= 50) return 'avg';
-    if (value >= 40) return 'fringe';
-    return 'poor';
-  }
-
-  private showSortHint(event: MouseEvent): void {
-    const arrow = document.createElement('div');
-    arrow.className = 'sort-fade-hint';
-    arrow.textContent = this.sortDirection === 'asc' ? '^' : 'v';
-    const offset = 16;
-    arrow.style.left = `${event.clientX + offset}px`;
-    arrow.style.top = `${event.clientY - offset}px`;
-    document.body.appendChild(arrow);
-
-    requestAnimationFrame(() => {
-      arrow.classList.add('visible');
-    });
-
-    setTimeout(() => {
-      arrow.classList.add('fade');
-      arrow.addEventListener('transitionend', () => arrow.remove(), { once: true });
-      setTimeout(() => arrow.remove(), 800);
-    }, 900);
-  }
-  private loadPreferences(): { hideUploadInfo: boolean; hidePitchRatings: boolean; [key: string]: unknown } {
-    if (typeof window === 'undefined') return { hideUploadInfo: false, hidePitchRatings: false };
-    try {
-      const raw = localStorage.getItem(this.prefKey);
-      if (!raw) return { hideUploadInfo: false, hidePitchRatings: false };
-      const parsed = JSON.parse(raw);
-      const normalized = typeof parsed === 'object' && parsed !== null ? parsed : {};
-      return {
-        ...normalized,
-        hideUploadInfo: Boolean((normalized as { hideUploadInfo?: unknown }).hideUploadInfo),
-        hidePitchRatings: Boolean((normalized as { hidePitchRatings?: unknown }).hidePitchRatings),
-      };
-    } catch {
-      return { hideUploadInfo: false, hidePitchRatings: false };
-    }
-  }
-
-  private savePreferences(): void {
-    if (typeof window === 'undefined') return;
-    try {
-      const current = this.loadPreferences();
-      const merged = {
-        ...current,
-        ...this.preferences,
-        hideUploadInfo: this.preferences.hideUploadInfo,
-        hidePitchRatings: this.preferences.hidePitchRatings,
-      };
-      this.preferences = merged;
-      localStorage.setItem(this.prefKey, JSON.stringify(merged));
-    } catch {
-      // ignore storage errors
-    }
-  }
-
-  private loadDraftBoard(): void {
-    if (typeof window === 'undefined') return;
-    try {
-      const raw = localStorage.getItem(this.draftKey);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as BoardState;
-
-      if (parsed.pitchers?.rows) {
-        this.pitcherRows = parsed.pitchers.rows
-          .map((row, idx) => this.normalizePitcherRow(row, idx))
-          .filter((row): row is PitcherRow => Boolean(row?.name));
-        this.sortKey = parsed.pitchers.sortKey;
-        this.sortDirection = parsed.pitchers.sortDirection ?? 'asc';
-      }
-
-      if (parsed.hitters?.rows) {
-        this.hitterRows = parsed.hitters.rows
-          .map((row, idx) => this.normalizeHitterRow(row, idx))
-          .filter((row): row is HitterRow => Boolean(row?.name));
-        this.hitterSortKey = parsed.hitters.sortKey;
-        this.hitterSortDirection = parsed.hitters.sortDirection ?? 'asc';
-      }
-    } catch {
-      // ignore storage errors
-    }
-  }
-
-  private saveDraftBoard(): void {
-    if (typeof window === 'undefined') return;
-    try {
-      if (!this.pitcherRows.length && !this.hitterRows.length) {
-        localStorage.removeItem(this.draftKey);
-        return;
-      }
-      const state: BoardState = {
-        pitchers: {
-          rows: this.pitcherRows,
-          sortKey: this.sortKey,
-          sortDirection: this.sortDirection,
-        },
-        hitters: {
-          rows: this.hitterRows,
-          sortKey: this.hitterSortKey,
-          sortDirection: this.hitterSortDirection,
-        },
-      };
-      localStorage.setItem(this.draftKey, JSON.stringify(state));
-    } catch {
-      // ignore storage errors
-    }
-  }
-
-  private clearPitchers(): void {
-    this.pitcherRows = [];
-    this.sortKey = undefined;
-    this.sortDirection = 'asc';
-    this.pendingPitcherSortSave = false;
-    this.saveDraftBoard();
-    this.renderPitcherTable();
-  }
-
-  private clearHitters(): void {
-    this.hitterRows = [];
-    this.hitterSortKey = undefined;
-    this.hitterSortDirection = 'asc';
-    this.pendingHitterSortSave = false;
-    this.saveDraftBoard();
-    this.renderHitterTable();
-  }
-
-  private updatePitcherSavedStateUI(): void {
-    const savedNote = this.container.querySelector<HTMLSpanElement>('#pitcher-saved-note');
-    const hasRows = this.pitcherRows.length > 0;
-    const dropZone = this.container.querySelector<HTMLDivElement>('#pitcher-drop-zone');
-    const showInstructions = this.container.querySelector<HTMLButtonElement>('#show-instructions-pitchers');
-
-    if (savedNote) savedNote.style.display = hasRows ? 'inline-flex' : 'none';
-    if (dropZone) dropZone.style.display = hasRows ? 'none' : '';
-    if (showInstructions) {
-      showInstructions.style.display = hasRows ? 'none' : (this.preferences.hideUploadInfo ? 'inline-block' : 'none');
-    }
-  }
-
-  private updateHitterSavedStateUI(): void {
-    const savedNote = this.container.querySelector<HTMLSpanElement>('#hitter-saved-note');
-    const hasRows = this.hitterRows.length > 0;
-    const dropZone = this.container.querySelector<HTMLDivElement>('#hitter-drop-zone');
-    const showInstructions = this.container.querySelector<HTMLButtonElement>('#show-instructions-hitters');
-
-    if (savedNote) savedNote.style.display = hasRows ? 'inline-flex' : 'none';
-    if (dropZone) dropZone.style.display = hasRows ? 'none' : '';
-    if (showInstructions) {
-      showInstructions.style.display = hasRows ? 'none' : (this.preferences.hideUploadInfo ? 'inline-block' : 'none');
-    }
-  }
-
-  private normalizePitcherRow(row: any, fallbackId: number): PitcherRow | null {
-    if (!row || typeof row !== 'object') return null;
-    const ratings = typeof row.ratings === 'object' && row.ratings !== null ? row.ratings : {};
-    const normalized: PitcherRow = {
-      id: typeof row.id === 'number' ? row.id : fallbackId,
-      name: typeof row.name === 'string' ? row.name : '',
-      ratings,
-      projection: typeof row.projection === 'object' && row.projection !== null
-        ? row.projection
-        : this.calculateProjection(ratings),
-    };
-    normalized.projection = this.ensureProjection(normalized);
-    return normalized;
-  }
-
-  private normalizeHitterRow(row: any, fallbackId: number): HitterRow | null {
-    if (!row || typeof row !== 'object') return null;
-    const ratings = typeof row.ratings === 'object' && row.ratings !== null ? row.ratings : {};
-    const normalized: HitterRow = {
-      id: typeof row.id === 'number' ? row.id : fallbackId,
-      pos: typeof row.pos === 'string' ? row.pos : ratings.pos ?? '',
-      name: typeof row.name === 'string' ? row.name : '',
-      age: typeof row.age === 'string' ? row.age : ratings.age ?? '',
-      bats: typeof row.bats === 'string' ? row.bats : ratings.bats ?? '',
-      ratings,
-    };
-    normalized.ratings.pos = normalized.pos || ratings.pos || '-';
-    normalized.ratings.age = normalized.age || ratings.age || '-';
-    normalized.ratings.bats = normalized.bats || ratings.bats || '-';
-    return normalized;
-  }
-
-  private samplePitcherCsv(): string {
-    return [
-      'Name,STU P,MOV P,CON P,PBABIP P,HRR P,FBP,CHP,CBP,SLP,SIP,SPP,CTP,FOP,CCP,SCP,KCP,KNP,VT,STM',
-      'Hakim Abraha,45,45,45,45,45,80,40,-,60,-,-,-,-,-,-,-,-,100+,50',
-      'Brian Acorn,50,50,50,45,55,65,55,-,60,-,-,-,-,-,-,-,-,93-95,65',
-      'Tomohito Akamine,55,45,35,40,50,80,55,65,80,50,-,-,-,-,-,-,-,97-99,45',
-    ].join('\n');
-  }
-
-  private sampleHitterCsv(): string {
-    return [
-      'POS,Name,Age,B,CON P,GAP P,POW P,EYE P,K P,C ABI,C FRM,C ARM,IF RNG,IF ERR,IF ARM,TDP,OF RNG,OF ERR,OF ARM,SPE,STE,RUN',
-      'RF,Tom Cowser,21,R,55,55,80,80,50,20,20,20,45,40,40,20,55,50,55,40,40,45',
-      '3B,Bill Knowles,18,R,70,55,65,75,65,20,20,20,55,50,55,45,45,40,40,40,50,50',
-      'SS,Ratko Moljevic,19,R,60,80,70,70,55,20,20,20,60,50,55,55,50,40,55,55,45,55',
-    ].join('\n');
-  }
-
-  private splitCsvLine(line: string): string[] {
-    return line.split(',').map((cell) => this.cleanCell(cell));
-  }
-
-  private cleanCell(value: string): string {
-    return value.replace(/^\ufeff/, '').trim();
-  }
-
-  private normalizeHeader(value: string): string {
-    return value.replace(/^\ufeff/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
-  }
-
-  private buildHitterHeaderMap(headerCells: string[]): { indexMap: Partial<Record<HitterHeaderKey, number>>; hasHeader: boolean } {
-    const normalized = headerCells.map((cell) => this.normalizeHeader(cell));
-    const indexMap: Partial<Record<HitterHeaderKey, number>> = {};
-    let matches = 0;
-
-    const tryRegister = (key: HitterHeaderKey) => {
-      const aliases = HITTER_HEADER_ALIASES[key];
-      const idx = normalized.findIndex((header) => aliases.includes(header));
-      if (idx !== -1) {
-        indexMap[key] = idx;
-        matches += 1;
-      }
-    };
-
-    (Object.keys(HITTER_HEADER_ALIASES) as HitterHeaderKey[]).forEach(tryRegister);
-
-    const hasHeader = matches >= 5;
-    return { indexMap, hasHeader };
-  }
-
-  private bindPitcherSortSavePrompt(): void {
-    const saveBtn = this.container.querySelector<HTMLButtonElement>('#pitcher-save-sort');
-    const dismissBtn = this.container.querySelector<HTMLButtonElement>('#pitcher-dismiss-sort');
-
-    saveBtn?.addEventListener('click', () => this.commitPitcherSortedOrder());
-    dismissBtn?.addEventListener('click', () => {
-      this.pendingPitcherSortSave = false;
-      this.renderPitcherTable();
-    });
-  }
-
-  private bindHitterSortSavePrompt(): void {
-    const saveBtn = this.container.querySelector<HTMLButtonElement>('#hitter-save-sort');
-    const dismissBtn = this.container.querySelector<HTMLButtonElement>('#hitter-dismiss-sort');
-
-    saveBtn?.addEventListener('click', () => this.commitHitterSortedOrder());
-    dismissBtn?.addEventListener('click', () => {
-      this.pendingHitterSortSave = false;
-      this.renderHitterTable();
-    });
-  }
-
-  private commitPitcherSortedOrder(): void {
-    const sorted = this.getSortedPitcherRows();
-    this.pitcherRows = sorted.map((row, idx) => ({ ...row, id: idx }));
-    this.sortKey = undefined;
-    this.pendingPitcherSortSave = false;
-    this.saveDraftBoard();
-    this.renderPitcherTable();
-  }
-
-  private commitHitterSortedOrder(): void {
-    const sorted = this.getSortedHitterRows();
-    this.hitterRows = sorted.map((row, idx) => ({ ...row, id: idx }));
-    this.hitterSortKey = undefined;
-    this.pendingHitterSortSave = false;
-    this.saveDraftBoard();
-    this.renderHitterTable();
-  }
-
-  private bindHidePitchesToggle(): void {
-    const toggle = this.container.querySelector<HTMLInputElement>('#toggle-hide-pitches');
-    toggle?.addEventListener('change', (e) => {
+    // Check all
+    content.querySelector<HTMLInputElement>('.draft-check-all')?.addEventListener('change', (e) => {
       const checked = (e.target as HTMLInputElement).checked;
-      this.preferences.hidePitchRatings = checked;
-      this.savePreferences();
-      this.renderPitcherTable();
+      const filtered = this.getFilteredPlayers();
+      if (checked) {
+        const boardSet = new Set(this.draftBoardIds);
+        for (const p of filtered) {
+          if (!boardSet.has(p.id)) this.draftBoardIds.push(p.id);
+        }
+      } else {
+        const removeSet = new Set(filtered.map(p => p.id));
+        this.draftBoardIds = this.draftBoardIds.filter(id => !removeSet.has(id));
+      }
+      this.saveBoard();
+      this.renderContent();
+    });
+
+    // Add All button
+    content.querySelector('#draft-add-all')?.addEventListener('click', () => {
+      const boardSet = new Set(this.draftBoardIds);
+      for (const p of this.getFilteredPlayers()) {
+        if (!boardSet.has(p.id)) this.draftBoardIds.push(p.id);
+      }
+      this.saveBoard();
+      this.renderContent();
+    });
+
+    this.bindNameClicks(content);
+  }
+
+  private bindDraftBoardEvents(content: HTMLElement): void {
+    // Remove individual
+    content.querySelectorAll<HTMLElement>('.draft-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pid = parseInt(btn.dataset.pid!, 10);
+        this.draftBoardIds = this.draftBoardIds.filter(id => id !== pid);
+        this.saveBoard();
+        this.renderContent();
+        this.updateBoardCount();
+      });
+    });
+
+    // Clear all
+    content.querySelector('#draft-clear-all')?.addEventListener('click', () => {
+      this.draftBoardIds = [];
+      this.boardSortKey = null;
+      this.saveBoard();
+      this.renderContent();
+      this.updateBoardCount();
+    });
+
+    // Board column sort headers
+    content.querySelectorAll<HTMLElement>('.board-sort-header').forEach(th => {
+      th.addEventListener('click', () => {
+        const key = th.dataset.bsort!;
+        if (this.boardSortKey === key) {
+          this.boardSortDir = this.boardSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+          this.boardSortKey = key;
+          // Default direction: lower-is-better for FIP/age, higher for everything else
+          this.boardSortDir = (key === 'age' || key === 'keyStat') ? 'asc' : 'desc';
+        }
+        this.renderContent();
+      });
+    });
+
+    // Apply sorted order as new board rankings
+    content.querySelector('#board-apply-sort')?.addEventListener('click', () => {
+      if (this.boardSortKey === null) return;
+      // Rebuild draftBoardIds in current display order
+      const playerMap = new Map(this.allPlayers.map(p => [p.id, p]));
+      const boardPlayers = this.draftBoardIds.map(id => playerMap.get(id)).filter(Boolean) as DraftPlayer[];
+      const key = this.boardSortKey!;
+      const dir = this.boardSortDir === 'asc' ? 1 : -1;
+      boardPlayers.sort((a, b) => {
+        let va: number, vb: number;
+        if (key === 'name') return dir * a.name.localeCompare(b.name);
+        if (key === 'tfrStar') { va = a.tfrStar; vb = b.tfrStar; }
+        else if (key === 'age') { va = a.age; vb = b.age; }
+        else if (key === 'war') { va = a.projStats?.war ?? 0; vb = b.projStats?.war ?? 0; }
+        else if (key === 'keyStat') {
+          va = a.type === 'pitcher' ? (a.projStats?.fip ?? 99) : (a.projStats?.opsPlus ?? 0);
+          vb = b.type === 'pitcher' ? (b.projStats?.fip ?? 99) : (b.projStats?.opsPlus ?? 0);
+        }
+        else { va = 0; vb = 0; }
+        return dir * (va - vb);
+      });
+      this.draftBoardIds = boardPlayers.map(p => p.id);
+      this.boardSortKey = null;
+      this.saveBoard();
+      this.renderContent();
+    });
+
+    // Reset to board order
+    content.querySelector('#board-reset-sort')?.addEventListener('click', () => {
+      this.boardSortKey = null;
+      this.renderContent();
+    });
+
+    // Drag and drop reordering (only when not temp-sorted)
+    if (this.boardSortKey !== null) return; // Skip drag binding during temp sort
+    const rows = content.querySelectorAll<HTMLElement>('.board-row');
+    rows.forEach(row => {
+      row.addEventListener('dragstart', (e) => {
+        this.dragSourceIndex = this.draftBoardIds.indexOf(parseInt(row.dataset.pid!, 10));
+        row.classList.add('dragging');
+        e.dataTransfer!.effectAllowed = 'move';
+      });
+
+      row.addEventListener('dragend', () => {
+        row.classList.remove('dragging');
+        this.dragSourceIndex = null;
+        content.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+      });
+
+      row.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        e.dataTransfer!.dropEffect = 'move';
+        content.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        row.classList.add('drag-over');
+      });
+
+      row.addEventListener('dragleave', () => {
+        row.classList.remove('drag-over');
+      });
+
+      row.addEventListener('drop', (e) => {
+        e.preventDefault();
+        row.classList.remove('drag-over');
+        if (this.dragSourceIndex === null) return;
+
+        const targetPid = parseInt(row.dataset.pid!, 10);
+        const targetIndex = this.draftBoardIds.indexOf(targetPid);
+        if (targetIndex === -1 || this.dragSourceIndex === targetIndex) return;
+
+        // Reorder
+        const [moved] = this.draftBoardIds.splice(this.dragSourceIndex, 1);
+        this.draftBoardIds.splice(targetIndex, 0, moved);
+        this.dragSourceIndex = null;
+        this.saveBoard();
+        this.renderContent();
+      });
+    });
+
+    this.bindNameClicks(content);
+  }
+
+  private updateBoardCount(): void {
+    const countEl = this.container.querySelector('.board-count');
+    if (countEl) countEl.textContent = `(${this.draftBoardIds.length})`;
+  }
+
+  private bindNameClicks(content: HTMLElement): void {
+    content.querySelectorAll<HTMLElement>('.draft-name').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const pid = parseInt(btn.dataset.pid!, 10);
+        const player = this.allPlayers.find(p => p.id === pid);
+        if (!player) return;
+        const year = await dateService.getCurrentYear();
+
+        if (player.type === 'pitcher') {
+          const profileData: any = {
+            playerId: pid,
+            playerName: player.name,
+            age: player.age,
+            position: player.posLabel,
+            positionLabel: player.posLabel,
+            isProspect: true,
+            trueFutureRating: player.tfrStar,
+            estimatedStuff: player.tfrRatings?.stuff ?? player.scoutRatings?.stuff,
+            estimatedControl: player.tfrRatings?.control ?? player.scoutRatings?.control,
+            estimatedHra: player.tfrRatings?.hra ?? player.scoutRatings?.hra,
+            projK9: player.projStats?.k9,
+            projBb9: player.projStats?.bb9,
+            projHr9: player.projStats?.hr9,
+            projFip: player.projStats?.fip,
+            projWar: player.projStats?.war,
+            projIp: player.projStats?.ip,
+          };
+          await pitcherProfileModal.show(profileData, year);
+        } else {
+          const BatterProfileModule = await import('./BatterProfileModal');
+          const batterData: any = {
+            playerId: pid,
+            playerName: player.name,
+            age: player.age,
+            position: player.position,
+            positionLabel: player.posLabel,
+            isProspect: true,
+            hasTfrUpside: true,
+            trueFutureRating: player.tfrStar,
+            estimatedPower: player.tfrRatings?.power ?? player.scoutRatings?.power,
+            estimatedEye: player.tfrRatings?.eye ?? player.scoutRatings?.eye,
+            estimatedAvoidK: player.tfrRatings?.avoidK ?? player.scoutRatings?.avoidK,
+            estimatedContact: player.tfrRatings?.contact ?? player.scoutRatings?.contact,
+            estimatedGap: player.tfrRatings?.gap ?? player.scoutRatings?.gap,
+            estimatedSpeed: player.tfrRatings?.speed ?? player.scoutRatings?.speed,
+            projWoba: player.projStats?.woba,
+            projAvg: player.projStats?.avg,
+            projObp: player.projStats?.obp,
+            projSlg: player.projStats?.slg,
+            projWar: player.projStats?.war,
+            projPa: player.projStats?.pa,
+            projHr: player.projStats?.hr,
+            projWrcPlus: player.projStats?.opsPlus,
+          };
+          const modal = new BatterProfileModule.BatterProfileModal();
+          await modal.show(batterData, year);
+        }
+      });
     });
   }
 }

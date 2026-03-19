@@ -342,7 +342,6 @@ class TrueFutureRatingService {
         try {
           const dobMap = await supabaseDataService.getPlayerDOBs();
           if (dobMap.size > 0) {
-            console.log(`📅 Loaded ${dobMap.size} player DOBs from Supabase`);
             return dobMap;
           }
         } catch (error) {
@@ -368,7 +367,6 @@ class TrueFutureRatingService {
         dobMap.set(playerId, new Date(year, month - 1, day));
       }
 
-      console.log(`📅 Loaded ${dobMap.size} player DOBs from CSV`);
       return dobMap;
     } catch (error) {
       console.warn('Failed to load DOB data, using all ages:', error);
@@ -786,12 +784,6 @@ class TrueFutureRatingService {
       };
     });
 
-    // Log top-5 projected FIPs for calibration diagnostics
-    const topByFip = [...resultsWithFip].sort((a, b) => a.projFip - b.projFip).slice(0, 5);
-    for (const r of topByFip) {
-      console.log(`📊 [TFR pitcher] ${r.playerName}: projFIP=${r.projFip.toFixed(2)}, K9=${r.projK9}, BB9=${r.projBb9}, HR9=${r.projHr9} | scout boosts: K9=${r.stuffValue.toFixed(2)}, BB9=${r.controlValue.toFixed(2)}, HR9=${r.hraValue.toFixed(3)}`);
-    }
-
     // Step 4: Map FIP to MLB peak-year FIP distribution for final TFR rating
     // Floor projFip at the distribution minimum to prevent 100th-percentile saturation.
     // Some elite prospects (e.g. 80/75/80 profile) project below the historical minimum FIP
@@ -903,7 +895,7 @@ class TrueFutureRatingService {
 
       prospectInputs.push({
         playerId: scouting.playerId,
-        playerName: scouting.playerName ?? `Player ${scouting.playerId}`,
+        playerName: scouting.playerName ?? (player ? `${player.firstName} ${player.lastName}` : `Player ${scouting.playerId}`),
         age,
         scouting,
         minorLeagueStats: minorStats,

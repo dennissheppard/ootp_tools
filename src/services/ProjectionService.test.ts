@@ -1,3 +1,4 @@
+// Jest globals
 import { projectionService } from './ProjectionService';
 import { supabaseDataService } from './SupabaseDataService';
 
@@ -7,6 +8,12 @@ jest.mock('./SupabaseDataService', () => ({
     isConfigured: false,
     hasCustomScouting: false,
     getPrecomputed: jest.fn(),
+  },
+}));
+
+jest.mock('./DateService', () => ({
+  dateService: {
+    getCurrentYear: jest.fn().mockResolvedValue(2021),
   },
 }));
 

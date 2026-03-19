@@ -15,6 +15,158 @@ import { hasComponentUpside } from '../utils/tfrUpside';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 
 // ============================================================================
+// TR Source Snapshots (for scouting toggle — swap TR-derived projection fields)
+// ============================================================================
+
+export interface BatterTrSourceData {
+  trueRating?: number;
+  percentile?: number;
+  woba?: number;
+  estimatedPower?: number;
+  estimatedEye?: number;
+  estimatedAvoidK?: number;
+  estimatedContact?: number;
+  estimatedGap?: number;
+  estimatedSpeed?: number;
+  projBbPct?: number;
+  projKPct?: number;
+  projHrPct?: number;
+  projAvg?: number;
+  projWoba?: number;
+  projDoublesRate?: number;
+  projTriplesRate?: number;
+}
+
+export interface PitcherTrSourceData {
+  trueRating?: number;
+  percentile?: number;
+  fipLike?: number;
+  estimatedStuff?: number;
+  estimatedControl?: number;
+  estimatedHra?: number;
+  projK9?: number;
+  projBb9?: number;
+  projHr9?: number;
+}
+
+export function snapshotBatterTr(data: BatterProfileData): BatterTrSourceData {
+  return {
+    trueRating: data.trueRating,
+    percentile: data.percentile,
+    woba: data.woba,
+    estimatedPower: data.estimatedPower,
+    estimatedEye: data.estimatedEye,
+    estimatedAvoidK: data.estimatedAvoidK,
+    estimatedContact: data.estimatedContact,
+    estimatedGap: data.estimatedGap,
+    estimatedSpeed: data.estimatedSpeed,
+    projBbPct: data.projBbPct,
+    projKPct: data.projKPct,
+    projHrPct: data.projHrPct,
+    projAvg: data.projAvg,
+    projWoba: data.projWoba,
+    projDoublesRate: data.projDoublesRate,
+    projTriplesRate: data.projTriplesRate,
+  };
+}
+
+export function applyBatterTrSnapshot(data: BatterProfileData, snap: BatterTrSourceData): void {
+  // Apply canonical TR fields — both estimated ratings and blended rates.
+  // Projections use blended rates directly (per pipeline-map.html design rules).
+  // Blended rates are stored at sufficient precision to surface scouting differences.
+  data.trueRating = snap.trueRating;
+  data.percentile = snap.percentile;
+  data.woba = snap.woba;
+  data.estimatedPower = snap.estimatedPower;
+  data.estimatedEye = snap.estimatedEye;
+  data.estimatedAvoidK = snap.estimatedAvoidK;
+  data.estimatedContact = snap.estimatedContact;
+  data.estimatedGap = snap.estimatedGap;
+  data.estimatedSpeed = snap.estimatedSpeed;
+  data.projBbPct = snap.projBbPct;
+  data.projKPct = snap.projKPct;
+  data.projHrPct = snap.projHrPct;
+  data.projAvg = snap.projAvg;
+  data.projWoba = snap.projWoba;
+  data.projDoublesRate = snap.projDoublesRate;
+  data.projTriplesRate = snap.projTriplesRate;
+  // Clear derived fields so projection recomputes from new blended rates
+  data.projObp = undefined;
+  data.projSlg = undefined;
+  data.projWar = undefined;
+  data.projPa = undefined;
+}
+
+export function snapshotPitcherTr(data: PitcherProfileData): PitcherTrSourceData {
+  return {
+    trueRating: data.trueRating,
+    percentile: data.percentile,
+    fipLike: data.fipLike,
+    estimatedStuff: data.estimatedStuff,
+    estimatedControl: data.estimatedControl,
+    estimatedHra: data.estimatedHra,
+    projK9: data.projK9,
+    projBb9: data.projBb9,
+    projHr9: data.projHr9,
+  };
+}
+
+export function applyPitcherTrSnapshot(data: PitcherProfileData, snap: PitcherTrSourceData): void {
+  // Apply canonical TR fields — both estimated ratings and blended rates.
+  // Projections use blended rates directly (per pipeline-map.html design rules).
+  data.trueRating = snap.trueRating;
+  data.percentile = snap.percentile;
+  data.fipLike = snap.fipLike;
+  data.estimatedStuff = snap.estimatedStuff;
+  data.estimatedControl = snap.estimatedControl;
+  data.estimatedHra = snap.estimatedHra;
+  data.projK9 = snap.projK9;
+  data.projBb9 = snap.projBb9;
+  data.projHr9 = snap.projHr9;
+  // Clear derived fields so projection recomputes from new blended rates
+  data.projFip = undefined;
+  data.projWar = undefined;
+  data.projIp = undefined;
+}
+
+/** Build a BatterTrSourceData from a pre-computed HitterTrueRatingResult */
+export function batterTrFromPrecomputed(tr: HitterTrueRatingResult): BatterTrSourceData {
+  return {
+    trueRating: tr.trueRating,
+    percentile: tr.percentile,
+    woba: tr.woba,
+    estimatedPower: tr.estimatedPower,
+    estimatedEye: tr.estimatedEye,
+    estimatedAvoidK: tr.estimatedAvoidK,
+    estimatedContact: tr.estimatedContact,
+    estimatedGap: tr.estimatedGap,
+    estimatedSpeed: tr.estimatedSpeed,
+    projBbPct: tr.blendedBbPct,
+    projKPct: tr.blendedKPct,
+    projHrPct: tr.blendedHrPct,
+    projAvg: tr.blendedAvg,
+    projWoba: tr.woba,
+    projDoublesRate: tr.blendedDoublesRate,
+    projTriplesRate: tr.blendedTriplesRate,
+  };
+}
+
+/** Build a PitcherTrSourceData from a pre-computed TrueRatingResult */
+export function pitcherTrFromPrecomputed(tr: TrueRatingResult): PitcherTrSourceData {
+  return {
+    trueRating: tr.trueRating,
+    percentile: tr.percentile,
+    fipLike: tr.fipLike,
+    estimatedStuff: tr.estimatedStuff,
+    estimatedControl: tr.estimatedControl,
+    estimatedHra: tr.estimatedHra,
+    projK9: tr.blendedK9,
+    projBb9: tr.blendedBb9,
+    projHr9: tr.blendedHr9,
+  };
+}
+
+// ============================================================================
 // A. resolveCanonicalBatterData
 // ============================================================================
 
@@ -108,13 +260,11 @@ export function resolveCanonicalBatterData(
     }
   }
 
-  // Step 5: Force recompute of WAR/PA/OBP/SLG from canonical rates
-  if (playerTR || tfrEntry) {
-    data.projWar = undefined;
-    data.projPa = undefined;
-    data.projObp = undefined;
-    data.projSlg = undefined;
-  }
+  // Note: projWar/projPa/projObp/projSlg are NOT cleared here. When the caller
+  // (e.g. ProjectionsView) passes pre-computed values from computeBatterProjection
+  // using the same canonical TR, clearing and recomputing just introduces rounding
+  // drift. When callers don't provide these fields, computeBatterProjection computes
+  // them fresh from the blended rates set above.
 }
 
 // ============================================================================
@@ -216,8 +366,11 @@ export interface BatterProjectionResult {
   proj2b: number;
   proj3b: number;
   projSb: number;
+  projCs: number;
   projWoba: number;
   projWar: number;
+  projDefRuns: number;
+  projPosAdj: number;
   projOps: number;
   projOpsPlus: number;
   age: number;
@@ -253,9 +406,20 @@ export interface BatterProjectionDeps {
   calculateOpsPlus: (obp: number, slg: number, leagueAvg: any) => number;
   computeWoba: (bbPct: number, avg: number, doublesPerAb: number, triplesPerAb: number, hrPerAb: number) => number;
   calculateBaserunningRuns: (sb: number, cs: number) => number;
-  calculateBattingWar: (woba: number, pa: number, leagueAvg: any, sbRuns: number) => number;
+  calculateBattingWar: (woba: number, pa: number, leagueAvg: any, sbRuns: number, defRuns?: number, posAdj?: number) => number;
   projectStolenBases: (sr: number, ste: number, pa: number) => { sb: number; cs: number };
   historicalSbStats?: Array<{ sb: number; cs: number; pa: number }>;
+  /** Defensive runs (fielding value). Optional — 0 if not provided. */
+  defRuns?: number;
+  /** Positional adjustment runs. Optional — 0 if not provided. */
+  posAdj?: number;
+  /** Optional aging function. Adjusts blended rates for age-based decline/development (current mode only). */
+  applyAgingToRates?: (
+    rates: { bbPct: number; kPct: number; avg: number; hrPct: number; doublesRate: number; triplesRate: number },
+    age: number,
+  ) => { bbPct: number; kPct: number; avg: number; hrPct: number; doublesRate: number; triplesRate: number };
+  /** Park factors (half home / half away effective factors). All default to 1.0. */
+  parkFactors?: { avg: number; hr: number; d: number; t: number };
 }
 
 interface BatterSeasonStatsForProjection {
@@ -309,6 +473,10 @@ export function computeBatterProjection(
   let projSlg: number;
   let projBbPct: number;
   let projKPct: number;
+  // Track blended rates for aging (these stay on the correct scale)
+  let blendedHrPct: number | undefined;
+  let blendedDoublesRate: number | undefined;
+  let blendedTriplesRate: number | undefined;
 
   if (isPeakMode && data.tfrAvg !== undefined && data.tfrObp !== undefined && data.tfrSlg !== undefined) {
     projAvg = data.tfrAvg;
@@ -316,12 +484,18 @@ export function computeBatterProjection(
     projSlg = data.tfrSlg;
     projBbPct = data.tfrBbPct ?? 8.5;
     projKPct = data.tfrKPct ?? 22.0;
+    blendedHrPct = data.tfrHrPct;
+    blendedDoublesRate = data.projDoublesRate;
+    blendedTriplesRate = data.projTriplesRate;
   } else if (!isPeakMode && data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined) {
     projAvg = data.projAvg;
     projObp = data.projObp;
     projSlg = data.projSlg;
     projBbPct = data.projBbPct ?? 8.5;
     projKPct = data.projKPct ?? 22.0;
+    blendedHrPct = data.projHrPct;
+    blendedDoublesRate = data.projDoublesRate;
+    blendedTriplesRate = data.projTriplesRate;
   } else if (usePower !== undefined && useEye !== undefined &&
              useAvoidK !== undefined && useContact !== undefined) {
     projBbPct = isPeakMode
@@ -334,21 +508,71 @@ export function computeBatterProjection(
       ? (data.tfrAvg ?? data.projAvg ?? deps.expectedAvg(useContact))
       : (data.projAvg ?? deps.expectedAvg(useContact));
     projObp = isPeakMode
-      ? (data.tfrObp ?? Math.min(0.450, projAvg + (projBbPct / 100)))
-      : Math.min(0.450, projAvg + (projBbPct / 100));
-    const hrPerAb = (deps.expectedHrPct(usePower) / 100) / 0.88;
-    const doublesPerAb = useGap !== undefined ? deps.expectedDoublesRate(useGap) : 0.04;
-    const triplesPerAb = useSpeed !== undefined ? deps.expectedTriplesRate(useSpeed) : 0.005;
-    const iso = doublesPerAb + 2 * triplesPerAb + 3 * hrPerAb;
-    projSlg = isPeakMode
-      ? (data.tfrSlg ?? projAvg + iso)
-      : (projAvg + iso);
+      ? (data.tfrObp ?? Math.min(0.450, projAvg + (projBbPct / 100) * (1 - projAvg)))
+      : (data.projObp ?? Math.min(0.450, projAvg + (projBbPct / 100) * (1 - projAvg)));
+
+    // Compute SLG from blended rates when available (avoids percentile→regression scale mismatch).
+    // Fall back to rating-derived ISO only when blended rates aren't set.
+    blendedHrPct = isPeakMode ? (data.tfrHrPct ?? data.projHrPct) : data.projHrPct;
+    blendedDoublesRate = data.projDoublesRate;
+    blendedTriplesRate = data.projTriplesRate;
+
+    if (!isPeakMode && blendedHrPct !== undefined && blendedDoublesRate !== undefined && blendedTriplesRate !== undefined) {
+      const hrPerAb = (blendedHrPct / 100) / 0.88;
+      const iso = blendedDoublesRate + 2 * blendedTriplesRate + 3 * hrPerAb;
+      projSlg = projAvg + iso;
+    } else {
+      // Fallback: rating-derived ISO (for prospects or when blended rates unavailable)
+      const hrPerAb = (deps.expectedHrPct(usePower) / 100) / 0.88;
+      const doublesPerAb = useGap !== undefined ? deps.expectedDoublesRate(useGap) : 0.04;
+      const triplesPerAb = useSpeed !== undefined ? deps.expectedTriplesRate(useSpeed) : 0.005;
+      const iso = doublesPerAb + 2 * triplesPerAb + 3 * hrPerAb;
+      projSlg = isPeakMode
+        ? (data.tfrSlg ?? projAvg + iso)
+        : (projAvg + iso);
+    }
   } else {
     projAvg = 0.260;
     projObp = 0.330;
     projSlg = 0.420;
     projBbPct = 8.5;
     projKPct = 22.0;
+  }
+
+  // Apply aging curve to projected rates (current mode only).
+  // Converts blended rates to regression-scale ratings, applies age modifiers, converts back.
+  if (!isPeakMode && deps.applyAgingToRates && blendedHrPct !== undefined
+      && blendedDoublesRate !== undefined && blendedTriplesRate !== undefined) {
+    const aged = deps.applyAgingToRates(
+      { bbPct: projBbPct, kPct: projKPct, avg: projAvg, hrPct: blendedHrPct, doublesRate: blendedDoublesRate, triplesRate: blendedTriplesRate },
+      age,
+    );
+    projBbPct = aged.bbPct;
+    projKPct = aged.kPct;
+    projAvg = aged.avg;
+    blendedHrPct = aged.hrPct;
+    blendedDoublesRate = aged.doublesRate;
+    blendedTriplesRate = aged.triplesRate;
+    projObp = Math.min(0.450, aged.avg + (aged.bbPct / 100) * (1 - aged.avg));
+    const hrPerAb = (aged.hrPct / 100) / 0.88;
+    const iso = aged.doublesRate + 2 * aged.triplesRate + 3 * hrPerAb;
+    projSlg = aged.avg + iso;
+  }
+
+  // Apply park factors (half home / half away already baked into the effective factors)
+  if (deps.parkFactors) {
+    const pf = deps.parkFactors;
+    projAvg *= pf.avg;
+    projObp = Math.min(0.450, projAvg + (projBbPct / 100) * (1 - projAvg)); // recalc OBP from park-adjusted AVG
+    if (blendedHrPct !== undefined) blendedHrPct *= pf.hr;
+    if (blendedDoublesRate !== undefined) blendedDoublesRate *= pf.d;
+    if (blendedTriplesRate !== undefined) blendedTriplesRate *= pf.t;
+    // Recompute SLG from park-adjusted component rates
+    if (blendedHrPct !== undefined && blendedDoublesRate !== undefined && blendedTriplesRate !== undefined) {
+      const hrPerAb = (blendedHrPct / 100) / 0.88;
+      const iso = blendedDoublesRate + 2 * blendedTriplesRate + 3 * hrPerAb;
+      projSlg = projAvg + iso;
+    }
   }
 
   // Projected PA
@@ -367,14 +591,14 @@ export function computeBatterProjection(
       : deps.getProjectedPa(injuryProneness, age);
   }
 
-  // Projected HR
+  // Projected HR — use aged blendedHrPct when available (updated by aging above)
   let projHr: number;
   if (isPeakMode && data.tfrHrPct !== undefined) {
     projHr = Math.round(projPa * (data.tfrHrPct / 100));
+  } else if (!isPeakMode && blendedHrPct !== undefined) {
+    projHr = Math.round(projPa * (blendedHrPct / 100));
   } else if (!isPeakMode && data.projHr !== undefined) {
     projHr = data.projHr;
-  } else if (!isPeakMode && data.projHrPct !== undefined) {
-    projHr = Math.round(projPa * (data.projHrPct / 100));
   } else if (usePower !== undefined) {
     const derivedHrPct = deps.expectedHrPct(usePower);
     projHr = Math.round(projPa * (derivedHrPct / 100));
@@ -382,20 +606,20 @@ export function computeBatterProjection(
     projHr = Math.round((projSlg - projAvg) * 100);
   }
 
-  // Projected 2B and 3B
+  // Projected 2B and 3B — use aged blended rates when available
   const abPerPa = 0.88;
   const projAb = Math.round(projPa * abPerPa);
   let proj2b: number;
   let proj3b: number;
-  if (!isPeakMode && data.projDoublesRate !== undefined) {
-    proj2b = Math.round(projAb * data.projDoublesRate);
+  if (!isPeakMode && blendedDoublesRate !== undefined) {
+    proj2b = Math.round(projAb * blendedDoublesRate);
   } else if (useGap !== undefined) {
     proj2b = Math.round(projAb * deps.expectedDoublesRate(useGap));
   } else {
     proj2b = Math.round(projAb * 0.04);
   }
-  if (!isPeakMode && data.projTriplesRate !== undefined) {
-    proj3b = Math.round(projAb * data.projTriplesRate);
+  if (!isPeakMode && blendedTriplesRate !== undefined) {
+    proj3b = Math.round(projAb * blendedTriplesRate);
   } else if (useSpeed !== undefined) {
     proj3b = Math.round(projAb * deps.expectedTriplesRate(useSpeed));
   } else {
@@ -444,14 +668,18 @@ export function computeBatterProjection(
     ? deps.calculateBaserunningRuns(projSb, projCs)
     : 0;
 
+  // Defensive value (injected from DefensiveProjectionService, default 0)
+  const projDefRuns = deps.defRuns ?? 0;
+  const projPosAdj = deps.posAdj ?? 0;
+
   let calculatedWar: number;
   if (deps.leagueAvg) {
-    calculatedWar = deps.calculateBattingWar(projWoba, projPa, deps.leagueAvg, projSbRuns);
+    calculatedWar = deps.calculateBattingWar(projWoba, projPa, deps.leagueAvg, projSbRuns, projDefRuns, projPosAdj);
   } else {
     const fallbackAvg = { year: 0, lgObp: 0.320, lgSlg: 0.400, lgWoba: 0.320, lgRpa: 0.115, wobaScale: 1.15, runsPerWin: 10, totalPa: 0, totalRuns: 0 };
-    calculatedWar = deps.calculateBattingWar(projWoba, projPa, fallbackAvg, projSbRuns);
+    calculatedWar = deps.calculateBattingWar(projWoba, projPa, fallbackAvg, projSbRuns, projDefRuns, projPosAdj);
   }
-  const projWar = isPeakMode ? calculatedWar : (data.projWar ?? calculatedWar);
+  const projWar = data.projWar ?? calculatedWar;
 
   const projHrPct = projPa > 0 ? (projHr / projPa) * 100 : 0;
 
@@ -462,8 +690,8 @@ export function computeBatterProjection(
 
   return {
     projAvg, projObp, projSlg, projBbPct, projKPct, projHrPct,
-    projPa, projHr, proj2b, proj3b, projSb,
-    projWoba, projWar, projOps, projOpsPlus,
+    projPa, projHr, proj2b, proj3b, projSb, projCs,
+    projWoba, projWar, projDefRuns: projDefRuns, projPosAdj: projPosAdj, projOps, projOpsPlus,
     age, ratingLabel, projNote,
     isPeakMode, showActualComparison,
     ratings: {
@@ -509,6 +737,8 @@ export interface PitcherProjectionDeps {
   projectedIp: number | undefined | null;
   estimateIp: (stamina: number, injury?: string) => number;
   calculateWar: (fip: number, ip: number) => number;
+  /** Park HR factor for pitchers (effective half home / half away). Default 1.0. */
+  parkHrFactor?: number;
 }
 
 interface PitcherSeasonStatsForProjection {
@@ -542,9 +772,11 @@ export function computePitcherProjection(
   const age = isPeakMode ? 27 : (data.age ?? 27);
 
   // Calculate projected rate stats
-  let projK9: number | undefined = data.projK9;
-  let projBb9: number | undefined = data.projBb9;
-  let projHr9: number | undefined = data.projHr9;
+  // For MLB peak toggle, recalculate from TFR ratings — pre-computed values are current-TR-based
+  const isTogglePeak = isPeakMode && !data.isProspect;
+  let projK9: number | undefined = isTogglePeak ? undefined : data.projK9;
+  let projBb9: number | undefined = isTogglePeak ? undefined : data.projBb9;
+  let projHr9: number | undefined = isTogglePeak ? undefined : data.projHr9;
 
   if (projK9 === undefined && useStuff !== undefined) {
     projK9 = (useStuff + 28) / 13.5;
@@ -560,15 +792,24 @@ export function computePitcherProjection(
   projBb9 = projBb9 ?? 3.5;
   projHr9 = projHr9 ?? 1.2;
 
-  const projFip = data.projFip ?? (((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47);
+  // Apply park factor to HR rate (pitchers give up more/fewer HR in hitter/pitcher parks)
+  if (deps.parkHrFactor && deps.parkHrFactor !== 1.0) {
+    projHr9 *= deps.parkHrFactor;
+  }
+
+  const projFip = isTogglePeak
+    ? (((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47)
+    : (data.projFip ?? (((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47));
 
   // IP
   const s = deps.scoutingData;
   const stamina = s?.stamina ?? data.scoutStamina;
   const injury = s?.injuryProneness ?? data.injuryProneness;
-  const projIp = data.projIp ?? deps.projectedIp ?? deps.estimateIp(stamina ?? 50, injury);
+  const projIp = isTogglePeak
+    ? deps.estimateIp(stamina ?? 50, injury)
+    : (data.projIp ?? deps.projectedIp ?? deps.estimateIp(stamina ?? 50, injury));
 
-  // WAR
+  // WAR — always recalculate in peak mode
   const projWar = isPeakMode
     ? deps.calculateWar(projFip, projIp)
     : (data.projWar ?? deps.calculateWar(projFip, projIp));

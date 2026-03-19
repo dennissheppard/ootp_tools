@@ -45,7 +45,6 @@ class DevelopmentSnapshotService {
 
     try {
       await indexedDBService.saveDevelopmentSnapshots(snapshots);
-      console.log(`📸 Created ${snapshots.length} pitcher development snapshots for ${date}`);
       return snapshots.length;
     } catch (error) {
       console.error('Failed to create pitcher development snapshots:', error);
@@ -92,7 +91,6 @@ class DevelopmentSnapshotService {
 
     try {
       await indexedDBService.saveDevelopmentSnapshots(snapshots);
-      console.log(`📸 Created ${snapshots.length} hitter development snapshots for ${date}`);
       return snapshots.length;
     } catch (error) {
       console.error('Failed to create hitter development snapshots:', error);
@@ -226,7 +224,6 @@ class DevelopmentSnapshotService {
    */
   async clearAllSnapshots(): Promise<void> {
     await indexedDBService.deleteAllDevelopmentSnapshots();
-    console.log('🗑️ Cleared all development snapshots');
   }
 }
 

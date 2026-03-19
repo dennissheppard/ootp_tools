@@ -71,12 +71,36 @@ class SupabaseDataService {
   private _precomputedCache = new Map<string, any>();
   private _gameDatePromise: Promise<string | null> | null = null;
   private _cachedGameDate: string | null | undefined = undefined; // undefined = not fetched
-  public hasCustomScouting = false;
+  private static readonly CUSTOM_SCOUTING_KEY = 'wbl-has-custom-scouting';
+
+  private _hasCustomScouting = false;
+
+  get hasCustomScouting(): boolean {
+    return this._hasCustomScouting;
+  }
+
+  set hasCustomScouting(value: boolean) {
+    this._hasCustomScouting = value;
+    try {
+      if (value) {
+        localStorage.setItem(SupabaseDataService.CUSTOM_SCOUTING_KEY, '1');
+      } else {
+        localStorage.removeItem(SupabaseDataService.CUSTOM_SCOUTING_KEY);
+      }
+    } catch { /* localStorage unavailable */ }
+  }
 
   constructor() {
-    this.supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL ?? '';
-    this.supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY ?? '';
+    this.supabaseUrl = (import.meta as any).env?.VITE_SUPABASE_URL
+      ?? (typeof globalThis !== 'undefined' && (globalThis as any).process?.env?.VITE_SUPABASE_URL) ?? '';
+    this.supabaseKey = (import.meta as any).env?.VITE_SUPABASE_ANON_KEY
+      ?? (typeof globalThis !== 'undefined' && (globalThis as any).process?.env?.VITE_SUPABASE_ANON_KEY) ?? '';
     this.configured = Boolean(this.supabaseUrl && this.supabaseKey);
+
+    // Restore custom scouting flag from localStorage (survives refresh)
+    try {
+      this._hasCustomScouting = localStorage.getItem(SupabaseDataService.CUSTOM_SCOUTING_KEY) === '1';
+    } catch { /* ignore */ }
 
     if (!this.configured && typeof window !== 'undefined') {
       console.log('📦 SupabaseDataService disabled — using local CSV/API');
@@ -303,12 +327,17 @@ class SupabaseDataService {
   async getPitcherScouting(): Promise<any[]> {
     const lookup = await this.getPrecomputedScoutingLookup('pitcher');
     if (lookup) {
-      // [stuff, control, hra, ovr, pot, lev, hsc, name, age, stamina]
+      // [stuff, control, hra, ovr, pot, lev, hsc, name, age, stamina, pitches]
       const results: any[] = [];
       for (const [id, vals] of lookup) {
+        const pitchesStr = vals[10] as string;
+        let pitches: Record<string, number> | undefined;
+        if (pitchesStr) {
+          try { pitches = JSON.parse(pitchesStr); } catch { /* ignore */ }
+        }
         results.push({
           playerId: id,
-          playerName: vals[7] as string ?? `Player ${id}`,
+          playerName: vals[7] as string || undefined,
           stuff: vals[0] as number,
           control: vals[1] as number,
           hra: vals[2] as number,
@@ -318,6 +347,7 @@ class SupabaseDataService {
           hsc: vals[6] as string,
           age: vals[8] as number,
           stamina: vals[9] as number,
+          pitches,
         });
       }
       return results;
@@ -337,12 +367,12 @@ class SupabaseDataService {
   async getHitterScouting(): Promise<any[]> {
     const lookup = await this.getPrecomputedScoutingLookup('hitter');
     if (lookup) {
-      // [contact, power, eye, avoidK, gap, speed, ovr, pot, lev, hsc, name, age]
+      // [contact, power, eye, avoidK, gap, speed, ovr, pot, lev, hsc, name, age, sbAgg, sbAbility, injury]
       const results: any[] = [];
       for (const [id, vals] of lookup) {
         results.push({
           playerId: id,
-          playerName: vals[10] as string ?? `Player ${id}`,
+          playerName: vals[10] as string || undefined,
           contact: vals[0] as number,
           power: vals[1] as number,
           eye: vals[2] as number,
@@ -354,6 +384,9 @@ class SupabaseDataService {
           lev: vals[8] as string,
           hsc: vals[9] as string,
           age: vals[11] as number,
+          stealingAggressiveness: (vals[12] as number) || undefined,
+          stealingAbility: (vals[13] as number) || undefined,
+          injuryProneness: (vals[14] as string) || undefined,
         });
       }
       return results;
@@ -361,6 +394,18 @@ class SupabaseDataService {
     const params = `select=*&source=eq.osa&order=player_id`;
     const rows = await this.query<any>('hitter_scouting', params);
     return rows.map(row => this.transformHitterScoutingRow(row));
+  }
+
+  /**
+   * Fetch raw fielding scouting ratings for a player from hitter_scouting.raw_data.fielding.
+   * Returns the fielding object or null if not available.
+   */
+  async getFieldingScoutingForPlayer(playerId: number): Promise<any | null> {
+    if (!this.configured) return null;
+    try {
+      const rows = await this.query<any>('hitter_scouting', `select=raw_data&source=eq.osa&player_id=eq.${playerId}&order=snapshot_date.desc&limit=1`);
+      return rows[0]?.raw_data?.fielding ?? null;
+    } catch { return null; }
   }
 
   // ──────────────────────────────────────────────

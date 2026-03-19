@@ -15,10 +15,11 @@ import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { determinePitcherRole, PitcherRoleInput } from '../models/Player';
 import { fipWarService } from '../services/FipWarService';
+import { PotentialStatsService } from '../services/PotentialStatsService';
 import { projectionService } from '../services/ProjectionService';
 import { PitcherTfrSourceData, teamRatingsService } from '../services/TeamRatingsService';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
-import { resolveCanonicalPitcherData, computePitcherProjection } from '../services/ModalDataService';
+import { resolveCanonicalPitcherData, computePitcherProjection, PitcherTrSourceData, snapshotPitcherTr, applyPitcherTrSnapshot, pitcherTrFromPrecomputed } from '../services/ModalDataService';
 import { computePitcherTags, renderTagsHtml, TagContext } from '../utils/playerTags';
 import { analyticsService } from '../services/AnalyticsService';
 import { playerService } from '../services/PlayerService';
@@ -89,6 +90,12 @@ export interface PitcherProfileData {
   // TFR by scout source (for toggle in modal)
   tfrBySource?: { my?: PitcherTfrSourceData; osa?: PitcherTfrSourceData };
 
+  // TR by scout source (for toggle in modal — swaps blended rates + projections)
+  trBySource?: { my?: PitcherTrSourceData; osa?: PitcherTrSourceData };
+
+  // Park factor for HR (effective half home / half away)
+  parkHrFactor?: number;
+
   // Prospect metadata (for tags)
   level?: string;
   totalMinorIp?: number;
@@ -117,6 +124,9 @@ export class PitcherProfileModal {
   private scoutingIsOsa = false;
   private myScoutingData: PitcherScoutingRatings | null = null;
   private osaScoutingData: PitcherScoutingRatings | null = null;
+  // Snapshot of initial projection data per scouting source (for draftee toggle restoration)
+  private drafteeInitialProj: { stuff: number; control: number; hra: number; k9?: number; bb9?: number; hr9?: number; fip?: number; war?: number; ip?: number } | null = null;
+  private drafteeInitialSource: 'my' | 'osa' | null = null;
   private projectionYear: number = new Date().getFullYear();
   private currentData: PitcherProfileData | null = null;
 
@@ -146,8 +156,10 @@ export class PitcherProfileModal {
   private blockingYears: number | undefined;
   private top100Rank: number | undefined;
 
-  // Sorted league FIP distribution (ascending) for percentile calculation
+  // Sorted league FIP distributions (ascending) for percentile calculation
   private leagueFipDistribution: number[] = [];
+  private spFipDistribution: number[] = [];
+  private rpFipDistribution: number[] = [];
 
   // Projection toggle state
   private projectionMode: 'current' | 'peak' = 'current';
@@ -159,8 +171,8 @@ export class PitcherProfileModal {
   // Track which radar series are hidden via legend toggle
   private hiddenSeries = new Set<string>();
 
-  // Analysis toggle state (Projections vs True Analysis)
-  private viewMode: 'projections' | 'analysis' = 'projections';
+  // Analysis toggle state (Projections vs Career Stats vs True Analysis)
+  private viewMode: 'projections' | 'career' | 'analysis' = 'projections';
   private cachedAnalysisHtml: string = '';
 
   // Guard against async race conditions when re-opened quickly
@@ -298,14 +310,16 @@ export class PitcherProfileModal {
 
     const currentYear = await dateService.getCurrentYear();
     if (generation !== this.showGeneration) return; // Stale call
-    this.projectionYear = currentYear;
+    this.projectionYear = await dateService.getProjectionTargetYear();
 
     // === Canonical data override — ensures consistency regardless of caller ===
     let playerTR: import('../services/TrueRatingsCalculationService').TrueRatingResult | undefined;
     let tfrEntry: import('../services/TeamRatingsService').RatedProspect | undefined;
+    let osaPrecomputedTR: import('../services/TrueRatingsCalculationService').TrueRatingResult | undefined;
 
-    if (supabaseDataService.isConfigured) {
+    if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
       // Fast path: single-player rating lookup (1 query instead of bulk fetches)
+      // Skip when custom scouting is active — need locally computed TR/TFR instead
       try {
         const rows = await supabaseDataService.getPlayerRating(data.playerId);
         if (generation !== this.showGeneration) return;
@@ -315,8 +329,10 @@ export class PitcherProfileModal {
         }
       } catch { /* ratings not available */ }
     } else {
-      // 1. Fetch canonical TR (skip for prospects — they have no MLB stats)
-      if (!data.isProspect) {
+      // 1. Fetch canonical TR — always attempt, even for callers who tag the player
+      // as a prospect. Players with limited MLB innings (e.g. call-ups) may have a
+      // TR entry and should show Current/Peak toggle, not prospect-only peak.
+      {
         const canonicalTR = await trueRatingsService.getPitcherTrueRatings(currentYear);
         if (generation !== this.showGeneration) return;
         playerTR = canonicalTR.get(data.playerId);
@@ -328,13 +344,33 @@ export class PitcherProfileModal {
         if (generation !== this.showGeneration) return;
         tfrEntry = farmData.prospects.find(p => p.playerId === data.playerId);
       } catch { /* TFR data not available */ }
+
+      // 3. Also fetch pre-computed OSA TR for scouting toggle (non-prospects only)
+      if (supabaseDataService.isConfigured && supabaseDataService.hasCustomScouting && !data.isProspect) {
+        try {
+          const rows = await supabaseDataService.getPlayerRating(data.playerId);
+          if (generation !== this.showGeneration) return;
+          for (const row of rows) {
+            if (row.rating_type === 'pitcher_tr') osaPrecomputedTR = row.data;
+          }
+        } catch { /* OSA pre-computed not available */ }
+      }
     }
 
-    this.top100Rank = (tfrEntry?.percentileRank !== undefined && tfrEntry.percentileRank <= 100)
+    this.top100Rank = (tfrEntry?.percentileRank !== undefined && tfrEntry.percentileRank <= 100 && tfrEntry.isFarmEligible)
       ? tfrEntry.percentileRank : undefined;
 
     // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
     resolveCanonicalPitcherData(data, playerTR, tfrEntry);
+
+    // Build trBySource so scouting toggle can swap projections
+    if (supabaseDataService.hasCustomScouting && !data.isProspect) {
+      const customSnapshot = snapshotPitcherTr(data);
+      const osaSnapshot = osaPrecomputedTR ? pitcherTrFromPrecomputed(osaPrecomputedTR) : undefined;
+      data.trBySource = {};
+      if (customSnapshot) data.trBySource.my = customSnapshot;
+      if (osaSnapshot) data.trBySource.osa = osaSnapshot;
+    }
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -395,13 +431,28 @@ export class PitcherProfileModal {
 
     try {
       // Fetch scouting + contract + league context in parallel
-      const [myScouting, osaScouting, playerContract, leagueCtx] = await Promise.all([
+      const [myScouting, osaScouting, playerContract, leagueCtx, parkFactorsData] = await Promise.all([
         scoutingDataService.getScoutingForPlayer(data.playerId, 'my'),
         scoutingDataService.getScoutingForPlayer(data.playerId, 'osa'),
         contractService.getContractForPlayer(data.playerId),
         supabaseDataService.isConfigured ? supabaseDataService.getPrecomputed('league_context') : Promise.resolve(null),
+        supabaseDataService.isConfigured ? supabaseDataService.getPrecomputed('park_factors') : Promise.resolve(null),
       ]);
       if (generation !== this.showGeneration) return; // Stale call
+
+      // Load park HR factor for this pitcher's home park
+      if (parkFactorsData && data.parkHrFactor === undefined) {
+        const allPlayers = await playerService.getAllPlayers();
+        const player = allPlayers.find(p => p.id === data.playerId);
+        if (player) {
+          const parentTeamId = player.parentTeamId || player.teamId;
+          const teamPf = parkFactorsData[parentTeamId];
+          if (teamPf) {
+            const { computePitcherParkHrFactor } = await import('../services/ParkFactorService');
+            data.parkHrFactor = computePitcherParkHrFactor(teamPf);
+          }
+        }
+      }
 
       this.contract = playerContract ?? null;
 
@@ -413,6 +464,8 @@ export class PitcherProfileModal {
       // League context: WAR ceiling + FIP distribution + $/WAR distribution
       this.leagueWarMax = leagueCtx?.pitcherWarMax ?? 6;
       this.leagueFipDistribution = leagueCtx?.fipDistribution ?? [];
+      this.spFipDistribution = leagueCtx?.spFipDistribution ?? [];
+      this.rpFipDistribution = leagueCtx?.rpFipDistribution ?? [];
       this.leagueDollarPerWar = leagueCtx?.dollarPerWar?.length > 0 ? leagueCtx.dollarPerWar : undefined;
 
       this.myScoutingData = myScouting ?? null;
@@ -427,6 +480,25 @@ export class PitcherProfileModal {
       } else {
         this.scoutingData = null;
         this.scoutingIsOsa = false;
+      }
+
+      // Snapshot initial projection for draftee toggle restoration
+      if (data.isProspect) {
+        this.drafteeInitialSource = this.scoutingIsOsa ? 'osa' : 'my';
+        this.drafteeInitialProj = {
+          stuff: data.estimatedStuff ?? 50,
+          control: data.estimatedControl ?? 50,
+          hra: data.estimatedHra ?? 50,
+          k9: data.projK9,
+          bb9: data.projBb9,
+          hr9: data.projHr9,
+          fip: data.projFip,
+          war: data.projWar,
+          ip: data.projIp,
+        };
+      } else {
+        this.drafteeInitialProj = null;
+        this.drafteeInitialSource = null;
       }
 
       // Render header slots with scouting data
@@ -794,16 +866,15 @@ export class PitcherProfileModal {
     const fipLabel = data.isProspect ? 'Proj Peak FIP' : 'Proj FIP';
     const badgeClass = this.getFipBadgeClass(projFip);
 
-    // Compute FIP percentile from league distribution (lower FIP = higher percentile)
+    // Compute FIP percentile from tier-matched distribution (lower FIP = higher percentile)
     let percentileHtml = '';
-    if (typeof projFip === 'number' && this.leagueFipDistribution.length > 0) {
-      const dist = this.leagueFipDistribution;
-      // Count how many league pitchers have a WORSE (higher) FIP
+    const fipDist = this.getFipDistributionForPlayer(data);
+    if (typeof projFip === 'number' && fipDist.length > 0) {
       let betterThanCount = 0;
-      for (let i = 0; i < dist.length; i++) {
-        if (dist[i] >= projFip) { betterThanCount = dist.length - i; break; }
+      for (let i = 0; i < fipDist.length; i++) {
+        if (fipDist[i] >= projFip) { betterThanCount = fipDist.length - i; break; }
       }
-      const percentile = Math.round((betterThanCount / dist.length) * 100);
+      const percentile = Math.round((betterThanCount / fipDist.length) * 100);
       percentileHtml = `<span class="fip-percentile">${this.formatPercentile(percentile)} Percentile</span>`;
     }
 
@@ -993,6 +1064,20 @@ export class PitcherProfileModal {
     return `$${salary}`;
   }
 
+  /** Get the FIP distribution matching the player's tier (SP or RP), falling back to all pitchers */
+  private getFipDistributionForPlayer(data: PitcherProfileData): number[] {
+    const s = this.scoutingData;
+    const role = determinePitcherRole({
+      pitchRatings: s?.pitches ?? data.pitchRatings,
+      stamina: s?.stamina ?? data.scoutStamina,
+      ootpRole: data.role,
+    });
+    if (role === 'SP' || role === 'SW') {
+      return this.spFipDistribution.length > 0 ? this.spFipDistribution : this.leagueFipDistribution;
+    }
+    return this.rpFipDistribution.length > 0 ? this.rpFipDistribution : this.leagueFipDistribution;
+  }
+
   private formatPercentile(p: number): string {
     const rounded = Math.round(p);
     const suffix = rounded === 11 || rounded === 12 || rounded === 13 ? 'th'
@@ -1033,6 +1118,7 @@ export class PitcherProfileModal {
 
   private renderBody(data: PitcherProfileData, stats: PitcherSeasonStats[]): string {
     const isRetired = data.retired === true;
+    if (isRetired) this.viewMode = 'career';
     const ratingsSection = this.renderRatingsSection(data);
     const projectionContent = this.renderProjectionContent(data, stats);
     const careerContent = this.renderCareerStatsContent(stats);
@@ -1041,13 +1127,13 @@ export class PitcherProfileModal {
     const currentSalary = this.contract ? contractService.getCurrentSalary(this.contract) : 0;
     const projStats = this.computeProjectedStats(data);
     let fipPercentile: number | undefined;
-    if (typeof projStats.projFip === 'number' && this.leagueFipDistribution.length > 0) {
-      const dist = this.leagueFipDistribution;
+    const tagFipDist = this.getFipDistributionForPlayer(data);
+    if (typeof projStats.projFip === 'number' && tagFipDist.length > 0) {
       let betterThanCount = 0;
-      for (let i = 0; i < dist.length; i++) {
-        if (dist[i] >= projStats.projFip) { betterThanCount = dist.length - i; break; }
+      for (let i = 0; i < tagFipDist.length; i++) {
+        if (tagFipDist[i] >= projStats.projFip) { betterThanCount = tagFipDist.length - i; break; }
       }
-      fipPercentile = Math.round((betterThanCount / dist.length) * 100);
+      fipPercentile = Math.round((betterThanCount / tagFipDist.length) * 100);
     }
     const tagCtx: TagContext = {
       currentSalary,
@@ -1062,8 +1148,7 @@ export class PitcherProfileModal {
 
     return `
       <div class="profile-tabs">
-        <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
-        <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
+        <button class="profile-tab active" data-tab="ratings">Ratings and Projections</button>
         <button class="profile-tab" data-tab="development">Development</button>
         <div class="profile-tab-actions">
           ${tagsHtml}
@@ -1078,11 +1163,12 @@ export class PitcherProfileModal {
         </div>
       </div>
       <div class="profile-tab-content">
-        <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
+        <div class="tab-pane active" data-pane="ratings">
           ${ratingsSection}
           <div class="analysis-toggle-row">
             <div class="analysis-toggle">
               <button class="analysis-toggle-btn ${this.viewMode === 'projections' ? 'active' : ''}" data-view="projections">Projections</button>
+              <button class="analysis-toggle-btn ${this.viewMode === 'career' ? 'active' : ''}" data-view="career">Career Stats</button>
               <button class="analysis-toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-view="analysis">True Analysis</button>
             </div>
           </div>
@@ -1093,10 +1179,10 @@ export class PitcherProfileModal {
             <div class="projections-pane" style="${this.viewMode === 'projections' ? '' : 'display:none'}">
               ${projectionContent}
             </div>
+            <div class="career-pane" style="${this.viewMode === 'career' ? '' : 'display:none'}">
+              ${careerContent}
+            </div>
           </div>
-        </div>
-        <div class="tab-pane${isRetired ? ' active' : ''}" data-pane="career">
-          ${careerContent}
         </div>
         <div class="tab-pane" data-pane="development">
           ${this.renderDevelopmentTab(data.playerId)}
@@ -1289,8 +1375,10 @@ export class PitcherProfileModal {
     const projStats = this.computeProjectedStats(data);
     const projIpValue = projStats.projIp !== undefined ? `${Math.round(projStats.projIp)}` : '--';
 
-    // Pitcher type and BABIP from scouting data
-    const pitcherType = s?.pitcherType;
+    // Pitcher type (GB/FB tendency) and BABIP from scouting data
+    const VALID_PITCHER_TYPES = new Set(['Ex FB', 'FB', 'Neu', 'GB', 'Ex GB']);
+    const rawType = s?.pitcherType;
+    const pitcherType = rawType && VALID_PITCHER_TYPES.has(rawType) ? rawType : undefined;
     const babip = s?.babip;
 
     return `
@@ -1567,9 +1655,14 @@ export class PitcherProfileModal {
   }
 
   private static readonly PITCH_NAME_MAP: Record<string, string> = {
+    // Suffixed keys (from sync-db / CSV)
     fbp: 'Fastball', chp: 'Changeup', spp: 'Splitter', cbp: 'Curveball',
     slp: 'Slider', sip: 'Sinker', ctp: 'Cutter', fop: 'Forkball',
-    ccp: 'CircleChg', scp: 'Screwball', kcp: 'KnuckleCrv', knp: 'Knuckle',
+    ccp: 'Circle Change', scp: 'Screwball', kcp: 'Knuckle Curve', knp: 'Knuckleball',
+    // Raw API keys (no suffix)
+    fb: 'Fastball', ch: 'Changeup', sp: 'Splitter', cb: 'Curveball',
+    sl: 'Slider', si: 'Sinker', ct: 'Cutter', fo: 'Forkball',
+    cc: 'Circle Change', sc: 'Screwball', kc: 'Knuckle Curve', kn: 'Knuckleball',
   };
 
   private normalizePitchName(raw: string): string {
@@ -1619,6 +1712,7 @@ export class PitcherProfileModal {
       projectedIp: this.projectedIp,
       estimateIp: (stamina, injury) => this.estimateIp(stamina, injury),
       calculateWar: (fip, ip) => fipWarService.calculateWar(fip, ip),
+      parkHrFactor: data.parkHrFactor,
     });
 
     // Destructure for template compatibility
@@ -1731,6 +1825,30 @@ export class PitcherProfileModal {
       return `<p class="no-stats">No pitching stats found for this player.</p>`;
     }
 
+    // Build projection row from computed projection stats
+    const ps = this.computeProjectedStats(this.currentData!);
+    let projRow = '';
+    if (ps.projIp !== undefined && ps.projFip !== undefined) {
+      const projK = ps.projK9 !== undefined ? Math.round(ps.projK9 * ps.projIp / 9) : 0;
+      const projBb = ps.projBb9 !== undefined ? Math.round(ps.projBb9 * ps.projIp / 9) : 0;
+      const projHr = ps.projHr9 !== undefined ? Math.round(ps.projHr9 * ps.projIp / 9) : 0;
+      projRow = `
+        <tr class="projection-row">
+          <td style="text-align: center; font-weight: 600;" title="True Projection">TP</td>
+          <td style="text-align: center;"><span class="level-badge level-mlb" style="opacity: 0.7;">PROJ</span></td>
+          <td style="text-align: center;">${Math.round(ps.projIp)}</td>
+          <td style="text-align: center;">${ps.projFip.toFixed(2)}</td>
+          <td style="text-align: center;">${projK}</td>
+          <td style="text-align: center;">${projBb}</td>
+          <td style="text-align: center;">${projHr}</td>
+          <td style="text-align: center;">${ps.projK9?.toFixed(2) ?? '—'}</td>
+          <td style="text-align: center;">${ps.projBb9?.toFixed(2) ?? '—'}</td>
+          <td style="text-align: center;">${ps.projHr9?.toFixed(2) ?? '—'}</td>
+          <td style="text-align: center;">${ps.projWar?.toFixed(1) ?? '—'}</td>
+        </tr>
+      `;
+    }
+
     const rows = stats.slice(0, 10).map(s => {
       const levelBadge = s.level === 'MLB'
         ? '<span class="level-badge level-mlb">MLB</span>'
@@ -1787,7 +1905,7 @@ export class PitcherProfileModal {
             </tr>
           </thead>
           <tbody>
-            ${rows}
+            ${projRow}${rows}
           </tbody>
         </table>
       </div>
@@ -2263,7 +2381,7 @@ export class PitcherProfileModal {
 
     buttons.forEach(btn => {
       btn.addEventListener('click', async () => {
-        const newView = btn.dataset.view as 'projections' | 'analysis';
+        const newView = btn.dataset.view as 'projections' | 'career' | 'analysis';
         if (!newView || newView === this.viewMode) return;
 
         this.viewMode = newView;
@@ -2273,13 +2391,19 @@ export class PitcherProfileModal {
 
         const analysisPane = this.overlay?.querySelector<HTMLElement>('.analysis-pane');
         const projectionsPane = this.overlay?.querySelector<HTMLElement>('.projections-pane');
+        const careerPane = this.overlay?.querySelector<HTMLElement>('.career-pane');
         if (!analysisPane || !projectionsPane || !this.currentData) return;
 
+        // Hide all panes, then show the selected one
+        analysisPane.style.display = 'none';
+        projectionsPane.style.display = 'none';
+        if (careerPane) careerPane.style.display = 'none';
+
         if (newView === 'projections') {
-          analysisPane.style.display = 'none';
           projectionsPane.style.display = '';
+        } else if (newView === 'career') {
+          if (careerPane) careerPane.style.display = '';
         } else {
-          projectionsPane.style.display = 'none';
           analysisPane.style.display = '';
 
           // Fetch analysis if not cached
@@ -2336,12 +2460,59 @@ export class PitcherProfileModal {
           this.currentData.tfrHra = altTfr.hra;
           this.currentData.trueFutureRating = altTfr.trueFutureRating;
           this.currentData.tfrPercentile = altTfr.tfrPercentile;
-          this.currentData.projK9 = altTfr.projK9;
-          this.currentData.projBb9 = altTfr.projBb9;
-          this.currentData.projHr9 = altTfr.projHr9;
-          this.currentData.projFip = altTfr.projFip;
+          // For prospects, projK9/projBb9/projHr9 come from TFR (no TR blend exists)
+          if (this.currentData.isProspect) {
+            this.currentData.projK9 = altTfr.projK9;
+            this.currentData.projBb9 = altTfr.projBb9;
+            this.currentData.projHr9 = altTfr.projHr9;
+            this.currentData.projFip = altTfr.projFip;
+          }
+        } else if (this.currentData.isProspect && this.scoutingData) {
+          // Draftee without precomputed tfrBySource
+          // If toggling back to initial source, restore exact original values
+          if (this.drafteeInitialProj && this.drafteeInitialSource === sourceKey) {
+            const snap = this.drafteeInitialProj;
+            this.currentData.estimatedStuff = snap.stuff;
+            this.currentData.estimatedControl = snap.control;
+            this.currentData.estimatedHra = snap.hra;
+            this.currentData.projK9 = snap.k9;
+            this.currentData.projBb9 = snap.bb9;
+            this.currentData.projHr9 = snap.hr9;
+            this.currentData.projFip = snap.fip;
+            this.currentData.projWar = snap.war;
+          } else {
+            // Recompute from the other scouting source
+            const s = this.scoutingData;
+            const peakRatings = { stuff: s.stuff, control: s.control, hra: s.hra };
+            const ip = this.currentData.projIp ?? 180;
+            const peakStats = PotentialStatsService.calculatePitchingStats(
+              { ...peakRatings, movement: 50, babip: 50 }, ip,
+            );
+            this.currentData.estimatedStuff = s.stuff;
+            this.currentData.estimatedControl = s.control;
+            this.currentData.estimatedHra = s.hra;
+            this.currentData.projK9 = peakStats.k9;
+            this.currentData.projBb9 = peakStats.bb9;
+            this.currentData.projHr9 = peakStats.hr9;
+            this.currentData.projFip = peakStats.fip;
+            this.currentData.projWar = fipWarService.calculateWar(peakStats.fip, ip);
+          }
         }
 
+        // Swap TR/projection fields from trBySource (blended rates change with scouting)
+        const altTr = this.currentData.trBySource?.[sourceKey];
+        if (altTr) {
+          applyPitcherTrSnapshot(this.currentData, altTr);
+        }
+
+        // Re-render projection section FIRST — updates _lastProjection for badges/emblems
+        const projSection = this.overlay?.querySelector('.projection-section');
+        if (projSection && this.currentData) {
+          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
+          this.bindProjectionToggle();
+        }
+
+        // Re-render ratings section — reads _lastProjection for radar badges
         const ratingsSection = this.overlay?.querySelector('.ratings-section');
         if (ratingsSection) {
           ratingsSection.outerHTML = this.renderRatingsSection(this.currentData);
@@ -2350,7 +2521,7 @@ export class PitcherProfileModal {
           this.initArsenalRadarChart(this.currentData);
         }
 
-        // Update header emblems after TFR swap
+        // Update header emblems after projection recompute
         const ratingsSlot = this.overlay?.querySelector('.rating-emblem-slot');
         if (ratingsSlot) ratingsSlot.innerHTML = this.renderRatingEmblem(this.currentData);
         const warSlot = this.overlay?.querySelector('.war-emblem-slot');
@@ -2364,13 +2535,6 @@ export class PitcherProfileModal {
           if (this.viewMode === 'analysis') {
             this.fetchAndRenderAnalysis();
           }
-        }
-
-        // Re-render the projection section
-        const projSection = this.overlay?.querySelector('.projection-section');
-        if (projSection && this.currentData) {
-          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
-          this.bindProjectionToggle();
         }
       });
     });

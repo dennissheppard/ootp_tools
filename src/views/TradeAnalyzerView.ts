@@ -18,6 +18,7 @@ import { markdownToHtml } from '../services/AIScoutingService';
 import { resolveCanonicalPitcherData, resolveCanonicalBatterData, computePitcherProjection, computeBatterProjection } from '../services/ModalDataService';
 import type { PitcherProfileData } from './PitcherProfileModal';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
+import { hitterAgingService } from '../services/HitterAgingService';
 import { leagueBattingAveragesService } from '../services/LeagueBattingAveragesService';
 import { fipWarService } from '../services/FipWarService';
 import { emitDataSourceBadges } from '../utils/dataSourceBadges';
@@ -903,6 +904,7 @@ export class TradeAnalyzerView {
       calculateBaserunningRuns: (sb, cs) => leagueBattingAveragesService.calculateBaserunningRuns(sb, cs),
       calculateBattingWar: (woba, pa, lg, sbRuns) => leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns),
       projectStolenBases: (sr, ste, pa) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
+      applyAgingToRates: (rates, a) => HitterRatingEstimatorService.applyAgingToBlendedRates(rates, hitterAgingService.getAgingModifiers(a)),
     });
 
     return {

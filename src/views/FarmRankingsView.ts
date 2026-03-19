@@ -1,3 +1,4 @@
+import { osaBannerHtml, bindOsaBannerEvents } from '../utils/scoutingBanner';
 import {
   teamRatingsService,
   FarmData,
@@ -45,7 +46,7 @@ export class FarmRankingsView {
   // Sorting and Dragging state
   private systemsSortKey: string = 'totalWar';
   private systemsSortDirection: 'asc' | 'desc' = 'desc';
-  private prospectsSortKey: string = 'percentile';
+  private prospectsSortKey: string = 'peakWar';
   private prospectsSortDirection: 'asc' | 'desc' = 'desc';
 
   private systemsColumns: FarmColumn[] = [
@@ -95,7 +96,9 @@ export class FarmRankingsView {
   ];
 
   private isDraggingColumn = false;
-  private scoutingDataMode: ScoutingDataMode = 'none';
+  private scoutingDataMode: ScoutingDataMode = supabaseDataService.isConfigured
+    ? (supabaseDataService.hasCustomScouting ? 'mixed' : 'osa')
+    : 'none';
 
   private hasLoadedData = false; // Track if data has been loaded (for lazy loading)
 
@@ -176,6 +179,7 @@ export class FarmRankingsView {
   private renderLayout(): void {
     this.container.innerHTML = `
       <div class="true-ratings-content">
+        ${osaBannerHtml()}
         <p class="section-subtitle">Prospects have a True Future Rating. This rating relies much more on scouting because minor league stats in OOTP are very noisy</p>
         
         <div class="true-ratings-controls">
@@ -189,7 +193,7 @@ export class FarmRankingsView {
                    scouting data becomes available.
               <div class="filter-dropdown" data-filter="year">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
-                  Year: <span id="selected-year-display">${this.selectedYear}</span> ▾
+                  Season: <span id="selected-year-display">${this.selectedYear}</span> ▾
                 </button>
                 <div class="filter-dropdown-menu" id="year-dropdown-menu">
                   ${this.yearOptions.map(year => `<div class="filter-dropdown-item ${year === this.selectedYear ? 'selected' : ''}" data-value="${year}">${year}</div>`).join('')}
@@ -247,6 +251,7 @@ export class FarmRankingsView {
     `;
 
     this.bindEvents();
+    bindOsaBannerEvents(this.container);
   }
 
   private bindEvents(): void {
@@ -897,20 +902,20 @@ export class FarmRankingsView {
 
       // 2. Build unified tier counts from merged prospect pool
       //    (separate pitcher/hitter tier counts can't be summed — they use independent rankings)
-      const allProspects: { orgId: number; percentile: number; tfr: number }[] = [];
+      const allProspects: { orgId: number; war: number; tfr: number }[] = [];
       if (this.data?.prospects) {
           for (const p of this.data.prospects) {
-              allProspects.push({ orgId: p.orgId, percentile: p.percentile || 0, tfr: p.trueFutureRating });
+              allProspects.push({ orgId: p.orgId, war: p.peakWar || 0, tfr: p.trueFutureRating });
           }
       }
       if (this.hitterData?.prospects) {
           for (const p of this.hitterData.prospects) {
-              allProspects.push({ orgId: p.orgId, percentile: p.percentile || 0, tfr: p.trueFutureRating });
+              allProspects.push({ orgId: p.orgId, war: p.projWar || 0, tfr: p.trueFutureRating });
           }
       }
-      // Sort by percentile desc, TFR tiebreaker (same as renderCombinedTopProspects)
+      // Sort by projected WAR desc (unified currency for hitters + pitchers), TFR tiebreaker
       allProspects.sort((a, b) => {
-          const cmp = b.percentile - a.percentile;
+          const cmp = b.war - a.war;
           if (cmp !== 0) return cmp;
           return b.tfr - a.tfr;
       });
@@ -1197,16 +1202,16 @@ export class FarmRankingsView {
           return '<p class="no-stats">No prospect data available.</p>';
       }
 
-      // Assign unified ranks by TFR desc, then within-pool percentile as tiebreaker
+      // Assign unified ranks by projected WAR desc (common currency for hitters + pitchers)
       combined.sort((a, b) => {
-          const tfrDiff = (b.tfr || 0) - (a.tfr || 0);
-          if (tfrDiff !== 0) return tfrDiff;
-          return (b.percentile || 0) - (a.percentile || 0);
+          const warDiff = (b.peakWar || 0) - (a.peakWar || 0);
+          if (warDiff !== 0) return warDiff;
+          return (b.tfr || 0) - (a.tfr || 0);
       });
       combined.forEach((p, idx) => { p.originalRank = idx + 1; });
 
       // Re-sort by user-selected column (if not the default percentile desc, list is already correct)
-      const isDefaultSort = this.prospectsSortKey === 'percentile' && this.prospectsSortDirection === 'desc';
+      const isDefaultSort = this.prospectsSortKey === 'peakWar' && this.prospectsSortDirection === 'desc';
       if (!isDefaultSort) {
       combined.sort((a, b) => {
           let aVal: any;
@@ -1672,7 +1677,7 @@ export class FarmRankingsView {
           percentileRankMap.set(p.playerId, idx + 1);
       });
 
-      const isDefaultSort = this.prospectsSortKey === 'percentile' && this.prospectsSortDirection === 'desc';
+      const isDefaultSort = this.prospectsSortKey === 'peakWar' && this.prospectsSortDirection === 'desc';
 
       const rows = filteredProspects.map((p, idx) => {
         const cells = this.prospectsColumns.map(col => {
@@ -1776,7 +1781,7 @@ export class FarmRankingsView {
           percentileRankMap.set(p.playerId, idx + 1);
       });
 
-      const isDefaultSort = this.prospectsSortKey === 'percentile' && this.prospectsSortDirection === 'desc';
+      const isDefaultSort = this.prospectsSortKey === 'peakWar' && this.prospectsSortDirection === 'desc';
 
       const rows = filteredProspects.map((p, idx) => {
         const cells = this.hitterProspectsColumns.map(col => {
@@ -2702,8 +2707,5 @@ export class FarmRankingsView {
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      console.log(`✅ Exported ${prospects.length} prospects for ${this.selectedYear}`);
-      console.log('Save this file to: tools/reports/tfr_prospects_' + this.selectedYear + '.json');
-      console.log('Then run: npx ts-node tools/research/tfr_automated_validation.ts');
   }
 }

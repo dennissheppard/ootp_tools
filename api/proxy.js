@@ -2,11 +2,14 @@ export default async function handler(req, res) {
   const { path: rawPath, ...queryParams } = req.query;
   const apiPath = Array.isArray(rawPath) ? rawPath.join('/') : (rawPath || '');
   const search = new URLSearchParams(queryParams).toString();
-  const targetUrl = `https://atl-01.statsplus.net/world/api/${apiPath}${search ? '?' + search : ''}`;
+  const targetUrl = `https://worldbaseballleague.org/api/${apiPath}${search ? '?' + search : ''}`;
 
   try {
     const upstream = await fetch(targetUrl, {
-      headers: { 'Accept': 'application/json' },
+      headers: {
+        'Accept': 'application/json',
+        'x-api-key': process.env.WBL_API_KEY || 'wbl_doback_gumbo_2020',
+      },
     });
 
     const body = await upstream.text();

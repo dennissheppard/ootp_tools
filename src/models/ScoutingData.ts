@@ -74,4 +74,6 @@ export interface HitterScoutingRatings {
   /** Date of birth string from CSV (e.g. '02/26/2001') */
   dob?: string;
   source?: 'my' | 'osa';
+  /** Raw fielding ratings from API (ifRange, ifArm, cArm, ofRange, etc.) */
+  fielding?: Record<string, string>;
 }

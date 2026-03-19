@@ -10,6 +10,12 @@ jest.mock('./SupabaseDataService', () => ({
   },
 }));
 
+jest.mock('./DateService', () => ({
+  dateService: {
+    getCurrentYear: jest.fn().mockResolvedValue(2021),
+  },
+}));
+
 describe('BatterProjectionService', () => {
   describe('precomputed fast-path', () => {
     const mockCachedData = {

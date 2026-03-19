@@ -10,6 +10,9 @@
  *   npx tsx tools/explain-player.ts --playerId=5678 --type=hitter --mode=rating --year=2026
  *   npx tsx tools/explain-player.ts --playerId=5678 --type=hitter --mode=all --year=2026 --format=markdown
  *   npx tsx tools/explain-player.ts --playerId=5678 --type=hitter --mode=projection --projectionMode=peak
+ *
+ * Scouting source comparison:
+ *   npx tsx tools/explain-player.ts --playerId=14874 --type=hitter --mode=projection --compare --passkey=YOUR_PASS --team=TLA
  */
 
 import { promises as fs } from 'node:fs';
@@ -63,7 +66,32 @@ function toUrl(input: RequestInfo | URL): string {
   return input.url;
 }
 
+async function loadEnvFile(): Promise<Record<string, string>> {
+  const envVars: Record<string, string> = {};
+  for (const file of ['.env', '.env.local']) {
+    try {
+      const content = await fs.readFile(path.join(process.cwd(), file), 'utf8');
+      for (const line of content.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed.startsWith('#')) continue;
+        const eqIdx = trimmed.indexOf('=');
+        if (eqIdx === -1) continue;
+        envVars[trimmed.slice(0, eqIdx)] = trimmed.slice(eqIdx + 1);
+      }
+    } catch {
+      // file not found — ok
+    }
+  }
+  return envVars;
+}
+
 async function setupNodeEnvironment(): Promise<void> {
+  // Load .env vars into process.env so SupabaseDataService picks them up
+  const envVars = await loadEnvFile();
+  for (const [k, v] of Object.entries(envVars)) {
+    if (!process.env[k]) process.env[k] = v;
+  }
+
   const storage = new MemoryStorage();
   (globalThis as any).localStorage = storage;
 
@@ -75,14 +103,18 @@ async function setupNodeEnvironment(): Promise<void> {
   };
   (globalThis as any).window = windowStub;
 
-  const API_BASE_URL = 'https://atl-01.statsplus.net/world';
+  const WBL_API_BASE = 'https://worldbaseballleague.org';
+  const WBL_API_KEY = 'wbl_doback_gumbo_2020';
   const nativeFetch = globalThis.fetch.bind(globalThis);
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const url = toUrl(input);
 
     if (url.startsWith('/api/')) {
-      return nativeFetch(`${API_BASE_URL}${url}`, init);
+      // Route API calls to WBL API with auth header
+      const headers = new Headers(init?.headers);
+      headers.set('x-api-key', WBL_API_KEY);
+      return nativeFetch(`${WBL_API_BASE}${url}`, { ...init, headers });
     }
 
     if (url.startsWith('/data/')) {
@@ -100,31 +132,8 @@ async function setupNodeEnvironment(): Promise<void> {
   };
 }
 
-async function seedDefaultScouting(year: number): Promise<void> {
-  const { scoutingDataService } = await import('../src/services/ScoutingDataService');
-  const { hitterScoutingDataService } = await import('../src/services/HitterScoutingDataService');
-
-  const pitcherCsvPath = path.join(process.cwd(), 'public', 'data', 'default_osa_scouting.csv');
-  const hitterCsvPath = path.join(process.cwd(), 'public', 'data', 'default_hitter_osa_scouting.csv');
-
-  const ymd = `${year}-12-31`;
-
-  try {
-    const pitcherCsv = await fs.readFile(pitcherCsvPath, 'utf8');
-    const pitcherRatings = scoutingDataService.parseScoutingCsv(pitcherCsv, 'osa');
-    localStorage.setItem(`wbl_scouting_ratings_${ymd}_osa`, JSON.stringify(pitcherRatings));
-  } catch {
-    // optional seed
-  }
-
-  try {
-    const hitterCsv = await fs.readFile(hitterCsvPath, 'utf8');
-    const hitterRatings = hitterScoutingDataService.parseScoutingCsv(hitterCsv, 'osa');
-    localStorage.setItem(`wbl_hitter_scouting_ratings_${ymd}_osa`, JSON.stringify(hitterRatings));
-  } catch {
-    // optional seed
-  }
-}
+// OSA scouting is served by the scouting services via Supabase (or their own CSV
+// fallback if Supabase isn't configured). No manual CSV seeding needed.
 
 async function disableIndexedDbPersistence(): Promise<void> {
   const { indexedDBService } = await import('../src/services/IndexedDBService');
@@ -139,6 +148,90 @@ async function disableIndexedDbPersistence(): Promise<void> {
   db.getScoutingRatings = async () => null;
   db.getAllHitterScoutingKeys = async () => [];
   db.getHitterScoutingRatings = async () => null;
+}
+
+const INJURY_MAP: Record<string, string> = {
+  IRN: 'Iron Man', DUR: 'Durable', NOR: 'Normal', FRG: 'Fragile', WRK: 'Wrecked',
+};
+
+async function fetchAndSeedCustomScouting(team: string, passkey: string, year: number): Promise<{ pitchers: number; hitters: number }> {
+  const { scoutingDataService } = await import('../src/services/ScoutingDataService');
+  const { hitterScoutingDataService } = await import('../src/services/HitterScoutingDataService');
+
+  const WBL_BASE = 'https://worldbaseballleague.org';
+  const WBL_API_KEY = 'wbl_doback_gumbo_2020';
+  const PAGE_SIZE = 2000;
+  let allRatings: any[] = [];
+  let offset = 0;
+
+  while (true) {
+    const url = `${WBL_BASE}/api/scout?tid=${encodeURIComponent(team)}&passphrase=${encodeURIComponent(passkey)}&limit=${PAGE_SIZE}&offset=${offset}`;
+    const res = await fetch(url, { headers: { 'x-api-key': WBL_API_KEY } });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Scout API failed: ${res.status} ${body}`);
+    }
+    const data = await res.json();
+    const page = data.ratings as any[];
+    if (!page || page.length === 0) break;
+    allRatings = allRatings.concat(page);
+    if (allRatings.length >= (data.total ?? page.length) || page.length < PAGE_SIZE) break;
+    offset += page.length;
+  }
+
+  const pitcherRatings: any[] = [];
+  const hitterRatings: any[] = [];
+
+  for (const r of allRatings) {
+    const injury = r.injury_proneness ? (INJURY_MAP[String(r.injury_proneness).toUpperCase()] ?? String(r.injury_proneness)) : undefined;
+    if (r.is_pitcher) {
+      const pitches: Record<string, number> = {};
+      if (r.pitching?.pitches) {
+        for (const [k, v] of Object.entries(r.pitching.pitches)) {
+          const val = parseInt(String(v), 10);
+          if (val > 0) pitches[k] = val;
+        }
+      }
+      pitcherRatings.push({
+        playerId: parseInt(r.player_id, 10),
+        playerName: r.player_name || undefined,
+        stuff: parseInt(r.pitching?.stuff, 10) || 20,
+        control: parseInt(r.pitching?.control, 10) || 20,
+        hra: parseInt(r.pitching?.hra, 10) || 20,
+        stamina: r.pitching?.stamina ? parseInt(r.pitching.stamina, 10) : undefined,
+        injuryProneness: injury,
+        ovr: r.overall ? parseFloat(r.overall) : undefined,
+        pot: r.potential ? parseFloat(r.potential) : undefined,
+        pitches: Object.keys(pitches).length > 0 ? pitches : undefined,
+      });
+    } else {
+      hitterRatings.push({
+        playerId: parseInt(r.player_id, 10),
+        playerName: r.player_name || undefined,
+        power: parseInt(r.batting?.power, 10) || 20,
+        eye: parseInt(r.batting?.eye, 10) || 20,
+        avoidK: parseInt(r.batting?.avoidKs, 10) || 20,
+        contact: parseInt(r.batting?.contact, 10) || 20,
+        gap: parseInt(r.batting?.gap, 10) || 20,
+        speed: parseInt(r.batting?.speed, 10) || 20,
+        stealingAggressiveness: r.batting?.sbAgg ? parseInt(r.batting.sbAgg, 10) : undefined,
+        stealingAbility: r.batting?.steal ? parseInt(r.batting.steal, 10) : undefined,
+        injuryProneness: injury,
+        ovr: parseFloat(r.overall) || 2.5,
+        pot: parseFloat(r.potential) || 2.5,
+      });
+    }
+  }
+
+  const ymd = `${year}-12-31`;
+  if (pitcherRatings.length > 0) {
+    localStorage.setItem(`wbl_scouting_ratings_${ymd}_my`, JSON.stringify(pitcherRatings));
+  }
+  if (hitterRatings.length > 0) {
+    localStorage.setItem(`wbl_hitter_scouting_ratings_${ymd}_my`, JSON.stringify(hitterRatings));
+  }
+
+  return { pitchers: pitcherRatings.length, hitters: hitterRatings.length };
 }
 
 async function resolvePlayerType(playerId: number, explicitType?: string): Promise<PlayerType> {
@@ -162,8 +255,8 @@ async function explainPitcherRating(playerId: number, year: number): Promise<any
   const { dateService } = await import('../src/services/DateService');
 
   const currentYear = await dateService.getCurrentYear();
-  const yearWeights = year === currentYear
-    ? getYearWeights(await dateService.getSeasonProgress())
+  const yearWeights = year >= currentYear
+    ? getYearWeights(year === currentYear ? await dateService.getSeasonProgress() : 0)
     : undefined;
 
   const [multiYearStats, leagueAverages, scoutingFallback, allPlayers, allPitchers, canonicalMap] = await Promise.all([
@@ -199,6 +292,7 @@ async function explainPitcherRating(playerId: number, year: number): Promise<any
     yearlyStats,
     scoutingRatings: scouting,
     role,
+    targetYear: year,
   }, yearWeights, trace);
 
   const canonical = canonicalMap.get(playerId);
@@ -245,8 +339,8 @@ async function explainHitterRating(playerId: number, year: number): Promise<any>
   const { dateService } = await import('../src/services/DateService');
 
   const currentYear = await dateService.getCurrentYear();
-  const yearWeights = year === currentYear
-    ? getYearWeights(await dateService.getSeasonProgress())
+  const yearWeights = year >= currentYear
+    ? getYearWeights(year === currentYear ? await dateService.getSeasonProgress() : 0)
     : undefined;
 
   const [multiYearStats, myScouting, osaScouting, allBatters, allPlayers, canonicalMap] = await Promise.all([
@@ -278,6 +372,7 @@ async function explainHitterRating(playerId: number, year: number): Promise<any>
     playerName: name,
     yearlyStats,
     scoutingRatings: scouting,
+    targetYear: year,
   }, hitterTrueRatingsCalculationService.getDefaultLeagueAverages(), yearWeights, trace);
 
   const canonical = canonicalMap.get(playerId);
@@ -541,6 +636,7 @@ async function explainHitterProjection(
   const { hitterScoutingDataService } = await import('../src/services/HitterScoutingDataService');
   const { leagueBattingAveragesService } = await import('../src/services/LeagueBattingAveragesService');
   const { HitterRatingEstimatorService } = await import('../src/services/HitterRatingEstimatorService');
+  const { hitterAgingService } = await import('../src/services/HitterAgingService');
   const { resolveCanonicalBatterData, computeBatterProjection } = await import('../src/services/ModalDataService');
 
   const [hitterTRMap, myScoutingAll, osaScoutingAll, allPlayers, allTeams, yearBattingStats] = await Promise.all([
@@ -677,6 +773,7 @@ async function explainHitterProjection(
     calculateBattingWar: (woba: number, pa: number, lg: any, sbRuns: number) =>
       leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns),
     projectStolenBases: (sr: number, ste: number, pa: number) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
+    applyAgingToRates: (rates, a) => HitterRatingEstimatorService.applyAgingToBlendedRates(rates, hitterAgingService.getAgingModifiers(a)),
   });
 
   const historicalPaData = mlbStats
@@ -745,6 +842,8 @@ async function explainHitterProjection(
         slg: Math.round(modalProjection.projSlg * 1000) / 1000,
         ops: Math.round(modalProjection.projOps * 1000) / 1000,
         hr: modalProjection.projHr,
+        doubles: modalProjection.proj2b,
+        triples: modalProjection.proj3b,
         sb: modalProjection.projSb,
         woba: Math.round(modalProjection.projWoba * 1000) / 1000,
         war: Math.round(modalProjection.projWar * 10) / 10,
@@ -817,8 +916,13 @@ function estimatePitcherIpLikeModal(stamina: number, injury?: string): number {
 function formatYearWeights(traceInput: any): string {
   const years = (traceInput?.yearlyStats ?? []).map((s: any) => s.year);
   const weights = traceInput?.yearWeights ?? [];
+  const targetYear = traceInput?.targetYear;
   if (!years.length || !weights.length) return 'n/a';
-  return years.map((y: number, i: number) => `${y}:${n(weights[i] ?? 0, 2)}`).join(', ');
+  return years.map((y: number, i: number) => {
+    const idx = targetYear !== undefined ? targetYear - y : i;
+    const w = (idx >= 0 && idx < weights.length) ? weights[idx] : 0;
+    return `${y}:${n(w, 2)}`;
+  }).join(', ');
 }
 
 function canonicalRatingBinsText(): string {
@@ -897,9 +1001,9 @@ function renderPitcherRatingExplanation(output: any): string {
   lines.push(`Step 3. Role + tier regression`);
   lines.push(`- Role tier=${t.tierContext?.role ?? 'n/a'}; percentile ranking is later done WITHIN role tier (SP/SW/RP).`);
   lines.push(`- Tier league targets: K/9=${n(t.tierContext?.leagueAverages?.avgK9)}, BB/9=${n(t.tierContext?.leagueAverages?.avgBb9)}, HR/9=${n(t.tierContext?.leagueAverages?.avgHr9)}`);
-  lines.push(`- K/9: weighted ${n(t.regression?.k9?.weightedRate)} -> target ${n(t.regression?.k9?.regressionTarget)} with adjustedK ${n(t.regression?.k9?.adjustedKAfterIpScale)} -> regressed ${n(t.regression?.k9?.regressedRate)}`);
-  lines.push(`- BB/9: weighted ${n(t.regression?.bb9?.weightedRate)} -> target ${n(t.regression?.bb9?.regressionTarget)} with adjustedK ${n(t.regression?.bb9?.adjustedKAfterIpScale)} -> regressed ${n(t.regression?.bb9?.regressedRate)}`);
-  lines.push(`- HR/9: weighted ${n(t.regression?.hr9?.weightedRate)} -> target ${n(t.regression?.hr9?.regressionTarget)} with adjustedK ${n(t.regression?.hr9?.adjustedKAfterIpScale)} -> regressed ${n(t.regression?.hr9?.regressedRate)}`);
+  lines.push(`- K/9: weighted ${n(t.regression?.k9?.weightedRate)} -> target ${n(t.regression?.k9?.regressionTarget)} with stabilizationConstant ${n(t.regression?.k9?.adjustedKAfterIpScale)} -> regressed ${n(t.regression?.k9?.regressedRate)}`);
+  lines.push(`- BB/9: weighted ${n(t.regression?.bb9?.weightedRate)} -> target ${n(t.regression?.bb9?.regressionTarget)} with stabilizationConstant ${n(t.regression?.bb9?.adjustedKAfterIpScale)} -> regressed ${n(t.regression?.bb9?.regressedRate)}`);
+  lines.push(`- HR/9: weighted ${n(t.regression?.hr9?.weightedRate)} -> target ${n(t.regression?.hr9?.regressionTarget)} with stabilizationConstant ${n(t.regression?.hr9?.adjustedKAfterIpScale)} -> regressed ${n(t.regression?.hr9?.regressedRate)}`);
 
   lines.push(`Step 4. Scouting blend`);
   if (t.scoutingBlend) {
@@ -909,6 +1013,21 @@ function renderPitcherRatingExplanation(output: any): string {
     lines.push(`- Final blended K/9=${n(t.output?.blendedK9)}, BB/9=${n(t.output?.blendedBb9)}, HR/9=${n(t.output?.blendedHr9)}`);
   } else {
     lines.push(`- No scouting blend applied`);
+  }
+
+  lines.push(`Step 4.5. Trend adjustment`);
+  if (t.trendAdjustment) {
+    const ta = t.trendAdjustment;
+    const fmtTrend = (label: string, tr: any) => {
+      if (!tr || tr.pullFraction === 0) return `- ${label}: no adjustment (slope=${n(tr?.trendSlope, 4)}, consistency=${n(tr?.trendConsistency, 2)})`;
+      const dir = tr.gap > 0 ? 'decline' : 'improve';
+      return `- ${label}: slope=${n(tr.trendSlope, 4)}/yr, consistency=${n(tr.trendConsistency, 2)}, gap=${n(tr.gap, 4)} -> pull ${n(tr.pullFraction, 3)} (${dir}), adjusted=${n(tr.adjustedRate, 2)}`;
+    };
+    lines.push(fmtTrend('K/9', ta.k9));
+    lines.push(fmtTrend('BB/9', ta.bb9));
+    lines.push(fmtTrend('HR/9', ta.hr9));
+  } else {
+    lines.push(`- No trend data available`);
   }
 
   lines.push(`Step 5. Convert to rating outputs`);
@@ -953,9 +1072,9 @@ function renderHitterRatingExplanation(output: any): string {
 
   lines.push(`Step 3. Tier-aware regression`);
   lines.push(`- Raw wOBA=${n(t.rawWoba, 3)} sets regression tier (elite hitters regress toward elite targets, weak hitters toward weaker targets).`);
-  lines.push(`- BB%: weighted ${n(t.regression?.bbPct?.weightedRate)} -> target ${n(t.regression?.bbPct?.regressionTarget)} with adjustedK ${n(t.regression?.bbPct?.adjustedKAfterPaScale)} -> regressed ${n(t.regression?.bbPct?.regressedRate)}`);
-  lines.push(`- K%: weighted ${n(t.regression?.kPct?.weightedRate)} -> target ${n(t.regression?.kPct?.regressionTarget)} with adjustedK ${n(t.regression?.kPct?.adjustedKAfterPaScale)} -> regressed ${n(t.regression?.kPct?.regressedRate)}`);
-  lines.push(`- AVG: weighted ${n(t.regression?.avg?.weightedRate, 3)} -> target ${n(t.regression?.avg?.regressionTarget, 3)} with adjustedK ${n(t.regression?.avg?.adjustedKAfterPaScale)} -> regressed ${n(t.regression?.avg?.regressedRate, 3)}`);
+  lines.push(`- BB%: weighted ${n(t.regression?.bbPct?.weightedRate)} -> target ${n(t.regression?.bbPct?.regressionTarget)} with stabilizationConstant ${n(t.regression?.bbPct?.adjustedKAfterPaScale)} -> regressed ${n(t.regression?.bbPct?.regressedRate)}`);
+  lines.push(`- K%: weighted ${n(t.regression?.kPct?.weightedRate)} -> target ${n(t.regression?.kPct?.regressionTarget)} with stabilizationConstant ${n(t.regression?.kPct?.adjustedKAfterPaScale)} -> regressed ${n(t.regression?.kPct?.regressedRate)}`);
+  lines.push(`- AVG: weighted ${n(t.regression?.avg?.weightedRate, 3)} -> target ${n(t.regression?.avg?.regressionTarget, 3)} with stabilizationConstant ${n(t.regression?.avg?.adjustedKAfterPaScale)} -> regressed ${n(t.regression?.avg?.regressedRate, 3)}`);
   lines.push(`- HR% is intentionally not regressed here (coefficient calibration already accounts for power regression).`);
 
   lines.push(`Step 4. Scouting blend`);
@@ -965,6 +1084,24 @@ function renderHitterRatingExplanation(output: any): string {
     lines.push(`- Final blended BB%=${n(t.output?.blendedBbPct)}, K%=${n(t.output?.blendedKPct)}, HR%=${n(t.output?.blendedHrPct)}, AVG=${n(t.output?.blendedAvg, 3)}`);
   } else {
     lines.push(`- No scouting blend applied`);
+  }
+
+  lines.push(`Step 4.5. Trend adjustment`);
+  if (t.trendAdjustment) {
+    const ta = t.trendAdjustment;
+    const fmtTrend = (label: string, tr: any, digits: number = 2) => {
+      if (!tr || tr.pullFraction === 0) return `- ${label}: no adjustment (slope=${n(tr?.trendSlope, 4)}, consistency=${n(tr?.trendConsistency, 2)})`;
+      const dir = tr.gap > 0 ? 'decline' : 'improve';
+      return `- ${label}: slope=${n(tr.trendSlope, 4)}/yr, consistency=${n(tr.trendConsistency, 2)}, gap=${n(tr.gap, digits)} -> pull ${n(tr.pullFraction, 3)} (${dir}), adjusted=${n(tr.adjustedRate, digits)}`;
+    };
+    lines.push(fmtTrend('BB%', ta.bbPct));
+    lines.push(fmtTrend('K%', ta.kPct));
+    lines.push(fmtTrend('HR%', ta.hrPct));
+    lines.push(fmtTrend('AVG', ta.avg, 4));
+    lines.push(fmtTrend('2B/AB', ta.doublesRate, 4));
+    lines.push(fmtTrend('3B/AB', ta.triplesRate, 4));
+  } else {
+    lines.push(`- No trend data available`);
   }
 
   lines.push(`Step 5. Convert to offense outputs`);
@@ -1103,7 +1240,7 @@ function renderHitterProjectionExplanation(output: any): string {
     }
 
     lines.push(`Step 4. Final projected line (matches modal)`);
-    lines.push(`- PA=${n(p?.pa, 0)}, AVG=${n(p?.avg, 3)}, OBP=${n(p?.obp, 3)}, SLG=${n(p?.slg, 3)}, HR=${n(p?.hr, 0)}, SB=${n(p?.sb, 0)}, wOBA=${n(p?.woba, 3)}, WAR=${n(p?.war, 1)}`);
+    lines.push(`- PA=${n(p?.pa, 0)}, AVG=${n(p?.avg, 3)}, OBP=${n(p?.obp, 3)}, SLG=${n(p?.slg, 3)}, HR=${n(p?.hr, 0)}, 2B=${n(p?.doubles, 0)}, 3B=${n(p?.triples, 0)}, SB=${n(p?.sb, 0)}, wOBA=${n(p?.woba, 3)}, WAR=${n(p?.war, 1)}`);
 
     return lines.join('\n');
   }
@@ -1143,7 +1280,7 @@ function renderHitterProjectionExplanation(output: any): string {
   lines.push(`- wRC+=${n(t.runValueOutput?.wrcPlus, 0)} from projected wOBA vs league baseline; WAR=${n(t.runValueOutput?.war, 2)} includes baserunning runs.`);
 
   lines.push(`Step 6. Final projected line`);
-  lines.push(`- PA=${n(p?.projectedStats?.pa, 0)}, AVG=${n(p?.projectedStats?.avg, 3)}, OBP=${n(p?.projectedStats?.obp, 3)}, SLG=${n(p?.projectedStats?.slg, 3)}, HR=${n(p?.projectedStats?.hr, 0)}, SB=${n(p?.projectedStats?.sb, 0)}, wOBA=${n(p?.projectedStats?.woba, 3)}, WAR=${n(p?.projectedStats?.war, 1)}`);
+  lines.push(`- PA=${n(p?.projectedStats?.pa, 0)}, AVG=${n(p?.projectedStats?.avg, 3)}, OBP=${n(p?.projectedStats?.obp, 3)}, SLG=${n(p?.projectedStats?.slg, 3)}, HR=${n(p?.projectedStats?.hr, 0)}, 2B=${n(p?.projectedStats?.doubles, 0)}, 3B=${n(p?.projectedStats?.triples, 0)}, SB=${n(p?.projectedStats?.sb, 0)}, wOBA=${n(p?.projectedStats?.woba, 3)}, WAR=${n(p?.projectedStats?.war, 1)}`);
 
   return lines.join('\n');
 }
@@ -1213,6 +1350,290 @@ function renderMarkdownReport(payload: any): string {
   return sections.join('\n');
 }
 
+async function clearTrCaches(): Promise<void> {
+  const { trueRatingsService } = await import('../src/services/TrueRatingsService');
+  const { teamRatingsService } = await import('../src/services/TeamRatingsService');
+  const { hitterScoutingDataService } = await import('../src/services/HitterScoutingDataService');
+  const { scoutingDataService } = await import('../src/services/ScoutingDataService');
+  trueRatingsService.clearCaches();
+  teamRatingsService.clearTfrCaches();
+  // Reset scouting service caches so they re-fetch for the new source
+  (hitterScoutingDataService as any).supabaseOsaCache = null;
+  (hitterScoutingDataService as any).supabaseOsaLoading = null;
+  (scoutingDataService as any).supabaseOsaCache = null;
+  (scoutingDataService as any).supabaseOsaLoading = null;
+}
+
+function removeMyScoutingKeys(): void {
+  const keysToRemove: string[] = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.includes('_my')) keysToRemove.push(key);
+  }
+  for (const key of keysToRemove) localStorage.removeItem(key);
+}
+
+function restoreMyScoutingKeys(backup: Map<string, string>): void {
+  for (const [key, value] of backup) localStorage.setItem(key, value);
+}
+
+function backupMyScoutingKeys(): Map<string, string> {
+  const backup = new Map<string, string>();
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    if (key && key.includes('_my')) {
+      const val = localStorage.getItem(key);
+      if (val) backup.set(key, val);
+    }
+  }
+  return backup;
+}
+
+async function runScoutingComparison(
+  playerId: number,
+  playerType: PlayerType,
+  year: number,
+  projectionMode: 'current' | 'peak',
+  log: { log: (...a: any[]) => void; error: (...a: any[]) => void },
+): Promise<void> {
+  const { supabaseDataService } = await import('../src/services/SupabaseDataService');
+
+  const myBackup = backupMyScoutingKeys();
+  const hasCustom = myBackup.size > 0;
+
+  // 1. Run with custom scouting (my > osa priority) — skip Supabase fast path
+  let customOutput: any;
+  let customRatingOutput: any;
+  if (hasCustom) {
+    supabaseDataService.hasCustomScouting = true;
+    await clearTrCaches();
+    if (playerType === 'pitcher') {
+      customRatingOutput = await explainPitcherRating(playerId, year);
+      customOutput = await explainPitcherProjection(playerId, year, projectionMode);
+    } else {
+      customRatingOutput = await explainHitterRating(playerId, year);
+      customOutput = await explainHitterProjection(playerId, year, projectionMode);
+    }
+  }
+
+  // 2. Run with OSA only — use Supabase fast path for precomputed TR
+  removeMyScoutingKeys();
+  supabaseDataService.hasCustomScouting = false;
+  await clearTrCaches();
+  let osaRatingOutput: any;
+  let osaOutput: any;
+  if (playerType === 'pitcher') {
+    osaRatingOutput = await explainPitcherRating(playerId, year);
+    osaOutput = await explainPitcherProjection(playerId, year, projectionMode);
+  } else {
+    osaRatingOutput = await explainHitterRating(playerId, year);
+    osaOutput = await explainHitterProjection(playerId, year, projectionMode);
+  }
+
+  // Restore
+  if (hasCustom) {
+    restoreMyScoutingKeys(myBackup);
+    supabaseDataService.hasCustomScouting = true;
+  }
+
+  // 3. Print full explanation for each source, then diff table
+  const name = osaOutput.playerName ?? `Player ${playerId}`;
+
+  if (hasCustom) {
+    log.log(`\n${'='.repeat(70)}`);
+    log.log(`CUSTOM SCOUTING — Rating Explanation`);
+    log.log('='.repeat(70));
+    log.log(renderOutputExplanation(customRatingOutput));
+    log.log(`\n${'='.repeat(70)}`);
+    log.log(`CUSTOM SCOUTING — Projection Explanation`);
+    log.log('='.repeat(70));
+    log.log(renderOutputExplanation(customOutput));
+  }
+
+  log.log(`\n${'='.repeat(70)}`);
+  log.log(`OSA SCOUTING — Rating Explanation`);
+  log.log('='.repeat(70));
+  log.log(renderOutputExplanation(osaRatingOutput));
+  log.log(`\n${'='.repeat(70)}`);
+  log.log(`OSA SCOUTING — Projection Explanation`);
+  log.log('='.repeat(70));
+  log.log(renderOutputExplanation(osaOutput));
+
+  // 4. Summary diff table
+  log.log(`\n${'='.repeat(70)}`);
+  log.log(`COMPARISON: ${name} (${playerId}), ${year}, ${playerType}`);
+  log.log('='.repeat(70));
+
+  if (playerType === 'hitter') {
+    renderHitterComparison(osaOutput, customOutput, log);
+  } else {
+    renderPitcherComparison(osaOutput, customOutput, log);
+  }
+}
+
+function renderHitterComparison(
+  osa: any,
+  custom: any | undefined,
+  log: { log: (...a: any[]) => void },
+): void {
+  const osaScout = osa.scoutingInput ?? {};
+  const customScout = custom?.scoutingInput ?? {};
+  const osaRatings = osa.canonicalCurrentRatings ?? {};
+  const customRatings = custom?.canonicalCurrentRatings ?? {};
+  const osaBlend = osa.canonicalBlendedRates ?? {};
+  const customBlend = custom?.canonicalBlendedRates ?? {};
+  const osaProj = osa.projection?.projectedStats ?? {};
+  const customProj = custom?.projection?.projectedStats ?? {};
+
+  const hdr = custom ? '                        OSA        Custom     Diff' : '                        OSA';
+  log.log(hdr);
+  log.log('-'.repeat(hdr.length));
+
+  const rows: [string, string, any, any][] = [
+    ['Scouting', '', null, null],
+    ['  Power', '', osaScout.power, customScout.power],
+    ['  Eye', '', osaScout.eye, customScout.eye],
+    ['  AvoidK', '', osaScout.avoidK, customScout.avoidK],
+    ['  Contact', '', osaScout.contact, customScout.contact],
+    ['  Gap', '', osaScout.gap, customScout.gap],
+    ['  Speed', '', osaScout.speed, customScout.speed],
+    ['  SB Agg', '', osaScout.stealingAggressiveness, customScout.stealingAggressiveness],
+    ['  SB Ability', '', osaScout.stealingAbility, customScout.stealingAbility],
+    ['  OVR/POT', 'ovr', osaScout.ovr, customScout.ovr],
+    ['  Injury', '', osaScout.injuryProneness, customScout.injuryProneness],
+    ['', '', null, null],
+    ['True Ratings', '', null, null],
+    ['  Power', '', osaRatings.power, customRatings.power],
+    ['  Eye', '', osaRatings.eye, customRatings.eye],
+    ['  AvoidK', '', osaRatings.avoidK, customRatings.avoidK],
+    ['  Contact', '', osaRatings.contact, customRatings.contact],
+    ['  Gap', '', osaRatings.gap, customRatings.gap],
+    ['  Speed', '', osaRatings.speed, customRatings.speed],
+    ['  TR', '', osa.canonicalTrueRating?.trueRating, custom?.canonicalTrueRating?.trueRating],
+    ['', '', null, null],
+    ['Blended Rates', '', null, null],
+    ['  BB%', '', osaBlend.bbPct, customBlend.bbPct],
+    ['  K%', '', osaBlend.kPct, customBlend.kPct],
+    ['  HR%', '', osaBlend.hrPct, customBlend.hrPct],
+    ['  AVG', '', osaBlend.avg, customBlend.avg],
+    ['', '', null, null],
+    ['Projection', '', null, null],
+    ['  PA', '', osaProj.pa, customProj.pa],
+    ['  AVG', '', osaProj.avg, customProj.avg],
+    ['  OBP', '', osaProj.obp, customProj.obp],
+    ['  SLG', '', osaProj.slg, customProj.slg],
+    ['  BB%', '', osaProj.bbPct, customProj.bbPct],
+    ['  K%', '', osaProj.kPct, customProj.kPct],
+    ['  HR%', '', osaProj.hrPct, customProj.hrPct],
+    ['  HR', '', osaProj.hr, customProj.hr],
+    ['  2B', '', osaProj.doubles, customProj.doubles],
+    ['  3B', '', osaProj.triples, customProj.triples],
+    ['  SB', '', osaProj.sb, customProj.sb],
+    ['  wOBA', '', osaProj.woba, customProj.woba],
+    ['  WAR', '', osaProj.war, customProj.war],
+    ['  wRC+', '', osaProj.wrcPlus, customProj.wrcPlus],
+  ];
+
+  for (const [label, _tag, osaVal, customVal] of rows) {
+    if (osaVal === null && customVal === null) {
+      log.log(label);
+      continue;
+    }
+    const osaStr = fmtVal(osaVal);
+    if (!custom) {
+      log.log(`${label.padEnd(24)}${osaStr.padStart(10)}`);
+    } else {
+      const customStr = fmtVal(customVal);
+      const diff = diffStr(osaVal, customVal);
+      log.log(`${label.padEnd(24)}${osaStr.padStart(10)}${customStr.padStart(11)}${diff.padStart(10)}`);
+    }
+  }
+}
+
+function renderPitcherComparison(
+  osa: any,
+  custom: any | undefined,
+  log: { log: (...a: any[]) => void },
+): void {
+  const osaScout = osa.scoutingInput ?? {};
+  const customScout = custom?.scoutingInput ?? {};
+  const osaRatings = osa.canonicalCurrentRatings ?? {};
+  const customRatings = custom?.canonicalCurrentRatings ?? {};
+  const osaBlend = osa.canonicalBlendedRates ?? {};
+  const customBlend = custom?.canonicalBlendedRates ?? {};
+  const osaProj = osa.projection?.projectedStats ?? {};
+  const customProj = custom?.projection?.projectedStats ?? {};
+
+  const hdr = custom ? '                        OSA        Custom     Diff' : '                        OSA';
+  log.log(hdr);
+  log.log('-'.repeat(hdr.length));
+
+  const rows: [string, any, any][] = [
+    ['Scouting', null, null],
+    ['  Stuff', osaScout.stuff, customScout.stuff],
+    ['  Control', osaScout.control, customScout.control],
+    ['  HRA', osaScout.hra, customScout.hra],
+    ['  Stamina', osaScout.stamina, customScout.stamina],
+    ['  OVR/POT', osaScout.ovr, customScout.ovr],
+    ['', null, null],
+    ['True Ratings', null, null],
+    ['  Stuff', osaRatings.stuff, customRatings.stuff],
+    ['  Control', osaRatings.control, customRatings.control],
+    ['  HRA', osaRatings.hra, customRatings.hra],
+    ['  TR', osa.canonicalTrueRating?.trueRating, custom?.canonicalTrueRating?.trueRating],
+    ['', null, null],
+    ['Blended Rates', null, null],
+    ['  K/9', osaBlend.k9, customBlend.k9],
+    ['  BB/9', osaBlend.bb9, customBlend.bb9],
+    ['  HR/9', osaBlend.hr9, customBlend.hr9],
+    ['', null, null],
+    ['Projection', null, null],
+    ['  IP', osaProj.ip, customProj.ip],
+    ['  K/9', osaProj.k9, customProj.k9],
+    ['  BB/9', osaProj.bb9, customProj.bb9],
+    ['  HR/9', osaProj.hr9, customProj.hr9],
+    ['  FIP', osaProj.fip, customProj.fip],
+    ['  WAR', osaProj.war, customProj.war],
+  ];
+
+  for (const [label, osaVal, customVal] of rows) {
+    if (osaVal === null && customVal === null) {
+      log.log(label);
+      continue;
+    }
+    const osaStr = fmtVal(osaVal);
+    if (!custom) {
+      log.log(`${label.padEnd(24)}${osaStr.padStart(10)}`);
+    } else {
+      const customStr = fmtVal(customVal);
+      const diff = diffStr(osaVal, customVal);
+      log.log(`${label.padEnd(24)}${osaStr.padStart(10)}${customStr.padStart(11)}${diff.padStart(10)}`);
+    }
+  }
+}
+
+function fmtVal(v: any): string {
+  if (v === undefined || v === null) return '—';
+  if (typeof v === 'number') {
+    if (Number.isInteger(v)) return String(v);
+    if (Math.abs(v) < 1) return v.toFixed(3);
+    if (Math.abs(v) < 10) return v.toFixed(2);
+    return v.toFixed(1);
+  }
+  return String(v);
+}
+
+function diffStr(a: any, b: any): string {
+  if (typeof a !== 'number' || typeof b !== 'number') return '';
+  const d = b - a;
+  if (d === 0) return '—';
+  const sign = d > 0 ? '+' : '';
+  if (Number.isInteger(a) && Number.isInteger(b)) return `${sign}${d}`;
+  if (Math.abs(a) < 1) return `${sign}${d.toFixed(3)}`;
+  if (Math.abs(a) < 10) return `${sign}${d.toFixed(2)}`;
+  return `${sign}${d.toFixed(1)}`;
+}
+
 async function main(): Promise<void> {
   await setupNodeEnvironment();
 
@@ -1240,13 +1661,26 @@ async function main(): Promise<void> {
   }
 
   const { dateService } = await import('../src/services/DateService');
-  const fallbackYear = await dateService.getCurrentYear();
+  const fallbackYear = await dateService.getProjectionTargetYear();
   const year = Number(args.year ?? fallbackYear);
   const mode = (args.mode ?? 'all') as ExplainMode;
   const projectionMode = args.projectionMode === 'peak' ? 'peak' : 'current';
   const playerType = await resolvePlayerType(playerId, args.type);
 
-  await seedDefaultScouting(year);
+  // Fetch custom scouting from WBL API if --passkey provided
+  const passkey = args.passkey ?? args.pass;
+  const team = args.team;
+  if (passkey && team) {
+    const counts = await fetchAndSeedCustomScouting(team, passkey, year);
+    baseConsole.error(`Fetched custom scouting: ${counts.pitchers} pitchers, ${counts.hitters} hitters`);
+  }
+
+  const compare = args.compare !== undefined;
+
+  if (compare) {
+    await runScoutingComparison(playerId, playerType, year, projectionMode, baseConsole);
+    return;
+  }
 
   const outputs: any[] = [];
 

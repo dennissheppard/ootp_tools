@@ -20,14 +20,12 @@ export class PlayerService {
       const cached = await this.loadFromCache();
       if (cached) {
         this.players = cached;
-        console.log(`📦 Loaded ${this.players.length} players into in-memory cache`);
         return this.players;
       }
     }
 
     // Deduplicate concurrent requests
     if (this.loading) {
-      console.log('⏳ Already loading players, waiting for existing request...');
       return this.loading;
     }
 
@@ -143,6 +141,9 @@ export class PlayerService {
             role: r.role,
             age: r.age,
             retired: r.retired ?? false,
+            status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
+            draftEligible: r.draft_eligible ?? false,
+            hsc: r.hsc ?? null,
           }));
         }
       } catch { /* fall through */ }
@@ -177,6 +178,9 @@ export class PlayerService {
             role: r.role,
             age: r.age,
             retired: r.retired ?? false,
+            status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
+            draftEligible: r.draft_eligible ?? false,
+            hsc: r.hsc ?? null,
           }));
         }
       } catch { /* fall through */ }
@@ -230,6 +234,9 @@ export class PlayerService {
             role: r.role,
             age: r.age,
             retired: r.retired ?? false,
+            status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
+            draftEligible: r.draft_eligible ?? false,
+            hsc: r.hsc ?? null,
           };
         }
       } catch {
@@ -289,6 +296,11 @@ export class PlayerService {
             role: r.role,
             age: r.age,
             retired: r.retired ?? false,
+            status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
+            draftEligible: r.draft_eligible ?? false,
+            hsc: r.hsc ?? null,
+            bats: r.bats ?? undefined,
+            throws: r.throws ?? undefined,
           }));
         } else {
           console.warn('⚠️ Supabase returned 0 players. Run: npx tsx tools/sync-db.ts');
@@ -302,7 +314,6 @@ export class PlayerService {
       return [];
     }
 
-    console.log('🌐 Fetching players from API...');
     const response = await apiFetch(`${API_BASE}/players/`);
     if (!response.ok) {
       throw new Error(`Failed to fetch players: ${response.statusText}`);
@@ -310,7 +321,6 @@ export class PlayerService {
 
     const csvText = await response.text();
     const players = this.parsePlayersCsv(csvText);
-    console.log(`✅ Fetched ${players.length} players from API`);
 
     return players;
   }
@@ -333,6 +343,9 @@ export class PlayerService {
         role: parseInt(values[7], 10),
         age: parseInt(values[8], 10),
         retired: values[9]?.trim() === '1',
+        status: values[9]?.trim() === '1' ? 'retired' as const : (parseInt(values[3], 10) ? 'active' as const : 'free_agent' as const),
+        draftEligible: false,
+        hsc: null,
       };
     });
   }

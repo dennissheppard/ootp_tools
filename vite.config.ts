@@ -17,10 +17,14 @@ export default defineConfig({
     open: true,
     proxy: {
       '/api': {
-        target: 'https://atl-01.statsplus.net/world',
+        target: 'https://worldbaseballleague.org',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, '/api'),
         secure: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            proxyReq.setHeader('x-api-key', 'wbl_doback_gumbo_2020');
+          });
+        },
       },
     },
   },

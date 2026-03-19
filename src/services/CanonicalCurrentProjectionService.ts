@@ -10,6 +10,7 @@ import { projectionService, ProjectedPlayer } from './ProjectionService';
 import { ProjectedBatter } from './BatterProjectionService';
 import { resolveCanonicalPitcherData, resolveCanonicalBatterData, computePitcherProjection, computeBatterProjection } from './ModalDataService';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
+import { hitterAgingService } from './HitterAgingService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { fipWarService } from './FipWarService';
 import { PotentialStatsService } from './PotentialStatsService';
@@ -483,6 +484,7 @@ class CanonicalCurrentProjectionService {
           historicalSbStats: mlbStats
             .filter(s => s.pa >= 50)
             .map(s => ({ sb: s.sb, cs: s.cs, pa: s.pa })),
+          applyAgingToRates: (rates, a) => HitterRatingEstimatorService.applyAgingToBlendedRates(rates, hitterAgingService.getAgingModifiers(a)),
         });
 
         const currentRating = tr?.trueRating ?? tfr?.trueFutureRating ?? 0.5;

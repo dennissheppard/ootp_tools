@@ -166,13 +166,17 @@ class App {
     }
 
     // Auto-detect custom scouting for Supabase users (must run before views initialize)
+    // Flag is restored from localStorage in SupabaseDataService constructor;
+    // we validate against IndexedDB here to warm caches and correct stale flags.
     if (supabaseDataService.isConfigured) {
       try {
         const [myScouting, myHitterScouting] = await Promise.all([
           scoutingDataService.getLatestScoutingRatings('my'),
           hitterScoutingDataService.getLatestScoutingRatings('my'),
         ]);
-        if (myScouting.length > 0 || myHitterScouting.length > 0) {
+        const hasIdbData = myScouting.length > 0 || myHitterScouting.length > 0;
+        console.log(`🔍 Custom scouting check: localStorage=${supabaseDataService.hasCustomScouting}, IndexedDB=${hasIdbData} (${myScouting.length} pitcher, ${myHitterScouting.length} hitter)`);
+        if (hasIdbData || supabaseDataService.hasCustomScouting) {
           supabaseDataService.hasCustomScouting = true;
           console.log('🎯 Custom scouting detected — will recompute TR/TFR locally');
           const year = await dateService.getCurrentYear();
@@ -432,6 +436,22 @@ class App {
       const { tabId } = (event as CustomEvent<{ tabId?: string }>).detail ?? {};
       if (tabId) {
         this.setActiveTab(tabId);
+      }
+    });
+
+    // Double-tap D to toggle hidden Draft Board tab
+    let lastDPress = 0;
+    document.addEventListener('keydown', (e) => {
+      // Ignore when typing in inputs
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+      if (e.key === 'd' || e.key === 'D') {
+        const now = Date.now();
+        if (now - lastDPress < 400) {
+          this.setActiveTab(this.activeTabId === 'tab-draft' ? 'tab-true-ratings' : 'tab-draft');
+          lastDPress = 0;
+        } else {
+          lastDPress = now;
+        }
       }
     });
 

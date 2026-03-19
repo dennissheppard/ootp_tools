@@ -141,7 +141,7 @@ class BatterProjectionAnalysisService {
   ): Promise<BatterYearAnalysisResult | null> {
     // 1. Get Projections from prior year
     const statsBaseYear = year - 1;
-    const context = await batterProjectionService.getProjectionsWithContext(statsBaseYear);
+    const context = await batterProjectionService.getProjectionsWithContext(statsBaseYear, { projectionTargetYear: year });
 
     // 2. Get Actuals from target year
     const actuals = await trueRatingsService.getTrueBattingStats(year);

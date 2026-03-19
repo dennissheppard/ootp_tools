@@ -1,27 +1,33 @@
 import { minorLeagueStatsService, MinorLeagueLevel } from '../services/MinorLeagueStatsService';
 import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingStatsService';
-import { scoutingDataService, ScoutingSource, PITCH_TYPE_ALIASES } from '../services/ScoutingDataService';
+import { scoutingDataService, ScoutingSource } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { dateService } from '../services/DateService';
 import { trueRatingsService, LEAGUE_START_YEAR } from '../services/TrueRatingsService';
 import { MessageModal } from './MessageModal';
 import { storageMigration } from '../services/StorageMigration';
 import { AnalyticsDashboardView } from './AnalyticsDashboardView';
-import { analyticsService } from '../services/AnalyticsService';
 import { syncOrchestrator } from '../services/SyncOrchestrator';
 import { supabaseDataService } from '../services/SupabaseDataService';
 import { teamRatingsService } from '../services/TeamRatingsService';
+import { apiFetch } from '../services/ApiClient';
+import { teamService } from '../services/TeamService';
+import { getTeamLogoUrl } from '../utils/teamLogos';
+import type { PitcherScoutingRatings } from '../models/ScoutingData';
+import type { HitterScoutingRatings } from '../models/ScoutingData';
 
-type ScoutingPlayerType = 'pitcher' | 'hitter';
+const INJURY_MAP: Record<string, string> = {
+  IRN: 'Iron Man', DUR: 'Durable', NOR: 'Normal', FRG: 'Fragile', WRK: 'Wrecked',
+};
 
 export class DataManagementView {
   private container: HTMLElement;
-  private selectedFiles: File[] = [];
   private messageModal: MessageModal;
-  private selectedScoutingSource: ScoutingSource = 'my';
-  private selectedScoutingPlayerType: ScoutingPlayerType = 'pitcher';
   private currentGameDate: string = '';
   private hasLoadedData = false;
+  private teamAbbrMap = new Map<string, string>(); // nickname → abbr
+  private selectedTeamNickname = '';
+  private selectedTeamAbbr = '';
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -79,10 +85,6 @@ export class DataManagementView {
 
     this.refreshExistingDataList();
 
-    if (!supabaseDataService.isConfigured) {
-      this.checkDefaultOsaStatus();
-    }
-
     // Mount analytics dashboard
     const dashboardContainer = this.container.querySelector<HTMLElement>('#analytics-dashboard-container');
     if (dashboardContainer) {
@@ -104,7 +106,7 @@ export class DataManagementView {
         <div id="analytics-dashboard-container" style="display: none;"></div>
 
         <h2 class="section-title">Data Management</h2>
-        <p class="section-subtitle">Manage historical statistics and scouting reports (MLB stats are always current and fetched from the S+ API)</p>
+        <p class="section-subtitle">Stats and OSA scouting are synced automatically. Use this page to load your team's private scouting.</p>
 
         <div id="migration-banner" style="display: none; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -116,133 +118,36 @@ export class DataManagementView {
           </div>
         </div>
 
-        ${supabaseDataService.isConfigured ? '' : `<div id="default-osa-banner" style="display: none; background: rgba(0, 186, 124, 0.1); border-left: 3px solid var(--color-primary); padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
-          <div style="display: flex; justify-content: space-between; align-items: center; gap: 1rem;">
-            <div style="flex: 1;">
-              <strong id="default-osa-title">Default OSA Scouting Data</strong>
-              <p id="default-osa-message" style="margin: 0.5rem 0 0 0; opacity: 0.9;">Loading...</p>
-            </div>
-            <button id="load-default-osa-btn" class="btn btn-primary" style="display: none;">Load Default Data</button>
-          </div>
-        </div>`}
-
-        
-        
         <div class="potential-stats-content" style="grid-template-columns: 1fr;">
-          <details class="csv-field-reference" style="margin-top: 0.5rem;">
-            <summary style="cursor: pointer; user-select: none; font-size: 1.9rem; color: var(--color-text); font-weight: bolder; padding: 0.5rem 0;">CSV Field Reference</summary>
-            <div style="margin-top: 0.75rem;">
-              <p style="font-size: 0.82em; color: var(--color-text-muted); margin-bottom: 0.75rem;">All recognized columns for scouting CSVs. Required columns marked with <span style="color: var(--color-error); font-weight: 600;">✱</span> — upload will be rejected if these headers are missing. Columns not listed below are ignored.</p>
+          <div class="csv-upload-container">
+            <h3 class="form-title">Team Scouting</h3>
+            <p style="font-size: 0.85em; color: var(--color-text-muted); margin-bottom: 1rem;">
+              Load your team's private scouting ratings. These are stored locally in your browser only.
+            </p>
 
-              <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
-                <div>
-                  <h4 style="font-size: 0.85em; margin-bottom: 0.5rem; color: var(--color-text);">Pitcher Scouting</h4>
-                  <table class="stats-table" style="width: 100%; font-size: 0.8em;">
-                    <thead><tr><th style="text-align: left;">Column</th><th style="text-align: left;">Description</th><th style="width: 1.5rem;"></th></tr></thead>
-                    <tbody>
-                      <tr><td>ID</td><td>Player ID</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>STU P</td><td>Stuff (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>CON P</td><td>Control (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>HRR P</td><td>HR Avoidance (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>OVR</td><td>Overall star rating</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>POT</td><td>Potential star rating</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>Prone</td><td>Injury proneness</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td style="white-space: nowrap;">FBP, CHP, SLP…</td><td>Pitch type ratings (at least 1)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>Name</td><td>Player name</td><td></td></tr>
-                      <tr><td>STM</td><td>Stamina</td><td></td></tr>
-                      <tr><td>DOB</td><td>Date of birth</td><td></td></tr>
-                      <tr><td>Lev</td><td>Level (MLB, AAA, AA…)</td><td></td></tr>
-                      <tr><td>HSC</td><td>HS/College status</td><td></td></tr>
-                      <tr><td>PBABIP P</td><td>BABIP rating</td><td></td></tr>
-                      <tr><td>G/F</td><td>Groundball/flyball type</td><td></td></tr>
-                      <tr><td>LEA</td><td>Leadership</td><td></td></tr>
-                      <tr><td>LOY</td><td>Loyalty</td><td></td></tr>
-                      <tr><td>AD</td><td>Adaptability</td><td></td></tr>
-                      <tr><td>FIN</td><td>Greed</td><td></td></tr>
-                      <tr><td>WE</td><td>Work Ethic</td><td></td></tr>
-                      <tr><td>INT</td><td>Intelligence</td><td></td></tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div>
-                  <h4 style="font-size: 0.85em; margin-bottom: 0.5rem; color: var(--color-text);">Hitter Scouting</h4>
-                  <table class="stats-table" style="width: 100%; font-size: 0.8em;">
-                    <thead><tr><th style="text-align: left;">Column</th><th style="text-align: left;">Description</th><th style="width: 1.5rem;"></th></tr></thead>
-                    <tbody>
-                      <tr><td>ID</td><td>Player ID</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>POS</td><td>Position (LF, SS, C…)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>POW P</td><td>Power (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>EYE P</td><td>Eye / Discipline (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>K P</td><td>Avoid K (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>CON P</td><td>Contact (20-80)</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>OVR</td><td>Overall star rating</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>POT</td><td>Potential star rating</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>Prone</td><td>Injury proneness</td><td style="color: var(--color-error); font-weight: 600;">✱</td></tr>
-                      <tr><td>Name</td><td>Player name</td><td></td></tr>
-                      <tr><td>GAP P</td><td>Gap Power (20-80)</td><td></td></tr>
-                      <tr><td>SPE</td><td>Speed (20-80)</td><td></td></tr>
-                      <tr><td>SR</td><td>Stealing aggressiveness</td><td></td></tr>
-                      <tr><td>STE</td><td>Stealing ability</td><td></td></tr>
-                      <tr><td>DOB</td><td>Date of birth</td><td></td></tr>
-                      <tr><td>Lev</td><td>Level (MLB, AAA, AA…)</td><td></td></tr>
-                      <tr><td>HSC</td><td>HS/College status</td><td></td></tr>
-                      <tr><td>LEA</td><td>Leadership</td><td></td></tr>
-                      <tr><td>LOY</td><td>Loyalty</td><td></td></tr>
-                      <tr><td>AD</td><td>Adaptability</td><td></td></tr>
-                      <tr><td>FIN</td><td>Greed</td><td></td></tr>
-                      <tr><td>WE</td><td>Work Ethic</td><td></td></tr>
-                      <tr><td>INT</td><td>Intelligence</td><td></td></tr>
-                    </tbody>
-                  </table>
+            <div class="rating-inputs" style="grid-template-columns: 1fr 1fr; margin-bottom: 1rem;">
+              <div class="rating-field">
+                <label>Team</label>
+                <div class="filter-dropdown" id="scout-team-dropdown" style="width: 100%;">
+                  <button class="filter-dropdown-btn" style="width: 100%; text-align: left;" aria-haspopup="true" aria-expanded="false">
+                    <span id="scout-team-display">Select your team...</span> ▾
+                  </button>
+                  <div class="filter-dropdown-menu" id="scout-team-menu" style="max-height: 300px; overflow-y: auto;"></div>
                 </div>
               </div>
-            </div>
-          </details>
-        
-        <div class="csv-upload-container">
-            <h3 class="form-title">Upload Scouting Data</h3>
-
-            <!-- Scouting Inputs -->
-            <div id="scouting-inputs" class="rating-inputs" style="grid-template-columns: 1fr 1fr 1fr; margin-bottom: 1.5rem;">
-                <div class="rating-field">
-                    <label for="scout-player-type">Player Type</label>
-                    <div class="toggle-group" style="justify-self: start;">
-                        <button class="toggle-btn active" data-player-type="pitcher">Pitchers</button>
-                        <button class="toggle-btn" data-player-type="hitter">Hitters</button>
-                    </div>
-                </div>
-                <div class="rating-field">
-                    <label for="scout-source">Source</label>
-                     <div class="toggle-group" style="justify-self: start;">
-                        <button class="toggle-btn active" data-source="my">My Scout</button>
-                        <button class="toggle-btn" data-source="osa">OSA</button>
-                    </div>
-                </div>
-                 <div class="rating-field">
-                    <label for="scout-date-display">Game Date</label>
-                    <input type="text" id="scout-date-display" value="Loading..." readonly style="background-color: var(--color-surface-hover); color: var(--color-text-muted);">
-                </div>
-            </div>
-
-            <div class="csv-upload-area" id="drop-zone">
-              <input type="file" id="file-input" accept=".csv" multiple hidden>
-              <div id="upload-prompt">
-                <p>Drop one or more CSV files here or <button type="button" class="btn-link" id="browse-btn">browse</button></p>
-                <p class="csv-format" id="format-hint">Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]</p>
-                <p class="csv-format" id="naming-hint">For bulk upload, use: <code>pitcher_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. pitcher_scouting_my_2024-03-15.csv)</p>
-              </div>
-              <div id="file-display" style="display: none;">
-                <div id="file-list" style="margin-bottom: 1rem; max-height: 200px; overflow-y: auto;"></div>
-                <button type="button" class="btn-link" id="clear-file">Clear All</button>
+              <div class="rating-field">
+                <label for="scout-passphrase">Passphrase</label>
+                <input type="text" id="scout-passphrase" placeholder="Enter team passphrase" autocomplete="off" data-lpignore="true" data-form-type="other" style="width: 100%; padding: 0.4rem 0.5rem; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); border-radius: 4px; -webkit-text-security: disc;">
               </div>
             </div>
-            
-            <div style="margin-top: 1rem; text-align: right;">
-                 <button id="upload-btn" class="btn btn-primary" disabled>Save Data</button>
+
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+              <p style="font-size: 0.78em; color: var(--color-text-muted); margin: 0; max-width: 70%;">
+                Your passphrase is not stored. Scouting ratings are saved locally in your browser and never uploaded to any server.
+              </p>
+              <button id="fetch-scouting-btn" class="btn btn-primary" disabled>Fetch Scouting</button>
             </div>
           </div>
-
-          
 
           <div class="results-container">
             <h3 class="form-title">Existing Data</h3>
@@ -269,487 +174,249 @@ export class DataManagementView {
 
     this.bindEvents();
     this.checkMigrationNeeded();
+    this.loadTeamDropdown();
   }
 
   private bindEvents(): void {
-    const fileInput = this.container.querySelector<HTMLInputElement>('#file-input');
-    const browseBtn = this.container.querySelector<HTMLButtonElement>('#browse-btn');
-    const dropZone = this.container.querySelector<HTMLDivElement>('#drop-zone');
-    const uploadBtn = this.container.querySelector<HTMLButtonElement>('#upload-btn');
-    const clearFileBtn = this.container.querySelector<HTMLButtonElement>('#clear-file');
+    const passphrase = this.container.querySelector<HTMLInputElement>('#scout-passphrase');
+    const fetchBtn = this.container.querySelector<HTMLButtonElement>('#fetch-scouting-btn');
 
-    // Source Toggles
-    this.container.querySelectorAll<HTMLButtonElement>('[data-source]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            this.selectedScoutingSource = btn.dataset.source as ScoutingSource;
-            this.container.querySelectorAll<HTMLButtonElement>('[data-source]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-        });
+    passphrase?.addEventListener('input', () => this.updateFetchEnabled());
+    fetchBtn?.addEventListener('click', () => this.handleFetchTeamScouting());
+
+    // Team dropdown open/close
+    const dropdownBtn = this.container.querySelector('#scout-team-dropdown .filter-dropdown-btn');
+    dropdownBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const dropdown = this.container.querySelector('#scout-team-dropdown');
+      dropdown?.classList.toggle('open');
     });
-
-    // Player Type Toggles (for scouting)
-    this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(btn => {
-        btn.addEventListener('click', () => {
-            this.selectedScoutingPlayerType = btn.dataset.playerType as ScoutingPlayerType;
-            this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            this.updateFormatHints();
-        });
-    });
-
-    browseBtn?.addEventListener('click', () => fileInput?.click());
-
-    fileInput?.addEventListener('change', (e) => {
-      const files = (e.target as HTMLInputElement).files;
-      if (files && files.length > 0) this.handleFileSelection(files);
-    });
-
-    dropZone?.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      dropZone.classList.add('drag-over');
-    });
-
-    dropZone?.addEventListener('dragleave', () => {
-      dropZone.classList.remove('drag-over');
-    });
-
-    dropZone?.addEventListener('drop', (e) => {
-      e.preventDefault();
-      dropZone.classList.remove('drag-over');
-      const files = e.dataTransfer?.files;
-      if (files && files.length > 0) {
-        this.handleFileSelection(files);
+    document.addEventListener('click', (e) => {
+      if (!(e.target as HTMLElement).closest('#scout-team-dropdown')) {
+        this.container.querySelector('#scout-team-dropdown')?.classList.remove('open');
       }
     });
-
-    clearFileBtn?.addEventListener('click', () => {
-        this.selectedFiles = [];
-        this.updateFileDisplay();
-        if (fileInput) fileInput.value = '';
-        if (uploadBtn) uploadBtn.disabled = true;
-    });
-
-    uploadBtn?.addEventListener('click', () => this.handleUpload());
 
     // Migration button
     const migrateBtn = this.container.querySelector<HTMLButtonElement>('#migrate-btn');
     migrateBtn?.addEventListener('click', () => this.handleMigration());
-
-    // Load default OSA button
-    const loadDefaultOsaBtn = this.container.querySelector<HTMLButtonElement>('#load-default-osa-btn');
-    loadDefaultOsaBtn?.addEventListener('click', () => this.handleLoadDefaultOsa());
   }
 
-  private updateFormatHints(): void {
-      const formatHint = this.container.querySelector<HTMLElement>('#format-hint');
-      const namingHint = this.container.querySelector<HTMLElement>('#naming-hint');
-
-      if (this.selectedScoutingPlayerType === 'pitcher') {
-          if (formatHint) formatHint.textContent = 'Format: player_id, name, stuff, control, hra [, age, pitch_ratings...]';
-          if (namingHint) namingHint.innerHTML = 'For bulk upload, use: <code>pitcher_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. pitcher_scouting_my_2024-03-15.csv)';
-      } else {
-          if (formatHint) formatHint.textContent = 'Format: player_id, name, power, eye, avoidK [, babip, gap, speed, age]';
-          if (namingHint) namingHint.innerHTML = 'For bulk upload, use: <code>hitter_scouting_[source]_YYYY-MM-DD.csv</code> (e.g. hitter_scouting_osa_2024-03-15.csv)';
-      }
-  }
-
-  private async handleFileSelection(files: FileList): Promise<void> {
-    this.selectedFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.csv'));
-
-    // Check for filename/toggle mismatches
-    if (this.selectedFiles.length === 1) {
-      await this.checkScoutingFileMismatch();
-    }
-
-    this.updateFileDisplay();
-
-    const uploadBtn = this.container.querySelector<HTMLButtonElement>('#upload-btn');
-    if (uploadBtn) uploadBtn.disabled = this.selectedFiles.length === 0;
-  }
-
-  private async checkScoutingFileMismatch(): Promise<void> {
-    // Combine all file names for checking
-    const names = this.selectedFiles.map(f => f.name.toLowerCase());
-    const combined = names.join(' ');
-
-    const hitterKeywords = /hitter|batter|batting|hitting/;
-    const pitcherKeywords = /pitcher|pitching/;
-    const osaKeywords = /[\b_]osa[\b_.]|[\b_]osa$/;
-    const myKeywords = /[\b_]my[\b_.]|[\b_]my$/;
-
-    // Check player type mismatch
-    if (this.selectedScoutingPlayerType === 'pitcher' && hitterKeywords.test(combined)) {
-      const choice = await this.messageModal.confirm(
-        'File Name Mismatch',
-        `The selected file${this.selectedFiles.length > 1 ? 's appear' : ' appears'} to contain <strong>batting/hitter</strong> data based on the filename, but you have <strong>Pitchers</strong> selected.\n\nHow would you like to proceed?`,
-        ['Switch to Hitters', 'Keep as Pitchers']
-      );
-      if (choice === 'Switch to Hitters') {
-        this.selectedScoutingPlayerType = 'hitter';
-        this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => {
-          b.classList.toggle('active', b.dataset.playerType === 'hitter');
-        });
-        this.updateFormatHints();
-      }
-    } else if (this.selectedScoutingPlayerType === 'hitter' && pitcherKeywords.test(combined)) {
-      const choice = await this.messageModal.confirm(
-        'File Name Mismatch',
-        `The selected file${this.selectedFiles.length > 1 ? 's appear' : ' appears'} to contain <strong>pitching</strong> data based on the filename, but you have <strong>Hitters</strong> selected.\n\nHow would you like to proceed?`,
-        ['Switch to Pitchers', 'Keep as Hitters']
-      );
-      if (choice === 'Switch to Pitchers') {
-        this.selectedScoutingPlayerType = 'pitcher';
-        this.container.querySelectorAll<HTMLButtonElement>('[data-player-type]').forEach(b => {
-          b.classList.toggle('active', b.dataset.playerType === 'pitcher');
-        });
-        this.updateFormatHints();
-      }
-    }
-
-    // Check source mismatch
-    if (this.selectedScoutingSource === 'my' && osaKeywords.test(combined)) {
-      const choice = await this.messageModal.confirm(
-        'Scout Source Mismatch',
-        `The selected file${this.selectedFiles.length > 1 ? 's appear' : ' appears'} to contain <strong>OSA</strong> scouting data based on the filename, but you have <strong>My Scout</strong> selected.\n\nHow would you like to proceed?`,
-        ['Switch to OSA', 'Keep as My Scout']
-      );
-      if (choice === 'Switch to OSA') {
-        this.selectedScoutingSource = 'osa';
-        this.container.querySelectorAll<HTMLButtonElement>('[data-source]').forEach(b => {
-          b.classList.toggle('active', b.dataset.source === 'osa');
-        });
-      }
-    } else if (this.selectedScoutingSource === 'osa' && myKeywords.test(combined)) {
-      const choice = await this.messageModal.confirm(
-        'Scout Source Mismatch',
-        `The selected file${this.selectedFiles.length > 1 ? 's appear' : ' appears'} to contain <strong>My Scout</strong> data based on the filename, but you have <strong>OSA</strong> selected.\n\nHow would you like to proceed?`,
-        ['Switch to My Scout', 'Keep as OSA']
-      );
-      if (choice === 'Switch to My Scout') {
-        this.selectedScoutingSource = 'my';
-        this.container.querySelectorAll<HTMLButtonElement>('[data-source]').forEach(b => {
-          b.classList.toggle('active', b.dataset.source === 'my');
-        });
-      }
+  private updateFetchEnabled(): void {
+    const fetchBtn = this.container.querySelector<HTMLButtonElement>('#fetch-scouting-btn');
+    const passphrase = this.container.querySelector<HTMLInputElement>('#scout-passphrase');
+    if (fetchBtn) {
+      fetchBtn.disabled = !this.selectedTeamAbbr || !passphrase?.value;
     }
   }
 
-  /**
-   * Detect date, source, and player type from scouting filename.
-   * Accepts flexible naming like:
-   * - pitcher_scouting_my_2024-03-15.csv  (canonical pitcher format)
-   * - hitter_scouting_osa_2024-03-15.csv  (canonical hitter format)
-   * - pitchers_scouting_my_2024_03_15.csv (plural, underscored date)
-   * - hitters_scouting_osa_2024_03_15.csv (plural, underscored date)
-   * - scouting_my_2024-01-15.csv          (legacy pitcher format, still accepted)
-   * - my_2024-01-15.csv                   (minimal, date detected)
-   * - Any file with YYYY-MM-DD or YYYY_MM_DD pattern
-   */
-  private detectScoutingFileInfo(filename: string): { date?: string, source?: ScoutingSource, playerType?: ScoutingPlayerType } {
-    const name = filename.toLowerCase();
-    let date: string | undefined;
-    let source: ScoutingSource | undefined;
-    let playerType: ScoutingPlayerType | undefined;
+  private async loadTeamDropdown(): Promise<void> {
+    const menu = this.container.querySelector<HTMLElement>('#scout-team-menu');
+    if (!menu) return;
+    try {
+      // Load from both sources: teamService for proper filtering, WBL API for abbreviations
+      const [allTeams, apiRes] = await Promise.all([
+        teamService.getAllTeams(),
+        apiFetch('/api/teams?level=wbl').then(r => r.ok ? r.json() : null).catch(() => null),
+      ]);
 
-    // Detect player type from filename
-    if (/(?:^|[_\-])(?:hitter|hitters|batting|hitting)(?:[_\-.]|$)/.test(name)) {
-      playerType = 'hitter';
-    } else if (/(?:^|[_\-])(?:pitcher|pitchers|pitching)(?:[_\-.]|$)/.test(name)) {
-      playerType = 'pitcher';
-    }
-
-    // Try to detect source from filename
-    if (name.includes('_my_') || name.includes('_my.') || name.startsWith('my_') || name.includes('my_scout')) {
-      source = 'my';
-    } else if (name.includes('_osa_') || name.includes('_osa.') || name.startsWith('osa_') || name.includes('osa_scout')) {
-      source = 'osa';
-    }
-
-    // Try to detect date (YYYY-MM-DD or YYYY_MM_DD format)
-    const dateMatch = name.match(/(\d{4})[-_](\d{1,2})[-_](\d{1,2})/);
-    if (dateMatch) {
-      // Normalize to YYYY-MM-DD format (zero-pad month/day)
-      date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
-    }
-
-    return { date, source, playerType };
-  }
-
-  /**
-   * Validate that a CSV file's headers match what we expect for the current upload type.
-   * Returns an error string if invalid, or null if OK.
-   */
-  private validateCsvHeaders(content: string, filename: string): string | null {
-    const firstLine = content.split(/\r?\n/).find(l => l.trim().length > 0);
-    if (!firstLine) return 'File is empty.';
-
-    // Normalize headers the same way the services do: lowercase, strip all non-alphanumeric
-    const normalize = (s: string) => s.replace(/^\ufeff/, '').toLowerCase().replace(/[^a-z0-9]/g, '');
-    const rawHeaders = firstLine.split(',').map(h => h.replace(/['"]/g, '').trim());
-    const headers = rawHeaders.map(normalize);
-
-    // If all cells are numeric, there's no header row — the parsers handle positional formats, so skip validation
-    const allNumeric = headers.every(h => /^\d+(\.\d+)?$/.test(h));
-    if (allNumeric) return null;
-
-    // Helper: check if any alias matches a normalized header
-    const findHeader = (aliases: string[]) => headers.some(h => aliases.includes(h));
-
-    // Determine effective player type
-    const scoutInfo = this.detectScoutingFileInfo(filename);
-    const playerType = scoutInfo.playerType || this.selectedScoutingPlayerType;
-
-    // Columns required for BOTH pitcher and hitter scouting
-    const sharedAliases: Record<string, string[]> = {
-      'player ID':  ['playerid', 'player_id', 'id', 'pid'],
-      'OVR':        ['ovr', 'overall', 'cur', 'current'],
-      'POT':        ['pot', 'potential', 'ceil', 'ceiling'],
-      'prone':      ['prone', 'injury', 'injuryproneness', 'inj', 'durability'],
-    };
-
-    // Pitcher-specific required columns
-    const pitcherAliases: Record<string, string[]> = {
-      stuff:   ['stuff', 'stu', 'stf', 'stup', 'stfp', 'stuffp'],
-      control: ['control', 'con', 'ctl', 'conp', 'controlp'],
-      hra:     ['hra', 'hr', 'hrr', 'hravoid', 'hravoidance', 'hrrp', 'hrp'],
-    };
-
-    // Hitter-specific required columns
-    const hitterAliases: Record<string, string[]> = {
-      position: ['pos', 'position'],
-      power:    ['power', 'pow', 'pwr', 'powerp', 'pwrp', 'powp'],
-      eye:      ['eye', 'eyep', 'discipline', 'disc'],
-      contact:  ['contact', 'con', 'conp', 'cnt', 'contactp'],
-      avoidK:   ['avoidk', 'avoid_k', 'avk', 'avoidks', 'avoidkp', 'avoidsks', 'kav', 'kavoid', 'kp'],
-    };
-
-    // Check shared columns first
-    const missingShared = Object.entries(sharedAliases)
-      .filter(([, aliases]) => !findHeader(aliases))
-      .map(([name]) => name);
-
-    // Check type-specific columns
-    if (playerType === 'pitcher') {
-      const missingPitcher = Object.entries(pitcherAliases)
-        .filter(([, aliases]) => !findHeader(aliases))
-        .map(([name]) => name);
-
-      // Cross-type check: does this look like hitter data?
-      const hasHitterCols = ['power', 'eye', 'avoidK'].filter(key => findHeader(hitterAliases[key]));
-      if (hasHitterCols.length >= 2 && missingPitcher.length > 0) {
-        return `Headers look like hitter scouting data (found: ${hasHitterCols.join(', ')}), but uploading as Pitchers. Switch the Player Type toggle to Hitters?`;
-      }
-
-      // Check for at least one pitch type column using the canonical allowlist
-      const hasPitches = headers.some(h => PITCH_TYPE_ALIASES.has(h));
-
-      const allMissing = [...missingPitcher, ...missingShared];
-      if (!hasPitches) allMissing.push('pitch types (e.g. Fastball, Slider)');
-
-      if (allMissing.length > 0) {
-        return `Missing required pitcher scouting columns: ${allMissing.join(', ')}.`;
-      }
-    } else {
-      const missingHitter = Object.entries(hitterAliases)
-        .filter(([, aliases]) => !findHeader(aliases))
-        .map(([name]) => name);
-
-      // Cross-type check: does this look like pitcher data?
-      const hasPitcherCols = ['stuff', 'control', 'hra'].filter(key => findHeader(pitcherAliases[key]));
-      if (hasPitcherCols.length >= 2 && missingHitter.length > 0) {
-        return `Headers look like pitcher scouting data (found: ${hasPitcherCols.join(', ')}), but uploading as Hitters. Switch the Player Type toggle to Pitchers?`;
-      }
-
-      const allMissing = [...missingHitter, ...missingShared];
-      if (allMissing.length > 0) {
-        return `Missing required hitter scouting columns: ${allMissing.join(', ')}.`;
-      }
-    }
-
-    return null;
-  }
-
-  private updateFileDisplay(): void {
-    const prompt = this.container.querySelector<HTMLElement>('#upload-prompt');
-    const display = this.container.querySelector<HTMLElement>('#file-display');
-    const fileList = this.container.querySelector<HTMLElement>('#file-list');
-
-    if (this.selectedFiles.length > 0) {
-        if (prompt) prompt.style.display = 'none';
-        if (display) display.style.display = 'block';
-        
-        if (fileList) {
-            fileList.innerHTML = this.selectedFiles.map(f => {
-                const scoutInfo = this.detectScoutingFileInfo(f.name);
-                const displaySource = scoutInfo.source || this.selectedScoutingSource;
-                const displayType = scoutInfo.playerType || this.selectedScoutingPlayerType;
-                const displayDate = scoutInfo.date
-                    ? `<span style="color: var(--color-success)">${scoutInfo.date}</span>`
-                    : `<span style="opacity:0.5">${this.currentGameDate || 'Current'}</span>`;
-                const typeLabel = displayType === 'hitter' ? 'Hitter' : 'Pitcher';
-                const details = `${typeLabel} <span style="color: var(--color-primary)">${displaySource.toUpperCase()}</span> ${displayDate}`;
-
-                return `<div style="display:flex; justify-content:space-between; padding: 0.25rem 0; border-bottom: 1px solid rgba(255,255,255,0.1)">
-                    <span>${f.name}</span>
-                    <span style="font-size: 0.85em; color: var(--color-text-muted);">${details}</span>
-                </div>`;
-            }).join('');
+      // Build nickname → abbr map from WBL API
+      if (apiRes?.teams) {
+        for (const t of Object.values(apiRes.teams) as { abbr: string; nickname: string }[]) {
+          this.teamAbbrMap.set(t.nickname, t.abbr);
         }
-    } else {
-        if (prompt) prompt.style.display = 'block';
-        if (display) display.style.display = 'none';
-        if (fileList) fileList.innerHTML = '';
-    }
-  }
-
-  private async handleUpload(): Promise<void> {
-    if (this.selectedFiles.length === 0) return;
-
-    const uploadBtn = this.container.querySelector<HTMLButtonElement>('#upload-btn');
-    if (uploadBtn) {
-        uploadBtn.disabled = true;
-        uploadBtn.textContent = 'Processing...';
-    }
-
-    let successCount = 0;
-    let failCount = 0;
-    const errors: string[] = [];
-
-    for (const file of this.selectedFiles) {
-        try {
-            const content = await this.readFile(file);
-
-            // Validate headers before parsing
-            const headerError = this.validateCsvHeaders(content, file.name);
-            if (headerError) {
-                failCount++;
-                errors.push(`${file.name}: ${headerError}`);
-                continue;
-            }
-
-            // Detect date, source, and player type from filename
-            const scoutInfo = this.detectScoutingFileInfo(file.name);
-            const saveSource = scoutInfo.source || this.selectedScoutingSource;
-            const saveDate = scoutInfo.date || this.currentGameDate || new Date().toISOString().split('T')[0];
-
-            // For multi-file bulk uploads, validate naming when no date detected
-            if (this.selectedFiles.length > 1 && !scoutInfo.date) {
-                failCount++;
-                const typePrefix = this.selectedScoutingPlayerType === 'hitter' ? 'hitter' : 'pitcher';
-                errors.push(`${file.name}: Could not detect date from filename. For bulk upload, name files like ${typePrefix}_scouting_${this.selectedScoutingSource}_YYYY-MM-DD.csv`);
-                continue;
-            }
-
-            // Determine player type from filename or UI selection
-            const playerType = scoutInfo.playerType || this.selectedScoutingPlayerType;
-
-            if (playerType === 'hitter') {
-                const ratings = hitterScoutingDataService.parseScoutingCsv(content, saveSource);
-                if (ratings.length === 0) {
-                    failCount++;
-                    errors.push(`${file.name}: No valid hitter scouting data found.`);
-                    continue;
-                }
-                await hitterScoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
-            } else {
-                const ratings = scoutingDataService.parseScoutingCsv(content, saveSource);
-                if (ratings.length === 0) {
-                    failCount++;
-                    errors.push(`${file.name}: No valid scouting data found.`);
-                    continue;
-                }
-                await scoutingDataService.saveScoutingRatings(saveDate, ratings, saveSource);
-            }
-            successCount++;
-
-        } catch (err) {
-            failCount++;
-            errors.push(`${file.name}: Parse error.`);
-            console.error(err);
-        }
-    }
-    
-    // Reset
-    this.selectedFiles = [];
-    this.updateFileDisplay();
-    const fileInput = this.container.querySelector<HTMLInputElement>('#file-input');
-    if (fileInput) fileInput.value = '';
-    
-    if (uploadBtn) {
-        uploadBtn.textContent = 'Save Data';
-    }
-
-    // Update list
-    this.refreshExistingDataList();
-
-    // Track scouting upload attempt
-    analyticsService.trackScoutingUpload({
-      playerType: this.selectedScoutingPlayerType,
-      source: this.selectedScoutingSource,
-      fileCount: successCount + failCount,
-      successCount,
-      failCount,
-      errors: errors.length > 0 ? errors : undefined,
-    });
-
-    // Recalculate TR/TFR when Supabase user uploads custom scouting
-    if (successCount > 0 && supabaseDataService.isConfigured) {
-      supabaseDataService.hasCustomScouting = true;
-      trueRatingsService.clearCaches();
-      teamRatingsService.clearTfrCaches();
-
-      this.messageModal.show('Recalculating', 'Loading stats data...');
-
-      try {
-        const year = await dateService.getCurrentYear();
-        await trueRatingsService.warmCachesForComputation(year);
-        this.messageModal.show('Recalculating', 'Computing ratings with your scouting data...');
-        const [hitterTr, pitcherTr, , pitcherFarm] = await Promise.all([
-          trueRatingsService.getHitterTrueRatings(year),
-          trueRatingsService.getPitcherTrueRatings(year),
-          teamRatingsService.getUnifiedHitterTfrData(year),
-          teamRatingsService.getFarmData(year),
-        ]);
-
-        const prospectCount = pitcherFarm.prospects.length;
-        this.messageModal.show('Upload Results',
-          `Ratings recalculated with your scouting data.\n${hitterTr.size} hitter TRs, ${pitcherTr.size} pitcher TRs, ${prospectCount} pitcher prospects.\n\nSaved: ${successCount} files. Failed: ${failCount} files.`
-          + (errors.length > 0 ? '\n\nErrors:\n' + errors.join('\n') : ''));
-      } catch (err) {
-        console.error('Failed to recalculate ratings:', err);
-        let msg = `Scouting uploaded but rating recalculation failed.\nSaved: ${successCount} files. Failed: ${failCount} files.`;
-        if (errors.length > 0) msg += '\n\nErrors:\n' + errors.join('\n');
-        this.messageModal.show('Upload Results', msg);
       }
 
-      // Notify views after caches are warm
-      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
-        detail: { source: this.selectedScoutingSource }
-      }));
-      return;
-    }
+      // Filter to real MLB orgs (teams with minor league affiliates, excludes All-Star teams)
+      const orgsWithAffiliates = new Set<number>();
+      for (const t of allTeams) {
+        if (t.parentTeamId > 0) orgsWithAffiliates.add(t.parentTeamId);
+      }
+      const mainTeams = allTeams
+        .filter(t => t.parentTeamId === 0 && orgsWithAffiliates.has(t.id))
+        .sort((a, b) => a.nickname.localeCompare(b.nickname));
 
-    // Emit event to notify other views that scouting data was updated
-    if (successCount > 0) {
-      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
-        detail: { source: this.selectedScoutingSource }
-      }));
-    }
+      menu.innerHTML = mainTeams.map(t => {
+        const logoUrl = getTeamLogoUrl(t.nickname);
+        const logoHtml = logoUrl ? `<img class="team-dropdown-logo" src="${logoUrl}" alt="">` : '';
+        return `<div class="filter-dropdown-item" data-nickname="${t.nickname}" data-abbr="${this.teamAbbrMap.get(t.nickname) ?? ''}">${logoHtml}${t.nickname}</div>`;
+      }).join('');
 
-    let msg = `Process complete.\nSaved: ${successCount} files.\nFailed: ${failCount} files.`;
-    if (errors.length > 0) {
-        msg += '\n\nErrors:\n' + errors.join('\n');
-    }
-    this.messageModal.show('Upload Results', msg);
-  }
+      // Bind click handlers
+      menu.querySelectorAll('.filter-dropdown-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const el = item as HTMLElement;
+          this.selectedTeamNickname = el.dataset.nickname ?? '';
+          this.selectedTeamAbbr = el.dataset.abbr ?? '';
 
-  private readFile(file: File): Promise<string> {
-      return new Promise((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = (e) => resolve(e.target?.result as string);
-          reader.onerror = reject;
-          reader.readAsText(file);
+          // Update display
+          const display = this.container.querySelector<HTMLElement>('#scout-team-display');
+          if (display) {
+            const logoUrl = getTeamLogoUrl(this.selectedTeamNickname);
+            const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
+            display.innerHTML = `${logoHtml}${this.selectedTeamNickname}`;
+          }
+
+          // Update selected state
+          menu.querySelectorAll('.filter-dropdown-item').forEach(i => i.classList.remove('selected'));
+          el.classList.add('selected');
+
+          // Close dropdown
+          this.container.querySelector('#scout-team-dropdown')?.classList.remove('open');
+          this.updateFetchEnabled();
+        });
       });
+    } catch {
+      // Silently fail — dropdown stays empty
+    }
+  }
+
+  private async handleFetchTeamScouting(): Promise<void> {
+    const passphraseInput = this.container.querySelector<HTMLInputElement>('#scout-passphrase');
+    const fetchBtn = this.container.querySelector<HTMLButtonElement>('#fetch-scouting-btn');
+    const teamAbbr = this.selectedTeamAbbr;
+    const passphrase = passphraseInput?.value;
+    if (!teamAbbr || !passphrase) return;
+
+    if (fetchBtn) { fetchBtn.disabled = true; fetchBtn.textContent = 'Fetch Scouting'; }
+    this.showScoutingOverlay();
+    this.updateScoutingOverlay('Fetching scouting data...', 'Connecting to WBL API');
+
+    try {
+      const gameDate = this.currentGameDate || await dateService.getCurrentDate();
+
+      // Paginate: API caps at 2000 per request
+      const PAGE_SIZE = 2000;
+      let allRatings: any[] = [];
+      let offset = 0;
+      let total = Infinity;
+
+      while (offset < total) {
+        const url = `/api/scout?tid=${encodeURIComponent(teamAbbr)}&passphrase=${encodeURIComponent(passphrase)}&limit=${PAGE_SIZE}&offset=${offset}`;
+        const res = await apiFetch(url);
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          throw new Error(body || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const pageRatings = data.ratings as any[];
+        if (!pageRatings || pageRatings.length === 0) break;
+
+        allRatings = allRatings.concat(pageRatings);
+        total = data.total ?? pageRatings.length;
+        offset += pageRatings.length;
+
+        this.updateScoutingOverlay('Fetching scouting data...', `${allRatings.length} of ${total} records`);
+
+        if (pageRatings.length < PAGE_SIZE) break; // Last page
+      }
+
+      const ratings = allRatings;
+      if (ratings.length === 0) {
+        this.dismissScoutingOverlay();
+        this.messageModal.show('No Results', 'No scouting ratings returned. Check your team and passphrase.');
+        return;
+      }
+
+      this.updateScoutingOverlay('Processing ratings...', `${ratings.length} records fetched`);
+
+      const pitcherRatings: PitcherScoutingRatings[] = [];
+      const hitterRatings: HitterScoutingRatings[] = [];
+
+      for (const r of ratings) {
+        const injury = r.injury_proneness ? (INJURY_MAP[String(r.injury_proneness).toUpperCase()] ?? String(r.injury_proneness)) : undefined;
+        if (r.is_pitcher) {
+          const pitches: Record<string, number> = {};
+          if (r.pitching?.pitches) {
+            for (const [k, v] of Object.entries(r.pitching.pitches)) {
+              const val = parseInt(String(v), 10);
+              if (val > 0) pitches[k] = val;
+            }
+          }
+          pitcherRatings.push({
+            playerId: parseInt(r.player_id, 10),
+            playerName: r.player_name || undefined,
+            stuff: parseInt(r.pitching?.stuff, 10) || 20,
+            control: parseInt(r.pitching?.control, 10) || 20,
+            hra: parseInt(r.pitching?.hra, 10) || 20,
+            stamina: r.pitching?.stamina ? parseInt(r.pitching.stamina, 10) : undefined,
+            injuryProneness: injury,
+            ovr: r.overall ? parseFloat(r.overall) : undefined,
+            pot: r.potential ? parseFloat(r.potential) : undefined,
+            pitches: Object.keys(pitches).length > 0 ? pitches : undefined,
+          });
+        } else {
+          hitterRatings.push({
+            playerId: parseInt(r.player_id, 10),
+            playerName: r.player_name || undefined,
+            power: parseInt(r.batting?.power, 10) || 20,
+            eye: parseInt(r.batting?.eye, 10) || 20,
+            avoidK: parseInt(r.batting?.avoidKs, 10) || 20,
+            contact: parseInt(r.batting?.contact, 10) || 20,
+            gap: parseInt(r.batting?.gap, 10) || 20,
+            speed: parseInt(r.batting?.speed, 10) || 20,
+            stealingAggressiveness: r.batting?.sbAgg ? parseInt(r.batting.sbAgg, 10) : undefined,
+            stealingAbility: r.batting?.steal ? parseInt(r.batting.steal, 10) : undefined,
+            injuryProneness: injury,
+            ovr: parseFloat(r.overall) || 2.5,
+            pot: parseFloat(r.potential) || 2.5,
+            fielding: r.fielding || undefined,
+          });
+        }
+      }
+
+      // Save to IndexedDB via existing scouting services
+      this.updateScoutingOverlay('Saving to browser...', `${pitcherRatings.length} pitchers, ${hitterRatings.length} hitters`);
+      if (pitcherRatings.length > 0) {
+        await scoutingDataService.saveScoutingRatings(gameDate, pitcherRatings, 'my');
+      }
+      if (hitterRatings.length > 0) {
+        await hitterScoutingDataService.saveScoutingRatings(gameDate, hitterRatings, 'my');
+      }
+
+      // Clear passphrase from UI
+      if (passphraseInput) passphraseInput.value = '';
+
+      let resultMessage: string;
+
+      // Recalculate if Supabase user
+      if (supabaseDataService.isConfigured) {
+        supabaseDataService.hasCustomScouting = true;
+        trueRatingsService.clearCaches();
+        teamRatingsService.clearTfrCaches();
+
+        this.updateScoutingOverlay('Recalculating ratings...', 'This may take a moment');
+
+        try {
+          const year = await dateService.getCurrentYear();
+          await trueRatingsService.warmCachesForComputation(year);
+          const [hitterTr, pitcherTr] = await Promise.all([
+            trueRatingsService.getHitterTrueRatings(year),
+            trueRatingsService.getPitcherTrueRatings(year),
+            teamRatingsService.getUnifiedHitterTfrData(year),
+            teamRatingsService.getFarmData(year),
+          ]);
+          resultMessage = `Loaded ${pitcherRatings.length} pitcher and ${hitterRatings.length} hitter ratings.\nRecalculated: ${hitterTr.size} hitter TRs, ${pitcherTr.size} pitcher TRs.`;
+        } catch (err) {
+          console.error('Failed to recalculate ratings:', err);
+          resultMessage = `Loaded ${pitcherRatings.length} pitcher and ${hitterRatings.length} hitter ratings.\nRating recalculation failed — try refreshing.`;
+        }
+      } else {
+        resultMessage = `Loaded ${pitcherRatings.length} pitcher and ${hitterRatings.length} hitter ratings from ${this.selectedTeamNickname || teamAbbr}.`;
+      }
+
+      this.dismissScoutingOverlay();
+      this.messageModal.show('Scouting Loaded', resultMessage);
+
+      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', { detail: { source: 'my' } }));
+      this.refreshExistingDataList();
+    } catch (err) {
+      console.error('Team scouting fetch failed:', err);
+      this.dismissScoutingOverlay();
+      this.messageModal.show('Fetch Failed', `Could not load scouting data. Check your passphrase and try again.\n\n${err}`);
+    } finally {
+      if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.textContent = 'Fetch Scouting'; }
+    }
   }
 
   private async refreshExistingDataList(): Promise<void> {
@@ -1040,10 +707,10 @@ export class DataManagementView {
 
   private rotateOnboardingMessages(): void {
     const messages = [
-      "Loading MLB and minor league data from StatsPlus...",
+      "Loading MLB and minor league data...",
       "This might take a few minutes depending on league history",
-      "We'll save this data so we don't anger Dave",
-      "This only happens once, promise... for each browser you use 😅",
+      "We'll save this data locally so it's fast next time",
+      "This only happens once, promise... for each browser you use",
       "Almost there, hang tight..."
     ];
 
@@ -1074,6 +741,81 @@ export class DataManagementView {
   private onboardingMessageInterval?: number;
   private onboardingOverlay?: HTMLElement;
   private onboardingClickBlocker?: (e: MouseEvent) => void;
+  private scoutingOverlay?: HTMLElement;
+  private scoutingClickBlocker?: (e: MouseEvent) => void;
+
+  private showScoutingOverlay(): void {
+    const overlay = document.createElement('div');
+    overlay.id = 'scouting-fullscreen-overlay';
+    overlay.style.cssText = `
+      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 1200;
+      background: rgba(0, 0, 0, 0.7);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    `;
+    overlay.innerHTML = `
+      <div style="
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 12px;
+        padding: 2rem 2.5rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 1.25rem;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+        min-width: 320px;
+        max-width: 90vw;
+        text-align: center;
+      ">
+        <div class="scouting-spinner" style="
+          width: 40px; height: 40px;
+          border: 3px solid var(--color-border);
+          border-top-color: var(--color-primary);
+          border-radius: 50%;
+          animation: scouting-spin 0.8s linear infinite;
+        "></div>
+        <div id="scouting-overlay-status" style="font-size: 0.95rem; color: var(--color-text); font-weight: 500;"></div>
+        <div id="scouting-overlay-detail" style="font-size: 0.82rem; color: var(--color-text-muted);"></div>
+      </div>
+      <style>
+        @keyframes scouting-spin {
+          to { transform: rotate(360deg); }
+        }
+      </style>
+    `;
+    document.body.appendChild(overlay);
+    this.scoutingOverlay = overlay;
+
+    const clickBlocker = (e: MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+    };
+    document.addEventListener('click', clickBlocker, true);
+    this.scoutingClickBlocker = clickBlocker;
+  }
+
+  private updateScoutingOverlay(status: string, detail?: string): void {
+    if (!this.scoutingOverlay) return;
+    const statusEl = this.scoutingOverlay.querySelector<HTMLElement>('#scouting-overlay-status');
+    const detailEl = this.scoutingOverlay.querySelector<HTMLElement>('#scouting-overlay-detail');
+    if (statusEl) statusEl.textContent = status;
+    if (detailEl) detailEl.textContent = detail ?? '';
+  }
+
+  private dismissScoutingOverlay(): void {
+    if (this.scoutingClickBlocker) {
+      document.removeEventListener('click', this.scoutingClickBlocker, true);
+      this.scoutingClickBlocker = undefined;
+    }
+    if (this.scoutingOverlay) {
+      this.scoutingOverlay.remove();
+      this.scoutingOverlay = undefined;
+    }
+  }
 
 
 
@@ -1169,125 +911,6 @@ export class DataManagementView {
     }
 
     this.messageModal.show('Setup Error', 'We couldn\'t load some data during setup. Please refresh the page to try again.');
-  }
-
-  private async checkDefaultOsaStatus(): Promise<void> {
-    const banner = this.container.querySelector<HTMLElement>('#default-osa-banner');
-    const title = this.container.querySelector<HTMLElement>('#default-osa-title');
-    const message = this.container.querySelector<HTMLElement>('#default-osa-message');
-    const button = this.container.querySelector<HTMLButtonElement>('#load-default-osa-btn');
-
-    if (!banner || !message || !button) return;
-
-    try {
-      // Check if bundled file exists
-      const fileStatus = await scoutingDataService.checkDefaultOsaFile();
-
-      // Check if OSA data is already loaded
-      const existingOsa = await scoutingDataService.getLatestScoutingRatings('osa');
-
-      if (!fileStatus.exists) {
-        // File doesn't exist - show info message
-        banner.style.display = 'block';
-        banner.style.background = 'rgba(255, 193, 7, 0.1)';
-        banner.style.borderLeftColor = '#ffc107';
-        if (title) title.textContent = 'Default OSA Data Not Found';
-        message.innerHTML = `No bundled OSA scouting file found. Add <code>public/data/default_osa_scouting.csv</code> to include default OSA ratings.`;
-        button.style.display = 'none';
-      } else if (fileStatus.count === 0) {
-        // File exists but is empty
-        banner.style.display = 'block';
-        banner.style.background = 'rgba(255, 193, 7, 0.1)';
-        banner.style.borderLeftColor = '#ffc107';
-        if (title) title.textContent = 'Default OSA Data Empty';
-        message.textContent = `Bundled OSA file exists but contains no ratings. Add data to public/data/default_osa_scouting.csv.`;
-        button.style.display = 'none';
-      } else if (existingOsa.length === 0) {
-        // File exists with data, but not loaded yet
-        banner.style.display = 'block';
-        banner.style.background = 'rgba(0, 186, 124, 0.1)';
-        banner.style.borderLeftColor = 'var(--color-primary)';
-        if (title) title.textContent = 'Default OSA Data Available';
-        message.textContent = `Found bundled OSA file with ${fileStatus.count.toLocaleString()} ratings. Click to load.`;
-        button.style.display = 'block';
-        button.disabled = false;
-      } else {
-        // File exists and data is already loaded
-        banner.style.display = 'block';
-        banner.style.background = 'rgba(0, 186, 124, 0.1)';
-        banner.style.borderLeftColor = 'var(--color-primary)';
-        if (title) title.textContent = 'OSA Data Loaded';
-        message.innerHTML = `✅ OSA scouting data loaded (${existingOsa.length.toLocaleString()} ratings). Bundled file has ${fileStatus.count.toLocaleString()} ratings.`;
-        if (existingOsa.length !== fileStatus.count) {
-          message.innerHTML += ` <button id="reload-default-osa-btn" class="btn-link" style="margin-left: 0.5rem;">Update from bundled file</button>`;
-          // Bind the inline reload button
-          setTimeout(() => {
-            const reloadBtn = this.container.querySelector('#reload-default-osa-btn');
-            reloadBtn?.addEventListener('click', () => this.handleLoadDefaultOsa(true));
-          }, 0);
-        }
-        button.style.display = 'none';
-      }
-    } catch (error) {
-      console.error('Error checking default OSA status:', error);
-      banner.style.display = 'none';
-    }
-  }
-
-  private async handleLoadDefaultOsa(force: boolean = false): Promise<void> {
-    const button = this.container.querySelector<HTMLButtonElement>('#load-default-osa-btn');
-    const message = this.container.querySelector<HTMLElement>('#default-osa-message');
-
-    if (button) {
-      button.disabled = true;
-      button.textContent = 'Loading...';
-    }
-
-    if (message) {
-      message.textContent = 'Loading default OSA data...';
-    }
-
-    try {
-      const gameDate = await dateService.getCurrentDate();
-      const [pitcherCount, hitterCount] = await Promise.all([
-        scoutingDataService.loadDefaultOsaData(gameDate, force),
-        hitterScoutingDataService.loadDefaultHitterOsaData(gameDate, force)
-      ]);
-      const totalCount = pitcherCount + hitterCount;
-
-      if (totalCount > 0) {
-        const details = [];
-        if (pitcherCount > 0) details.push(`${pitcherCount.toLocaleString()} pitchers`);
-        if (hitterCount > 0) details.push(`${hitterCount.toLocaleString()} hitters`);
-
-        this.messageModal.show(
-          'Success',
-          `Loaded ${details.join(' + ')} OSA scouting ratings from bundled files.`
-        );
-
-        // Refresh the data list and status
-        await this.refreshExistingDataList();
-        await this.checkDefaultOsaStatus();
-
-        // Emit event to notify other views
-        window.dispatchEvent(new CustomEvent('scoutingDataUpdated', {
-          detail: { source: 'osa' }
-        }));
-      } else {
-        this.messageModal.show(
-          'No Data Loaded',
-          'The bundled OSA files exist but contain no valid ratings, or OSA data is already loaded.'
-        );
-      }
-    } catch (error) {
-      console.error('Error loading default OSA:', error);
-      this.messageModal.show('Error', `Failed to load default OSA data: ${error}`);
-    } finally {
-      if (button) {
-        button.disabled = false;
-        button.textContent = 'Load Default Data';
-      }
-    }
   }
 
 }

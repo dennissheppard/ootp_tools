@@ -26,12 +26,18 @@ class ScoutingDataFallbackService {
    */
   async getScoutingRatingsWithFallback(year?: number, scoutPriority: 'my' | 'osa' = 'my'): Promise<ScoutingFallbackResult> {
     // 1. Load both sources in parallel
-    const [myRatings, osaRatings] = await Promise.all([
+    // For MY scouting: try year-specific first, fall back to latest if empty.
+    // This handles the common case where scouting is stored under a different
+    // year's date than the requested year (e.g. game date 2022-02-04 for year 2021).
+    let [myRatings, osaRatings] = await Promise.all([
       year ? scoutingDataService.getScoutingRatings(year, 'my')
            : scoutingDataService.getLatestScoutingRatings('my'),
       year ? scoutingDataService.getScoutingRatings(year, 'osa')
            : scoutingDataService.getLatestScoutingRatings('osa')
     ]);
+    if (year && myRatings.length === 0) {
+      myRatings = await scoutingDataService.getLatestScoutingRatings('my');
+    }
 
     // 2. Determine priority/secondary based on scoutPriority param
     const primaryRatings = scoutPriority === 'my' ? myRatings : osaRatings;

@@ -46,7 +46,7 @@ export class GlobalSearchBar {
             <line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
           <input
-            type="text"
+            type="search"
             class="global-search-input"
             placeholder="Search players..."
             autocomplete="off"
@@ -277,7 +277,11 @@ export class GlobalSearchBar {
             // Player is on a major league team
             teamLabel = currentTeamLabel;
           }
+        } else {
+          teamLabel = 'Free Agent';
         }
+      } else {
+        teamLabel = 'Free Agent';
       }
 
       // Fetch both 'my' and OSA scout data for UI display toggle
@@ -458,7 +462,11 @@ export class GlobalSearchBar {
           } else {
             teamLabel = currentTeamLabel;
           }
+        } else {
+          teamLabel = 'Free Agent';
         }
+      } else {
+        teamLabel = 'Free Agent';
       }
 
       // Get batting stats
@@ -529,7 +537,7 @@ export class GlobalSearchBar {
         projDoublesRate = batterResult.blendedDoublesRate;
         projTriplesRate = batterResult.blendedTriplesRate;
         if (batterResult.blendedAvg !== undefined && batterResult.blendedBbPct !== undefined) {
-          projObp = Math.min(0.450, batterResult.blendedAvg + (batterResult.blendedBbPct / 100));
+          projObp = Math.min(0.450, batterResult.blendedAvg + (batterResult.blendedBbPct / 100) * (1 - batterResult.blendedAvg));
         }
         if (batterResult.blendedAvg !== undefined && batterResult.blendedIso !== undefined) {
           projSlg = batterResult.blendedAvg + batterResult.blendedIso;

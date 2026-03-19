@@ -740,69 +740,15 @@ class HitterTrueFutureRatingService {
   async buildMLBPaByInjury(
     _scoutingMap: Map<number, { injuryProneness?: string }>
   ): Promise<Map<string, number>> {
-    // Check precomputed cache (static 2015-2020 data)
-    if (supabaseDataService.isConfigured) {
-      const cached = await supabaseDataService.getPrecomputed('hitter_pa_by_injury');
-      if (cached) {
-        return new Map(Object.entries(cached as Record<string, number>));
-      }
-    }
-
-    const years = [2015, 2016, 2017, 2018, 2019, 2020];
-    const allPa: number[] = [];
-
-    const dobMap = await this.loadPlayerDOBs();
-
-    for (const year of years) {
-      try {
-        const mlbStats = await trueRatingsService.getTrueBattingStats(year);
-
-        for (const stat of mlbStats) {
-          if (stat.pa < 400) continue;
-
-          const age = this.calculateAge(dobMap.get(stat.player_id), year);
-          if (!age || age < 25 || age > 29) continue;
-
-          allPa.push(stat.pa);
-        }
-      } catch (error) {
-        // Skip years with missing data
-      }
-    }
-
-    if (allPa.length === 0) {
-      // Hardcoded fallback if no data
-      const result = new Map<string, number>();
-      result.set('Iron Man', 670);
-      result.set('Durable', 650);
-      result.set('Normal', 630);
-      result.set('Fragile', 600);
-      result.set('Wrecked', 550);
-      return result;
-    }
-
-    allPa.sort((a, b) => a - b);
-
-    // Map each injury tier to a fixed percentile in the combined distribution
-    const tierPercentiles: Record<string, number> = {
-      'Iron Man': 0.90,
-      'Durable': 0.80,
-      'Normal': 0.70,
-      'Fragile': 0.50,
-      'Wrecked': 0.25,
-    };
-
+    // Static empirical PA projections from MLB peak-age data (2015-2020, ages 25-29, 400+ PA).
+    // 434 player-seasons pooled into one distribution, each injury tier at a fixed percentile.
+    // These values are constant and don't need computation or caching.
     const result = new Map<string, number>();
-    for (const [tier, pctl] of Object.entries(tierPercentiles)) {
-      const idx = Math.min(Math.floor(allPa.length * pctl), allPa.length - 1);
-      result.set(tier, allPa[idx]);
-    }
-
-    // Cache for future syncs (this data never changes)
-    if (supabaseDataService.isConfigured) {
-      supabaseDataService.setPrecomputed('hitter_pa_by_injury', Object.fromEntries(result))
-        .catch(err => console.warn('Failed to cache hitter PA by injury:', err));
-    }
+    result.set('Iron Man', 684);
+    result.set('Durable', 662);
+    result.set('Normal', 640);
+    result.set('Fragile', 594);
+    result.set('Wrecked', 519);
 
     return result;
   }

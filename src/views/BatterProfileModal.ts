@@ -10,6 +10,7 @@ import { HitterScoutingRatings } from '../models/ScoutingData';
 import { minorLeagueBattingStatsService } from '../services/MinorLeagueBattingStatsService';
 import { dateService } from '../services/DateService';
 import { HitterRatingEstimatorService } from '../services/HitterRatingEstimatorService';
+import { hitterAgingService } from '../services/HitterAgingService';
 import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
 import { BatterTfrSourceData, teamRatingsService } from '../services/TeamRatingsService';
 import { DevelopmentSnapshotRecord } from '../services/IndexedDBService';
@@ -17,7 +18,7 @@ import { DevelopmentChart, DevelopmentMetric, renderMetricToggles, bindMetricTog
 import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
-import { resolveCanonicalBatterData, computeBatterProjection } from '../services/ModalDataService';
+import { resolveCanonicalBatterData, computeBatterProjection, BatterTrSourceData, snapshotBatterTr, applyBatterTrSnapshot, batterTrFromPrecomputed } from '../services/ModalDataService';
 import { supabaseDataService } from '../services/SupabaseDataService';
 import { computeBatterTags, renderTagsHtml, TagContext } from '../utils/playerTags';
 import { analyticsService } from '../services/AnalyticsService';
@@ -95,6 +96,13 @@ export interface BatterProfileData {
   projSb?: number;
   projCs?: number;
 
+  // Defensive value (precomputed by DefensiveProjectionService)
+  defRuns?: number;
+  posAdj?: number;
+
+  // Park factors (effective half home / half away)
+  parkFactors?: { avg: number; hr: number; d: number; t: number };
+
   // TFR for prospects
   isProspect?: boolean;
   trueFutureRating?: number;
@@ -120,6 +128,9 @@ export interface BatterProfileData {
 
   // TFR by scout source (for toggle in modal)
   tfrBySource?: { my?: BatterTfrSourceData; osa?: BatterTfrSourceData };
+
+  // TR by scout source (for toggle in modal — swaps blended rates + projections)
+  trBySource?: { my?: BatterTrSourceData; osa?: BatterTrSourceData };
 
   // Prospect metadata (for tags)
   level?: string;
@@ -173,6 +184,11 @@ export class BatterProfileModal {
   // Radar chart instances
   private radarChart: RadarChart | null = null;
   private runningRadarChart: RadarChart | null = null;
+  private fieldingRadarChart: RadarChart | null = null;
+  private fieldingScouting: any = null;
+  private myFieldingScouting: any = null;
+  private osaFieldingScouting: any = null;
+  private fieldingTab: 'catcher' | 'infield' | 'outfield' = 'catcher';
 
   // Contract data for current player
   private contract: Contract | null = null;
@@ -196,12 +212,14 @@ export class BatterProfileModal {
   // Projection toggle state (Current vs Peak)
   private projectionMode: 'current' | 'peak' = 'current';
   private currentStats: BatterSeasonStats[] = [];
+  private _lastProjectionWar: number | undefined;
+  private _lastProjection: any | undefined;
 
   // Track which radar series are hidden via legend toggle
   private hiddenSeries = new Set<string>();
 
   // Analysis toggle state (Projections vs True Analysis)
-  private viewMode: 'projections' | 'analysis' = 'projections';
+  private viewMode: 'projections' | 'career' | 'analysis' = 'projections';
   private cachedAnalysisHtml: string = '';
 
   // Guard against async race conditions when re-opened quickly
@@ -335,6 +353,7 @@ export class BatterProfileModal {
     // Clean up any existing charts from a previous show() (e.g. re-opened without hide())
     if (this.radarChart) { this.radarChart.destroy(); this.radarChart = null; }
     if (this.runningRadarChart) { this.runningRadarChart.destroy(); this.runningRadarChart = null; }
+    if (this.fieldingRadarChart) { this.fieldingRadarChart.destroy(); this.fieldingRadarChart = null; }
     if (this.developmentChart) { this.developmentChart.destroy(); this.developmentChart = null; }
 
     // Increment generation to guard against async race conditions
@@ -342,6 +361,8 @@ export class BatterProfileModal {
 
     // Reset projection toggle
     this.projectionMode = 'current';
+    this._lastProjectionWar = undefined;
+    this._lastProjection = undefined;
     // Reset analysis view — default to projections (AI fetched on demand)
     this.viewMode = 'projections';
     this.cachedAnalysisHtml = '';
@@ -355,10 +376,10 @@ export class BatterProfileModal {
     // Store current data for re-rendering on toggle
     this.currentData = data;
 
-    // Store projection year (next year)
+    // Store projection year (next year during offseason)
     const currentYear = await dateService.getCurrentYear();
     if (generation !== this.showGeneration) return; // Stale call
-    this.projectionYear = currentYear;
+    this.projectionYear = await dateService.getProjectionTargetYear();
 
     // Load dynamic league averages (prior year as baseline for projections)
     this.leagueAvg = await leagueBattingAveragesService.getLeagueAverages(currentYear - 1);
@@ -366,9 +387,11 @@ export class BatterProfileModal {
     // === Canonical data override — ensures consistency regardless of caller ===
     let playerTR: import('../services/HitterTrueRatingsCalculationService').HitterTrueRatingResult | undefined;
     let tfrEntry: import('../services/TeamRatingsService').RatedHitterProspect | undefined;
+    let osaPrecomputedTR: import('../services/HitterTrueRatingsCalculationService').HitterTrueRatingResult | undefined;
 
-    if (supabaseDataService.isConfigured) {
+    if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
       // Fast path: single-player rating lookup (1 query instead of bulk fetches)
+      // Skip when custom scouting is active — need locally computed TR/TFR instead
       try {
         const rows = await supabaseDataService.getPlayerRating(data.playerId);
         if (generation !== this.showGeneration) return;
@@ -378,8 +401,10 @@ export class BatterProfileModal {
         }
       } catch { /* ratings not available */ }
     } else {
-      // 1. Fetch canonical TR (skip for prospects — they have no MLB stats)
-      if (!data.isProspect) {
+      // 1. Fetch canonical TR — always attempt, even for callers who tag the player
+      // as a prospect. Players with limited MLB PAs (e.g. late-season call-ups) may
+      // have a TR entry and should show Current/Peak toggle, not prospect-only peak.
+      {
         const canonicalTR = await trueRatingsService.getHitterTrueRatings(currentYear);
         if (generation !== this.showGeneration) return;
         playerTR = canonicalTR.get(data.playerId);
@@ -391,13 +416,71 @@ export class BatterProfileModal {
         if (generation !== this.showGeneration) return;
         tfrEntry = unifiedData.prospects.find(p => p.playerId === data.playerId);
       } catch { /* TFR data not available */ }
+
+      // 3. Also fetch pre-computed OSA TR for scouting toggle (non-prospects only)
+      if (supabaseDataService.isConfigured && supabaseDataService.hasCustomScouting && !data.isProspect) {
+        try {
+          const rows = await supabaseDataService.getPlayerRating(data.playerId);
+          if (generation !== this.showGeneration) return;
+          for (const row of rows) {
+            if (row.rating_type === 'hitter_tr') osaPrecomputedTR = row.data;
+          }
+        } catch { /* OSA pre-computed not available — toggle just won't update projections */ }
+      }
     }
 
-    this.top100Rank = (tfrEntry?.percentileRank !== undefined && tfrEntry.percentileRank <= 100)
+    this.top100Rank = (tfrEntry?.percentileRank !== undefined && tfrEntry.percentileRank <= 100 && tfrEntry.isFarmEligible)
       ? tfrEntry.percentileRank : undefined;
 
     // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
     resolveCanonicalBatterData(data, playerTR, tfrEntry);
+
+    // Load defensive value and park factors from precomputed lookups
+    if (supabaseDataService.isConfigured) {
+      try {
+        const [defLookup, parkFactorsData] = await Promise.all([
+          data.defRuns === undefined ? supabaseDataService.getPrecomputed('defensive_lookup') : Promise.resolve(null),
+          data.parkFactors === undefined ? supabaseDataService.getPrecomputed('park_factors') : Promise.resolve(null),
+        ]);
+        if (generation !== this.showGeneration) return;
+        if (defLookup) {
+          const entry = defLookup[data.playerId];
+          if (entry) {
+            data.defRuns = entry[0];
+            data.posAdj = entry[1];
+          }
+        }
+        if (parkFactorsData) {
+          const { computeEffectiveParkFactors } = await import('../services/ParkFactorService');
+          const allPlayers = await playerService.getAllPlayers();
+          const player = allPlayers.find(p => p.id === data.playerId);
+          if (player) {
+            const parentTeamId = player.parentTeamId || player.teamId;
+            const teamPf = parkFactorsData[parentTeamId];
+            if (teamPf) {
+              data.parkFactors = computeEffectiveParkFactors(teamPf, player.bats ?? 'R');
+            }
+          }
+        }
+      } catch { /* lookups not available */ }
+    }
+
+    // Clear caller-provided PA/WAR for non-prospects so the modal always recomputes
+    // from the player's actual MLB history using projectionYear (not currentYear).
+    // Callers may have computed these with stale year filters.
+    if (!data.isProspect) {
+      data.projPa = undefined;
+      data.projWar = undefined;
+    }
+
+    // Build trBySource so scouting toggle can swap projections
+    if (supabaseDataService.hasCustomScouting && !data.isProspect) {
+      const customSnapshot = snapshotBatterTr(data);
+      const osaSnapshot = osaPrecomputedTR ? batterTrFromPrecomputed(osaPrecomputedTR) : undefined;
+      data.trBySource = {};
+      if (customSnapshot) data.trBySource.my = customSnapshot;
+      if (osaSnapshot) data.trBySource.osa = osaSnapshot;
+    }
 
     // Update header
     const titleEl = this.overlay.querySelector<HTMLElement>('.modal-title');
@@ -460,15 +543,27 @@ export class BatterProfileModal {
     // Fetch additional data
     try {
       // Fetch scouting + contract + league context in parallel
-      const [myScouting, osaScouting, playerContract, leagueCtx] = await Promise.all([
+      const [myScouting, osaScouting, playerContract, leagueCtx, rawFielding] = await Promise.all([
         hitterScoutingDataService.getScoutingForPlayer(data.playerId, 'my'),
         hitterScoutingDataService.getScoutingForPlayer(data.playerId, 'osa'),
         contractService.getContractForPlayer(data.playerId),
         supabaseDataService.isConfigured ? supabaseDataService.getPrecomputed('league_context') : Promise.resolve(null),
+        supabaseDataService.isConfigured ? supabaseDataService.getFieldingScoutingForPlayer(data.playerId) : Promise.resolve(null),
       ]);
+      // Fielding: prefer scouting-source fielding, fall back to Supabase raw_data
+      this.myFieldingScouting = myScouting?.fielding ?? null;
+      this.osaFieldingScouting = osaScouting?.fielding ?? rawFielding;
+      this.fieldingScouting = (myScouting?.fielding) ? myScouting.fielding : (osaScouting?.fielding ?? rawFielding);
+      console.log(`[BatterModal] Player ${data.playerId}: myScouting=${myScouting ? `found (power=${myScouting.power})` : 'NOT FOUND'}, osaScouting=${osaScouting ? `found (power=${osaScouting.power})` : 'NOT FOUND'}`);
       if (generation !== this.showGeneration) return; // Stale call
 
       this.contract = playerContract ?? null;
+
+      // Default fielding tab based on primary position
+      const pos = data.position ?? 0;
+      if (pos === 2) this.fieldingTab = 'catcher';
+      else if (pos >= 7 && pos <= 9) this.fieldingTab = 'outfield';
+      else this.fieldingTab = 'infield';
 
       // Tag context
       this.blockingPlayer = undefined;
@@ -498,9 +593,7 @@ export class BatterProfileModal {
       if (ratingsSlot) {
         ratingsSlot.innerHTML = this.renderRatingEmblem(data);
       }
-      if (warSlot) {
-        warSlot.innerHTML = this.renderWarEmblem(data);
-      }
+      // Skip WAR badge here — it will be rendered after the body sets _lastProjectionWar
       if (vitalsSlot) {
         vitalsSlot.innerHTML = this.renderHeaderVitals(data);
       }
@@ -608,10 +701,11 @@ export class BatterProfileModal {
       // Compute history-aware projected PA when we have MLB stats but no pre-calculated value.
       // For non-prospects, the canonical override above clears projPa so it's always recomputed
       // here from the player's actual MLB history (consistent regardless of caller).
-      // Exclude current year to avoid partial-season contamination (same as BatterProjectionService)
+      // Exclude projection target year to avoid partial-season contamination.
+      // Use projectionYear (not currentYear) so offseason projections include the just-completed season.
       if (data.projPa === undefined && mlbStats.length > 0) {
         const historicalPaData = mlbStats
-          .filter(s => s.year < currentYear2)
+          .filter(s => s.year < this.projectionYear)
           .map(s => ({ year: s.year, pa: s.pa }));
         const injProne = this.scoutingData?.injuryProneness ?? data.injuryProneness;
         data.projPa = leagueBattingAveragesService.getProjectedPaWithHistory(
@@ -619,13 +713,7 @@ export class BatterProfileModal {
         );
       }
 
-      // Re-render WAR emblem now that projPa is computed from actual MLB history
-      // (the initial render at the header pass ran before MLB stats were loaded)
-      if (warSlot) {
-        warSlot.innerHTML = this.renderWarEmblem(data);
-      }
-
-      // Render full body
+      // Render full body first (sets _lastProjectionWar for badge consistency)
       if (bodyEl) {
         bodyEl.innerHTML = this.renderBody(data, allStats);
         this.bindBodyEvents();
@@ -635,6 +723,11 @@ export class BatterProfileModal {
           const emblem = this.overlay?.querySelector('.rating-emblem');
           if (emblem) emblem.classList.add('shimmer-once');
         });
+      }
+
+      // Re-render WAR emblem after body (uses _lastProjectionWar set by renderProjectionContent)
+      if (warSlot) {
+        warSlot.innerHTML = this.renderWarEmblem(data);
       }
     } catch (error) {
       console.error('Error loading batter profile data:', error);
@@ -890,7 +983,14 @@ export class BatterProfileModal {
       if (woba !== undefined) {
         let sbRuns = 0;
         if (sr !== undefined && ste !== undefined) {
-          const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
+          // Use historical blending when available (same as projection stat line)
+          const histSbStats = (this.currentStats ?? [])
+            .filter(s2 => s2.level === 'MLB' && s2.pa >= 50)
+            .sort((a, b) => b.year - a.year)
+            .map(s2 => ({ sb: s2.sb, cs: s2.cs, pa: s2.pa }));
+          const sbProj = histSbStats.length > 0
+            ? HitterRatingEstimatorService.projectStolenBasesWithHistory(sr, ste, projPa, histSbStats)
+            : HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
           sbRuns = leagueBattingAveragesService.calculateBaserunningRuns(sbProj.sb, sbProj.cs);
         }
         if (this.leagueAvg) {
@@ -906,7 +1006,8 @@ export class BatterProfileModal {
   }
 
   private renderWarEmblem(data: BatterProfileData): string {
-    const projWar = this.calculateProjWar(data);
+    // Use projection line WAR when available for consistency; fall back to independent calc
+    const projWar = this._lastProjectionWar ?? this.calculateProjWar(data);
     const warText = typeof projWar === 'number' ? projWar.toFixed(1) : '--';
     const warLabel = data.isProspect ? 'Proj Peak WAR' : 'Proj WAR';
     const badgeClass = this.getWarBadgeClass(projWar);
@@ -1137,8 +1238,10 @@ export class BatterProfileModal {
 
   private renderBody(data: BatterProfileData, stats: BatterSeasonStats[]): string {
     const isRetired = data.retired === true;
-    const ratingsSection = this.renderRatingsSection(data);
+    if (isRetired) this.viewMode = 'career';
+    // Compute projection FIRST so ratings section can use cached values (PA, HR, 2B, etc.)
     const projectionContent = this.renderProjectionContent(data, stats);
+    const ratingsSection = this.renderRatingsSection(data);
     const careerContent = this.renderCareerStatsContent(stats);
 
     // Compute player tags
@@ -1155,8 +1258,7 @@ export class BatterProfileModal {
 
     return `
       <div class="profile-tabs">
-        <button class="profile-tab${isRetired ? ' disabled' : ' active'}" data-tab="ratings" ${isRetired ? 'disabled' : ''}>Ratings</button>
-        <button class="profile-tab${isRetired ? ' active' : ''}" data-tab="career">Career</button>
+        <button class="profile-tab active" data-tab="ratings">Ratings and Projections</button>
         <button class="profile-tab" data-tab="development">Development</button>
         <div class="profile-tab-actions">
           ${tagsHtml}
@@ -1171,11 +1273,12 @@ export class BatterProfileModal {
         </div>
       </div>
       <div class="profile-tab-content">
-        <div class="tab-pane${isRetired ? '' : ' active'}" data-pane="ratings">
+        <div class="tab-pane active" data-pane="ratings">
           ${ratingsSection}
           <div class="analysis-toggle-row">
             <div class="analysis-toggle">
               <button class="analysis-toggle-btn ${this.viewMode === 'projections' ? 'active' : ''}" data-view="projections">Projections</button>
+              <button class="analysis-toggle-btn ${this.viewMode === 'career' ? 'active' : ''}" data-view="career">Career Stats</button>
               <button class="analysis-toggle-btn ${this.viewMode === 'analysis' ? 'active' : ''}" data-view="analysis">True Analysis</button>
             </div>
           </div>
@@ -1186,10 +1289,10 @@ export class BatterProfileModal {
             <div class="projections-pane" style="${this.viewMode === 'projections' ? '' : 'display:none'}">
               ${projectionContent}
             </div>
+            <div class="career-pane" style="${this.viewMode === 'career' ? '' : 'display:none'}">
+              ${careerContent}
+            </div>
           </div>
-        </div>
-        <div class="tab-pane${isRetired ? ' active' : ''}" data-pane="career">
-          ${careerContent}
         </div>
         <div class="tab-pane" data-pane="development">
           ${this.renderDevelopmentTab(data.playerId)}
@@ -1210,16 +1313,21 @@ export class BatterProfileModal {
                          data.estimatedGap !== undefined;
     const hasTfrCeiling = data.hasTfrUpside && data.tfrContact !== undefined;
 
-    // Compute projected stats for badges
-    const projStats = this.computeProjectedStats(data);
-    this.cachedProjPa = projStats.projPa;
+    // Use cached projection values from renderProjectionContent (computed first in renderBody)
+    const p = this._lastProjection;
+    const projPa = p?.projPa;
+    const projAvg = p?.projAvg;
+    const projBbPct = p?.projBbPct;
+    const projKPct = p?.projKPct;
+    const projHr = p?.projHr;
+    const proj2b = p?.proj2b;
 
     const hittingAxes = [
-      { label: 'Contact', pos: 'top', est: data.estimatedContact, scout: s?.contact, tfr: data.tfrContact, projLabel: 'AVG', projValue: projStats.projAvg?.toFixed(3) },
-      { label: 'Eye', pos: 'upper-right', est: data.estimatedEye, scout: s?.eye, tfr: data.tfrEye, projLabel: 'BB', projValue: projStats.projBbPct !== undefined && projStats.projPa ? Math.round(projStats.projPa * projStats.projBbPct / 100).toString() : undefined },
-      { label: 'Power', pos: 'lower-right', est: data.estimatedPower, scout: s?.power, tfr: data.tfrPower, projLabel: 'HR', projValue: projStats.projHr?.toString() },
-      { label: 'Gap', pos: 'lower-left', est: data.estimatedGap ?? s?.gap, scout: data.estimatedGap !== undefined ? s?.gap : undefined, tfr: data.tfrGap, projLabel: '2B', projValue: projStats.proj2b?.toString() },
-      { label: 'AvoidK', pos: 'upper-left', est: data.estimatedAvoidK, scout: s?.avoidK, tfr: data.tfrAvoidK, projLabel: 'K', projValue: projStats.projKPct !== undefined && projStats.projPa ? Math.round(projStats.projPa * projStats.projKPct / 100).toString() : undefined },
+      { label: 'Contact', pos: 'top', est: data.estimatedContact, scout: s?.contact, tfr: data.tfrContact, projLabel: 'AVG', projValue: projAvg?.toFixed(3) },
+      { label: 'Eye', pos: 'upper-right', est: data.estimatedEye, scout: s?.eye, tfr: data.tfrEye, projLabel: 'BB', projValue: projBbPct !== undefined && projPa ? Math.round(projPa * projBbPct / 100).toString() : undefined },
+      { label: 'Power', pos: 'lower-right', est: data.estimatedPower, scout: s?.power, tfr: data.tfrPower, projLabel: 'HR', projValue: projHr?.toString() },
+      { label: 'Gap', pos: 'lower-left', est: data.estimatedGap ?? s?.gap, scout: data.estimatedGap !== undefined ? s?.gap : undefined, tfr: data.tfrGap, projLabel: '2B', projValue: proj2b?.toString() },
+      { label: 'AvoidK', pos: 'upper-left', est: data.estimatedAvoidK, scout: s?.avoidK, tfr: data.tfrAvoidK, projLabel: 'K', projValue: projKPct !== undefined && projPa ? Math.round(projPa * projKPct / 100).toString() : undefined },
     ];
 
     const hittingAxisLabelsHtml = hittingAxes.map(a => {
@@ -1244,10 +1352,16 @@ export class BatterProfileModal {
     const scoutSpeed = s?.speed ?? data.scoutSpeed;
     const hasRunningData = sr !== undefined || ste !== undefined || scoutSpeed !== undefined;
 
+    const projSb = p?.projSb;
+    const projCs = p?.projCs ?? 0;
+    const proj3b = p?.proj3b;
+    const projSbPct = projSb !== undefined && (projSb + projCs) > 0 ? Math.round((projSb / (projSb + projCs)) * 100) : undefined;
+    const projSba = projSb !== undefined ? projSb + projCs : undefined;
+
     const runningAxes = [
-      { label: 'SB Ability', pos: 'top', value: ste, projLabel: 'SB%', projValue: projStats.projSbPct !== undefined ? Math.round(projStats.projSbPct) + '%' : undefined },
-      { label: 'SB Freq', pos: 'lower-right', value: sr, projLabel: 'SBA', projValue: projStats.projSba?.toString() },
-      { label: 'Speed', pos: 'lower-left', value: scoutSpeed, projLabel: '3B', projValue: projStats.proj3b?.toString() },
+      { label: 'SB Ability', pos: 'top', value: ste, projLabel: 'SB%', projValue: projSbPct !== undefined ? projSbPct + '%' : undefined },
+      { label: 'SB Freq', pos: 'lower-right', value: sr, projLabel: 'SBA', projValue: projSba?.toString() },
+      { label: 'Speed', pos: 'lower-left', value: scoutSpeed, projLabel: '3B', projValue: proj3b?.toString() },
     ];
 
     const runningAxisLabelsHtml = runningAxes.map(a => {
@@ -1270,36 +1384,83 @@ export class BatterProfileModal {
       </div>
     ` : '';
 
+    // Fielding chart tabs + position bars
+    const f = this.fieldingScouting;
+    const hasFielding = f !== null;
+    const fieldingTabHtml = hasFielding ? `
+      <div class="toggle-group fielding-tab-toggle">
+        <button class="toggle-btn fielding-tab-btn ${this.fieldingTab === 'catcher' ? 'active' : ''}" data-tab="catcher">C</button>
+        <button class="toggle-btn fielding-tab-btn ${this.fieldingTab === 'infield' ? 'active' : ''}" data-tab="infield">IF</button>
+        <button class="toggle-btn fielding-tab-btn ${this.fieldingTab === 'outfield' ? 'active' : ''}" data-tab="outfield">OF</button>
+      </div>
+    ` : '';
+
+    // Position bars — only positions with non-zero ratings
+    const positionNames: Record<string, string> = { pos2: 'C', pos3: '1B', pos4: '2B', pos5: '3B', pos6: 'SS', pos7: 'LF', pos8: 'CF', pos9: 'RF' };
+    let positionBarsHtml = '';
+    if (hasFielding) {
+      const bars: string[] = [];
+      for (const [key, label] of Object.entries(positionNames)) {
+        const val = parseInt(f[key], 10) || 0;
+        if (val > 0) {
+          const pct = Math.round(((val - 20) / 60) * 100);
+          bars.push(`<div class="pos-rating-row"><span class="pos-label">${label}</span><div class="pos-bar-track"><div class="pos-bar-fill" style="width:${pct}%"></div></div><span class="pos-value">${val}</span></div>`);
+        }
+      }
+      if (bars.length > 0) {
+        positionBarsHtml = `<div class="position-ratings-bars"><div class="chart-section-sublabel">Position Ratings</div>${bars.join('')}</div>`;
+      }
+    }
+
     return `
       <div class="ratings-section">
+        <div class="ratings-top-bar">
+          ${scoutToggleHtml}
+          <div class="legend-inline">
+            <span class="legend-dot legend-dot-true"></span><span class="legend-text">True Rating</span>
+            ${s ? '<span class="legend-dot legend-dot-scout"></span><span class="legend-text">My Scout</span>' : ''}
+            <span class="legend-dot legend-dot-proj"></span><span class="legend-text">Stat Projections</span>
+          </div>
+        </div>
         <div class="ratings-layout">
           <div class="ratings-radar-col">
-            <div class="chart-section-header">
-              <h4 class="chart-section-label">Hitting Ratings</h4>
-              ${scoutToggleHtml}
-            </div>
             <div class="radar-chart-wrapper">
               <div id="batter-radar-chart-${this.instanceId}"></div>
               ${hittingAxisLabelsHtml}
             </div>
           </div>
-          <div class="running-radar-col">
-            <h4 class="chart-section-label">Running Ratings</h4>
-            ${hasRunningData ? `
-            <div class="radar-chart-wrapper running-radar-wrapper">
-              <div id="batter-running-radar-chart-${this.instanceId}"></div>
-              ${runningAxisLabelsHtml}
-            </div>
-            ` : `
-            <div class="radar-chart-placeholder running-radar-wrapper">
-              <div class="placeholder-axes">
-                <span>SB Abil</span>
-                <span>SB Freq</span>
-                <span>Speed</span>
+          <div class="right-ratings-col">
+            <div class="right-row-running">
+              ${hasRunningData ? `
+              <div class="radar-chart-wrapper running-radar-wrapper">
+                <div id="batter-running-radar-chart-${this.instanceId}"></div>
+                ${runningAxisLabelsHtml}
               </div>
-              <p class="placeholder-label">No scouting data</p>
+              ` : `
+              <div class="radar-chart-placeholder running-radar-wrapper">
+                <div class="placeholder-axes">
+                  <span>SB Abil</span>
+                  <span>SB Freq</span>
+                  <span>Speed</span>
+                </div>
+                <p class="placeholder-label">No scouting data</p>
+              </div>
+              `}
             </div>
-            `}
+            ${hasFielding ? `
+            <div class="right-row-fielding">
+              <div class="fielding-chart-col">
+                <div class="radar-chart-wrapper fielding-radar-wrapper">
+                  <div id="batter-fielding-radar-chart-${this.instanceId}"></div>
+                  <div class="fielding-axis-labels"></div>
+                </div>
+                ${fieldingTabHtml}
+              </div>
+              <div class="position-bars-col">
+                ${positionBarsHtml}
+              </div>
+            </div>
+            ` : ''}
           </div>
         </div>
       </div>
@@ -1484,12 +1645,12 @@ export class BatterProfileModal {
       containerId: `batter-radar-chart-${this.instanceId}`,
       categories,
       series,
-      height: 300,
-      radarSize: 130,
+      height: 280,
+      radarSize: 125,
       min: 20,
       max: 85,
-      legendPosition: 'left',
-      offsetX: -40,
+      showLegend: false,
+      offsetX: -55,
       onLegendClick: (seriesName) => {
         if (this.hiddenSeries.has(seriesName)) {
           this.hiddenSeries.delete(seriesName);
@@ -1500,10 +1661,7 @@ export class BatterProfileModal {
         // ApexCharts re-renders legend DOM on toggle, so re-inject custom item
         requestAnimationFrame(() => this.addProjectionLegendItem());
       },
-      onUpdated: () => {
-        // ApexCharts re-renders legend on resize/redraw, re-inject custom item
-        requestAnimationFrame(() => this.addProjectionLegendItem());
-      },
+      onUpdated: () => {},
     });
     this.radarChart.render();
 
@@ -1515,14 +1673,10 @@ export class BatterProfileModal {
         for (const name of seriesToHide) {
           this.radarChart?.toggleSeries(name);
         }
-        // Re-inject custom legend item after ApexCharts legend DOM settles
         requestAnimationFrame(() => {
-          this.addProjectionLegendItem();
           this.updateAxisBadgeVisibility();
         });
       });
-    } else {
-      this.addProjectionLegendItem();
     }
   }
 
@@ -1591,15 +1745,80 @@ export class BatterProfileModal {
       containerId: `batter-running-radar-chart-${this.instanceId}`,
       categories,
       series,
-      height: 204,
-      radarSize: 88,
+      height: 150,
+      radarSize: 60,
       min: 20,
       max: 85,
       legendPosition: 'top',
       showLegend: false,
-      offsetY: 20,
+      offsetX: 15,
+      offsetY: -10,
     });
     this.runningRadarChart.render();
+  }
+
+  private initFieldingRadarChart(): void {
+    if (this.fieldingRadarChart) {
+      this.fieldingRadarChart.destroy();
+      this.fieldingRadarChart = null;
+    }
+
+    const f = this.fieldingScouting;
+    if (!f) return;
+
+    let categories: string[];
+    let dataVals: number[];
+
+    switch (this.fieldingTab) {
+      case 'catcher':
+        categories = ['Blocking', 'Framing', 'Arm'];
+        dataVals = [parseInt(f.cBlock, 10) || 50, parseInt(f.cFrm, 10) || 50, parseInt(f.cArm, 10) || 50];
+        break;
+      case 'outfield':
+        categories = ['OF Range', 'OF Arm', 'OF Error'];
+        dataVals = [parseInt(f.ofRange, 10) || 50, parseInt(f.ofArm, 10) || 50, parseInt(f.ofErr, 10) || 50];
+        break;
+      case 'infield':
+      default:
+        categories = ['IF Range', 'IF Arm', 'IF Error', 'Turn DP'];
+        dataVals = [parseInt(f.ifRange, 10) || 50, parseInt(f.ifArm, 10) || 50, parseInt(f.ifErr, 10) || 50, parseInt(f.ifDP, 10) || 50];
+        break;
+    }
+
+    // Render axis labels with values
+    const labelContainer = this.overlay?.querySelector('.fielding-axis-labels');
+    if (labelContainer) {
+      // Position labels around the chart based on axis count
+      const isQuad = categories.length === 4;
+      const positions = isQuad ? ['top', 'right', 'bottom', 'left'] : ['top', 'lower-right', 'lower-left'];
+      labelContainer.innerHTML = categories.map((cat, i) => `
+        <div class="fielding-axis-label fielding-axis-${positions[i]}">
+          <span class="radar-axis-name">${cat}</span>
+          <span class="radar-axis-badge radar-badge-fielding">${dataVals[i]}</span>
+        </div>
+      `).join('');
+    }
+
+    const series: RadarChartSeries[] = [{
+      name: 'Fielding',
+      data: dataVals,
+      color: '#22c55e',
+    }];
+
+    this.fieldingRadarChart = new RadarChart({
+      containerId: `batter-fielding-radar-chart-${this.instanceId}`,
+      categories,
+      series,
+      height: 148,
+      radarSize: 58,
+      min: 20,
+      max: 85,
+      legendPosition: 'top',
+      showLegend: false,
+      offsetX: -45,
+      offsetY: 4,
+    });
+    this.fieldingRadarChart.render();
   }
 
   private renderProjectionContent(data: BatterProfileData, stats: BatterSeasonStats[]): string {
@@ -1624,19 +1843,29 @@ export class BatterProfileModal {
       calculateOpsPlus: (obp, slg, lg) => leagueBattingAveragesService.calculateOpsPlus(obp, slg, lg),
       computeWoba: (bbRate, avg, d, t, hr) => this.computeWoba(bbRate, avg, d, t, hr),
       calculateBaserunningRuns: (sb, cs) => leagueBattingAveragesService.calculateBaserunningRuns(sb, cs),
-      calculateBattingWar: (woba, pa, lg, sbRuns) => leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns),
+      defRuns: data.defRuns ?? 0,
+      posAdj: data.posAdj ?? 0,
+      parkFactors: data.parkFactors,
+      calculateBattingWar: (woba, pa, lg, sbRuns, defR, posA) => leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns, defR, posA),
       projectStolenBases: (sr, ste, pa) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
       historicalSbStats: stats
         .filter(s => s.level === 'MLB' && s.pa >= 50)
         .sort((a, b) => b.year - a.year)
         .map(s => ({ sb: s.sb, cs: s.cs, pa: s.pa })),
+      applyAgingToRates: (rates, a) => HitterRatingEstimatorService.applyAgingToBlendedRates(rates, hitterAgingService.getAgingModifiers(a)),
     });
 
     // Destructure for template compatibility
     const { projAvg, projObp, projSlg, projBbPct, projKPct, projHrPct,
             projPa, projHr, proj2b, proj3b, projSb, projWar,
+            projDefRuns, projPosAdj,
             projOps, projOpsPlus, age, ratingLabel, projNote,
             isPeakMode, showActualComparison, ratings } = proj;
+
+    // Store for WAR badge, chart legend, and chart badge consistency
+    this._lastProjectionWar = projWar;
+    this.cachedProjPa = projPa;
+    this._lastProjection = proj;
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
     const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;
@@ -1712,6 +1941,7 @@ export class BatterProfileModal {
           <td>${formatStat(latestStat.slg)}</td>
           <td>${formatStat(actualOps)}</td>
           <td>${actualOpsPlus}</td>
+          <td>—</td>
           <td>${formatStat(actualWar, 1)}</td>
         </tr>
       `;
@@ -1746,23 +1976,24 @@ export class BatterProfileModal {
           <table class="profile-stats-table projection-table" style="table-layout: fixed;">
             <thead>
               <tr>
-                <th style="width: 78px;"></th>
-                <th style="width: 48px;">PA</th>
-                <th style="width: 58px;">AVG</th>
-                <th style="width: 58px;">OBP</th>
-                <th style="width: 58px;">BB%</th>
-                <th style="width: 58px;">K%</th>
-                <th style="width: 58px;">HR%</th>
-                <th style="width: 48px;">BB</th>
-                <th style="width: 48px;">K</th>
-                <th style="width: 48px;">HR</th>
-                <th style="width: 48px;">2B</th>
-                <th style="width: 48px;">3B</th>
-                <th style="width: 48px;">SB</th>
-                <th style="width: 58px;">SLG</th>
-                <th style="width: 58px;">OPS</th>
-                <th style="width: 48px;">OPS+</th>
-                <th style="width: 48px;">WAR</th>
+                <th style="width: 68px;"></th>
+                <th style="width: 42px;">PA</th>
+                <th style="width: 52px;">AVG</th>
+                <th style="width: 52px;">OBP</th>
+                <th style="width: 50px;">BB%</th>
+                <th style="width: 50px;">K%</th>
+                <th style="width: 50px;">HR%</th>
+                <th style="width: 38px;">BB</th>
+                <th style="width: 38px;">K</th>
+                <th style="width: 38px;">HR</th>
+                <th style="width: 38px;">2B</th>
+                <th style="width: 38px;">3B</th>
+                <th style="width: 38px;">SB</th>
+                <th style="width: 52px;">SLG</th>
+                <th style="width: 52px;">OPS</th>
+                <th style="width: 44px;">OPS+</th>
+                <th style="width: 44px;">Def</th>
+                <th style="width: 44px;">WAR</th>
               </tr>
             </thead>
             <tbody>
@@ -1783,6 +2014,7 @@ export class BatterProfileModal {
                 <td>${formatStat(projSlg)}</td>
                 <td>${formatStat(projOps)}</td>
                 <td><strong>${projOpsPlus}</strong></td>
+                <td title="Fielding: ${(projDefRuns ?? 0) >= 0 ? '+' : ''}${(projDefRuns ?? 0).toFixed(1)}, Pos: ${(projPosAdj ?? 0) >= 0 ? '+' : ''}${(projPosAdj ?? 0).toFixed(1)}">${((projDefRuns ?? 0) + (projPosAdj ?? 0)) >= 0 ? '+' : ''}${((projDefRuns ?? 0) + (projPosAdj ?? 0)).toFixed(1)}</td>
                 <td><strong>${formatStat(projWar, 1)}</strong></td>
               </tr>
               ${comparisonRow}
@@ -1801,6 +2033,36 @@ export class BatterProfileModal {
 
     if (stats.length === 0) {
       return `<p class="no-stats">No batting stats found for this player.</p>`;
+    }
+
+    // Build projection row from cached projection (rendered before career stats)
+    const p = this._lastProjection;
+    let projRow = '';
+    if (p && p.projPa > 0) {
+      const projBb = Math.round(p.projPa * (p.projBbPct / 100));
+      const projK = Math.round(p.projPa * (p.projKPct / 100));
+      const projCs = p.projCs ?? Math.round((p.projSb ?? 0) * 0.25);
+      projRow = `
+        <tr class="projection-row">
+          <td style="text-align: center; font-weight: 600;" title="True Projection">TP</td>
+          <td style="text-align: center;"><span class="level-badge level-mlb" style="opacity: 0.7;">PROJ</span></td>
+          <td style="text-align: center;">${p.projPa}</td>
+          <td style="text-align: center;">${p.projAvg.toFixed(3)}</td>
+          <td style="text-align: center;">${p.projObp.toFixed(3)}</td>
+          <td style="text-align: center;">${p.projBbPct.toFixed(1)}%</td>
+          <td style="text-align: center;">${p.projKPct.toFixed(1)}%</td>
+          <td style="text-align: center;">${p.projHrPct.toFixed(1)}%</td>
+          <td style="text-align: center;">${projBb}</td>
+          <td style="text-align: center;">${projK}</td>
+          <td style="text-align: center;">${p.projHr}</td>
+          <td style="text-align: center;">${p.projSb ?? 0}</td>
+          <td style="text-align: center;">${projCs}</td>
+          <td style="text-align: center;">${p.projSlg.toFixed(3)}</td>
+          <td style="text-align: center;">${p.projOps.toFixed(3)}</td>
+          <td style="text-align: center;">${p.projOpsPlus}</td>
+          <td style="text-align: center;">${p.projWar.toFixed(1)}</td>
+        </tr>
+      `;
     }
 
     const rows = stats.slice(0, 10).map(s => {
@@ -1876,7 +2138,7 @@ export class BatterProfileModal {
             </tr>
           </thead>
           <tbody>
-            ${rows}
+            ${projRow}${rows}
           </tbody>
         </table>
       </div>
@@ -2161,6 +2423,8 @@ export class BatterProfileModal {
     });
     this.initRadarChart(this.currentData!);
     this.initRunningRadarChart(this.currentData!);
+    this.initFieldingRadarChart();
+    this.bindFieldingTabEvents();
     this.lockTabContentHeight();
 
     // Auto-fetch analysis if it's the default view (skip for retired players)
@@ -2301,7 +2565,7 @@ export class BatterProfileModal {
       }
     }
     if (projObp === undefined && data.projAvg !== undefined && data.projBbPct !== undefined) {
-      projObp = Math.min(0.450, data.projAvg + (data.projBbPct / 100));
+      projObp = Math.min(0.450, data.projAvg + (data.projBbPct / 100) * (1 - data.projAvg));
     }
     if (projSlg === undefined && data.projAvg !== undefined && data.projHrPct !== undefined) {
       const hrPerAb = (data.projHrPct / 100) / 0.88;
@@ -2409,7 +2673,7 @@ export class BatterProfileModal {
 
     buttons.forEach(btn => {
       btn.addEventListener('click', async () => {
-        const newView = btn.dataset.view as 'projections' | 'analysis';
+        const newView = btn.dataset.view as 'projections' | 'career' | 'analysis';
         if (!newView || newView === this.viewMode) return;
 
         this.viewMode = newView;
@@ -2419,13 +2683,19 @@ export class BatterProfileModal {
 
         const analysisPane = this.overlay?.querySelector<HTMLElement>('.analysis-pane');
         const projectionsPane = this.overlay?.querySelector<HTMLElement>('.projections-pane');
+        const careerPane = this.overlay?.querySelector<HTMLElement>('.career-pane');
         if (!analysisPane || !projectionsPane || !this.currentData) return;
 
+        // Hide all panes, then show the selected one
+        analysisPane.style.display = 'none';
+        projectionsPane.style.display = 'none';
+        if (careerPane) careerPane.style.display = 'none';
+
         if (newView === 'projections') {
-          analysisPane.style.display = 'none';
           projectionsPane.style.display = '';
+        } else if (newView === 'career') {
+          if (careerPane) careerPane.style.display = '';
         } else {
-          projectionsPane.style.display = 'none';
           analysisPane.style.display = '';
 
           // Fetch analysis if not cached
@@ -2446,6 +2716,22 @@ export class BatterProfileModal {
             }
           }
         }
+      });
+    });
+  }
+
+  private bindFieldingTabEvents(): void {
+    if (!this.overlay) return;
+    const buttons = this.overlay.querySelectorAll<HTMLButtonElement>('.fielding-tab-toggle .fielding-tab-btn');
+    buttons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.tab as 'catcher' | 'infield' | 'outfield';
+        if (!tab || tab === this.fieldingTab) return;
+        this.fieldingTab = tab;
+        // Update active state
+        buttons.forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+        // Re-init fielding chart
+        this.initFieldingRadarChart();
       });
     });
   }
@@ -2492,18 +2778,95 @@ export class BatterProfileModal {
           this.currentData.tfrAvg = altTfr.projAvg;
           this.currentData.tfrObp = altTfr.projObp;
           this.currentData.tfrSlg = altTfr.projSlg;
+        } else if (this.currentData.isProspect && this.scoutingData) {
+          // Draftee without precomputed tfrBySource — recompute from active scouting
+          const s = this.scoutingData;
+          const power = s.power ?? 50;
+          const eye = s.eye ?? 50;
+          const avoidK = s.avoidK ?? 50;
+          const contact = s.contact ?? 50;
+          const gap = s.gap ?? 50;
+          const speed = s.speed ?? 50;
+
+          const bbPct = HitterRatingEstimatorService.expectedBbPct(eye);
+          const kPct = HitterRatingEstimatorService.expectedKPct(avoidK);
+          const hrPct = HitterRatingEstimatorService.expectedHrPct(power);
+          const avg = HitterRatingEstimatorService.expectedAvg(contact);
+          const doublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
+          const triplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+          const obp = Math.min(0.450, avg + (bbPct / 100) * (1 - avg));
+          const hrPerAb = (hrPct / 100) / 0.88;
+          const iso = doublesRate + 2 * triplesRate + 3 * hrPerAb;
+          const slg = avg + iso;
+
+          this.currentData.estimatedPower = power;
+          this.currentData.estimatedEye = eye;
+          this.currentData.estimatedAvoidK = avoidK;
+          this.currentData.estimatedContact = contact;
+          this.currentData.estimatedGap = gap;
+          this.currentData.estimatedSpeed = speed;
+          this.currentData.tfrPower = power;
+          this.currentData.tfrEye = eye;
+          this.currentData.tfrAvoidK = avoidK;
+          this.currentData.tfrContact = contact;
+          this.currentData.tfrGap = gap;
+          this.currentData.tfrSpeed = speed;
+          this.currentData.tfrBbPct = bbPct;
+          this.currentData.tfrKPct = kPct;
+          this.currentData.tfrHrPct = hrPct;
+          this.currentData.tfrAvg = avg;
+          this.currentData.tfrObp = obp;
+          this.currentData.tfrSlg = slg;
+          this.currentData.projBbPct = bbPct;
+          this.currentData.projKPct = kPct;
+          this.currentData.projHrPct = hrPct;
+          this.currentData.projAvg = avg;
+          this.currentData.projObp = obp;
+          this.currentData.projSlg = slg;
+          this.currentData.projDoublesRate = doublesRate;
+          this.currentData.projTriplesRate = triplesRate;
+          // Clear pre-set values so computeBatterProjection recalculates
+          this.currentData.projWar = undefined;
+          this.currentData.projPa = undefined;
+          this.currentData.projWoba = undefined;
+          // Update TFR star rating from scouting potential
+          if (s.pot !== undefined) {
+            this.currentData.trueFutureRating = s.pot;
+          }
         }
 
-        // Re-render the ratings section (radar + running chart)
+        // Swap TR/projection fields from trBySource (blended rates change with scouting)
+        const altTr = this.currentData.trBySource?.[sourceKey];
+        if (altTr) {
+          applyBatterTrSnapshot(this.currentData, altTr);
+        }
+
+        // Swap fielding scouting source
+        const altFielding = wantsOsa ? this.osaFieldingScouting : this.myFieldingScouting;
+        if (altFielding) {
+          this.fieldingScouting = altFielding;
+        }
+
+        // Re-render projection section FIRST — this updates _lastProjection and
+        // _lastProjectionWar, which the ratings section badges and WAR emblem read.
+        const projSection = this.overlay?.querySelector('.projection-section');
+        if (projSection && this.currentData) {
+          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
+          this.bindProjectionToggle();
+        }
+
+        // Re-render the ratings section (radar + running chart) — uses _lastProjection for badges
         const ratingsSection = this.overlay?.querySelector('.ratings-section');
         if (ratingsSection) {
           ratingsSection.outerHTML = this.renderRatingsSection(this.currentData);
           this.bindScoutSourceToggle(); // Re-bind after re-render
           this.initRadarChart(this.currentData); // Re-init radar with new scout data
           this.initRunningRadarChart(this.currentData); // Re-init running radar
+          this.initFieldingRadarChart();
+          this.bindFieldingTabEvents();
         }
 
-        // Update header emblems after TFR swap
+        // Update header emblems after projection recompute
         const ratingsSlot = this.overlay?.querySelector('.rating-emblem-slot');
         if (ratingsSlot) ratingsSlot.innerHTML = this.renderRatingEmblem(this.currentData);
         const warSlot = this.overlay?.querySelector('.war-emblem-slot');
@@ -2517,13 +2880,6 @@ export class BatterProfileModal {
           if (this.viewMode === 'analysis') {
             this.fetchAndRenderAnalysis();
           }
-        }
-
-        // Re-render the projection section
-        const projSection = this.overlay?.querySelector('.projection-section');
-        if (projSection && this.currentData) {
-          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
-          this.bindProjectionToggle();
         }
       });
     });

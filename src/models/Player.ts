@@ -1,3 +1,5 @@
+export type PlayerStatus = 'active' | 'free_agent' | 'draftee' | 'retired';
+
 export interface Player {
   id: number;
   firstName: string;
@@ -9,6 +11,11 @@ export interface Player {
   role: number;
   age: number;
   retired: boolean;
+  status: PlayerStatus;
+  draftEligible: boolean;
+  hsc: string | null;
+  bats?: string;   // R, L, S (switch)
+  throws?: string; // R, L
 }
 
 export enum Position {

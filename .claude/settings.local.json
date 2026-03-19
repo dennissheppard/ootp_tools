@@ -61,7 +61,37 @@
       "Bash(del \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\ui-fixes\\\\test-output.txt\")",
       "Bash(npx vitest:*)",
       "Bash(Get-Content \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\ui-fixes\\\\src\\\\styles.css\")",
-      "Bash(Measure-Object -Line)"
+      "Bash(Measure-Object -Line)",
+      "Bash(__NEW_LINE_bed5377b55a9aa79__ echo \"\")",
+      "Bash(join -t',' -j1 /tmp/player_teams.txt /tmp/contract_teams.txt)",
+      "Bash(python3:*)",
+      "Bash(head:*)",
+      "WebSearch",
+      "WebFetch(domain:worldbaseballleague.org)",
+      "Bash(npx:*)",
+      "Bash(npm ls:*)",
+      "Bash(rm:*)",
+      "Bash(claude mcp:*)",
+      "mcp__puppeteer__puppeteer_navigate",
+      "mcp__puppeteer__puppeteer_screenshot",
+      "mcp__puppeteer__puppeteer_evaluate",
+      "WebFetch(domain:docs.browser-use.com)",
+      "Read(//c/Users/neags/.claude/plugins/cache/dev-browser-marketplace/dev-browser/66682fb0513a/skills/dev-browser/**)",
+      "Bash(npm i:*)",
+      "mcp__puppeteer__puppeteer_click",
+      "Skill(update-config)",
+      "mcp__claude-in-chrome__navigate",
+      "mcp__claude-in-chrome__javascript_tool",
+      "mcp__claude-in-chrome__computer",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__tabs_create_mcp",
+      "mcp__claude-in-chrome__read_page",
+      "mcp__claude-in-chrome__find",
+      "mcp__claude-in-chrome__get_page_text",
+      "WebFetch(domain:localhost)"
     ]
+  },
+  "enabledPlugins": {
+    "dev-browser@dev-browser-marketplace": true
   }
 }

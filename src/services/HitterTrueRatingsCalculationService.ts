@@ -24,6 +24,7 @@ import { HitterScoutingRatings } from '../models/ScoutingData';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import type { SeasonStage } from './DateService';
 import { LeagueBattingAverages } from './LeagueBattingAveragesService';
+import { applyBatterTrendAdjustment, type BatterTrendTrace } from './TrendAdjustmentService';
 
 // ============================================================================
 // Interfaces
@@ -55,6 +56,9 @@ export interface HitterTrueRatingInput {
   /** Multi-year stats (most recent first) */
   yearlyStats: YearlyHittingStats[];
   scoutingRatings?: HitterScoutingRatings;
+  /** Target year for weight alignment — ensures missing MLB seasons get zero weight
+   *  instead of shifting weights onto older data */
+  targetYear?: number;
 }
 
 /**
@@ -112,6 +116,7 @@ export interface HitterTrueRatingTrace {
     playerName: string;
     yearlyStats: YearlyHittingStats[];
     yearWeights: number[];
+    targetYear?: number;
     hasScouting: boolean;
   };
   weightedRates?: {
@@ -145,6 +150,7 @@ export interface HitterTrueRatingTrace {
     regressedRates: { bbPct: number; kPct: number; hrPct: number; iso: number; avg: number };
     blendedRates: { bbPct: number; kPct: number; hrPct: number; iso: number; avg: number };
   };
+  trendAdjustment?: BatterTrendTrace;
   output?: {
     blendedBbPct: number;
     blendedKPct: number;
@@ -340,7 +346,7 @@ class HitterTrueRatingsCalculationService {
     // Step 1: Compute weighted rates for each player (needed for SB/CS rates)
     const weightedRatesMap = new Map<number, WeightedRates>();
     for (const input of inputs) {
-      const weighted = this.calculateWeightedRates(input.yearlyStats, yearWeights);
+      const weighted = this.calculateWeightedRates(input.yearlyStats, yearWeights, input.targetYear);
       weightedRatesMap.set(input.playerId, weighted);
     }
 
@@ -362,7 +368,12 @@ class HitterTrueRatingsCalculationService {
       const sbPerPa = weighted?.sbPerPa ?? 0;
       const csPerPa = weighted?.csPerPa ?? 0;
 
-      // Standardized 600 PA for ranking (rate-stat based, not volume)
+      // Standardized 600 PA offensive WAR for percentile ranking only.
+      // This is NOT used for projections, team standings, or display — those all use
+      // BatterProjectionService (which includes defensive value via DefensiveProjectionService).
+      // This rate-based WAR exists solely to sort hitters for the percentile badge
+      // on the True Rating display (e.g. "97th percentile"). It intentionally excludes
+      // defensive value since it measures offensive quality at a standardized PA.
       const sb600 = sbPerPa * 600;
       const cs600 = csPerPa * 600;
       const sbRuns = sb600 * 0.2 - cs600 * 0.4;
@@ -394,7 +405,25 @@ class HitterTrueRatingsCalculationService {
     const resolvedYearWeights = yearWeights ?? YEAR_WEIGHTS;
 
     // Step 1: Multi-year weighted average
-    const weighted = this.calculateWeightedRates(input.yearlyStats, resolvedYearWeights);
+    const weighted = this.calculateWeightedRates(input.yearlyStats, resolvedYearWeights, input.targetYear);
+
+    // Staleness discount: when a player's most recent MLB data is older than the
+    // target year, discount effective PA so regression strengthens and scouting
+    // blend gets more weight. Each gap year halves effective PA.
+    // This means "not on an MLB roster" progressively pulls toward scouting
+    // expectations — bad scouts regress DOWN, good scouts hold value.
+    let effectivePa = weighted.totalPa;
+    let recencyGap = 0;
+    if (input.targetYear !== undefined && input.yearlyStats.length > 0) {
+      const mostRecentYear = Math.max(...input.yearlyStats.map(s => s.year));
+      recencyGap = input.targetYear - mostRecentYear;
+      // A gap of 1 is normal (projecting next season from last season's data).
+      // Only discount when the player has missed 1+ full MLB seasons (gap >= 2).
+      const excessGap = Math.max(0, recencyGap - 1);
+      if (excessGap > 0) {
+        effectivePa = weighted.totalPa * Math.pow(0.5, excessGap);
+      }
+    }
 
     if (trace) {
       trace.input = {
@@ -402,9 +431,14 @@ class HitterTrueRatingsCalculationService {
         playerName: input.playerName,
         yearlyStats: input.yearlyStats.map((s) => ({ ...s })),
         yearWeights: [...resolvedYearWeights],
+        targetYear: input.targetYear,
         hasScouting: !!input.scoutingRatings,
       };
       trace.weightedRates = { ...weighted };
+      if (recencyGap > 0) {
+        (trace as any).recencyGap = recencyGap;
+        (trace as any).effectivePa = Math.round(effectivePa);
+      }
     }
 
     // Step 2: Tier-aware regression (based on estimated wOBA performance)
@@ -479,10 +513,10 @@ class HitterTrueRatingsCalculationService {
     };
 
     let regressedBbPct = this.regressToMeanTierAware(
-      weighted.bbPct, weighted.totalPa, leagueAverages.avgBbPct, STABILIZATION.bbPct, 'bbPct', rawWoba, trace ? bbTrace : undefined
+      weighted.bbPct, effectivePa, leagueAverages.avgBbPct, STABILIZATION.bbPct, 'bbPct', rawWoba, trace ? bbTrace : undefined
     );
     let regressedKPct = this.regressToMeanTierAware(
-      weighted.kPct, weighted.totalPa, leagueAverages.avgKPct, STABILIZATION.kPct, 'kPct', rawWoba, trace ? kTrace : undefined
+      weighted.kPct, effectivePa, leagueAverages.avgKPct, STABILIZATION.kPct, 'kPct', rawWoba, trace ? kTrace : undefined
     );
     // DON'T regress HR% - the projection coefficient already handles regression
     // implicitly (it's calibrated to actual historical outcomes). Multi-year
@@ -490,10 +524,10 @@ class HitterTrueRatingsCalculationService {
     // "double regression" and under-projects elite power hitters by ~1% HR rate.
     let regressedHrPct = weighted.hrPct;
     let regressedIso = this.regressToMeanTierAware(
-      weighted.iso, weighted.totalPa, leagueAverages.avgIso, STABILIZATION.iso, 'iso', rawWoba, trace ? isoTrace : undefined
+      weighted.iso, effectivePa, leagueAverages.avgIso, STABILIZATION.iso, 'iso', rawWoba, trace ? isoTrace : undefined
     );
     let regressedAvg = this.regressToMeanTierAware(
-      weighted.avg, weighted.totalPa, leagueAverages.avgAvg, STABILIZATION.avg, 'avg', rawWoba, trace ? avgTrace : undefined
+      weighted.avg, effectivePa, leagueAverages.avgAvg, STABILIZATION.avg, 'avg', rawWoba, trace ? avgTrace : undefined
     );
 
     if (trace) {
@@ -516,12 +550,12 @@ class HitterTrueRatingsCalculationService {
     let blendedAvg = regressedAvg;
 
     if (input.scoutingRatings) {
-      const effectiveDevRatio = this.getEffectiveDevRatio(input.scoutingRatings, weighted.totalPa);
+      const effectiveDevRatio = this.getEffectiveDevRatio(input.scoutingRatings, effectivePa);
       const scoutExpected = this.scoutingToExpectedRates(input.scoutingRatings, effectiveDevRatio);
-      const bbWeights = this.getScoutingBlendWeights(weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.bbPct, effectiveDevRatio);
-      const kWeights = this.getScoutingBlendWeights(weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.kPct, effectiveDevRatio);
-      const hrWeights = this.getScoutingBlendWeights(weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.hrPct, effectiveDevRatio);
-      const avgWeights = this.getScoutingBlendWeights(weighted.totalPa, SCOUTING_BLEND_THRESHOLDS.avg, effectiveDevRatio);
+      const bbWeights = this.getScoutingBlendWeights(effectivePa, SCOUTING_BLEND_THRESHOLDS.bbPct, effectiveDevRatio);
+      const kWeights = this.getScoutingBlendWeights(effectivePa, SCOUTING_BLEND_THRESHOLDS.kPct, effectiveDevRatio);
+      const hrWeights = this.getScoutingBlendWeights(effectivePa, SCOUTING_BLEND_THRESHOLDS.hrPct, effectiveDevRatio);
+      const avgWeights = this.getScoutingBlendWeights(effectivePa, SCOUTING_BLEND_THRESHOLDS.avg, effectiveDevRatio);
 
       blendedBbPct = (1 - bbWeights.scoutWeight) * regressedBbPct + bbWeights.scoutWeight * scoutExpected.bbPct;
       blendedKPct = (1 - kWeights.scoutWeight) * regressedKPct + kWeights.scoutWeight * scoutExpected.kPct;
@@ -556,6 +590,27 @@ class HitterTrueRatingsCalculationService {
       }
     }
 
+    // Step 3.5: Trend adjustment — pull blended rates toward recent year
+    // when a consistent multi-year trend exists (e.g., 3 years of declining SLG)
+    let blendedDoublesRate = weighted.doublesRate;
+    let blendedTriplesRate = weighted.triplesRate;
+
+    const trendAdj = applyBatterTrendAdjustment(
+      input.yearlyStats, resolvedYearWeights, input.targetYear,
+      { bbPct: blendedBbPct, kPct: blendedKPct, hrPct: blendedHrPct,
+        avg: blendedAvg, doublesRate: blendedDoublesRate, triplesRate: blendedTriplesRate },
+    );
+    blendedBbPct = trendAdj.rates.bbPct;
+    blendedKPct = trendAdj.rates.kPct;
+    blendedHrPct = trendAdj.rates.hrPct;
+    blendedAvg = trendAdj.rates.avg;
+    blendedDoublesRate = trendAdj.rates.doublesRate;
+    blendedTriplesRate = trendAdj.rates.triplesRate;
+
+    if (trace) {
+      trace.trendAdjustment = trendAdj.trace;
+    }
+
     // Step 4: Calculate wOBA from blended rates (using HR% directly, not ISO)
     const woba = this.calculateWobaFromRates(blendedBbPct, blendedKPct, blendedHrPct, blendedAvg);
 
@@ -577,13 +632,13 @@ class HitterTrueRatingsCalculationService {
     return {
       playerId: input.playerId,
       playerName: input.playerName,
-      blendedBbPct: Math.round(blendedBbPct * 10) / 10,
-      blendedKPct: Math.round(blendedKPct * 10) / 10,
-      blendedHrPct: Math.round(blendedHrPct * 10) / 10,
-      blendedIso: Math.round(blendedIso * 1000) / 1000,
-      blendedAvg: Math.round(blendedAvg * 1000) / 1000,
-      blendedDoublesRate: Math.round(weighted.doublesRate * 10000) / 10000,
-      blendedTriplesRate: Math.round(weighted.triplesRate * 10000) / 10000,
+      blendedBbPct: Math.round(blendedBbPct * 100) / 100,
+      blendedKPct: Math.round(blendedKPct * 100) / 100,
+      blendedHrPct: Math.round(blendedHrPct * 100) / 100,
+      blendedIso: Math.round(blendedIso * 10000) / 10000,
+      blendedAvg: Math.round(blendedAvg * 10000) / 10000,
+      blendedDoublesRate: Math.round(blendedDoublesRate * 10000) / 10000,
+      blendedTriplesRate: Math.round(blendedTriplesRate * 10000) / 10000,
       estimatedPower: 0, // Calculated via percentile in next step
       estimatedEye: 0,   // Calculated via percentile in next step
       estimatedAvoidK: 0, // Calculated via percentile in next step
@@ -599,11 +654,16 @@ class HitterTrueRatingsCalculationService {
   }
 
   /**
-   * Calculate multi-year weighted average of rate stats
+   * Calculate multi-year weighted average of rate stats.
+   * When targetYear is provided, weights are aligned by year offset
+   * (targetYear - stat.year) so that gaps in a player's MLB history
+   * correctly reduce their weight instead of shifting newer weights
+   * onto older data.
    */
   calculateWeightedRates(
     yearlyStats: YearlyHittingStats[],
-    yearWeights: number[] = YEAR_WEIGHTS
+    yearWeights: number[] = YEAR_WEIGHTS,
+    targetYear?: number
   ): WeightedRates {
     if (yearlyStats.length === 0) {
       return { bbPct: 0, kPct: 0, hrPct: 0, iso: 0, avg: 0, doublesRate: 0, triplesRate: 0, sbPerPa: 0, csPerPa: 0, totalPa: 0 };
@@ -621,11 +681,15 @@ class HitterTrueRatingsCalculationService {
     let totalWeight = 0;
     let totalPa = 0;
 
-    const yearsToProcess = Math.min(yearlyStats.length, yearWeights.length);
-
-    for (let i = 0; i < yearsToProcess; i++) {
+    for (let i = 0; i < yearlyStats.length; i++) {
       const stats = yearlyStats[i];
-      const yearWeight = yearWeights[i];
+
+      // Determine weight: by year offset when targetYear is known, positional otherwise
+      const weightIdx = targetYear !== undefined
+        ? targetYear - stats.year
+        : i;
+      if (weightIdx < 0 || weightIdx >= yearWeights.length) continue;
+      const yearWeight = yearWeights[weightIdx];
 
       if (yearWeight === 0 || stats.pa === 0) continue;
 

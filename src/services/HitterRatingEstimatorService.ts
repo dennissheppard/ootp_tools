@@ -645,6 +645,47 @@ class HitterRatingEstimatorService {
       return "Scout HIGH";
     }
   }
+
+  /**
+   * Apply aging adjustments to blended rates via inverse→age→forward round-trip.
+   *
+   * Converts blended rates to regression-scale ratings (NOT percentile-scale),
+   * applies additive aging modifiers, then converts back to rates.
+   * This ensures a clean round-trip on the same scale the coefficients were calibrated on.
+   *
+   * Gap/Speed rates are passed through unchanged (no aging model for those).
+   */
+  static applyAgingToBlendedRates(
+    rates: { bbPct: number; kPct: number; avg: number; hrPct: number; doublesRate: number; triplesRate: number },
+    agingMods: { power: number; eye: number; avoidK: number; contact: number },
+  ): { bbPct: number; kPct: number; avg: number; hrPct: number; doublesRate: number; triplesRate: number } {
+    const coef = REGRESSION_COEFFICIENTS;
+    const clamp = (val: number) => Math.max(0, Math.min(100, val));
+
+    // Inverse: blended rates → regression-scale ratings
+    const eye = (rates.bbPct - coef.eye.intercept) / coef.eye.slope;
+    const avoidK = (rates.kPct - coef.avoidK.intercept) / coef.avoidK.slope;
+    const contact = (rates.avg - coef.contact.intercept) / coef.contact.slope;
+    const power = rates.hrPct <= 2.15
+      ? (rates.hrPct - coef.power.low.intercept) / coef.power.low.slope
+      : (rates.hrPct - coef.power.high.intercept) / coef.power.high.slope;
+
+    // Apply aging modifiers (additive on regression scale)
+    const agedPower = clamp(power + agingMods.power);
+    const agedEye = clamp(eye + agingMods.eye);
+    const agedAvoidK = clamp(avoidK + agingMods.avoidK);
+    const agedContact = clamp(contact + agingMods.contact);
+
+    // Forward: aged regression-scale ratings → rates
+    return {
+      bbPct: coef.eye.intercept + coef.eye.slope * agedEye,
+      kPct: coef.avoidK.intercept + coef.avoidK.slope * agedAvoidK,
+      avg: coef.contact.intercept + coef.contact.slope * agedContact,
+      hrPct: this.expectedHrPct(agedPower),
+      doublesRate: rates.doublesRate,   // no gap aging model
+      triplesRate: rates.triplesRate,   // no speed aging model
+    };
+  }
 }
 
 export { HitterRatingEstimatorService };

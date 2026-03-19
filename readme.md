@@ -17,14 +17,16 @@ The app uses a **CLI-first data pipeline**: a local CLI tool writes all data to 
 ### Data Flow
 
 ```
-StatsPlus API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
-                                                    ↓
-                                              Browser (read-only)
+WBL API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
+                                              ↓
+                                        Browser (read-only)
+                                              ↑
+                                     WBL API (date + scouting only)
 ```
 
-1. **CLI sync** (`npx tsx tools/sync-db.ts`): Fetches current-year data from StatsPlus API, writes players/teams/stats/contracts to Supabase, computes TR, TFR, and projections, writes pre-computed ratings to `player_ratings` table and projections to `precomputed_cache`
-2. **Browser**: When Supabase is configured, all StatsPlus API calls are blocked (`ApiClient.ts` guard) — the only allowed API call is `/api/date/`. Services read exclusively from Supabase. Without Supabase, the app falls back to CSV/API for dev mode.
-3. **Pre-computed ratings + projections**: TR, TFR, and pitcher/batter projections are computed by the CLI and stored as JSONB in `player_ratings` / `precomputed_cache`. The browser loads them directly — no expensive computation on page load.
+1. **CLI sync** (`npx tsx tools/sync-db.ts`): Fetches current-year data from WBL API, writes players/teams/stats/contracts to Supabase, computes TR, TFR, and projections, writes pre-computed ratings to `player_ratings` table and projections to `precomputed_cache`
+2. **Browser**: Reads from Supabase for all data. Only WBL API calls are `/api/date/` and `/api/scout` (custom scouting fetch with pagination, 2000 per page). Without Supabase, the app falls back to CSV/API for dev mode.
+3. **Pre-computed ratings + projections**: TR, TFR, and pitcher/batter projections are computed by the CLI and stored as JSONB in `player_ratings` / `precomputed_cache`. The browser loads them directly — no expensive computation on page load. Projection fast paths are **year-aware**: only used when the requested year matches `currentYear`.
 
 ### Supabase Tables
 
@@ -35,9 +37,10 @@ StatsPlus API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
 | `pitching_stats` | MLB + MiLB pitching stats by year/league/split (PK: id, year, level_id) |
 | `batting_stats` | MLB + MiLB batting stats by year/league/split (PK: id, year, level_id) |
 | `pitcher_scouting` | Pitcher scouting ratings by source (my/osa) |
-| `hitter_scouting` | Hitter scouting ratings by source (my/osa) |
+| `hitter_scouting` | Hitter scouting ratings by source (my/osa). `raw_data` JSONB includes fielding ratings (ifRange, ifArm, ifDP, ofRange, ofArm, cArm, cBlock, cFrm, pos2-pos9) |
 | `contracts` | Player contracts with salary schedules (JSONB) |
 | `player_ratings` | Pre-computed TR/TFR as JSONB (PK: player_id, rating_type) |
+| `defensive_stats` | DRS data from `/api/drs` (PK: player_id, year, position). Currently empty — API bug reported. Defensive projections fall back to scouting-only |
 | `precomputed_cache` | Key-value JSONB store for compact lookups and cached distributions (see below) |
 | `data_version` | `game_date` TEXT — set by `complete_sync()` RPC as "data ready" signal |
 
@@ -45,17 +48,18 @@ StatsPlus API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
 
 | Key | Written by | Read by | Purpose |
 |-|-|-|-|
-| `pitcher_scouting_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: [stuff, ctrl, hra, ovr, pot, lev, hsc, name?, age?, stamina?]}` — replaces 12-page bulk scouting fetch |
-| `hitter_scouting_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: [con, pow, eye, avK, gap, spd, ovr, pot, lev, hsc, name?, age?]}` |
+| `pitcher_scouting_lookup` | sync-db Step 6 | TrueRatingsView, ProjectionService | Compact `{[playerId]: [stuff, ctrl, hra, ovr, pot, lev, hsc, name, age, stamina, pitchesJSON]}` — pitches is a JSON string of the pitch arsenal (e.g. `{"FB":70,"SL":55}`), required for SP/RP role determination in projections |
+| `hitter_scouting_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: [con, pow, eye, avK, gap, spd, ovr, pot, lev, hsc, name, age, sbAgg, sbAbility, injury]}` — all fields always included |
 | `contract_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: {salary, leagueId, faYear}}` — replaces 7-page bulk contract fetch |
 | `dob_lookup` | sync-db Step 6 | TrueRatingsView | Compact `{[playerId]: birthYear}` — replaces 12-page bulk player DOB fetch |
 | `pitcher_tfr_prospects` | sync-db Step 5 | TeamRatingsService | Full `RatedProspect[]` array — replaces 3-4 paginated `player_ratings` requests |
 | `hitter_tfr_prospects` | sync-db Step 5 | TeamRatingsService | Full `RatedHitterProspect[]` array |
 | `pitcher_mlb_distribution` | sync-db Step 5 | sync-db (cached) | MLB peak-age distribution for TFR percentile calculation |
 | `hitter_mlb_distribution` | sync-db Step 5 | sync-db (cached) | Same for hitters |
-| `league_context` | sync-db Step 6 | LeagueBattingAveragesService | League-wide averages, $/WAR thresholds |
+| `league_context` | sync-db Step 6 | PitcherProfileModal, LeagueBattingAveragesService | League-wide averages, $/WAR thresholds, tier-aware FIP distributions (SP/RP) derived from TR results |
 | `pitcher_projections` | sync-db Step 5.5 | ProjectionService | Full `ProjectionContext` (projections array + metadata) — replaces 10+ Supabase requests + expensive computation |
 | `batter_projections` | sync-db Step 5.5 | BatterProjectionService | Full `BatterProjectionContext` (projections array + metadata) |
+| `defensive_lookup` | sync-db Step 5.5 | BatterProfileModal, BatterProjectionService, TeamRatingsService | `{[playerId]: [defRuns, posAdj, source]}` — precomputed defensive value per batter |
 
 **RPC functions:** `clear_for_sync()` (wipes contracts + ratings), `complete_sync(date)` (sets game_date), `career_pitching_ip()` (server-side career MLB IP aggregation), `career_batting_aggregates()` (server-side career MLB batting aggregation)
 
@@ -82,21 +86,21 @@ npx tsx tools/sync-db.ts --force         # Re-sync even if DB is up to date
 
 **Env vars** (`.env.local`): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
-**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts → Patch IC player levels (contract league_id=-200 → level=6) → Build SyncContext (15 parallel queries including career aggregate RPCs) → Compute TR (pitcher + hitter) → Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Compute projections (pitcher + batter) → Compute league context + build scouting/contract/DOB lookups → Set game_date
+**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts from WBL API → Patch IC player levels (contract league_id=-200 → level=6) → Build SyncContext (15 parallel queries including career aggregate RPCs) → Step 4: Compute TR (pitcher + hitter, shared `HitterTrueRatingsCalculationService`) → Step 5: Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Step 5.5: Compute projections using **Step 4 canonical TR** + `computeBatterProjection()` from ModalDataService (same function the browser uses — guarantees identical numbers between CLI cache and browser display) → Step 6: Build scouting/contract/DOB lookups (name/age/stamina included for ALL players, not just draftees) → Set game_date
 
-**Skip detection:** The CLI compares the DB's `game_date` (set as the very last step of a successful sync) against the StatsPlus API date. If they match, the sync exits early — no work needed. Use `--force` to override.
+**Skip detection:** The CLI compares the DB's `game_date` (set as the very last step of a successful sync) against the WBL API date. If they match, the sync exits early — no work needed. Use `--force` to override.
 
 ### Non-Supabase Dev Mode
 
-Without Supabase env vars, the app falls back to the StatsPlus API + CSV files. IndexedDB is used for caching in this mode. The API guard in `ApiClient.ts` is inactive, so all StatsPlus endpoints work normally.
+Without Supabase env vars, the app falls back to the WBL API + CSV files. IndexedDB is used for caching in this mode. The API guard in `ApiClient.ts` is inactive, so all WBL endpoints work normally. `SupabaseDataService` checks `import.meta.env.VITE_SUPABASE_URL` (browser/Vite) with `process.env.VITE_SUPABASE_URL` fallback (Node/CLI tools).
 
 ## Deployment (Vercel)
 
-Hosted on Vercel. The app needs to proxy `/api/*` requests to the StatsPlus server (`atl-01.statsplus.net`) since the browser can't call it directly (CORS).
+Hosted on Vercel. The app needs to proxy `/api/*` requests to the WBL server (`worldbaseballleague.org`) since the browser can't call it directly (CORS).
 
 **How it works:**
 
-- `api/proxy.js` — Node.js serverless function that forwards requests to `https://atl-01.statsplus.net/world/api/`
+- `api/proxy.js` — Node.js serverless function that forwards requests to `https://worldbaseballleague.org/api/` with `x-api-key` header
 - `ApiClient.ts` (`proxyRewrite()`) — In production, rewrites `/api/date/?foo=1` to `/api/proxy?path=date/&foo=1` so the browser calls the function route directly
 - `vercel.json` — Only contains the SPA catch-all (`/(.*) → /index.html`). No API rewrites.
 - Local dev uses Vite's built-in proxy (`vite.config.ts`) — `proxyRewrite()` is skipped on localhost
@@ -118,6 +122,7 @@ src/
 ├── components/   # Reusable UI components (DevelopmentChart)
 ├── models/       # TypeScript interfaces
 ├── services/     # Business logic layer
+│   └── simulation/   # Monte Carlo season simulation engine
 ├── views/        # View components
 └── controllers/  # Data orchestration
 ```
@@ -132,8 +137,10 @@ Blends scouting grades with actual performance stats to produce a 0.5-5.0 star r
 - **Percentile-based component ratings** — Contact, Power, Eye, AvK ranked within each season (not absolute thresholds), ensuring fair cross-era comparison
 - **HR%-based power** (not ISO) to correctly distinguish gap hitters from power hitters
 - **WAR-based ranking** — Final TR percentiles use WAR per 600 PA (incorporates baserunning via SB/CS)
+- **Scouting-aware role determination** — Pitcher role (SP/SW/RP) determined by `determinePitcherRole()` in `src/models/Player.ts` using pitch count + stamina + 3rd-pitch quality, with OOTP role and stats-based fallbacks. Both CLI sync and browser use the same function
 - **Tier-aware regression** — Elite hitters regress toward elite targets, not league average
 - **Component stabilization**: BB% 120 PA, K% 60 PA, HR% 160 PA, AVG 300 PA
+- **Blended rate precision**: BB%/K%/HR% stored at 2 decimals, AVG/ISO at 4 decimals, pitcher K9/BB9/HR9 at 3 decimals — enough precision that different scouting sources produce visibly different projections
 - **3-layer scouting blend** — see below
 
 #### Scouting Blend (3-Layer System)
@@ -176,10 +183,10 @@ A **pure peak/ceiling projection system** — projects what a prospect's age-27 
 5. Map FIP to MLB peak-year FIP distribution for final TFR (0.5-5.0 scale)
 
 **Peak Workload:**
-- Starters (Stamina ≥ 30, 3+ pitches): `baseIp = 30 + (stamina × 3.0)` (clamped 120-260)
-- Relievers: `baseIp = 50 + (stamina × 0.5)` (clamped 40-80)
-- Injury modifiers: Ironman 1.15×, Durable 1.10×, Normal 1.0×, Fragile 0.90×, Wrecked 0.75×
-- Injury modifier only applies to prospects without historical data
+- Starters (Stamina ≥ 30, 3+ pitches): `baseIp = 30 + (stamina × 3.0)` (clamped 120-260), skill/FIP modifiers, injury adjustment
+- Relievers: effectiveness-driven — `baseIp = 120 - ((FIP - 2.0) / 3.5) × 90` (FIP 2.0 → 120 IP, FIP 5.5 → 30 IP, clamped 30-120). Stamina discount below 50: −5% per 5 points (floor 70% at stamina 20). Injury modifiers applied on top.
+- SP Injury modifiers: Iron Man 1.15×, Durable 1.10×, Normal 1.0×, Fragile 0.90×, Wrecked 0.75×
+- RP Injury modifiers: Iron Man 1.10×, Durable 1.05×, Normal 1.0×, Fragile 0.90×, Wrecked 0.75×
 
 #### Batter TFR
 
@@ -232,6 +239,12 @@ yearN3      = 2 − 2 × progress    // 2 → 0
                                    // Always sums to 10
 ```
 
+**Year-aligned weight assignment:** Weights are assigned by `targetYear - stat.year` offset, not by array position. If a player has no data for a year (e.g., demoted to minors), that year's weight slot is unused — older data does NOT shift into higher weight positions. A player who missed 2021 with targetYear=2022 gets: 2022→weight[0]=0, 2021→weight[1]=5 (unused, no data), 2020→weight[2]=3, 2019→weight[3]=2.
+
+**Offseason progress:** `getSeasonProgress()` returns 1.0 during offseason (Jan-Mar) because the previous season is complete. This ensures current-year data gets full weight rather than being zeroed out.
+
+**Staleness discount:** When a player's most recent MLB data is 2+ years older than the target year (missed full seasons), effective PA is halved per excess gap year: `effectivePa = totalPa × 0.5^(gap - 1)`. This increases both regression strength and scouting blend weight, pulling absent players toward their scouting expectations — bad scouts regress down, good scouts hold value.
+
 ### TFR/TR Unified Display
 
 Instead of proxy thresholds, the actual ratings comparison determines display:
@@ -243,11 +256,12 @@ Instead of proxy thresholds, the actual ratings comparison determines display:
 - **TFR <= TR and no component upside** → TFR disappears entirely
 - **No TR** (pure prospect) → Development-curve TR as current + TFR as ceiling
 - **Gate check** (skip TFR calculation): age >= 26 AND star gap < 0.5
-- **Projection toggle**: Current uses TR blended rates; Peak uses TFR blended rates directly (NOT formula-derived from 20-80 ratings — the round-trip is lossy)
+- **Projection toggle**: Current uses TR blended rates + aging delta; Peak uses TFR blended rates directly. Both avoid the lossy rating→stat→rating round-trip
+- **Scouting source toggle**: When custom scouting is loaded (`hasCustomScouting`), profile modals fetch both custom TR (computed locally) and OSA TR (pre-computed in Supabase) at open time. Stored as `trBySource` on profile data. Toggle swaps TR snapshot (estimated ratings + blended rates) alongside TFR fields, then re-renders projections first (updates `_lastProjection`) then ratings section (reads it for badges). Blended rates stored at increased precision (4 decimals for AVG, 2 for pct rates, 3 for pitcher per-9) so scouting differences aren't hidden by rounding
 
 ### Player Tags
 
-Contextual pill badges in the profile modal tab bar (right-aligned, next to Ratings/Career/Development tabs). Computed by `src/utils/playerTags.ts`. Currently calculated on-the-fly at modal launch (not pre-indexed); future work could batch-compute for searchability.
+Contextual pill badges in the profile modal tab bar (right-aligned, next to Ratings and Projections/Development tabs). Computed by `src/utils/playerTags.ts`. Currently calculated on-the-fly at modal launch (not pre-indexed); future work could batch-compute for searchability.
 
 **Shared tags (pitchers & batters):**
 
@@ -268,7 +282,7 @@ Contextual pill badges in the profile modal tab bar (right-aligned, next to Rati
 | Full-Time Starter | green | projIP ≥ 180 AND FIP ≥ 40th percentile |
 | Innings Eater | amber | projIP ≥ 180 AND FIP 30th–59th percentile (below Full-Time Starter threshold) |
 
-FIP percentile: higher = better pitcher (% of league with worse FIP). Computed from league distribution (50+ IP qualifiers).
+FIP percentile: higher = better pitcher (% of league with worse FIP). Computed from **tier-matched** league distribution (SP vs RP) derived from TR results — same pool used for TR percentiles.
 
 **Batter workload & profile tags:**
 
@@ -283,47 +297,51 @@ Gap Hitter and Triples Machine can coexist. All use True Rating (20-80) values f
 
 ### Projections
 
-Three-model ensemble:
+**Batter projection pipeline** (single function: `ModalDataService.computeBatterProjection()`):
+1. Start from canonical TR blended rates (BB%, K%, HR%, AVG)
+2. Apply aging delta: `projRate = blendedRate + (expectedRate(agedRating) - expectedRate(currentRating))`
+3. Compute wOBA from projected rates via linear weights
+4. Project PA from historical PA data + age curve + injury adjustment (`LeagueBattingAveragesService.getProjectedPaWithHistory`)
+5. Project SB/CS: blend scouting projections with historical per-PA rates. Prospects with no MLB history use pure scouting
+6. Compute defensive value via `DefensiveProjectionService.projectDefensiveValue()`: fielding scouting ratings → position-specific defensive runs (with DRS blend when available), plus positional adjustment (C +12.5, SS +7.5, 2B/3B/CF +2.5, LF/RF -7.5, 1B -12.5, DH -17.5 runs/162, prorated by PA). Aging applied per ZiPS curve. `defRuns` and `posAdj` passed into deps.
+7. Compute WAR: `(wRAA + replacementRuns + sbRuns + defRuns + posAdj) / runsPerWin`
+
+All three consumers (sync-db, BatterProjectionService, profile modal) call this same function with the same deps. No separate formulas.
+
+**Pitcher projection pipeline** (three-model ensemble):
 - **Optimistic** (40%): Standard aging curves
 - **Neutral** (30%): Status quo
 - **Pessimistic** (30%): Trend-based decline
 
-**Pitcher projection pipeline:**
-1. Multi-year weighted stats → 4-year rolling average
-2. FIP-aware regression (elite pitchers regress less)
-3. Scouting blend at IP/(IP+60) weight
-4. Rating estimation (inverse formulas)
-5. Ensemble aging: 35% full aging, 65% 20%-aging
-6. Rating→Rate conversion (forward formulas)
-
-**Batter SB blending:** Both pipelines blend scouting SB/CS projections with historical per-PA rates for MLB players (see Stolen Bases formula). Prospects with no MLB history use pure scouting. TFR peak projections always use pure scouting.
+Steps: Multi-year weighted stats → 4-year rolling average → FIP-aware regression → Scouting blend at IP/(IP+60) → Rating estimation (inverse formulas) → Ensemble aging: 35% full aging, 65% 20%-aging → Rating→Rate conversion (forward formulas)
 
 **Rating ranges:** Internal calculations use 0-100 (prevents artificial capping at extremes); UI displays 20-80.
 
-### Pipeline Modes
+**Offseason projection year:** During offseason (Nov-Mar), `dateService.getProjectionTargetYear()` returns `currentYear + 1`. Note: `getCurrentYear()` returns the **season year** from the WBL API `season` field (e.g., 2021), not the calendar year from the date (which may be 2022 in Jan). All season dropdowns (labeled "Season:" in the UI) derive from the game date API — no hardcoded years.
 
-Two pipelines that answer different questions (see `docs/pipeline-map.html`):
+### Pipeline Architecture
 
-- **Canonical Current**: "What is this player worth right now?" Uses authoritative TR from `TrueRatingsService`, resolves TFR/prospect data, runs modal-equivalent projection math via `ModalDataService`. Every current-truth view shows the same numbers as the profile modal. `ProjectionService.calculateProjectedIp()` is used as a shared utility for IP estimation (not full projections).
-- **Forecasting Model**: "What does the model predict for next season?" (`ProjectionService` / `BatterProjectionService`). Computes its own TR from arbitrary-year stats, uses ensemble projection math (40% optimistic, 30% neutral, 30% pessimistic), supports backtesting and year selection.
+Single source of truth with shared computation (see `docs/pipeline-map.html`):
 
-These are intentionally separate — numbers may differ between them and that's correct.
+- **Canonical TR** (`TrueRatingsService`): Authoritative True Ratings, blended rates, wOBA. Used by ALL views and projections. CLI Step 4 computes the same TR using the shared `HitterTrueRatingsCalculationService`.
+- **Batter projections** (`BatterProjectionService` + `ModalDataService.computeBatterProjection()`): Single computation function used by ALL three paths — sync-db precompute, browser projection table, and profile modal. Takes canonical TR blended rates, applies aging delta, computes PA/SB/wOBA/WAR. No separate formulas anywhere.
+- **Pitcher projections** (`ProjectionService`): Ensemble math (40/30/30 optimistic/neutral/pessimistic).
+- **CLI sync**: Precomputes both pipelines. Step 5.5 calls `computeBatterProjection()` with the same deps as the browser — guarantees identical output.
 
-| View | Pipeline | Notes |
+**Same player = same number everywhere.** Profile modal WAR badge, projection stat line, Team WAR table, and CLI precomputed cache must all show identical WAR for the same player/year. This is enforced by using a single computation function (`computeBatterProjection`) across all paths, with canonical TR as the sole input source. Profile modal clears caller-provided `projPa`/`projWar` for non-prospects and recomputes from canonical history using `projectionYear` (not `currentYear`).
+
+| View | Data Source | Notes |
 |-|-|-|
-| Profile modals | Canonical Current | Always re-resolve canonical values |
-| Trade Analyzer | Canonical Current | TR/TFR maps + on-demand projection from canonical data |
-| True Ratings | Canonical Current | TR/TFR maps as source of truth |
-| Farm Rankings | Canonical Current | TFR pools for prospect rankings |
-| Team Planning | Canonical Current | TR maps + TFR for roster construction |
-| Global Search | Canonical Current | Canonical TR + TFR pools for search results |
-| Team Ratings: Power Rankings | Canonical Current | Weighted-average TR |
-| Team Ratings: Projections/Standings | Forecasting Model | Pre-season/Current Year Stats toggle controls stats year |
-| Projections view | Forecasting Model | Year selector, backtesting |
-| Data Management | Canonical Current | Infrastructure: data upload + cache priming |
-| Other views | — | Analytics, DraftBoard, Calculators, etc. — no pipeline dependency |
-
-TeamRatingsView projections/standings force the selected season to the current game year, but remain model outputs (not literal in-season standings progression). The Pre-Season/Current Year Stats toggle controls whether projection services use prior-year-only data (pure pre-season) or allow current-year stats to influence projections.
+| Profile modals | Canonical TR + projection | WAR badge uses projection line WAR (no independent recompute) |
+| Trade Analyzer | Canonical TR/TFR | On-demand projection from canonical data |
+| True Ratings | Canonical TR/TFR | Rating tables |
+| Farm Rankings | TFR pools | Prospect rankings (sorted by projected peak WAR, interleaves pitchers + hitters) |
+| Team Planning | Canonical TR + TFR | Roster construction |
+| Global Search | Canonical TR + TFR | Search results |
+| Team Ratings: Power Rankings | Canonical TR | Weighted-average TR; future years use current rosters |
+| Team Ratings: WAR/Win Projections | Projections | Year dropdown = target season; code derives base year |
+| Projections view | Projections | Year selector, backtesting |
+| Data Management | — | Scouting upload (API pagination: 2000/page), cache priming |
 
 ## Key Services
 
@@ -347,13 +365,14 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `ProspectDevelopmentCurveService` | Prospect TR via historical development curves |
 | `HitterRatingEstimatorService` | Rating↔stat conversion coefficients |
 | `HitterScoutingDataService` | Batter scouting CSV parsing (maps CON P, not HT P) |
-| `BatterProjectionService` | Batter projections integration |
+| `BatterProjectionService` | Batter projections — delegates to `computeBatterProjection()` using canonical TR. No independent TR computation |
+| `DefensiveProjectionService` | Converts fielding scouting ratings to defensive runs + positional adjustment. Blends with DRS history when available (currently scouting-only). Used by sync-db and browser projection paths |
 
 ### Shared Services
 
 | Service | Purpose |
 |---------|---------|
-| `ModalDataService` | Pure functions for modal data resolution and projection computation (extracted from profile modals for testability) |
+| `ModalDataService` | **Single source of truth for batter projections.** `resolveCanonicalBatterData()` applies canonical TR + aging delta. `computeBatterProjection()` computes all projected stats (AVG/OBP/SLG/wOBA/WAR/PA/SB). Used by sync-db, BatterProjectionService, and profile modals |
 | `CanonicalCurrentProjectionService` | Builds cached modal-equivalent MLB projection snapshots for current-year canonical pipeline consumers |
 | `SupabaseDataService` | Primary data layer — PostgREST queries with auto-pagination, column whitelists, pre-computed rating reads |
 | `SyncOrchestrator` | Data-ready check: `checkDataReady()` verifies `game_date` is set in Supabase. No hero detection or write tracking |
@@ -366,7 +385,7 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `DevelopmentSnapshotService` | Historical scouting snapshot storage |
 | `MinorLeagueStatsService` | Minor league stats from Supabase/API/CSV |
 | `IndexedDBService` | Local-only storage (v12): team planning overrides, dev snapshots, salary overrides |
-| `DateService` | Game date from `/api/date/` (60-min localStorage cache + in-memory); season progress calculation for stat weighting |
+| `DateService` | Game date from `/api/date/` (60-min localStorage cache + in-memory); `getCurrentYear()` returns season year (from API `season` field), not calendar year; `getProjectionTargetYear()` returns `currentYear + 1` during offseason (Nov-Mar); season progress calculation for stat weighting |
 
 ## Views
 
@@ -375,18 +394,24 @@ TeamRatingsView projections/standings force the selected season to the current g
 | `TrueRatingsView` | Pitcher/batter dashboard with TR/projections; level-based filtering (MLB / Minor Leaguers / Future Draftees / Free Agents) via scouting `Lev`/`HSC` columns |
 | `FarmRankingsView` | Top 100 prospects, org rankings with Farm Score |
 | `ProjectionsView` | Future performance projections with 3-model ensemble |
-| `TeamRatingsView` | Power Rankings / Projections / Standings toggle |
+| `TeamRatingsView` | Power Rankings / WAR Projections / Win Projections (WAR-Based or Monte Carlo Simulation) |
 | `TeamPlanningView` | 6-year roster planning grid with prospects, contracts, trade market |
 | `TradeAnalyzerView` | Multi-asset trade evaluation (MLB + prospects + draft picks) |
 | `DataManagementView` | File uploads with header validation; analytics dashboard (localhost only, double-click logo to open). |
 | `AboutView` | App overview with flow diagrams for TR, TFR, and projections. Default landing page. Accessible by single-clicking the logo. Not in the nav bar. |
-| `PlayerProfileModal` / `BatterProfileModal` | Deep-dive with Ratings + Development tabs + player tags |
+| `PlayerProfileModal` / `BatterProfileModal` | Deep-dive with Ratings and Projections (Projections / Career Stats / True Analysis sub-tabs) + Development tab + player tags |
 
 ### Team Ratings & Projected Standings
 
-Three modes: Power Rankings (weighted avg TR), Projections (weighted WAR), Standings (projected W-L).
+Three modes: Power Rankings (weighted avg TR), WAR Projections (weighted WAR), Win Projections (WAR-Based or Monte Carlo Simulation).
 
-**Pre-Season / Current Year Stats toggle** (Projections & Standings): Pre-Season forces all data sources to `year - 1` (stats, IP distribution, league context, role classification). Current Year Stats uses live data. Persisted in `wbl-teamratings-statsMode`. Data source badge updates accordingly.
+**Year dropdown = target season.** User selects 2022 to see 2022 data. Code internally derives the stats base year (2021) via `selectedYear - 1`. The dropdown range extends up to `getProjectionTargetYear()`.
+
+**Power Rankings for future years** use current rosters from the players table (reflecting offseason moves) but TR from the latest completed season. `getPowerRankings(year, { rosterYear })` accepts an optional roster year.
+
+**Pre-Season / Current Year Stats toggle** (Projections & Standings): Pre-Season forces league context to `year - 1`. Current Year Stats tries current year, falls back to `year - 1` if no valid data (prevents rounding differences when there are no current-year stats). Persisted in `wbl-teamratings-statsMode`.
+
+**Supabase teams: `parentTeamId`** defaults to 0 via `r.parent_team_id ?? 0` in `TeamService.ts`. WBL API stores `null` for MLB teams; the `?? 0` ensures `parentTeamId === 0` checks work correctly.
 
 **Weighting:** 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench (Power Rankings & Projections). Standings uses raw WAR sum (rotation + bullpen + lineup; bench excluded).
 
@@ -406,6 +431,49 @@ rawWins = 81 + deviation × slope
 **Lineup/Bench split (Standings & Projections):** Top 9 by projected WAR → lineup, next 4 → bench.
 
 **Historical backtesting:** When viewing 2005-2020, shows Act W/L and Diff columns with MAE/R² summary.
+
+### Monte Carlo Season Simulation
+
+An alternative to WAR-based win projections under Team Ratings → Win Projections → Simulation. Runs thousands of full 162-game seasons game-by-game using per-PA matchup probabilities.
+
+**Engine files** (`src/services/simulation/`):
+
+| File | Purpose |
+|-|-|
+| `SimulationTypes.ts` | Interfaces, division structure (4 divisions × 5 teams), config defaults; `BatterSnapshot` has `woba`, `positionRating`, `defRuns`, `stealAggression`, `stealAbility`; `PitcherSnapshot` has `trueRating`, `stamina`, `injuryProneness`; `TeamSeasonState` tracks `relieverConsecutiveDays` for fatigue; `GameState` tracks `homeSetupUsed`/`awaySetupUsed` for setup man role |
+| `PlateAppearanceEngine.ts` | Two-stage PA model: proper log5 matchup (`(b*p/L) / ((b*p/L) + (1-b)(1-p)/(1-L))`) for K/BB/HR, batter batted-ball profile for contact outcomes (1B/2B/3B/OUT) |
+| `GameEngine.ts` | Game state machine: innings/outs/bases/score, probabilistic runner advancement (runner on 2B scores 60% on 1B, runner on 1B scores 44% on 2B, sac flies 12% on non-K outs with <2 outs, runner 2B→3B 15% on outs), SB attempts (gated by SR/STE scouting ratings, breakeven-aware), stamina-based SP pitch limit (`stamina + 50`, clamped [70,130] — 40 stamina → ~90 pitches, 70 stamina → ~120), 8th-inning hook at 90+ pitches, early hook >5 ER in ≤4 IP, performance-based 7th-inning hook at 75+ pitches if >3 ER, role-based bullpen (closer for 9th when winning, setup man for 7th-8th within 3 runs, MR cycling, mopup arms for blowouts), 3-day reliever fatigue tracking, team defense BABIP modifier (weighted by `defRuns`, DH excluded, centered around league average), walk-offs, extra innings (capped at 18), pinch hitting, position defense sub; pitch-per-PA estimates calibrated to WBL in-game data (~3.4 pitches/PA, ~14.7 pitches/IP) |
+| `SeasonSimulator.ts` | Division-weighted 162-game schedule (18 div / 8 same-league / 5 interleague), async season loop with UI yielding, playoff bracket (4 div winners + 4 WC → DS → LCS → WS); injury-based batter rest, catcher rest, injury-based SP rotation skips (replacement-level arm fills in) and RP unavailability (added to tired set), per-PA stat tracking with GS tracking → post-sim leaderboards with WAR (batters: wOBA-based WAR, pitchers: FIP-based fWAR with replacement-level = lgERA × 1.38, runsPerWin = 9), dynamic FIP constant, team logos |
+| `SimulationService.ts` | Converts `getProjectedTeamRatings()` → `TeamSnapshot[]` using projected/blended rates (not raw stats — prevents small-sample distortions like 0 BB in 9 IP), threads `stamina`/`injuryProneness`/`defRuns` from scouting data through to snapshots, computes league baseline from population, calibrates league batting average to WBL target (~.273) via singles boost |
+
+**Data flow:**
+```
+TeamRatingsService.getProjectedTeamRatings(year, { preSeasonOnly: true })
+  → RatedBatter[] (with projected bbPct/kPct/hrPct/avg/woba, SB scouting ratings, defRuns)
+  → RatedPlayer[] (pitchers with projected k9/bb9/hr9/fip, stamina, injuryProneness)
+  → SimulationService.convertBatter/Pitcher() (rate → PA probability vector)
+  → AVG calibration (scale pSingle to match WBL league AVG target)
+  → computeLeagueRatesFromSnapshots() (league baseline = population average)
+  → SeasonSimulator.runSeasonSimulation() (N seasons × 162 games × ~70 PA/game)
+  → SimulationResults (mean/median/SD wins, RS/RA, playoff%, div%, champ%, leaderboards with WAR)
+```
+
+**Key design decisions:**
+- **Projected rates, not raw stats**: Uses `getProjectedTeamRatings` (blended/regressed projections) instead of `getPowerRankings` (raw stats). Prevents small-sample pitchers from having extreme rates (e.g., 0 BB/9 from a 9 IP callup).
+- **Proper log5 formula**: `P = (b*p/L) / ((b*p/L) + (1-b)(1-p)/(1-L))` with full denominator normalization. The simplified `b*p/L` form systematically distorted extreme rates.
+- **Two-stage matchup formula**: Log5 determines K/BB/HR (pitcher + batter influence), then remaining contact probability is distributed by the batter's batted-ball profile. This ensures good pitchers properly suppress offense by shrinking the contact pool.
+- **League AVG calibration**: Pre-season projections under-project batting average. A post-conversion calibration step scales `pSingle` for all batters to match the WBL league average (~.273), compensating for log5 compression.
+- **Probabilistic runner advancement**: Singles don't always advance runners one base — runner on 2B scores 60% of the time on singles, runner on 1B reaches 3rd 30%. On doubles, runner on 1B scores 44% (otherwise to 3rd). Non-K outs with <2 outs produce sac flies (runner on 3B scores 12%) and productive groundouts (runner 2B→3B 15%).
+- **Role-based bullpen management**: Closer (best RP by TR, idx 0) reserved for 9th inning when winning. Setup man (2nd-best RP, idx 1) enters 7th-8th when within 3 runs, cycles after 1 inning. Middle relievers cycle at ~35 pitches. Mopup arms (idx 3+) pitch multi-inning stints in blowout losses. 3-day consecutive appearance limit with per-game fatigue tracking.
+- **Stolen bases**: Gated by STE (Stealing Ability) breakeven — only attempts when success rate ≥ 72%. Attempt rate from SR (Stealing Aggressiveness) piecewise linear model calibrated from WBL scouting data.
+- **Stamina-based SP workload**: Pitch limit = `stamina + 50` (clamped [70, 130]). A 40-stamina SP hooks at ~90 pitches; 70-stamina at ~120. Pitch-per-PA estimates calibrated to WBL in-game data (~3.4 pitches/PA, ~14.7 pitches/IP).
+- **Injury-based pitcher availability**: SP rotation skips (Iron Man 0%, Durable 2%, Normal 5%, Fragile 12%, Wrecked 25%) — injured starter replaced by replacement-level arm. RP per-game unavailability (Iron Man 0%, Durable 1%, Normal 3%, Fragile 8%, Wrecked 18%) — unavailable RPs added to tired set.
+- **Team defense BABIP modifier**: Sum of lineup `defRuns` (from `DefensiveProjectionService`, already position-weighted — great SS > great 1B), DH excluded, centered around league average. Shifts `pSingle ↔ pOut` before PA resolution. Scaled aggressively to reflect WBL's defense-heavy meta (~2.5-3 wins for best defensive team).
+- **Leaderboards**: Sorted by WAR. Batter WAR: wOBA-based with replacement-level adjustment (+20 runs per 600 PA), runsPerWin=9. Pitcher WAR: FIP-based fWAR with replacement FIP = lgERA × 1.38, dynamic FIP constant (lgFIP = lgERA). GS tracked for SP diagnostics. Team logos displayed.
+- **Run environment calibration**: Targeting ~4.5 R/G, .273 AVG, .322 OBP, matching WBL league averages. Per-team counting stats (2B, 3B, HR, BB) validated against actual WBL totals.
+- **Position-aware lineup construction**: Sim uses scarcity-based position assignment (`constructOptimalLineup`) — fills C/SS first, then 2B/3B/CF, then corners/DH. Prevents duplicate positions. Current roster only (no stat-based team_id fallback for free agents).
+
+**Debug**: `debugDumpTeams()` in SimulationService — logs league baseline, per-team rate summary table, division assignments, schedule validation (162 games), and flags outlier teams. Commented out by default; uncomment the call in `runSimulation()` or export to `window` for devtools access.
 
 ### Team Planning
 
@@ -537,9 +605,13 @@ Historical blend (MLB players with qualifying seasons):
 
 ## Data Sources
 
-**StatsPlus API:**
-- Pitchers: `/api/playerpitchstatsv2/` | Batters: `/api/playerbatstatsv2/`
-- Params: `year`, `lid` (200=MLB, 201-204=minors), `split=1`
+**WBL API** (proxied via `api/proxy.js`):
+- Date: `/api/date` → `{ in_game_date: { date }, season }`
+- Players: `/api/players` → `{ players: [...] }`
+- Teams: `/api/teams?level=<level>` → `{ teams: {...} }`
+- Stats: `/api/playerpitchstats?year=&level=` | `/api/playerbatstats?year=&level=`
+- Scouting: `/api/scout?tid=&passphrase=` → `{ total, limit, count, offset, ratings: [...] }` (caps at 2000/page, paginate with `offset`)
+- Levels: `wbl`, `aaa`, `aa`, `a`, `r`
 
 **CSV Column Mappings:**
 
@@ -592,7 +664,7 @@ See [Data Architecture](#data-architecture) above for the full Supabase table la
 
 | Tool | Purpose | Usage |
 |-|-|-|
-| `tools/sync-db.ts` | **Primary data pipeline.** Fetches all data from StatsPlus API, writes to Supabase, computes and stores TR/TFR ratings. See [Sync Pipeline](#sync-pipeline) below. | `npx tsx tools/sync-db.ts [--year=N] [--skip-compute]` |
+| `tools/sync-db.ts` | **Primary data pipeline.** Fetches all data from WBL API, writes to Supabase, computes and stores TR/TFR ratings. See [Sync Pipeline](#sync-pipeline) below. | `npx tsx tools/sync-db.ts [--year=N] [--skip-compute]` |
 | `tools/migrate-to-supabase.ts` | One-time migration: historical DOBs, stats, scouting to Supabase | `npx tsx tools/migrate-to-supabase.ts` |
 | `tools/check-db.ts` | Diagnostic: verify Supabase data integrity (player counts, join checks) | `npx tsx tools/check-db.ts` |
 | `tools/lib/supabase-client.ts` | Shared PostgREST helpers (query, upsert with concurrent batching, rpc, CSV parsing) used by all CLI tools | — |
@@ -604,9 +676,10 @@ See [Data Architecture](#data-architecture) above for the full Supabase table la
 | `tools/validate-ratings.ts` | Automated TR validation (WAR correlation, distributions, stability) | `npx tsx tools/validate-ratings.ts --year=2020` |
 | `tools/investigate-pitcher-war.ts` | Investigate pitcher WAR projection gaps | `npx tsx tools/investigate-pitcher-war.ts` |
 | `tools/report-hitter-gap-speed-deltas.mjs` | Offline delta report for Gap/Speed migration (MLB-mapped vs legacy prospect-rank midpoint) | `node tools/report-hitter-gap-speed-deltas.mjs --playerId=14422 --top=20` |
-| `tools/explain-player.ts` | Explains a player's TR/projection using real services + trace output (text/json/markdown), including modal-equivalent current projection path and `--projectionMode=current|peak` | `npx tsx tools/explain-player.ts --playerId=1234 --type=hitter --mode=all --year=2026 --projectionMode=current --format=markdown` |
+| `tools/explain-player.ts` | Explains a player's TR/projection using real services + trace output (text/json/markdown), including modal-equivalent current projection path and `--projectionMode=current|peak`. `--compare --passkey=PASS --team=ABBR` fetches custom scouting from WBL API and runs side-by-side OSA vs custom comparison with full trace for each source. Year defaults to `getProjectionTargetYear()` (offseason-aware). Loads `.env` for Supabase credentials, routes `/api/` to WBL API | `npx tsx tools/explain-player.ts --playerId=1234 --type=hitter --mode=all --year=2022 --projectionMode=current --format=markdown` |
+| `tools/sim-debug.ts` | Simulation diagnostics: dumps team snapshots, PA vectors, league baselines, division assignments, schedule validation, and game traces. Requires Supabase (browser services). Currently non-functional in Node (no IndexedDB) — use the in-browser `debugDumpTeams()` instead. | `npx tsx tools/sim-debug.ts --year=2021 --game=TOR,ADE --sims=5` |
 
-The CLI explain flow uses instrumented service calls so output stays in sync with production math. It now emits canonical future component context (including Future Gap/Speed derivation) to debug modal-equivalent outputs. A future in-app "Explain This Rating" panel can reuse the same trace objects.
+The CLI explain flow uses instrumented service calls so output stays in sync with production math. It emits canonical future component context (including Future Gap/Speed derivation) to debug modal-equivalent outputs. Year-aligned weights and staleness discounts are visible in the trace. A future in-app "Explain This Rating" panel can reuse the same trace objects.
 
 ### Calibration
 
@@ -627,10 +700,10 @@ The CLI explain flow uses instrumented service calls so output stays in sync wit
 
 `tools/sync-db.ts` is the backbone of the data layer. Every browser client is a **pure reader** — all writes go through this CLI tool.
 
-**Data flow:** StatsPlus API → `sync-db.ts` → Supabase → browser clients (read-only)
+**Data flow:** WBL API → `sync-db.ts` → Supabase → browser clients (read-only)
 
 **Steps (in order):**
-1. **Detect game date** — fetches `/api/date/` from StatsPlus, parses year (or uses `--year=N`)
+1. **Detect game date** — fetches `/api/date/` from WBL, parses year (or uses `--year=N`)
 2. **Clear stale data** — calls `clear_for_sync()` RPC (deletes contracts + player_ratings; players/teams/stats are upserted)
 3. **Sync data** — fetches players, teams, contracts, pitching stats (MLB + minors), batting stats (MLB + minors). Upserts everything to Supabase.
 3.5. **Build SyncContext** — fires ~15 Supabase queries in parallel (all players, teams, scouting, 4-year stats, contracts, career aggregates via RPCs, precomputed distributions). Builds Maps for all downstream compute steps. Steps 4-6 make zero Supabase queries — all data comes from the context.
@@ -659,7 +732,7 @@ The CLI explain flow uses instrumented service calls so output stays in sync wit
 **Schedule:** Every 10 minutes, 12:00–17:50 UTC (7am–1pm ET with DST buffer on both sides).
 
 **How it works:**
-1. **Date check** (no checkout, ~2 seconds) — curls the StatsPlus date API and Supabase REST API, compares dates. If they match → job exits, consuming almost zero GHA minutes.
+1. **Date check** (no checkout, ~2 seconds) — curls the WBL date API and Supabase REST API, compares dates. If they match → job exits, consuming almost zero GHA minutes.
 2. **Sync** (only when date changed) — checks out repo, `npm ci`, runs `npx tsx tools/sync-db.ts`.
 3. **Manual trigger** — `workflow_dispatch` in GitHub UI always forces a sync regardless of date check.
 
@@ -674,26 +747,34 @@ The CLI explain flow uses instrumented service calls so output stays in sync wit
 
 ## Testing
 
-Jest with ts-jest (ESM mode):
+Vitest (migrated from Jest):
 
 ```bash
-npx jest                                              # All tests
-npx jest src/services/RatingConsistency.test.ts        # Specific file
+npx vitest                                              # All tests
+npx vitest src/services/RatingConsistency.test.ts       # Specific file
 ```
 
 | File | Tests | Coverage |
 |------|-------|----------|
-| `RatingConsistency.test.ts` | 36 | TR/TFR determinism, cross-service consistency, hitter round-trips, data contracts, pool sensitivity, TFR display logic, scouting blend dev-ratio scaling |
+| `RatingConsistency.test.ts` | 36+ | TR/TFR determinism, cross-service consistency, hitter round-trips, data contracts, pool sensitivity, TFR display logic, scouting blend dev-ratio scaling; pitcher peak toggle regression (MLB player with pre-computed stats must recalculate from TFR in peak mode) |
 | `playerTags.test.ts` | 43 | Player tags: shared (overperformer, underperformer, expensive, bargain, ready for promotion, blocked), pitcher workload (workhorse, full-time starter, innings eater), batter profile (workhorse, 3-outcomes, gap hitter, triples machine) + edge cases |
 | `ModalDataService.test.ts` | 17 | Resolve and projection functions across prospect/MLB player archetypes (batter and pitcher) |
 | `RatingEstimatorService.test.ts` | 20 | Pitcher rating estimation with confidence intervals |
-| `ProjectionService.test.ts` | 10 | IP projection pipeline, precomputed fast-path |
-| `BatterProjectionService.test.ts` | 3 | Precomputed fast-path (Supabase configured, custom scouting bypass, null cache fallthrough) |
+| `ProjectionService.test.ts` | 10 | IP projection pipeline, precomputed fast-path; uses `DateService` mock to prevent year-mismatch in fast-path tests |
+| `BatterProjectionService.test.ts` | 3 | Precomputed fast-path (Supabase configured, custom scouting bypass, null cache fallthrough); uses `DateService` mock |
 | `ProspectDevelopmentCurveService.test.ts` | 19 | Hitter/pitcher development curves: age-based TR scaling, rawStats adjustment, MLB stats boost, clamping, gap/speed avg devFraction, diagnostics |
 | `PlayerService.test.ts` | 12 | Cache-path queries: name/info lookup, org filtering, search (case-insensitive, reverse name), hasCachedPlayers |
 | `ContractService.test.ts` | 13 | Utility methods (yearsRemaining, FA year, salary access, last year check), team/player filtering, cache state |
 | `SupabaseDataService.test.ts` | 53 | Column whitelist invariants: PITCHING_COLS excludes 14 bad CSV columns, BATTING_COLS excludes computed avg/obp, filterColumns strips extras |
 | `TeamPlanningView.test.ts` | 3 | Rating resolution and grid manipulation |
+
+## Recent Bug Fixes
+
+**Pitcher peak toggle** (`src/services/ModalDataService.ts`): MLB pitchers with TFR upside showed no change in projection stats (K/9, BB/9, HR/9, FIP, IP, WAR) when toggling to Peak mode because pre-computed current-TR values short-circuited the recalculation. Peak mode now always recalculates from TFR ratings.
+
+**Prospect gate on TR lookup** (`BatterProfileModal.ts`, `PitcherProfileModal.ts`): Players tagged `isProspect: true` by calling views (e.g. Farm Rankings) had their True Ratings lookup skipped entirely. Call-up players with limited MLB PA but a real TR now correctly receive the Current/Peak toggle instead of being locked into prospect-only peak display.
+
+**Top 100 badge for graduated prospects** (`BatterProfileModal.ts`, `PitcherProfileModal.ts`): Players past prospect eligibility thresholds (130+ career AB / 50+ IP) still showed the Top 100 badge because the check didn't verify `isFarmEligible`. Badge now only renders for farm-eligible players.
 
 ## Architecture Notes
 
@@ -729,7 +810,7 @@ npx jest src/services/RatingConsistency.test.ts        # Specific file
 - **IC player detection**: IC (International Complex) players are identified by `contracts.league_id = -200`, NOT by `players.level`. IC players have `level: "0"` or `"1"` in the players table. IC players have no DOB (`null`); use `players.age` column as fallback for age calculation.
 - **Injury values** in CSV `Prone` column: `Iron Man, Durable, Normal, Fragile, Wrecked` (NOT `Wary`/`Prone` as ScoutingData.ts comments incorrectly say)
 - **Player level classification**: `src/utils/playerLevel.ts` — `classifyPlayer(lev, hsc)` returns `'mlb' | 'minors' | 'draftee' | 'freeAgent'` from scouting CSV fields. Contract freshness updates stale levels when game date > scouting date via `buildFreshnessUpdatedLevels()`. Falls back to `isProspect` when `Lev` column is absent
-- **Level labels**: `1`=MLB, `2`=AAA, `3`=AA, `4`=A, `6`=R (Rookie), `7`=R (fallback). There is no level `5` (Short-A) or `8` (IC) in this league — IC is detected via contracts, not level.
+- **Level labels**: `1`=MLB, `2`=AAA, `3`=AA, `4`=A, `5`=R (Rookie), `6`=IC. `getLevelLabel()` in TeamRatingsService maps these. IC is also detected via contracts (`league_id=-200`).
 - **ISO trap**: Never use deprecated `expectedIso(power)` — ignores Gap/Speed. Use pre-computed `tfrSlg` or component rates
 - **Forward/inverse intercept alignment**: Pitcher rating↔rate intercepts MUST match in both directions or round-trip bias is amplified by FIP weights
 - **PostgREST pagination determinism**: Paginated queries (`OFFSET`/`LIMIT`) require an explicit `order` clause for deterministic results. Without it, rows can be duplicated or skipped across pages. Always add `&order=player_id` (or appropriate PK) to paginated queries.

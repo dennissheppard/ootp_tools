@@ -86,9 +86,9 @@ export async function apiFetch(input: RequestInfo | URL, init?: RequestInit): Pr
   const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
   const endpoint = normalizeEndpoint(url);
 
-  // Block non-date API calls when Supabase is the data source
-  if (_supabaseMode && !url.includes('/date/')) {
-    console.warn('\u26d4 Blocked StatsPlus API call in Supabase mode:', url);
+  // Block API calls when Supabase is the data source (allow date, teams, scout)
+  if (_supabaseMode && !url.includes('/date') && !url.includes('/teams') && !url.includes('/scout')) {
+    console.warn('\u26d4 Blocked API call in Supabase mode:', url);
     return new Response('', { status: 503 });
   }
 

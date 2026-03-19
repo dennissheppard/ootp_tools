@@ -58,7 +58,7 @@ export class TeamService {
             id: r.id,
             name: r.name,
             nickname: r.nickname,
-            parentTeamId: r.parent_team_id,
+            parentTeamId: r.parent_team_id ?? 0,
             leagueId: r.league_id ?? undefined,
           }));
         }

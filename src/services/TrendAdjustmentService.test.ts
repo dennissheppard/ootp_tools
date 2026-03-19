@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+// Jest globals (describe, it, expect) are available without import
 import { computeTrendForRate, applyBatterTrendAdjustment, applyPitcherTrendAdjustment } from './TrendAdjustmentService';
 
 describe('computeTrendForRate', () => {

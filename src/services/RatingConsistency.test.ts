@@ -296,7 +296,6 @@ describe('Batter TR Determinism', () => {
       totalPa: 620,
     };
 
-    const trace: import('./BatterProjectionService').BatterProjectionCalculationTrace = {};
     const projection = batterProjectionService.calculateProjectionFromTrueRating(
       trResult,
       {
@@ -324,12 +323,11 @@ describe('Batter TR Determinism', () => {
       },
       mockLeagueBattingAverages,
       [{ year: 2024, pa: 610, ab: 540, h: 150, d: 30, t: 5, hr: 28, bb: 55, k: 120, sb: 10, cs: 4 }],
-      trace
     );
 
-    expect(trace.projectedRates?.hrPct).toBeGreaterThan(0);
-    expect(trace.playingTime?.projectedPa).toBeGreaterThan(0);
-    expect(trace.output?.projectedStats.war).toBe(projection.projectedStats.war);
+    expect(projection.projectedStats.hrPct).toBeGreaterThan(0);
+    expect(projection.projectedStats.pa).toBeGreaterThan(0);
+    expect(projection.projectedStats.war).toBeGreaterThan(0);
   });
 });
 

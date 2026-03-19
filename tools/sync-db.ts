@@ -1,5 +1,5 @@
 /**
- * sync-db.ts — CLI tool to sync StatsPlus API data into Supabase.
+ * sync-db.ts — CLI tool to sync WBL API data into Supabase.
  *
  * Replaces the in-browser hero sync. Every browser client becomes a pure reader.
  *
@@ -14,21 +14,31 @@
  *   SUPABASE_SERVICE_KEY  — service_role key (full write access, no RLS)
  */
 
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 import {
   supabaseQuery,
   supabaseUpsertBatches,
-  supabasePatch,
   supabaseRpc,
   PITCHING_COLS,
   BATTING_COLS,
-  DECIMAL_COLS,
-  STRING_COLS,
   filterColumns,
   dedupRows,
-  parseCsvLine,
-  toIntOrNull,
-  toFloatOrNull,
 } from './lib/supabase-client';
+
+import {
+  wblFetchJson,
+  wblFetchAllStats,
+  wblFetchAllScout,
+  getWblStats,
+  levelToLeagueId,
+  levelToPlayerLevel,
+} from './lib/wbl-api-client';
 
 // Pure math imports from src/services (no browser deps at module load time)
 import { trueRatingsCalculationService } from '../src/services/TrueRatingsCalculationService';
@@ -50,12 +60,16 @@ import { hitterAgingService } from '../src/services/HitterAgingService';
 import { ensembleProjectionService } from '../src/services/EnsembleProjectionService';
 import { PotentialStatsService } from '../src/services/PotentialStatsService';
 import { HitterRatingEstimatorService } from '../src/services/HitterRatingEstimatorService';
+import { determinePitcherRole } from '../src/models/Player';
+import { resolveCanonicalBatterData, computeBatterProjection } from '../src/services/ModalDataService';
+import { leagueBattingAveragesService } from '../src/services/LeagueBattingAveragesService';
+import { projectDefensiveValue, parseFieldingScouting } from '../src/services/DefensiveProjectionService';
+import { parseParkFactorsCsv, computeEffectiveParkFactors, computePitcherParkHrFactor, type ParkFactorRow } from '../src/services/ParkFactorService';
 
 // ──────────────────────────────────────────────
 // Config
 // ──────────────────────────────────────────────
 
-const API_BASE = 'https://atl-01.statsplus.net/world/api';
 const LEAGUE_START_YEAR = 2000;
 const BATCH_SIZE = 1000;
 
@@ -74,126 +88,155 @@ const skipCompute = args.includes('--skip-compute');
 const forceSync = args.includes('--force');
 
 // ──────────────────────────────────────────────
-// API helpers
+// WBL API → Supabase contract mapping
 // ──────────────────────────────────────────────
 
-let apiCallCount = 0;
-let apiBytesTransferred = 0;
-
-async function apiFetchText(path: string): Promise<string> {
-  const url = `${API_BASE}/${path}`;
-  apiCallCount++;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`API ${path} → ${res.status}`);
-  const text = await res.text();
-  apiBytesTransferred += new TextEncoder().encode(text).byteLength;
-  return text;
+function mapContractRow(row: any, playerLeagueMap: Map<number, number>): any {
+  const salaries: number[] = [];
+  for (let i = 0; i <= 14; i++) {
+    salaries.push(row[`salary${i}`] || 0);
+  }
+  const leagueId = playerLeagueMap.get(row.player_id) ?? 0;
+  return {
+    player_id: row.player_id,
+    team_id: row.team_id || 0,
+    league_id: leagueId,
+    is_major: leagueId === 200,
+    season_year: row.season_year || 0,
+    years: row.years || 0,
+    current_year: row.current_year || 0,
+    salaries,
+    no_trade: !!row.no_trade,
+    last_year_team_option: !!row.last_year_team_option,
+    last_year_player_option: !!row.last_year_player_option,
+    last_year_vesting_option: !!row.last_year_vesting_option,
+  };
 }
 
-async function apiFetchJson(path: string): Promise<any> {
-  const text = await apiFetchText(path);
-  return JSON.parse(text);
+// ──────────────────────────────────────────────
+// WBL API → Supabase scouting mapping
+// ──────────────────────────────────────────────
+
+const INJURY_MAP: Record<string, string> = {
+  IRN: 'Iron Man',
+  DUR: 'Durable',
+  NOR: 'Normal',
+  FRG: 'Fragile',
+  WRK: 'Wrecked',
+};
+
+function mapInjuryProneness(val: string | number | null): string | null {
+  if (val == null) return null;
+  const s = String(val).toUpperCase();
+  return INJURY_MAP[s] ?? String(val);
 }
 
-// ──────────────────────────────────────────────
-// CSV parsing for StatsPlus API responses
-// ──────────────────────────────────────────────
-
-function parseStatsCsv(csvText: string): any[] {
-  const lines = csvText.replace(/^\ufeff/, '').split(/\r?\n/).filter(l => l.trim());
-  if (lines.length < 2) return [];
-
-  const headers = parseCsvLine(lines[0]).map(h => h.toLowerCase().trim());
-  const rows: any[] = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const values = parseCsvLine(lines[i]);
-    const obj: any = {};
-
-    for (let j = 0; j < headers.length; j++) {
-      const col = headers[j];
-      const val = (values[j] ?? '').trim();
-
-      if (STRING_COLS.has(col)) {
-        obj[col] = val || null;
-      } else if (DECIMAL_COLS.has(col)) {
-        obj[col] = toFloatOrNull(val);
-      } else {
-        obj[col] = toIntOrNull(val);
-      }
+function mapPitcherScoutingRow(r: any, gameDate: string): any {
+  const pitchMap: Record<string, string> = {
+    fb: 'fbp', ch: 'chp', cb: 'cbp', sl: 'slp', si: 'sip',
+    sp: 'spp', ct: 'ctp', fo: 'fop', cc: 'ccp', sc: 'scp',
+    kc: 'kcp', kn: 'knp',
+  };
+  const rawData: any = {};
+  if (r.pitching?.pitches) {
+    const pitches: Record<string, number> = {};
+    for (const [key, val] of Object.entries(r.pitching.pitches)) {
+      const mapped = pitchMap[key] || key;
+      const v = parseInt(String(val), 10);
+      if (v > 0) pitches[mapped] = v;
     }
-
-    if (obj.player_id) rows.push(obj);
+    if (Object.keys(pitches).length > 0) rawData.pitches = pitches;
   }
 
-  return rows;
+  return {
+    player_id: parseInt(r.player_id, 10),
+    source: 'osa',
+    snapshot_date: gameDate,
+    player_name: r.player_name || null,
+    stuff: parseInt(r.pitching?.stuff, 10) || null,
+    control: parseInt(r.pitching?.control, 10) || null,
+    hra: parseInt(r.pitching?.hra, 10) || null,
+    ovr: r.overall ? parseFloat(r.overall) : null,
+    pot: r.potential ? parseFloat(r.potential) : null,
+    stamina: parseInt(r.pitching?.stamina, 10) || null,
+    injury_proneness: mapInjuryProneness(r.injury_proneness),
+    babip: r.pitching?.pbabip ?? null,
+    raw_data: Object.keys(rawData).length > 0 ? rawData : null,
+  };
 }
 
-function parsePlayersCsv(csv: string): any[] {
-  const lines = csv.trim().split('\n');
-  return lines.slice(1).map(line => {
-    const v = parseCsvLine(line);
-    return {
-      id: parseInt(v[0], 10),
-      first_name: v[1]?.trim(),
-      last_name: v[2]?.trim(),
-      team_id: parseInt(v[3], 10) || null,
-      parent_team_id: parseInt(v[4], 10) || null,
-      level: v[5]?.trim(),
-      position: parseInt(v[6], 10),
-      role: parseInt(v[7], 10),
-      age: parseInt(v[8], 10),
-      retired: v[9]?.trim() === '1',
-    };
-  }).filter(p => !isNaN(p.id));
+function mapHitterScoutingRow(r: any, gameDate: string): any {
+  return {
+    player_id: parseInt(r.player_id, 10),
+    source: 'osa',
+    snapshot_date: gameDate,
+    player_name: r.player_name || null,
+    power: parseInt(r.batting?.power, 10) || null,
+    eye: parseInt(r.batting?.eye, 10) || null,
+    avoid_k: parseInt(r.batting?.avoidKs, 10) || null,
+    contact: parseInt(r.batting?.contact, 10) || null,
+    gap: parseInt(r.batting?.gap, 10) || null,
+    speed: parseInt(r.batting?.speed, 10) || null,
+    stealing_aggressiveness: parseInt(r.batting?.sbAgg, 10) || null,
+    stealing_ability: parseInt(r.batting?.steal, 10) || null,
+    injury_proneness: mapInjuryProneness(r.injury_proneness),
+    ovr: r.overall ? parseFloat(r.overall) : null,
+    pot: r.potential ? parseFloat(r.potential) : null,
+    pos: r.position || null,
+    raw_data: r.fielding ? { fielding: r.fielding } : null,
+  };
 }
 
-function parseTeamsCsv(csv: string): any[] {
-  const lines = csv.trim().split('\n');
-  return lines.slice(1).map(line => {
-    const v = parseCsvLine(line);
-    const leagueId = parseInt(v[4], 10);
-    return {
-      id: parseInt(v[0], 10),
-      name: v[1]?.trim(),
-      nickname: v[2]?.trim(),
-      parent_team_id: parseInt(v[3], 10),
-      league_id: isNaN(leagueId) ? null : leagueId,
-    };
-  }).filter(t => !isNaN(t.id));
+// ──────────────────────────────────────────────
+// WBL API → Supabase field mapping
+// ──────────────────────────────────────────────
+
+function mapPitchingRow(row: any): any {
+  return {
+    player_id: row.player_id,
+    year: row.Year,
+    league_id: levelToLeagueId(row.Level),
+    split_id: 1,
+    g: row.G ?? null,
+    gs: row.GS ?? null,
+    ip: String(row.IP ?? '0'),  // Supabase ip is TEXT
+    w: row.W ?? null,
+    l: row.L ?? null,
+    s: row.SV ?? null,
+    ha: row.HA ?? row.H ?? null,
+    hra: row.HR ?? null,
+    bb: row.BB ?? null,
+    k: row.K ?? row.SO ?? null,
+    er: row.ER ?? null,
+    bf: row.BF ?? null,
+    war: row.WAR != null ? parseFloat(String(row.WAR)) : null,
+    wpa: row.WPA != null ? parseFloat(String(row.WPA)) : null,
+  };
 }
 
-function parseContractsCsv(csv: string): any[] {
-  const lines = csv.trim().split('\n');
-  const rows: any[] = [];
-
-  for (const line of lines.slice(1)) {
-    const v = line.split(',');
-    const playerId = parseInt(v[0], 10);
-    if (isNaN(playerId)) continue;
-
-    const salaries: number[] = [];
-    for (let i = 14; i <= 28; i++) {
-      salaries.push(parseInt(v[i], 10) || 0);
-    }
-
-    rows.push({
-      player_id: playerId,
-      team_id: parseInt(v[1], 10) || 0,
-      league_id: parseInt(v[2], 10) || 0,
-      is_major: v[3] === '1' || v[3]?.toLowerCase() === 'true',
-      season_year: parseInt(v[13], 10) || 0,
-      years: parseInt(v[29], 10) || 0,
-      current_year: parseInt(v[30], 10) || 0,
-      salaries,
-      no_trade: v[4] === '1' || v[4]?.toLowerCase() === 'true',
-      last_year_team_option: v[5] === '1' || v[5]?.toLowerCase() === 'true',
-      last_year_player_option: v[6] === '1' || v[6]?.toLowerCase() === 'true',
-      last_year_vesting_option: v[7] === '1' || v[7]?.toLowerCase() === 'true',
-    });
-  }
-
-  return rows;
+function mapBattingRow(row: any): any {
+  return {
+    player_id: row.player_id,
+    year: row.Year,
+    league_id: levelToLeagueId(row.Level),
+    split_id: 1,
+    g: row.G ?? null,
+    pa: row.PA ?? null,
+    ab: row.AB ?? null,
+    h: row.H ?? null,
+    d: row['2B'] ?? null,
+    t: row['3B'] ?? null,
+    hr: row.HR ?? null,
+    r: row.R ?? null,
+    rbi: row.RBI ?? null,
+    bb: row.BB ?? null,
+    k: row.K ?? row.SO ?? null,
+    sb: row.SB ?? null,
+    cs: row.CS ?? null,
+    war: row.WAR != null ? parseFloat(String(row.WAR)) : null,
+    wpa: row.WPA != null ? parseFloat(String(row.WPA)) : null,
+    ubr: row.UBR != null ? parseFloat(String(row.UBR)) : null,
+  };
 }
 
 // ──────────────────────────────────────────────
@@ -228,6 +271,12 @@ interface SyncContext {
   icPlayerIds: Set<number>;
   aaaOrAaPlayerIds: Set<number>;
 
+  // Defensive stats (DRS) — may be empty if API not populated
+  defensiveStatsMap: Map<number, any[]>;  // player_id → rows (multi-year, multi-position)
+
+  // Park factors by team_id
+  parkFactorsMap: Map<number, ParkFactorRow>;
+
   // Current-year subsets
   currentYearPitching: any[];
   currentYearBatting: any[];
@@ -260,6 +309,7 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
     careerBatRows,
     aaaStatsRows,
     aaStatsRows,
+    defensiveStatsRaw,
   ] = await Promise.all([
     supabaseQuery<any>('players', 'select=*&order=id'),
     supabaseQuery<any>('teams', 'select=*&order=id'),
@@ -276,6 +326,7 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
     supabaseRpc<any[]>('career_batting_aggregates'),
     supabaseQuery<any>('pitching_stats', `select=player_id&league_id=eq.201&split_id=eq.1&year=eq.${year}&order=player_id`),
     supabaseQuery<any>('pitching_stats', `select=player_id&league_id=eq.202&split_id=eq.1&year=eq.${year}&order=player_id`),
+    supabaseQuery<any>('defensive_stats', `select=*&year=in.(${pitchingYears.join(',')})&order=player_id`).catch(() => [] as any[]),
   ]);
 
   // Build player maps
@@ -347,6 +398,25 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
     ...aaStatsRows.map((s: any) => s.player_id),
   ]);
 
+  // Defensive stats map (player_id → array of DRS rows across years/positions)
+  const defensiveStatsMap = new Map<number, any[]>();
+  for (const row of (defensiveStatsRaw || [])) {
+    const pid = row.player_id;
+    if (!defensiveStatsMap.has(pid)) defensiveStatsMap.set(pid, []);
+    defensiveStatsMap.get(pid)!.push(row);
+  }
+
+  // Park factors from CSV
+  let parkFactorsMap = new Map<number, ParkFactorRow>();
+  try {
+    const parkCsvPath = path.join(__dirname, '..', 'public', 'data', 'park_factors.csv');
+    const parkCsv = fs.readFileSync(parkCsvPath, 'utf-8');
+    parkFactorsMap = parseParkFactorsCsv(parkCsv);
+    console.log(`  Park factors: ${parkFactorsMap.size} teams`);
+  } catch (e: any) {
+    console.log(`  ⚠️ Park factors not loaded: ${e.message}`);
+  }
+
   // Current-year subsets
   const currentYearPitching = mlbPitching.filter(r => r.year === year);
   const currentYearBatting = mlbBatting.filter(r => r.year === year);
@@ -368,6 +438,7 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
   console.log(`  MiLB: ${milbPitching.length} pitching, ${milbBatting.length} batting`);
   console.log(`  Contracts: ${contractsRaw.length}, IC players: ${icPlayerIds.size}`);
   console.log(`  Career maps: ${careerIpMap.size} IP, ${careerAbMap.size} AB`);
+  console.log(`  Defensive stats: ${defensiveStatsMap.size} players`);
 
   return {
     year,
@@ -381,6 +452,8 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
     pitcherScoutMap, hitterScoutMapOsa, hitterScoutMapCombined,
     careerIpMap, careerAbMap, careerMlbBattingMap,
     icPlayerIds, aaaOrAaPlayerIds,
+    defensiveStatsMap,
+    parkFactorsMap,
     currentYearPitching, currentYearBatting,
     precomputedPitcherDist, precomputedHitterDist,
   };
@@ -393,13 +466,13 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
 async function detectGameDate(): Promise<{ gameDate: string; year: number; upToDate: boolean }> {
   console.log('\n=== Step 1: Detect game date ===');
 
-  // Fetch API date and DB date in parallel
-  const [dateText, dbRows] = await Promise.all([
-    apiFetchText('date/'),
+  // Fetch WBL API date and DB date in parallel
+  const [dateResponse, dbRows] = await Promise.all([
+    wblFetchJson<{ in_game_date: { date: string }; season: string }>('/api/date'),
     supabaseQuery<{ game_date?: string }>('data_version', 'select=game_date&table_name=eq.game_state'),
   ]);
 
-  const gameDate = dateText.trim().replace(/^"|"$/g, '');
+  const gameDate = dateResponse.in_game_date.date;
   const dbGameDate = dbRows[0]?.game_date ?? '(not set)';
 
   console.log(`  DB game date:  ${dbGameDate}`);
@@ -410,12 +483,15 @@ async function detectGameDate(): Promise<{ gameDate: string; year: number; upToD
     year = parseInt(explicitYear, 10);
     console.log(`  Using explicit year: ${year}`);
   } else {
-    // Extract year from date string — try common formats
-    const yearMatch = gameDate.match(/\b(20\d{2})\b/);
-    if (yearMatch) {
-      year = parseInt(yearMatch[1], 10);
-    } else {
-      throw new Error(`Cannot parse year from game date: "${gameDate}"`);
+    year = parseInt(dateResponse.season, 10);
+    if (isNaN(year)) {
+      // Fallback: extract from date
+      const yearMatch = gameDate.match(/\b(20\d{2})\b/);
+      if (yearMatch) {
+        year = parseInt(yearMatch[1], 10);
+      } else {
+        throw new Error(`Cannot parse year from game date: "${gameDate}"`);
+      }
     }
     console.log(`  Detected year: ${year}`);
   }
@@ -446,52 +522,121 @@ interface WriteStats {
   milbPitching: number;
   milbBatting: number;
   contracts: number;
+  pitcherScouting: number;
+  hitterScouting: number;
+  defensiveStats: number;
 }
 
-async function fetchAndWriteData(year: number): Promise<WriteStats> {
+async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteStats> {
   console.log('\n=== Step 3: Fetch + write current-year data ===');
   const stats: WriteStats = {
     teams: 0, players: 0, mlbPitching: 0, mlbBatting: 0,
     milbPitching: 0, milbBatting: 0, contracts: 0,
+    pitcherScouting: 0, hitterScouting: 0, defensiveStats: 0,
   };
 
   // Sequential: teams → players (FK ordering)
   console.log('  Fetching teams...');
-  const teamsCsv = await apiFetchText('teams/');
-  const teams = parseTeamsCsv(teamsCsv);
+  const WBL_LEVELS = ['wbl', 'aaa', 'aa', 'a', 'rl', 'int'] as const;
+  const teamResults = await Promise.all(
+    WBL_LEVELS.map(level => wblFetchJson<{ teams: Record<string, any> }>('/api/teams', { level }))
+  );
+  const teams: any[] = [];
+  for (const result of teamResults) {
+    for (const t of Object.values(result.teams)) {
+      teams.push({
+        id: t.team_id,
+        name: t.name,
+        nickname: t.nickname,
+        league_id: t.league_id,
+        parent_team_id: t.parent_team_id || null,
+      });
+    }
+  }
   const dedupedTeams = dedupRows(teams, r => String(r.id));
   stats.teams = await supabaseUpsertBatches('teams', dedupedTeams, BATCH_SIZE, 'id');
   console.log(`  ✅ Teams: ${stats.teams} rows`);
 
   console.log('  Fetching players...');
-  const playersCsv = await apiFetchText('players/');
-  const players = parsePlayersCsv(playersCsv);
-  // team_id=0 → null (no FK target for free agents/retired)
-  for (const p of players) {
-    if (p.team_id === 0) p.team_id = null;
-    if (p.parent_team_id === 0) p.parent_team_id = null;
-  }
+  const playersResponse = await wblFetchJson<{ players: any[] }>('/api/players');
+
+  // Build player league_id map for contract enrichment
+  const playerLeagueMap = new Map<number, number>();
+
+  const players = playersResponse.players
+    .map(p => {
+      const id = parseInt(p.player_id, 10);
+      if (isNaN(id)) return null;
+
+      // Ghost/deleted players: API returns name=null. Mark as retired.
+      // All keys must match other rows for PostgREST batch upsert.
+      if (!p.name) {
+        return {
+          id, first_name: null, last_name: null,
+          team_id: null, parent_team_id: null, level: null,
+          position: null, role: null, age: null,
+          retired: true, status: 'retired',
+        };
+      }
+
+      const nameParts = p.name.split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ') || '';
+      const teamId = p.team_id ? parseInt(String(p.team_id), 10) : null;
+      const orgId = p.org_id ? parseInt(String(p.org_id), 10) : null;
+      const role = p.roster_status?.role ? parseInt(p.roster_status.role, 10) : null;
+      const rosterLeagueId = p.roster_status?.league_id ? parseInt(p.roster_status.league_id, 10) : null;
+      if (rosterLeagueId != null) playerLeagueMap.set(id, rosterLeagueId);
+
+      // Player status from API signals:
+      //   Has team_id → active (on a roster)
+      //   No team + roster_status.is_active === "1" → free_agent
+      //   No team + roster_status.is_active === "0" → draftee
+      //   No roster_status at all → retired
+      let status: string;
+      let isRetired = false;
+      if (teamId) {
+        status = 'active';
+      } else if (!p.roster_status) {
+        status = 'retired';
+        isRetired = true;
+      } else if (p.roster_status.is_active === '1') {
+        status = 'free_agent';
+      } else {
+        status = 'draftee';
+      }
+
+      return {
+        id,
+        first_name: firstName,
+        last_name: lastName,
+        team_id: teamId === 0 ? null : teamId,
+        parent_team_id: orgId === 0 ? null : orgId,
+        level: p.level ? levelToPlayerLevel(p.level) : null,
+        position: p.position ? parseInt(p.position, 10) : null,
+        role: isNaN(role as number) ? null : role,
+        age: p.age ? parseInt(p.age, 10) : null,
+        retired: isRetired,
+        status,
+      };
+    })
+    .filter((p): p is NonNullable<typeof p> => p !== null);
   const dedupedPlayers = dedupRows(players, r => String(r.id));
   stats.players = await supabaseUpsertBatches('players', dedupedPlayers, BATCH_SIZE, 'id');
   console.log(`  ✅ Players: ${stats.players} rows`);
 
-  // Parallel: MLB stats + MiLB stats + contracts
-  const MILB_LEVELS = [
-    { lid: 201, name: 'AAA' },
-    { lid: 202, name: 'AA' },
-    { lid: 203, name: 'A' },
-    { lid: 204, name: 'R' },
-  ];
+  // Parallel: MLB stats + MiLB stats + contracts + scouting
+  const MILB_LEVELS = ['aaa', 'aa', 'a', 'rl'] as const;
+  const MILB_NAMES = { aaa: 'AAA', aa: 'AA', a: 'A', rl: 'R' } as const;
 
   const parallelPromises: Promise<void>[] = [];
 
   // MLB pitching
   parallelPromises.push((async () => {
     console.log('  Fetching MLB pitching...');
-    const csv = await apiFetchText(`playerpitchstatsv2/?year=${year}`);
-    const rows = parseStatsCsv(csv);
-    const filtered = filterColumns(rows, PITCHING_COLS);
-    const deduped = dedupRows(filtered, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
+    const rows = await wblFetchAllStats('/api/playerpitchstats', { year, level: 'wbl' });
+    const mapped = filterColumns(rows.map(mapPitchingRow), PITCHING_COLS);
+    const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
     stats.mlbPitching = await supabaseUpsertBatches('pitching_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id', 4);
     console.log(`  ✅ MLB pitching: ${stats.mlbPitching} rows`);
   })());
@@ -499,10 +644,9 @@ async function fetchAndWriteData(year: number): Promise<WriteStats> {
   // MLB batting
   parallelPromises.push((async () => {
     console.log('  Fetching MLB batting...');
-    const csv = await apiFetchText(`playerbatstatsv2/?year=${year}`);
-    const rows = parseStatsCsv(csv);
-    const filtered = filterColumns(rows, BATTING_COLS);
-    const deduped = dedupRows(filtered, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
+    const rows = await wblFetchAllStats('/api/playerbatstats', { year, level: 'wbl' });
+    const mapped = filterColumns(rows.map(mapBattingRow), BATTING_COLS);
+    const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
     stats.mlbBatting = await supabaseUpsertBatches('batting_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id', 4);
     console.log(`  ✅ MLB batting: ${stats.mlbBatting} rows`);
   })());
@@ -510,55 +654,89 @@ async function fetchAndWriteData(year: number): Promise<WriteStats> {
   // MiLB pitching × 4 levels
   for (const level of MILB_LEVELS) {
     parallelPromises.push((async () => {
-      const csv = await apiFetchText(`playerpitchstatsv2/?year=${year}&lid=${level.lid}&split=1`);
-      const rows = parseStatsCsv(csv);
-      const filtered = filterColumns(rows, PITCHING_COLS);
-      const deduped = dedupRows(filtered, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
+      const rows = await wblFetchAllStats('/api/playerpitchstats', { year, level });
+      const mapped = filterColumns(rows.map(mapPitchingRow), PITCHING_COLS);
+      const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
       const count = await supabaseUpsertBatches('pitching_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id');
       stats.milbPitching += count;
-      console.log(`  ✅ MiLB pitching ${level.name}: ${count} rows`);
+      console.log(`  ✅ MiLB pitching ${MILB_NAMES[level]}: ${count} rows`);
     })());
   }
 
   // MiLB batting × 4 levels
   for (const level of MILB_LEVELS) {
     parallelPromises.push((async () => {
-      const csv = await apiFetchText(`playerbatstatsv2/?year=${year}&lid=${level.lid}&split=1`);
-      const rows = parseStatsCsv(csv);
-      const filtered = filterColumns(rows, BATTING_COLS);
-      const deduped = dedupRows(filtered, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
+      const rows = await wblFetchAllStats('/api/playerbatstats', { year, level });
+      const mapped = filterColumns(rows.map(mapBattingRow), BATTING_COLS);
+      const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
       const count = await supabaseUpsertBatches('batting_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id');
       stats.milbBatting += count;
-      console.log(`  ✅ MiLB batting ${level.name}: ${count} rows`);
+      console.log(`  ✅ MiLB batting ${MILB_NAMES[level]}: ${count} rows`);
     })());
   }
 
   // Contracts
   parallelPromises.push((async () => {
     console.log('  Fetching contracts...');
-    const csv = await apiFetchText('contract/');
-    const contracts = parseContractsCsv(csv);
+    const data = await wblFetchJson<{ contracts: any[] }>('/api/contract');
+    const contracts = data.contracts.map(c => mapContractRow(c, playerLeagueMap));
     const deduped = dedupRows(contracts, r => String(r.player_id));
     stats.contracts = await supabaseUpsertBatches('contracts', deduped, BATCH_SIZE, 'player_id');
     console.log(`  ✅ Contracts: ${stats.contracts} rows`);
   })());
 
-  await Promise.all(parallelPromises);
-
-  // Fix IC player levels: IC players have level=1 (same as MLB) in the API
-  // but contract league_id=-200. Set level='6' so the browser can distinguish
-  // IC from MLB without loading contracts.
-  const icContracts = await supabaseQuery<{ player_id: number }>(
-    'contracts', 'select=player_id&league_id=eq.-200'
-  );
-  if (icContracts.length > 0) {
-    const icIds = icContracts.map(r => r.player_id);
-    for (let i = 0; i < icIds.length; i += BATCH_SIZE) {
-      const batch = icIds.slice(i, i + BATCH_SIZE);
-      await supabasePatch('players', `id=in.(${batch.join(',')})`, { level: '6' });
+  // OSA Scouting
+  parallelPromises.push((async () => {
+    console.log('  Fetching OSA scouting...');
+    const allRatings = await wblFetchAllScout('/api/scout', {});
+    const pitcherRows: any[] = [];
+    const hitterRows: any[] = [];
+    for (const r of allRatings) {
+      if (r.is_pitcher) {
+        pitcherRows.push(mapPitcherScoutingRow(r, gameDate));
+      } else {
+        hitterRows.push(mapHitterScoutingRow(r, gameDate));
+      }
     }
-    console.log(`  ✅ IC player levels: ${icIds.length} players set to level=6`);
-  }
+    if (pitcherRows.length > 0) {
+      const deduped = dedupRows(pitcherRows, r => `${r.player_id}_${r.source}_${r.snapshot_date}`);
+      stats.pitcherScouting = await supabaseUpsertBatches('pitcher_scouting', deduped, BATCH_SIZE, 'player_id,source,snapshot_date', 4);
+    }
+    if (hitterRows.length > 0) {
+      const deduped = dedupRows(hitterRows, r => `${r.player_id}_${r.source}_${r.snapshot_date}`);
+      stats.hitterScouting = await supabaseUpsertBatches('hitter_scouting', deduped, BATCH_SIZE, 'player_id,source,snapshot_date', 4);
+    }
+    console.log(`  ✅ Scouting: ${stats.pitcherScouting} pitchers, ${stats.hitterScouting} hitters`);
+  })());
+
+  // DRS (Defensive Runs Saved) — optional, API may return empty
+  parallelPromises.push((async () => {
+    console.log('  Fetching DRS...');
+    try {
+      const data = await wblFetchJson<{ drs: any[]; total: number }>('/api/drs', { year });
+      if (data.drs && data.drs.length > 0) {
+        const mapped = data.drs.map((r: any) => ({
+          player_id: parseInt(r.player_id, 10),
+          year: parseInt(r.year ?? year, 10),
+          position: parseInt(r.position, 10),
+          g: parseInt(r.g, 10) || 0,
+          ip: String(r.ip ?? r.IP ?? '0'),
+          drs: parseFloat(r.DRS ?? r.drs ?? 0),
+          drs_per_162: parseFloat(r.DRS_per_162 ?? r.drs_per_162 ?? 0),
+          zr: parseFloat(r.zr ?? r.ZR ?? 0),
+          framing: parseFloat(r.framing ?? 0),
+          arm: parseFloat(r.arm ?? 0),
+        }));
+        const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.position}`);
+        stats.defensiveStats = await supabaseUpsertBatches('defensive_stats', deduped, BATCH_SIZE, 'player_id,year,position', 4);
+      }
+      console.log(`  ✅ DRS: ${stats.defensiveStats} rows${stats.defensiveStats === 0 ? ' (API returned empty — scouting-only mode)' : ''}`);
+    } catch (e: any) {
+      console.log(`  ⚠️ DRS fetch failed (non-fatal): ${e.message}`);
+    }
+  })());
+
+  await Promise.all(parallelPromises);
 
   return stats;
 }
@@ -619,9 +797,15 @@ async function computeTrueRatings(ctx: SyncContext): Promise<{ pitcherTr: number
       pot: scouting.pot,
     } : undefined;
 
-    // Map OOTP numeric role (11=SP, 12=RP, 13=CL) to PitcherRole
+    // Determine role from scouting profile (pitches + stamina), matching browser logic
     const ootpRole = player?.role ? parseInt(player.role, 10) : undefined;
-    const role = ootpRole === 11 ? 'SP' as const : undefined; // Let IP-based fallback handle RP/SW
+    const role = determinePitcherRole({
+      pitchRatings: scouting?.raw_data?.pitches,
+      stamina: scouting?.stamina,
+      ootpRole,
+      gamesStarted: yearlyStats.reduce((sum, y) => sum + (y.gs || 0), 0),
+      inningsPitched: yearlyStats.reduce((sum, y) => sum + y.ip, 0),
+    });
 
     pitcherInputs.push({
       playerId,
@@ -629,6 +813,7 @@ async function computeTrueRatings(ctx: SyncContext): Promise<{ pitcherTr: number
       yearlyStats: yearlyStats.sort((a, b) => b.year - a.year),
       scoutingRatings,
       role,
+      targetYear: year,
     });
   });
 
@@ -707,6 +892,7 @@ async function computeTrueRatings(ctx: SyncContext): Promise<{ pitcherTr: number
       playerName: player ? `${player.first_name} ${player.last_name}` : 'Unknown',
       yearlyStats: yearlyStats.sort((a: any, b: any) => b.year - a.year),
       scoutingRatings,
+      targetYear: year,
     });
   });
 
@@ -721,6 +907,8 @@ async function computeTrueRatings(ctx: SyncContext): Promise<{ pitcherTr: number
     pitcherTr: pitcherResults.length,
     hitterTr: hitterResults.length,
     rows: ratingRows,
+    pitcherTrResults: pitcherResults,
+    hitterTrResults: hitterResults,
   };
 }
 
@@ -768,6 +956,7 @@ async function computeTrueFutureRatings(
       case 2: return 'AAA';
       case 3: return 'AA';
       case 4: return 'A';
+      case 5: return 'R';
       case 6: return 'R';
       case 7: return 'R';
       default: return 'R';
@@ -1397,7 +1586,8 @@ function getValueAtPercentile(pct: number, distribution: number[]): number {
 
 async function computeProjections(
   ctx: SyncContext,
-  trRows: { player_id: number; rating_type: string; data: any }[]
+  trRows: { player_id: number; rating_type: string; data: any }[],
+  tfrRows: { player_id: number; rating_type: string; data: any }[] = [],
 ): Promise<{ pitcherProj: number; batterProj: number }> {
   console.log('\n=== Step 5.5: Compute Projections ===');
   const year = ctx.year;
@@ -1409,6 +1599,16 @@ async function computeProjections(
     if (row.rating_type === 'pitcher_tr') pitcherTrMap.set(row.player_id, row.data);
     if (row.rating_type === 'hitter_tr') hitterTrMap.set(row.player_id, row.data);
   }
+
+  // Build TFR lookups from Step 5
+  const pitcherTfrMap = new Map<number, any>();
+  const hitterTfrMap = new Map<number, any>();
+  for (const row of tfrRows) {
+    if (row.rating_type === 'pitcher_tfr') pitcherTfrMap.set(row.player_id, row.data);
+    if (row.rating_type === 'hitter_tfr') hitterTfrMap.set(row.player_id, row.data);
+  }
+
+  console.log(`  TFR lookups: ${pitcherTfrMap.size} pitchers, ${hitterTfrMap.size} hitters`);
 
   // ────────── Data from SyncContext ──────────
 
@@ -1445,34 +1645,11 @@ async function computeProjections(
   const leagueContext = { fipConstant, avgFip, runsPerWin: 8.5 };
 
   // Compute league batting averages for batter projections
-  let lgPa = 0, lgAb = 0, lgH = 0, lgD = 0, lgT = 0, lgHrB = 0, lgBb = 0, lgHp = 0, lgSf = 0, lgR = 0;
-  for (const r of currentYearBatting) {
-    const pa = r.pa ?? 0;
-    if (pa < 1) continue;
-    lgPa += pa; lgAb += r.ab ?? 0; lgH += r.h ?? 0; lgD += r.d ?? 0; lgT += r.t ?? 0;
-    lgHrB += r.hr ?? 0; lgBb += r.bb ?? 0; lgHp += r.hp ?? 0; lgSf += r.sf ?? 0; lgR += r.r ?? 0;
-  }
-
+  // Use prior year (year-1) as baseline — same as browser modal (BatterProfileModal line 364)
   let leagueAvg: any = null;
-  if (lgPa > 0 && lgAb > 0) {
-    const lgSingles = lgH - lgD - lgT - lgHrB;
-    const lgTb = lgSingles + 2 * lgD + 3 * lgT + 4 * lgHrB;
-    const denom = lgAb + lgBb + lgHp + lgSf;
-    leagueAvg = {
-      year,
-      lgObp: Math.round(((lgH + lgBb + lgHp) / denom) * 1000) / 1000,
-      lgSlg: Math.round((lgTb / lgAb) * 1000) / 1000,
-      lgWoba: Math.round(((0.69 * lgBb + 0.72 * lgHp + 0.89 * lgSingles + 1.27 * lgD + 1.62 * lgT + 2.10 * lgHrB) / denom) * 1000) / 1000,
-      lgRpa: Math.round((lgR / lgPa) * 1000) / 1000,
-      wobaScale: 1.15,
-      runsPerWin: 10,
-      totalPa: lgPa,
-      totalRuns: lgR,
-    };
-  }
 
-  // If current year has no data, try prior year from context
-  if (!leagueAvg) {
+  // Try prior year first (projection baseline)
+  {
     const priorBatting = ctx.mlbBattingStats.filter(r => r.year === year - 1);
     let pPa = 0, pAb = 0, pH = 0, pD = 0, pT = 0, pHr = 0, pBb = 0, pHp = 0, pSf = 0, pR = 0;
     for (const r of priorBatting) {
@@ -1525,6 +1702,14 @@ async function computeProjections(
   const pitcherIds = new Set<number>();
   playerPitchingStats.forEach((_s, pid) => pitcherIds.add(pid));
   currentYearPitching.forEach((s: any) => pitcherIds.add(s.player_id));
+  // Include draft-eligible/HSC pitchers who have scouting data but no stats
+  for (const [pid, player] of playerMap) {
+    if (pitcherIds.has(pid)) continue;
+    const pos = typeof player.position === 'string' ? parseInt(player.position, 10) : player.position;
+    if (pos !== 1) continue;
+    if (!player.draft_eligible && !player.hsc) continue;
+    if (pitcherScoutMap.has(pid)) pitcherIds.add(pid);
+  }
 
   const pitcherTrInputs: TrueRatingInput[] = [];
   for (const playerId of pitcherIds) {
@@ -1550,7 +1735,13 @@ async function computeProjections(
     } : undefined;
 
     const ootpRole = player?.role ? parseInt(String(player.role), 10) : undefined;
-    const role = ootpRole === 11 ? 'SP' as const : undefined;
+    const role = determinePitcherRole({
+      pitchRatings: scouting?.raw_data?.pitches,
+      stamina: scouting?.stamina,
+      ootpRole,
+      gamesStarted: yearlyStats.reduce((sum, s) => sum + (s.gs || 0), 0),
+      inningsPitched: yearlyStats.reduce((sum, s) => sum + s.ip, 0),
+    });
 
     pitcherTrInputs.push({
       playerId,
@@ -1558,6 +1749,7 @@ async function computeProjections(
       yearlyStats: yearlyStats.sort((a, b) => b.year - a.year),
       scoutingRatings,
       role,
+      targetYear: year,
     });
   }
 
@@ -1609,22 +1801,26 @@ async function computeProjections(
     const yearlyStats = playerPitchingStats.get(tr.playerId);
 
     // Readiness check (same as browser ProjectionService)
+    const scouting = pitcherScoutMap.get(tr.playerId);
+    const isDraftOrHsc = player.draft_eligible || player.hsc;
     const hasRecentMlb = (currentStats && parseIp(currentStats.ip) > 0) ||
       (yearlyStats && yearlyStats.some(y => y.year === year - 1 && y.ip > 0));
 
-    let isMlbReady = hasRecentMlb;
-    const scouting = pitcherScoutMap.get(tr.playerId);
+    // Draft-eligible/HSC players always get projections (peak year projections)
+    if (!isDraftOrHsc) {
+      let isMlbReady = hasRecentMlb;
 
-    if (!isMlbReady) {
-      const isUpperMinors = aaaOrAaPlayerIds.has(tr.playerId);
-      const ovr = scouting?.ovr ?? 20;
-      const pot = scouting?.pot ?? 20;
-      const starGap = pot - ovr;
-      const isQualityProspect = (ovr >= 45) || (starGap <= 1.0 && pot >= 45);
-      if (isUpperMinors && (isQualityProspect || tr.trueRating >= 2.0)) isMlbReady = true;
-      if (ovr >= 50) isMlbReady = true;
+      if (!isMlbReady) {
+        const isUpperMinors = aaaOrAaPlayerIds.has(tr.playerId);
+        const ovr = scouting?.ovr ?? 20;
+        const pot = scouting?.pot ?? 20;
+        const starGap = pot - ovr;
+        const isQualityProspect = (ovr >= 45) || (starGap <= 1.0 && pot >= 45);
+        if (isUpperMinors && (isQualityProspect || tr.trueRating >= 2.0)) isMlbReady = true;
+        if (ovr >= 50) isMlbReady = true;
+      }
+      if (!isMlbReady) continue;
     }
-    if (!isMlbReady) continue;
 
     const teamId = player.team_id ?? currentStats?.team_id ?? 0;
 
@@ -1688,6 +1884,99 @@ async function computeProjections(
         case 'wrecked': injuryMod = 0.75; break;
       }
       baseIp *= injuryMod;
+    }
+
+    // ── Draftee/HSC peak projection shortcut ──
+    // For scouting-only draftees, use TFR data (potential ratings) directly
+    // instead of the TR→ensemble pipeline which produces defaults for zero-stats players.
+    if (isDraftOrHsc && !hasRecentMlb) {
+      const tfr = pitcherTfrMap.get(tr.playerId);
+      if (tfr) {
+        console.log(`  🎓 [draftee-pitcher] ${tr.playerName} (${tr.playerId}): TFR star=${tfr.trueFutureRating}, pct=${tfr.percentile}, peakFip=${tfr.peakFip}, trueRatings=${JSON.stringify(tfr.trueRatings)}`);
+
+        // Use TFR-derived peak projection (already computed in Step 5)
+        const peakRatings = {
+          stuff: tfr.trueRatings?.stuff ?? scouting?.stuff ?? 50,
+          control: tfr.trueRatings?.control ?? scouting?.control ?? 50,
+          hra: tfr.trueRatings?.hra ?? scouting?.hra ?? 50,
+        };
+        const draftIp = tfr.peakIp ?? Math.round(baseIp);
+        const peakStats = PotentialStatsService.calculatePitchingStats(
+          { ...peakRatings, movement: 50, babip: 50 }, draftIp, leagueContext,
+        );
+        // Use fipWarService.calculateWar for consistency with the modal (no elite multiplier)
+        const peakWar = fipWarService.calculateWar(peakStats.fip, draftIp);
+        const fipLike = trueRatingsCalculationService.calculateFipLike(peakStats.k9, peakStats.bb9, peakStats.hr9);
+
+        tempPitcherProjections.push({
+          playerId: tr.playerId,
+          name: tr.playerName,
+          teamId,
+          teamName: teamMap.get(teamId) || 'FA',
+          position: player.position,
+          level: typeof player.level === 'string' ? parseInt(player.level, 10) : (player.level ?? 1),
+          parentTeamId: player.parent_team_id ?? 0,
+          age: playerAge,
+          currentTrueRating: tfr.trueFutureRating ?? 0,
+          currentPercentile: tfr.percentile ?? 0,
+          projectedStats: {
+            k9: peakStats.k9,
+            bb9: peakStats.bb9,
+            hr9: peakStats.hr9,
+            fip: peakStats.fip,
+            war: peakWar,
+            ip: draftIp,
+          },
+          projectedRatings: peakRatings,
+          isSp,
+          fipLike,
+          projectedTrueRating: 0,
+          isProspect: true,
+        });
+        continue;
+      }
+      // No TFR data — fall back to scouting-only via PotentialStatsService
+      console.log(`  ⚠️ [draftee-pitcher] ${tr.playerName} (${tr.playerId}): NO TFR found, falling back to scouting`);
+      if (scouting) {
+        const scoutRatings = {
+          stuff: scouting.pot >= 50 ? scouting.pot : scouting.stuff,
+          control: scouting.control,
+          hra: scouting.hra,
+        };
+        const fallbackIp = Math.round(baseIp);
+        const peakStats = PotentialStatsService.calculatePitchingStats(
+          { ...scoutRatings, movement: 50, babip: 50 }, fallbackIp, leagueContext,
+        );
+        const fallbackWar = fipWarService.calculateWar(peakStats.fip, fallbackIp);
+        const fipLike = trueRatingsCalculationService.calculateFipLike(peakStats.k9, peakStats.bb9, peakStats.hr9);
+
+        tempPitcherProjections.push({
+          playerId: tr.playerId,
+          name: tr.playerName,
+          teamId,
+          teamName: teamMap.get(teamId) || 'FA',
+          position: player.position,
+          level: typeof player.level === 'string' ? parseInt(player.level, 10) : (player.level ?? 1),
+          parentTeamId: player.parent_team_id ?? 0,
+          age: playerAge,
+          currentTrueRating: 0,
+          currentPercentile: 0,
+          projectedStats: {
+            k9: peakStats.k9,
+            bb9: peakStats.bb9,
+            hr9: peakStats.hr9,
+            fip: peakStats.fip,
+            war: fallbackWar,
+            ip: fallbackIp,
+          },
+          projectedRatings: scoutRatings,
+          isSp,
+          fipLike,
+          projectedTrueRating: 0,
+          isProspect: true,
+        });
+        continue;
+      }
     }
 
     // Apply aging and ensemble projection
@@ -1813,6 +2102,24 @@ async function computeProjections(
     });
   }
 
+  // Apply park factors to pitcher projections (adjust HR9 → recompute FIP → recompute WAR)
+  if (ctx.parkFactorsMap.size > 0) {
+    for (const p of tempPitcherProjections) {
+      const parkRaw = ctx.parkFactorsMap.get(p.teamId);
+      if (!parkRaw) continue;
+      const pfHr = computePitcherParkHrFactor(parkRaw);
+      if (pfHr === 1.0) continue;
+      const s = p.projectedStats;
+      s.hr9 = Math.round(s.hr9 * pfHr * 100) / 100;
+      // Recompute FIP from park-adjusted HR9
+      s.fip = Math.round((((13 * s.hr9) + (3 * s.bb9) - (2 * s.k9)) / 9 + 3.47) * 100) / 100;
+      // Recompute WAR from park-adjusted FIP
+      s.war = fipWarService.calculateWar(s.fip, s.ip);
+      // Update fipLike for ranking
+      p.fipLike = trueRatingsCalculationService.calculateFipLike(s.k9, s.bb9, s.hr9);
+    }
+  }
+
   // Rank pitcher projections by fipLike
   tempPitcherProjections.sort((a, b) => a.fipLike - b.fipLike);
   const pitcherRanks = new Map<number, number>();
@@ -1830,7 +2137,7 @@ async function computeProjections(
   const pitcherProjections = tempPitcherProjections.map((p: any) => {
     const rank = pitcherRanks.get(p.playerId) || pn;
     const pctile = Math.round(((pn - rank + 0.5) / pn) * 1000) / 10;
-    return { ...p, projectedTrueRating: percentileToRating(pctile) };
+    return { ...p, projectedTrueRating: percentileToRating(pctile), projectedPercentile: pctile };
   });
 
   // Overlay canonical TR
@@ -1839,6 +2146,14 @@ async function computeProjections(
     if (canonical) {
       p.currentTrueRating = canonical.trueRating;
       p.currentPercentile = canonical.percentile;
+    }
+  }
+
+  // For draftees without TFR/TR, use projected rating + percentile from FIP ranking
+  for (const p of pitcherProjections) {
+    if (p.isProspect && p.currentTrueRating === 0 && p.projectedTrueRating > 0) {
+      p.currentTrueRating = p.projectedTrueRating;
+      p.currentPercentile = p.projectedPercentile;
     }
   }
 
@@ -1855,6 +2170,19 @@ async function computeProjections(
     if (p.isSp && (ip < 20 || ip > 300)) pitcherIssues++;
   }
   console.log(`  ✅ Pitcher projections: ${pitcherProjections.length} (${pitcherIssues} sanity issues)`);
+
+  // Draftee pitcher diagnostic
+  const drafteePitchers = pitcherProjections.filter((p: any) => {
+    const player = playerMap.get(p.playerId);
+    return player?.draft_eligible || player?.hsc;
+  });
+  if (drafteePitchers.length > 0) {
+    console.log(`  🎓 Draftee pitchers: ${drafteePitchers.length}`);
+    const topDraftP = [...drafteePitchers].sort((a: any, b: any) => a.projectedStats.fip - b.projectedStats.fip).slice(0, 5);
+    for (const p of topDraftP) {
+      console.log(`    ${p.name}: FIP ${p.projectedStats.fip.toFixed(2)}, WAR ${p.projectedStats.war.toFixed(1)}, IP ${p.projectedStats.ip}, K/9 ${p.projectedStats.k9.toFixed(1)}, BB/9 ${p.projectedStats.bb9.toFixed(1)}`);
+    }
+  }
 
   // Determine statsYear and usedFallbackStats for metadata
   const pitcherTotalCurrentIp = currentYearPitching.reduce((sum: number, s: any) => sum + parseIp(s.ip), 0);
@@ -1893,6 +2221,14 @@ async function computeProjections(
   const batterIds = new Set<number>();
   playerBattingStats.forEach((_s, pid) => batterIds.add(pid));
   currentYearBatting.forEach((s: any) => batterIds.add(s.player_id));
+  // Include draft-eligible/HSC batters who have scouting data but no stats
+  for (const [pid, player] of playerMap) {
+    if (batterIds.has(pid)) continue;
+    const pos = typeof player.position === 'string' ? parseInt(player.position, 10) : player.position;
+    if (pos === 1) continue; // skip pitchers
+    if (!player.draft_eligible && !player.hsc) continue;
+    if (hitterScoutMap.has(pid)) batterIds.add(pid);
+  }
 
   // Current-year batting map
   const currentBattingMap = new Map<number, any>();
@@ -1947,6 +2283,7 @@ async function computeProjections(
       playerName,
       yearlyStats: (stats ?? []).sort((a: any, b: any) => b.year - a.year),
       scoutingRatings,
+      targetYear: year,
     });
 
     batterInfoMap.set(playerId, {
@@ -1960,7 +2297,57 @@ async function computeProjections(
     });
   }
 
-  const hitterTrResults = hitterTrueRatingsCalculationService.calculateTrueRatings(hitterTrInputs);
+  // Use canonical Step 4 TR results instead of recomputing with a different year window.
+  // For draft-eligible/HSC players without canonical TR, create scouting-based TR.
+  const hitterTrResults: any[] = [];
+  for (const input of hitterTrInputs) {
+    const canonical = hitterTrMap.get(input.playerId);
+    if (canonical) {
+      hitterTrResults.push(canonical);
+    } else if (input.scoutingRatings) {
+      // Scouting-only TR for draft-eligible players — derive blended rates from scouting
+      const sr = input.scoutingRatings;
+      const power = sr.power ?? 50;
+      const eye = sr.eye ?? 50;
+      const avoidK = sr.avoidK ?? 50;
+      const contact = sr.contact ?? 50;
+      const gap = sr.gap ?? 50;
+      const speed = sr.speed ?? 50;
+
+      // Use TFR data if available (peak projection from Step 5), else derive from ratings
+      const tfr = hitterTfrMap.get(input.playerId);
+      const blendedBbPct = tfr?.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(eye);
+      const blendedKPct = tfr?.projKPct ?? HitterRatingEstimatorService.expectedKPct(avoidK);
+      const blendedHrPct = tfr?.projHrPct ?? HitterRatingEstimatorService.expectedHrPct(power);
+      const blendedAvg = tfr?.projAvg ?? HitterRatingEstimatorService.expectedAvg(contact);
+      const blendedDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
+      const blendedTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+
+      // Use TFR star rating if available, fall back to scouting potential
+      const tfrStarRating = tfr?.trueFutureRating ?? sr.pot ?? 0;
+
+      hitterTrResults.push({
+        playerId: input.playerId,
+        playerName: input.playerName,
+        blendedBbPct,
+        blendedKPct,
+        blendedHrPct,
+        blendedAvg,
+        blendedDoublesRate,
+        blendedTriplesRate,
+        estimatedPower: tfr?.trueRatings?.power ?? power,
+        estimatedEye: tfr?.trueRatings?.eye ?? eye,
+        estimatedAvoidK: tfr?.trueRatings?.avoidK ?? avoidK,
+        estimatedContact: tfr?.trueRatings?.contact ?? contact,
+        estimatedGap: tfr?.trueRatings?.gap ?? gap,
+        estimatedSpeed: tfr?.trueRatings?.speed ?? speed,
+        trueRating: tfrStarRating,
+        percentile: tfr?.percentile ?? 0,
+        totalPa: 0,
+        isDraftee: true,
+      });
+    }
+  }
 
   // Build batter projections
   const POSITION_LABELS: Record<number, string> = {
@@ -1968,150 +2355,157 @@ async function computeProjections(
   };
 
   const batterProjections: any[] = [];
+  const defensiveLookup: Record<number, [number, number, string]> = {}; // player_id → [defRuns, posAdj, source]
+  let drafteeDefNonZero = 0, drafteeDefZero = 0;
 
+  // Build batter projections using computeBatterProjection — the same function
+  // the browser uses. This guarantees sync-db, the projection table, and the modal
+  // all produce identical numbers.
   for (const trResult of hitterTrResults) {
     const info = batterInfoMap.get(trResult.playerId);
     if (!info) continue;
 
     const { age, teamId, teamName, position, name, scouting } = info;
-    const currentRatings = {
-      power: trResult.estimatedPower,
-      eye: trResult.estimatedEye,
-      avoidK: trResult.estimatedAvoidK,
-      contact: trResult.estimatedContact,
-    };
-
-    const projectedRatings = hitterAgingService.applyAging(currentRatings, age);
-
-    const projBbPct = HitterRatingEstimatorService.expectedBbPct(projectedRatings.eye);
-    const projKPct = HitterRatingEstimatorService.expectedKPct(projectedRatings.avoidK);
-    const projAvg = HitterRatingEstimatorService.expectedAvg(projectedRatings.contact);
-    const projHrPct = HitterRatingEstimatorService.expectedHrPct(projectedRatings.power);
-
-    const bbRate = projBbPct / 100;
-    const hitRate = projAvg * (1 - bbRate);
-    const hrRate = projHrPct / 100;
-    const nonHrHitRate = Math.max(0, hitRate - hrRate);
-    const tripleRate = nonHrHitRate * 0.08;
-    const doubleRate = nonHrHitRate * 0.27;
-    const singleRate = nonHrHitRate * 0.65;
-
-    const projWoba = Math.max(0.200, Math.min(0.500,
-      0.69 * bbRate + 0.89 * singleRate + 1.27 * doubleRate + 1.62 * tripleRate + 2.10 * hrRate
-    ));
-    const projIso = hrRate * 3 + doubleRate + (tripleRate * 2);
-    const projObp = Math.min(0.450, projAvg + (projBbPct / 100));
-    const projSlg = projAvg + projIso;
-    const projOps = projObp + projSlg;
-
-    // Projected PA
-    const historicalPaData = (playerBattingStats.get(trResult.playerId) ?? []).map((s: any) => ({ year: s.year, pa: s.pa }));
-    // Inline getProjectedPaWithHistory logic (same algorithm as LeagueBattingAveragesService)
-    let projPa = 585; // default
-    if (historicalPaData.length > 0 && age) {
-      const sortedStats = [...historicalPaData].sort((a: any, b: any) => b.year - a.year).slice(0, 4);
-      const paWeights = [0.40, 0.30, 0.20, 0.10];
-      let weightedPaSum = 0, totalWeight = 0;
-      for (let i = 0; i < sortedStats.length; i++) {
-        const w = paWeights[i] || 0.10;
-        weightedPaSum += sortedStats[i].pa * w;
-        totalWeight += w;
-      }
-      const historicalAvgPa = weightedPaSum / totalWeight;
-
-      // Age curve multiplier
-      function getAgeCurveMultiplier(a: number): number {
-        if (a <= 21) return 0.88 + (a - 20) * 0.02;
-        if (a <= 27) return 0.88 + ((a - 21) / 6) * 0.12;
-        if (a <= 32) return 1.00 - (a - 27) * 0.002;
-        if (a <= 37) return 0.99 - (a - 32) * 0.03;
-        return 0.84 - (a - 37) * 0.04;
-      }
-
-      let weightedAgeSum = 0;
-      for (let i = 0; i < sortedStats.length; i++) {
-        const w = paWeights[i] || 0.10;
-        weightedAgeSum += (age - (i + 1)) * w;
-      }
-      const avgHistoricalAge = weightedAgeSum / totalWeight;
-      const ageCurveMultiplier = getAgeCurveMultiplier(age) / getAgeCurveMultiplier(avgHistoricalAge);
-      const ageAdjustedPa = historicalAvgPa * ageCurveMultiplier;
-
-      // Injury multiplier
-      const ip = scouting?.injuryProneness?.toLowerCase() ?? 'normal';
-      let injuryMult = 1.0;
-      switch (ip) {
-        case 'iron man': injuryMult = 1.08; break;
-        case 'durable': injuryMult = 1.04; break;
-        case 'fragile': injuryMult = 0.88; break;
-        case 'wrecked': injuryMult = 0.75; break;
-      }
-      const injuryAdjustedPa = ageAdjustedPa * injuryMult;
-
-      let trustFactor = Math.min(0.98, 0.40 + (sortedStats.length * 0.20));
-      if (historicalAvgPa >= 500 && sortedStats.length >= 2) trustFactor = Math.min(0.98, trustFactor + 0.05);
-
-      // Baseline PA by age
-      function getBaselinePaByAge(a: number): number {
-        if (a <= 21) return 480 + (a - 20) * 20;
-        if (a <= 27) return 480 + ((a - 21) / 6) * 120;
-        if (a <= 32) return 600 - (a - 27) * 2;
-        if (a <= 37) return 590 - (a - 32) * 20;
-        return 490 - (a - 37) * 30;
-      }
-
-      const baselinePa = historicalAvgPa < 250
-        ? Math.min(getBaselinePaByAge(age), 350)
-        : getBaselinePaByAge(age);
-      const baselineAdjusted = baselinePa * injuryMult;
-      const blendedPa = (injuryAdjustedPa * trustFactor) + (baselineAdjusted * (1 - trustFactor));
-      projPa = Math.round(Math.max(50, Math.min(700, blendedPa)));
-    } else if (age) {
-      // Fallback for players with no history
-      if (age <= 21) projPa = 480;
-      else if (age <= 23) projPa = 520;
-      else if (age <= 32) projPa = 585;
-      else if (age <= 36) projPa = 520;
-      else projPa = 400;
-    }
-
-    const projHr = Math.round(projPa * (projHrPct / 100));
-    const projRbi = Math.round(projHr * 3.5 + projPa * 0.08);
-
-    // Stolen bases
-    const sr = scouting?.stealingAggressiveness;
-    const ste = scouting?.stealingAbility;
-    let projSb: number, projCs: number;
-    if (sr !== undefined && ste !== undefined) {
-      const histSbData: Array<{ sb: number; cs: number; pa: number }> = [];
-      for (const s of (playerBattingStats.get(trResult.playerId) ?? [])) {
-        if (s.sb !== undefined && s.cs !== undefined) histSbData.push({ sb: s.sb, cs: s.cs, pa: s.pa });
-      }
-      if (histSbData.length > 0) {
-        const sbProj = HitterRatingEstimatorService.projectStolenBasesWithHistory(sr, ste, projPa, histSbData);
-        projSb = sbProj.sb; projCs = sbProj.cs;
-      } else {
-        const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-        projSb = sbProj.sb; projCs = sbProj.cs;
-      }
-    } else {
-      projSb = Math.round(projPa * 0.02);
-      projCs = Math.round(projPa * 0.005);
-    }
-
-    // WAR calculation
-    const sbRuns = projSb * 0.2 - projCs * 0.4;
-    let wrcPlus = 100;
-    let projWar = 0;
-    if (leagueAvg) {
-      const wRaaPerPa = (projWoba - leagueAvg.lgWoba) / leagueAvg.wobaScale;
-      wrcPlus = Math.round(((wRaaPerPa + leagueAvg.lgRpa) / leagueAvg.lgRpa) * 100);
-      const wRAA = ((projWoba - leagueAvg.lgWoba) / leagueAvg.wobaScale) * projPa;
-      const replacementRuns = (projPa / 600) * 20;
-      projWar = Math.round(((wRAA + replacementRuns + sbRuns) / leagueAvg.runsPerWin) * 10) / 10;
-    }
-
     const playerForBatter = playerMap.get(trResult.playerId);
+
+    // Build BatterProfileData-like object with canonical TR
+    const data: any = {
+      playerId: trResult.playerId,
+      playerName: name,
+      age,
+      position,
+      estimatedPower: trResult.estimatedPower,
+      estimatedEye: trResult.estimatedEye,
+      estimatedAvoidK: trResult.estimatedAvoidK,
+      estimatedContact: trResult.estimatedContact,
+      estimatedGap: trResult.estimatedGap,
+      estimatedSpeed: trResult.estimatedSpeed,
+      scoutGap: scouting?.gap,
+      scoutSpeed: scouting?.speed,
+      injuryProneness: scouting?.injuryProneness,
+    };
+    // For draftees: pass undefined as playerTR so resolveCanonicalBatterData doesn't
+    // force isProspect=false. Instead, set up peak projection fields manually.
+    if (trResult.isDraftee) {
+      data.isProspect = true;
+      data.hasTfrUpside = true;
+      // Set TFR fields so computeBatterProjection uses them in peak mode
+      data.tfrPower = trResult.estimatedPower;
+      data.tfrEye = trResult.estimatedEye;
+      data.tfrAvoidK = trResult.estimatedAvoidK;
+      data.tfrContact = trResult.estimatedContact;
+      data.tfrGap = trResult.estimatedGap;
+      data.tfrSpeed = trResult.estimatedSpeed;
+      data.tfrBbPct = trResult.blendedBbPct;
+      data.tfrKPct = trResult.blendedKPct;
+      data.tfrHrPct = trResult.blendedHrPct;
+      data.tfrAvg = trResult.blendedAvg;
+      // Derive OBP/SLG from blended rates
+      data.tfrObp = Math.min(0.450, trResult.blendedAvg + (trResult.blendedBbPct / 100) * (1 - trResult.blendedAvg));
+      const hrPerAb = (trResult.blendedHrPct / 100) / 0.88;
+      const iso = trResult.blendedDoublesRate + 2 * trResult.blendedTriplesRate + 3 * hrPerAb;
+      data.tfrSlg = trResult.blendedAvg + iso;
+      data.projBbPct = trResult.blendedBbPct;
+      data.projKPct = trResult.blendedKPct;
+      data.projHrPct = trResult.blendedHrPct;
+      data.projAvg = trResult.blendedAvg;
+      data.projDoublesRate = trResult.blendedDoublesRate;
+      data.projTriplesRate = trResult.blendedTriplesRate;
+    } else {
+      resolveCanonicalBatterData(data, trResult, undefined);
+    }
+
+    // Build MLB stats history for PA + SB projection
+    const paByYear = new Map<number, any>();
+    for (const s of ctx.mlbBattingStats) {
+      if (s.player_id !== trResult.playerId) continue;
+      const existing = paByYear.get(s.year);
+      if (existing) {
+        existing.pa += s.pa ?? 0; existing.h += s.h ?? 0;
+        existing.ab += s.ab ?? 0; existing.bb += s.bb ?? 0;
+        existing.hr += s.hr ?? 0; existing.d += s.d ?? 0;
+        existing.t += s.t ?? 0; existing.k += s.k ?? 0;
+        existing.sb += s.sb ?? 0; existing.cs += s.cs ?? 0;
+        existing.rbi += s.rbi ?? 0;
+      } else {
+        paByYear.set(s.year, {
+          year: s.year, pa: s.pa ?? 0, ab: s.ab ?? 0, h: s.h ?? 0,
+          bb: s.bb ?? 0, hr: s.hr ?? 0, d: s.d ?? 0, t: s.t ?? 0,
+          k: s.k ?? 0, sb: s.sb ?? 0, cs: s.cs ?? 0, rbi: s.rbi ?? 0,
+        });
+      }
+    }
+    const mlbStats = [...paByYear.values()].map((s: any) => {
+      const singles = s.h - s.d - s.t - s.hr;
+      const slg = s.ab > 0 ? (singles + 2 * s.d + 3 * s.t + 4 * s.hr) / s.ab : 0;
+      return {
+        year: s.year, level: 'MLB', pa: s.pa,
+        avg: s.ab > 0 ? s.h / s.ab : 0,
+        obp: s.pa > 0 ? (s.h + s.bb) / s.pa : 0,
+        slg: Math.round(slg * 1000) / 1000,
+        hr: s.hr, d: s.d, t: s.t, rbi: s.rbi,
+        sb: s.sb, cs: s.cs, bb: s.bb, k: s.k,
+      };
+    });
+
+    // Defensive projection: estimate PA first, then compute defRuns/posAdj
+    const paHistory = mlbStats.map(s => ({ year: s.year, pa: s.pa }));
+    const estPa = paHistory.length > 0
+      ? leagueBattingAveragesService.getProjectedPaWithHistory(paHistory, age, scouting?.injuryProneness)
+      : leagueBattingAveragesService.getProjectedPa(scouting?.injuryProneness, age);
+    const rawFieldingData = ctx.hitterScoutMapOsa.get(trResult.playerId)?.raw_data?.fielding
+      ?? ctx.hitterScoutMapCombined.get(trResult.playerId)?.raw_data?.fielding;
+    const scoutFielding = parseFieldingScouting(rawFieldingData);
+    const drsRows = ctx.defensiveStatsMap.get(trResult.playerId) ?? [];
+    const careerIp = ctx.careerIpMap.get(trResult.playerId) ?? 0;
+    const defProjection = projectDefensiveValue(position, age, estPa, scoutFielding, drsRows, year, careerIp, !!trResult.isDraftee);
+    if (trResult.isDraftee) {
+      if (defProjection.defRuns !== 0 || defProjection.posAdj !== 0) {
+        drafteeDefNonZero++;
+      } else {
+        drafteeDefZero++;
+      }
+    }
+    defensiveLookup[trResult.playerId] = [defProjection.defRuns, defProjection.posAdj, defProjection.source];
+
+    // Park factors based on player's home team and batting hand
+    const playerBats = playerForBatter?.bats ?? 'R';
+    const teamParkFactors = ctx.parkFactorsMap.get(teamId);
+    const parkFactors = teamParkFactors ? computeEffectiveParkFactors(teamParkFactors, playerBats) : undefined;
+
+    const modalResult = computeBatterProjection(data, mlbStats, {
+      projectionMode: 'current',
+      projectionYear: year + 1,
+      leagueAvg: leagueAvg as any,
+      scoutingData: scouting ? {
+        injuryProneness: scouting.injuryProneness,
+        stealingAggressiveness: scouting.stealingAggressiveness,
+        stealingAbility: scouting.stealingAbility,
+      } : null,
+      defRuns: defProjection.defRuns,
+      posAdj: defProjection.posAdj,
+      parkFactors,
+      expectedBbPct: (eye: number) => HitterRatingEstimatorService.expectedBbPct(eye),
+      expectedKPct: (avoidK: number) => HitterRatingEstimatorService.expectedKPct(avoidK),
+      expectedAvg: (contact: number) => HitterRatingEstimatorService.expectedAvg(contact),
+      expectedHrPct: (power: number) => HitterRatingEstimatorService.expectedHrPct(power),
+      expectedDoublesRate: (gap: number) => HitterRatingEstimatorService.expectedDoublesRate(gap),
+      expectedTriplesRate: (speed: number) => HitterRatingEstimatorService.expectedTriplesRate(speed),
+      getProjectedPa: (injury, a) => leagueBattingAveragesService.getProjectedPa(injury, a),
+      getProjectedPaWithHistory: (history, a, injury) =>
+        leagueBattingAveragesService.getProjectedPaWithHistory(history, a, injury),
+      calculateOpsPlus: (obp, slg, lg) => leagueBattingAveragesService.calculateOpsPlus(obp, slg, lg),
+      computeWoba: (bbRate, avg, d, t, hr) => {
+        const single = avg * (1 - bbRate) - hr - d - t;
+        return 0.69 * bbRate + 0.89 * Math.max(0, single) + 1.27 * d + 1.62 * t + 2.10 * hr;
+      },
+      calculateBaserunningRuns: (sb, cs) => leagueBattingAveragesService.calculateBaserunningRuns(sb, cs),
+      calculateBattingWar: (woba, pa, lg, sbRuns, defR, posA) =>
+        leagueBattingAveragesService.calculateBattingWar(woba, pa, lg, sbRuns, defR, posA),
+      projectStolenBases: (sr, ste, pa) => HitterRatingEstimatorService.projectStolenBases(sr, ste, pa),
+      applyAgingToRates: (rates, a) => HitterRatingEstimatorService.applyAgingToBlendedRates(rates, hitterAgingService.getAgingModifiers(a)),
+    });
+
     batterProjections.push({
       playerId: trResult.playerId,
       name,
@@ -2125,26 +2519,29 @@ async function computeProjections(
       currentTrueRating: trResult.trueRating,
       percentile: trResult.percentile,
       projectedStats: {
-        woba: Math.round(projWoba * 1000) / 1000,
-        avg: Math.round(projAvg * 1000) / 1000,
-        obp: Math.round(projObp * 1000) / 1000,
-        slg: Math.round(projSlg * 1000) / 1000,
-        ops: Math.round(projOps * 1000) / 1000,
-        wrcPlus,
-        war: projWar,
-        pa: projPa,
-        hr: projHr,
-        rbi: projRbi,
-        sb: projSb,
-        hrPct: Math.round(projHrPct * 10) / 10,
-        bbPct: Math.round(projBbPct * 10) / 10,
-        kPct: Math.round(projKPct * 10) / 10,
+        woba: Math.round(modalResult.projWoba * 1000) / 1000,
+        avg: Math.round(modalResult.projAvg * 1000) / 1000,
+        obp: Math.round(modalResult.projObp * 1000) / 1000,
+        slg: Math.round(modalResult.projSlg * 1000) / 1000,
+        ops: Math.round(modalResult.projOps * 1000) / 1000,
+        wrcPlus: modalResult.projOpsPlus,
+        war: Math.round(modalResult.projWar * 10) / 10,
+        pa: modalResult.projPa,
+        hr: modalResult.projHr,
+        rbi: Math.round(modalResult.projHr * 3.5 + modalResult.projPa * 0.08),
+        sb: modalResult.projSb,
+        hrPct: Math.round(modalResult.projHrPct * 10) / 10,
+        bbPct: Math.round(modalResult.projBbPct * 10) / 10,
+        kPct: Math.round(modalResult.projKPct * 10) / 10,
+        defRuns: defProjection.defRuns,
+        posAdj: defProjection.posAdj,
+        defSource: defProjection.source,
       },
       estimatedRatings: {
-        power: Math.round(projectedRatings.power),
-        eye: Math.round(projectedRatings.eye),
-        avoidK: Math.round(projectedRatings.avoidK),
-        contact: Math.round(projectedRatings.contact),
+        power: trResult.estimatedPower,
+        eye: trResult.estimatedEye,
+        avoidK: trResult.estimatedAvoidK,
+        contact: trResult.estimatedContact,
       },
       scoutingRatings: scouting ? {
         power: scouting.power,
@@ -2153,15 +2550,6 @@ async function computeProjections(
         contact: scouting.contact ?? 50,
       } : undefined,
     });
-  }
-
-  // Overlay canonical hitter TR
-  for (const p of batterProjections) {
-    const canonical = hitterTrMap.get(p.playerId);
-    if (canonical) {
-      p.currentTrueRating = canonical.trueRating;
-      p.percentile = canonical.percentile;
-    }
   }
 
   batterProjections.sort((a: any, b: any) => b.projectedStats.war - a.projectedStats.war);
@@ -2173,6 +2561,49 @@ async function computeProjections(
     if (!Number.isFinite(war) || war < -5 || war > 15) batterIssues++;
   }
   console.log(`  ✅ Batter projections: ${batterProjections.length} (${batterIssues} sanity issues)`);
+  if (drafteeDefNonZero > 0 || drafteeDefZero > 0) {
+    console.log(`  🛡️ Draftee defense: ${drafteeDefNonZero} with non-zero def, ${drafteeDefZero} with zero def`);
+  }
+
+  // Draftee batter diagnostic
+  const drafteeBatters = batterProjections.filter((p: any) => {
+    const player = playerMap.get(p.playerId);
+    return player?.draft_eligible || player?.hsc;
+  });
+  if (drafteeBatters.length > 0) {
+    console.log(`  🎓 Draftee batters: ${drafteeBatters.length}`);
+    const topDraftB = [...drafteeBatters].sort((a: any, b: any) => b.projectedStats.war - a.projectedStats.war).slice(0, 5);
+    for (const p of topDraftB) {
+      console.log(`    ${p.name}: WAR ${p.projectedStats.war.toFixed(1)}, wOBA ${p.projectedStats.woba.toFixed(3)}, AVG ${p.projectedStats.avg.toFixed(3)}, PA ${p.projectedStats.pa}, HR ${p.projectedStats.hr}`);
+    }
+  }
+
+  // Park factor impact summary
+  if (ctx.parkFactorsMap.size > 0) {
+    const byTeam = new Map<number, { team: string; wars: number[]; count: number }>();
+    for (const b of batterProjections) {
+      const tid = b.teamId;
+      if (!byTeam.has(tid)) byTeam.set(tid, { team: b.teamName, wars: [], count: 0 });
+      byTeam.get(tid)!.wars.push(b.projectedStats.war);
+      byTeam.get(tid)!.count++;
+    }
+    const teamAvgWar = [...byTeam.entries()]
+      .filter(([tid]) => ctx.parkFactorsMap.has(tid))
+      .map(([tid, { team, wars }]) => {
+        const pf = ctx.parkFactorsMap.get(tid)!;
+        const avgWar = wars.reduce((a, b) => a + b, 0) / wars.length;
+        return { team, avgWar, hrFactor: pf.hr, avgFactor: pf.avg };
+      })
+      .sort((a, b) => b.avgWar - a.avgWar);
+    console.log('  📊 Park factor impact (avg batter WAR by team):');
+    for (const { team, avgWar, hrFactor, avgFactor } of teamAvgWar.slice(0, 5)) {
+      console.log(`    ${team}: avg WAR ${avgWar.toFixed(2)} (HR factor ${hrFactor.toFixed(3)}, AVG factor ${avgFactor.toFixed(3)})`);
+    }
+    console.log('    ...');
+    for (const { team, avgWar, hrFactor, avgFactor } of teamAvgWar.slice(-3)) {
+      console.log(`    ${team}: avg WAR ${avgWar.toFixed(2)} (HR factor ${hrFactor.toFixed(3)}, AVG factor ${avgFactor.toFixed(3)})`);
+    }
+  }
 
   // ────────── Store in precomputed_cache ──────────
   const pitcherData = {
@@ -2190,11 +2621,20 @@ async function computeProjections(
     scoutingMetadata: { fromMyScout: batterFromMyScout, fromOSA: batterFromOSA },
   };
 
+  // Serialize park factors for browser
+  const parkFactorsObj: Record<number, any> = {};
+  for (const [teamId, pf] of ctx.parkFactorsMap) {
+    parkFactorsObj[teamId] = pf;
+  }
+
   await Promise.all([
     supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_projections', data: pitcherData }], 1, 'key'),
     supabaseUpsertBatches('precomputed_cache', [{ key: 'batter_projections', data: batterData }], 1, 'key'),
+    supabaseUpsertBatches('precomputed_cache', [{ key: 'defensive_lookup', data: defensiveLookup }], 1, 'key'),
+    supabaseUpsertBatches('precomputed_cache', [{ key: 'park_factors', data: parkFactorsObj }], 1, 'key'),
   ]);
   console.log('  ✅ Projections saved to precomputed_cache');
+  console.log(`  ✅ Defensive lookup: ${Object.keys(defensiveLookup).length} entries`);
 
   return { pitcherProj: pitcherProjections.length, batterProj: batterProjections.length };
 }
@@ -2203,7 +2643,7 @@ async function computeProjections(
 // Step 6: League Context
 // ──────────────────────────────────────────────
 
-async function computeLeagueContext(ctx: SyncContext): Promise<void> {
+async function computeLeagueContext(ctx: SyncContext, pitcherTrResults?: any[]): Promise<void> {
   console.log('\n=== Step 6: Compute league context ===');
   const year = ctx.year;
 
@@ -2220,16 +2660,31 @@ async function computeLeagueContext(ctx: SyncContext): Promise<void> {
   const pitcherWarMax = pitchingRows.reduce((mx, r) => Math.max(mx, r.war ?? 0), 0);
   console.log(`  Pitcher WAR max: ${pitcherWarMax}`);
 
-  // FIP distribution (50+ IP)
+  // FIP distributions derived from TR results — same pool used for TR percentiles
+  // fipLike + 3.47 = FIP, so percentile rankings are identical to TR pool
   const fipDistribution: number[] = [];
-  for (const r of pitchingRows) {
-    const ip = parseFloat(String(r.ip)) || 0;
-    if (ip < 50) continue;
-    const fip = ((13 * (r.hra ?? 0)) + (3 * (r.bb ?? 0)) - (2 * (r.k ?? 0))) / ip + 3.47;
-    fipDistribution.push(Math.round(fip * 100) / 100);
+  const spFipDistribution: number[] = [];
+  const rpFipDistribution: number[] = [];
+  if (pitcherTrResults && pitcherTrResults.length > 0) {
+    for (const tr of pitcherTrResults) {
+      const fip = Math.round((tr.fipLike + 3.47) * 100) / 100;
+      fipDistribution.push(fip);
+      if (tr.role === 'SP' || tr.role === 'SW') spFipDistribution.push(fip);
+      else rpFipDistribution.push(fip);
+    }
+  } else {
+    // Fallback: raw stats-based (if TR results not available)
+    for (const r of pitchingRows) {
+      const ip = parseFloat(String(r.ip)) || 0;
+      if (ip < 50) continue;
+      const fip = ((13 * (r.hra ?? 0)) + (3 * (r.bb ?? 0)) - (2 * (r.k ?? 0))) / ip + 3.47;
+      fipDistribution.push(Math.round(fip * 100) / 100);
+    }
   }
   fipDistribution.sort((a, b) => a - b);
-  console.log(`  FIP distribution: ${fipDistribution.length} pitchers (50+ IP)`);
+  spFipDistribution.sort((a, b) => a - b);
+  rpFipDistribution.sort((a, b) => a - b);
+  console.log(`  FIP distribution: ${fipDistribution.length} pitchers (SP: ${spFipDistribution.length}, RP: ${rpFipDistribution.length})`);
 
   // $/WAR distribution: all players with salary >= 3M and WAR > 0.5
   const salaryMap = new Map<number, number>();
@@ -2297,34 +2752,26 @@ async function computeLeagueContext(ctx: SyncContext): Promise<void> {
     }
   }
 
-  const data = { batterWarMax, pitcherWarMax, fipDistribution, dollarPerWar, leagueAverages };
+  const data = { batterWarMax, pitcherWarMax, fipDistribution, spFipDistribution, rpFipDistribution, dollarPerWar, leagueAverages };
   await supabaseUpsertBatches('precomputed_cache', [{ key: 'league_context', data }], 1, 'key');
   console.log('  ✅ League context saved to precomputed_cache');
 
   // Build compact scouting lookups
-  // Format: { [playerId]: [stuff, control, hra, ovr, pot, lev, hsc, ?name, ?age, ?stamina] }
-  // Extra fields (name/age/stamina) only for draftees (lev='-') to keep payload small
+  // Pitcher format: { [playerId]: [stuff, control, hra, ovr, pot, lev, hsc, name, age, stamina, pitches] }
+  // pitches is a JSON object string (e.g. {"FB":70,"SL":55}) or empty string
   console.log('  Building scouting + contract lookups...');
 
   const pitcherScoutLookup: Record<string, (number | string)[]> = {};
   for (const [pid, s] of ctx.pitcherScoutMap) {
     const lev = s.lev || '';
-    const base = [s.stuff, s.control, s.hra, s.ovr ?? 0, s.pot ?? 0, lev, s.hsc || ''];
-    if (lev === '-' || lev === '') {
-      // Draftees/FAs: include extra fields for buildScoutingOnlyRows
-      base.push(s.player_name || '', s.age || 0, s.stamina || 0);
-    }
-    pitcherScoutLookup[pid] = base;
+    const pitchesStr = s.pitches && Object.keys(s.pitches).length > 0 ? JSON.stringify(s.pitches) : '';
+    pitcherScoutLookup[pid] = [s.stuff, s.control, s.hra, s.ovr ?? 0, s.pot ?? 0, lev, s.hsc || '', s.player_name || '', s.age || 0, s.stamina || 0, pitchesStr];
   }
 
   const hitterScoutLookup: Record<string, (number | string)[]> = {};
   for (const [hPid, s] of ctx.hitterScoutMapOsa) {
     const lev = s.lev || '';
-    const base = [s.contact ?? 50, s.power, s.eye, s.avoid_k, s.gap ?? 50, s.speed ?? 50, s.ovr ?? 0, s.pot ?? 0, lev, s.hsc || ''];
-    if (lev === '-' || lev === '') {
-      base.push(s.player_name || '', s.age || 0);
-    }
-    hitterScoutLookup[hPid] = base;
+    hitterScoutLookup[hPid] = [s.contact ?? 50, s.power, s.eye, s.avoid_k, s.gap ?? 50, s.speed ?? 50, s.ovr ?? 0, s.pot ?? 0, lev, s.hsc || '', s.player_name || '', s.age || 0, s.stealing_aggressiveness ?? 0, s.stealing_ability ?? 0, s.injury_proneness || ''];
   }
 
   // Contract lookup: { [playerId]: [salary, leagueId, yearsRemaining] }
@@ -2385,7 +2832,7 @@ async function main(): Promise<void> {
   await timed('Clear stale data', clearStaleData);
 
   // Step 3
-  const writeStats = await timed('Fetch + write data', () => fetchAndWriteData(year));
+  const writeStats = await timed('Fetch + write data', () => fetchAndWriteData(year, gameDate));
 
   let trCounts = { pitcherTr: 0, hitterTr: 0 };
   let tfrCounts = { pitcherTfr: 0, hitterTfr: 0 };
@@ -2413,7 +2860,7 @@ async function main(): Promise<void> {
 
       writePromise = timed('Write ratings + TFR cache', async () => {
         await Promise.all([
-          supabaseUpsertBatches('player_ratings', deduped, BATCH_SIZE, 'player_id,rating_type', 8),
+          supabaseUpsertBatches('player_ratings', deduped, 200, 'player_id,rating_type', 4),
           supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_tfr_prospects', data: pitcherTfrData }], 1, 'key'),
           supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_tfr_prospects', data: hitterTfrData }], 1, 'key'),
         ]);
@@ -2422,8 +2869,8 @@ async function main(): Promise<void> {
     }
 
     // Step 5.5 + 6 run concurrently with rating writes
-    projCounts = await timed('Compute projections', () => computeProjections(ctx, trResult.rows));
-    await timed('Compute league context', () => computeLeagueContext(ctx));
+    projCounts = await timed('Compute projections', () => computeProjections(ctx, trResult.rows, tfrResult.rows));
+    await timed('Compute league context', () => computeLeagueContext(ctx, trResult.pitcherTrResults));
 
     // Ensure writes complete before finalize
     await writePromise;
@@ -2443,6 +2890,8 @@ async function main(): Promise<void> {
   console.log(`  MiLB pitching: ${writeStats.milbPitching}`);
   console.log(`  MiLB batting: ${writeStats.milbBatting}`);
   console.log(`  Contracts:    ${writeStats.contracts}`);
+  console.log(`  Pitcher scouting: ${writeStats.pitcherScouting}`);
+  console.log(`  Hitter scouting:  ${writeStats.hitterScouting}`);
   if (!skipCompute) {
     console.log(`  Pitcher TR:   ${trCounts.pitcherTr}`);
     console.log(`  Hitter TR:    ${trCounts.hitterTr}`);
@@ -2451,10 +2900,11 @@ async function main(): Promise<void> {
     console.log(`  Pitcher Proj: ${projCounts.pitcherProj}`);
     console.log(`  Batter Proj:  ${projCounts.batterProj}`);
   }
-  const kb = (apiBytesTransferred / 1024).toFixed(0);
-  const mb = (apiBytesTransferred / (1024 * 1024)).toFixed(2);
-  const bandwidth = apiBytesTransferred >= 1024 * 1024 ? `${mb} MB` : `${kb} KB`;
-  console.log(`  API calls:    ${apiCallCount} (${bandwidth} transferred)`);
+  const wblStats = getWblStats();
+  const kb = (wblStats.bytes / 1024).toFixed(0);
+  const mb = (wblStats.bytes / (1024 * 1024)).toFixed(2);
+  const bandwidth = wblStats.bytes >= 1024 * 1024 ? `${mb} MB` : `${kb} KB`;
+  console.log(`  API calls:    ${wblStats.calls} (${bandwidth} transferred)`);
   console.log(`  Total time:   ${elapsed}s`);
 }
 

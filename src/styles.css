@@ -420,6 +420,25 @@ body::before {
   margin: 0;
 }
 
+/* Draft Board View */
+.draft-board-view { padding: 1rem; }
+.draft-board-view .view-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+.draft-board-view .view-header h2 { margin: 0; font-size: 1.2em; }
+.draft-list-table tr.row-selected { background: rgba(99, 102, 241, 0.08); }
+.draft-list-table input[type="checkbox"] { cursor: pointer; accent-color: var(--color-primary); }
+.board-row.dragging { opacity: 0.4; }
+.board-row.drag-over { border-top: 2px solid var(--color-primary); }
+.board-row .drag-handle { font-size: 1.1em; user-select: none; }
+.btn-icon { background: none; border: none; color: var(--color-text-muted); cursor: pointer; font-size: 0.9em; padding: 0.2rem 0.4rem; border-radius: 3px; }
+.btn-icon:hover { color: var(--color-danger, #ef4444); background: rgba(239, 68, 68, 0.1); }
+.btn-sm { padding: 0.3rem 0.6rem; font-size: 0.8em; }
+.btn-danger { background: var(--color-danger, #ef4444); color: white; border: none; border-radius: var(--border-radius); cursor: pointer; }
+.btn-danger:hover { opacity: 0.85; }
+.btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+.rating-badge { display: inline-block; padding: 0.15rem 0.4rem; border-radius: 3px; font-weight: 600; font-size: 0.85em; }
+.rating-badge.rating-none { color: var(--color-text-muted); }
+.board-count { font-size: 0.85em; opacity: 0.7; }
+
 .toggle-group {
   display: inline-flex;
   border: 1px solid var(--color-border);
@@ -1643,6 +1662,50 @@ td.player-cell.player-name {
 .section-subtitle {
   color: var(--color-text-muted);
   margin: 0 0 1.5rem 0;
+}
+
+/* OSA scouting banner */
+.osa-scouting-banner {
+  background: rgba(29, 155, 240, 0.08);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 4px;
+  padding: 0.6rem 1rem;
+  margin-bottom: 1rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.osa-scouting-banner-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+.osa-scouting-banner-text {
+  flex: 1;
+  color: var(--color-text-muted);
+}
+.osa-scouting-banner-text strong {
+  color: var(--color-text);
+}
+.osa-scouting-banner-link {
+  color: var(--color-primary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.osa-scouting-banner-link:hover {
+  text-decoration: underline;
+}
+.osa-scouting-banner-close {
+  background: none;
+  border: none;
+  color: var(--color-text-muted);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.osa-scouting-banner-close:hover {
+  color: var(--color-text);
 }
 
 .note-text {
@@ -6618,7 +6681,7 @@ th .stat-tooltip {
 .profile-tabs {
   display: flex;
   gap: 0;
-  margin-bottom: 1.5rem;
+  margin-bottom: .75rem;
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
 }
@@ -7233,28 +7296,19 @@ th .stat-tooltip {
 
 .batter-profile-modal .ratings-layout {
   display: flex;
-  gap: 1rem;
+  gap: 0;
   align-items: flex-start;
 }
 
 .batter-profile-modal .ratings-radar-col {
   flex: 1 1 auto;
-  min-width: 0;
+  min-width: 0;  
+  margin-top: 12px;
 }
 
 /* Radar Chart Wrapper with positioned axis labels */
 .batter-profile-modal .radar-chart-wrapper {
   position: relative;
-}
-
-/* Shift hitting radar chart left to center under "Hitting Ratings" heading */
-.batter-profile-modal .ratings-radar-col > .radar-chart-wrapper {
-  transform: translateX(-40px);
-}
-
-/* Keep legend in place despite the wrapper shift, nudge up to center on polygon */
-.batter-profile-modal .ratings-radar-col .apexcharts-legend {
-  transform: translateX(40px) translateY(-15px);
 }
 
 /* Custom "Stat Projections" legend item */
@@ -7323,44 +7377,78 @@ th .stat-tooltip {
   border: 1px solid rgba(139, 148, 158, 0.3);
 }
 
-/* 5-axis positions: Contact(top), Power(upper-right), Eye(lower-right), AvoidK(lower-left), Gap(upper-left)
-   Legend on left — polygon center shifted rightward to ~58% */
+/* 5-axis positions: Contact(top), Eye(upper-right), Power(lower-right), Gap(lower-left), AvoidK(upper-left)
+   Polygon center shifted left by offsetX:-40 within SVG + wrapper translateX(-40px).
+   Contact label offset to match polygon top vertex. */
 .batter-profile-modal .radar-axis-top {
-  top: -16%;
-  left: 52%;
-  transform: translateX(-50%);
+  top: -17%;
+  left: calc(32% - 30px);
+  transform: translateX(50%);
+  align-items: center;
 }
 
 .batter-profile-modal .radar-axis-upper-right {
-  top: 24%;
-  right: 22%;
+  top: 22%;
+  right: 28%;
+  align-items: center;
 }
 
 .batter-profile-modal .radar-axis-lower-right {
-  bottom: 4%;
-  right: 28%;
+  bottom: 2%;
+  right: 35%;
+  align-items: center;
 }
 
 .batter-profile-modal .radar-axis-lower-left {
-  bottom: 4%;
-  left: 35%;
+  bottom: 2%;
+  left: 5%;
+  align-items: center;
 }
 
 .batter-profile-modal .radar-axis-upper-left {
-  top: 24%;
-  left: 26%;
+  top: 28%;
+  left: 0%;
+  align-items: center;
 }
 
 /* Running Radar Column */
-.batter-profile-modal .running-radar-col {
-  flex: 0 0 280px;
+/* Right column: 2-row grid — running on top, fielding+bars on bottom */
+.batter-profile-modal .right-ratings-col {
+  flex: 1 1 auto;
   min-width: 0;
   margin-left: -120px;
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
 }
 
-/* Vertically align running chart center with hitting chart center */
+.batter-profile-modal .right-row-running {
+  display: flex;
+  justify-content: flex-start;
+  margin-left: 180px;
+}
+
 .batter-profile-modal .running-radar-wrapper {
-  margin-top: 74px;
+  margin-top: 8px;
+  width: 150px;
+  overflow: visible;
+}
+
+.batter-profile-modal .right-row-fielding {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-left: 10px;
+}
+
+.batter-profile-modal .fielding-chart-col {
+  flex: 0 0 148px;
+  overflow: visible;
+}
+
+.batter-profile-modal .position-bars-col {
+  flex: 0 0 90px;
+  min-width: 150px;
 }
 
 /* Radar chart placeholder for missing scouting data */
@@ -7399,6 +7487,163 @@ th .stat-tooltip {
   margin: 0;
 }
 
+/* ── Ratings top bar: scout toggle + inline legend ── */
+.batter-profile-modal .ratings-top-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 40px;
+  flex-wrap: wrap;
+}
+
+.batter-profile-modal .legend-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #e7e9ea;
+}
+
+.batter-profile-modal .legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-left: 8px;
+}
+.batter-profile-modal .legend-dot:first-child { margin-left: 0; }
+.batter-profile-modal .legend-dot-true { background: #1d9bf0; }
+.batter-profile-modal .legend-dot-scout { background: #22c55e; }
+.batter-profile-modal .legend-dot-proj { background: #d4a574; }
+.batter-profile-modal .legend-text { color: #aab; }
+
+/* ── Fielding section ── */
+.batter-profile-modal .fielding-section {
+  margin-top: 0;
+}
+
+.batter-profile-modal .fielding-section .chart-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 2px;
+}
+
+.batter-profile-modal .fielding-section .chart-section-label {
+  margin: 0;
+}
+
+.batter-profile-modal .fielding-tab-toggle {
+  display: flex;
+  gap: 2px;
+  justify-content: center;
+  margin: 25px 0 0 60px;
+  width: 95px;
+}
+
+.batter-profile-modal .fielding-tab-toggle .fielding-tab-btn {
+  font-size: 9px;
+  padding: 1px 6px;
+  min-width: 22px;
+  line-height: 1.4;
+}
+
+.batter-profile-modal .fielding-tab-toggle .fielding-tab-btn.active {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.batter-profile-modal .fielding-radar-wrapper {
+  margin-top: 0;
+  position: relative;
+}
+
+/* Fielding axis labels — positioned around the chart */
+.batter-profile-modal .fielding-axis-labels {
+  pointer-events: none;
+}
+
+.batter-profile-modal .fielding-axis-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  z-index: 2;
+}
+
+.batter-profile-modal .fielding-axis-label .radar-axis-name {
+  font-size: 0.65rem;
+}
+
+.radar-axis-badge.radar-badge-fielding {
+  background: rgba(34, 197, 94, 0.2);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* Triangle (3-axis) positions */
+.batter-profile-modal .fielding-axis-top { top: -4%; left: 35%; transform: translateX(-50%); }
+.batter-profile-modal .fielding-axis-lower-right { bottom: 15px; right: 30%; }
+.batter-profile-modal .fielding-axis-lower-left { bottom: 15px; left: 8%; }
+
+/* Quad (4-axis) positions */
+.batter-profile-modal .fielding-axis-right { top: 50%; right: 35%; transform: translateY(-50%); }
+.batter-profile-modal .fielding-axis-bottom { bottom: -12%; left: 35%; transform: translateX(-50%); }
+.batter-profile-modal .fielding-axis-left { top: 50%; left: 1%; transform: translateY(-50%); }
+
+/* ── Position rating bars ── */
+.batter-profile-modal .position-ratings-bars {
+  padding: 0;
+}
+
+.batter-profile-modal .chart-section-sublabel {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #e7e9ea;
+  margin-bottom: 4px;
+}
+
+.batter-profile-modal .pos-rating-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 3px;
+  font-size: 11px;
+}
+
+.batter-profile-modal .pos-label {
+  width: 22px;
+  text-align: right;
+  color: #aab;
+  font-weight: 600;
+}
+
+.batter-profile-modal .pos-bar-track {
+  flex: 1;
+  height: 8px;
+  background: rgba(255,255,255,0.08);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.batter-profile-modal .pos-bar-fill {
+  height: 100%;
+  background: #1d9bf0;
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.batter-profile-modal .pos-value {
+  width: 20px;
+  color: #e7e9ea;
+  font-weight: 600;
+}
+
 /* Pitcher arsenal placeholder */
 .pitcher-profile-modal .radar-chart-placeholder {
   min-height: 120px;
@@ -7411,7 +7656,7 @@ th .stat-tooltip {
   text-transform: uppercase;
   color: var(--color-text-muted);
   letter-spacing: 0.05em;
-  margin: -18px 0 60px;
+  margin: 2px 0 60px -365px;
   padding: 0;
   text-align: center;
   font-weight: 600;
@@ -7438,12 +7683,12 @@ th .stat-tooltip {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 2px;
   pointer-events: none;
   z-index: 2;
-  top: -11%;
-  left: 50%;
+  top: -28%;
+  left: 60%;
   transform: translateX(-50%);
 }
 
@@ -7451,49 +7696,48 @@ th .stat-tooltip {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 2px;
   pointer-events: none;
   z-index: 2;
   bottom: 8%;
-  right: 1%;
+  right: -33%;
 }
 
 .batter-profile-modal .running-axis-lower-left {
   position: absolute;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   gap: 2px;
   pointer-events: none;
   z-index: 2;
   bottom: 8%;
-  left: 1%;
+  left: -4%;
 }
 
-/* Projected Stat Badges (stacked: value on top, label below) */
+/* Projected Stat Badges — inline: value + label side by side for compactness */
 .batter-profile-modal .radar-proj-badge {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  align-self: center;
-  padding: 3px 7px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  padding: 2px 5px;
   border-radius: 3px;
   background: rgba(212, 165, 116, 0.10);
   border: 1px solid rgba(212, 165, 116, 0.18);
   white-space: nowrap;
-  margin-top: 2px;
-  line-height: 1.1;
+  margin-top: 1px;
+  line-height: 1;
 }
 
 .batter-profile-modal .radar-proj-badge .proj-value {
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 700;
   color: rgba(212, 165, 116, 0.85);
 }
 
 .batter-profile-modal .radar-proj-badge .proj-label {
-  font-size: 0.6rem;
+  font-size: 0.55rem;
   font-weight: 600;
   color: rgba(212, 165, 116, 0.50);
   text-transform: uppercase;
@@ -7576,9 +7820,13 @@ th .stat-tooltip {
   .batter-profile-modal .ratings-layout {
     flex-direction: column;
   }
-  .batter-profile-modal .running-radar-col {
+  .batter-profile-modal .right-ratings-col {
     flex: 1 1 auto;
     width: 100%;
+    margin-left: 0;
+  }
+  .batter-profile-modal .right-row-fielding {
+    flex-direction: column;
   }
 }
 
@@ -7637,6 +7885,7 @@ th .stat-tooltip {
 
 .batter-profile-modal .projection-row td {
   background: rgba(59, 130, 246, 0.05);
+  border-bottom: 2px solid rgba(59, 130, 246, 0.2);
 }
 
 .batter-profile-modal .actual-row td {
@@ -9431,7 +9680,7 @@ th .stat-tooltip {
 .pitcher-profile-modal .projection-age { font-weight: 400; opacity: 0.7; }
 
 .pitcher-profile-modal .projection-table { margin-bottom: 0.5rem; }
-.pitcher-profile-modal .projection-row td { background: rgba(59, 130, 246, 0.05); }
+.pitcher-profile-modal .projection-row td { background: rgba(59, 130, 246, 0.05); border-bottom: 2px solid rgba(59, 130, 246, 0.2); }
 .pitcher-profile-modal .actual-row td { color: var(--color-text-muted); font-size: 0.75rem; }
 
 .pitcher-profile-modal .projection-note {
@@ -10487,3 +10736,28 @@ th .stat-tooltip {
     display: none;
   }
 }
+
+/* Standings sub-bar (Method toggle: WAR-Based / Simulation / By Division) */
+.standings-sub-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--color-bg-secondary, rgba(255,255,255,0.03));
+  border-radius: 6px;
+  border: 1px solid var(--color-border, #2a2a3a);
+}
+
+.standings-sub-label {
+  font-size: 0.78rem;
+  color: var(--color-text-muted, #888);
+  font-weight: 500;
+  margin-right: 0.15rem;
+}
+
+.toggle-btn-sm {
+  padding: 0.25rem 0.65rem !important;
+  font-size: 0.78rem !important;
+}
+

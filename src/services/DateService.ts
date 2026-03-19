@@ -8,11 +8,12 @@ const SEASON_START_MONTH = 4;
 const SEASON_START_DAY = 1;
 const SEASON_DAYS = 183;
 
-const DATE_CACHE_KEY = 'wbl-game-date-cache';
+const DATE_CACHE_KEY = 'wbl-game-date-cache-v2'; // v2: includes season field
 const DATE_CACHE_TTL_MS = 60 * 60 * 1000; // 60 minutes
 
 class DateService {
   private cachedDate: string | null = null;
+  private cachedSeason: number | null = null;
   private fetchPromise: Promise<string> | null = null;
 
   /**
@@ -28,9 +29,10 @@ class DateService {
     try {
       const stored = localStorage.getItem(DATE_CACHE_KEY);
       if (stored) {
-        const { date, ts } = JSON.parse(stored) as { date: string; ts: number };
+        const { date, ts, season } = JSON.parse(stored) as { date: string; ts: number; season?: number };
         if (typeof date === 'string' && Date.now() - ts < DATE_CACHE_TTL_MS) {
           this.cachedDate = date;
+          if (season) this.cachedSeason = season;
           return date;
         }
       }
@@ -46,23 +48,26 @@ class DateService {
 
     // Persist with a timestamp so the TTL survives reloads
     try {
-      localStorage.setItem(DATE_CACHE_KEY, JSON.stringify({ date, ts: Date.now() }));
+      localStorage.setItem(DATE_CACHE_KEY, JSON.stringify({ date, ts: Date.now(), season: this.cachedSeason }));
     } catch { /* storage quota or private-mode — fine, in-memory cache still works */ }
 
     return date;
   }
 
   /**
-   * Get the current game year.
-   * Returns the year portion of the current game date.
-   * Falls back to current real-world year if API fails.
+   * Get the current season year.
+   * Uses the `season` field from the WBL API (e.g. "2021") rather than the
+   * calendar year from the game date (which may be 2022 during offseason).
+   * Falls back to the date's year if season wasn't returned.
    */
   async getCurrentYear(): Promise<number> {
     try {
+      // Ensure the API has been called so cachedSeason is populated
       const date = await this.getCurrentDate();
+      if (this.cachedSeason) return this.cachedSeason;
+      // Fallback: derive from date (pre-existing behavior)
       return parseInt(date.split('-')[0], 10);
     } catch {
-      // Fallback to current year if API fails
       return new Date().getFullYear();
     }
   }
@@ -112,6 +117,12 @@ class DateService {
       const month = parseInt(monthStr, 10);
       const day = parseInt(dayStr, 10);
 
+      // Offseason (Nov-Mar): the previous season is complete → progress = 1.0.
+      // The game date rolls to the next calendar year in Jan (e.g. 2022-01-25
+      // for the 2021 season), so "before April" means the completed season's
+      // data should get full weight, not zero.
+      if (month < SEASON_START_MONTH) return 1.0;
+
       // Days elapsed since Apr 1 of the game year
       const seasonStart = new Date(year, SEASON_START_MONTH - 1, SEASON_START_DAY);
       const current = new Date(year, month - 1, day);
@@ -132,14 +143,17 @@ class DateService {
   }
 
   private async fetchDate(): Promise<string> {
-    // Proxied to https://atl-01.statsplus.net/world/api/date/
-    const response = await apiFetch('/api/date/');
+    // Proxied to https://worldbaseballleague.org/api/date
+    const response = await apiFetch('/api/date');
     if (!response.ok) {
       throw new Error(`Failed to fetch date: ${response.status}`);
     }
-    const text = await response.text();
-    // Expecting YYYY-MM-DD format
-    return text.trim();
+    const data = await response.json();
+    // WBL returns { in_game_date: { date: "2022-01-06" }, season: "2021", ... }
+    if (data.season) {
+      this.cachedSeason = parseInt(data.season, 10);
+    }
+    return data.in_game_date.date;
   }
 
   /**
@@ -174,16 +188,15 @@ class DateService {
 
   /**
    * The year that projections should target.
-   * Nov-Dec: game year is still current (2021) → target next year (2022).
-   * Jan-Mar: OOTP already rolled to 2022 → target is currentYear (2022).
-   * Apr-Oct (in-season): target is currentYear.
+   * Offseason (Nov-Mar): target next season (currentYear + 1).
+   * In-season (Apr-Oct): target is currentYear.
    */
   async getProjectionTargetYear(): Promise<number> {
-    const [currentYear, month] = await Promise.all([
+    const [currentYear, isOff] = await Promise.all([
       this.getCurrentYear(),
-      this.getGameMonth()
+      this.isOffseason()
     ]);
-    return month >= 11 ? currentYear + 1 : currentYear;
+    return isOff ? currentYear + 1 : currentYear;
   }
 
   /**
@@ -191,6 +204,7 @@ class DateService {
    */
   clearCache(): void {
     this.cachedDate = null;
+    this.cachedSeason = null;
     this.fetchPromise = null;
     try { localStorage.removeItem(DATE_CACHE_KEY); } catch { /* ignore */ }
   }

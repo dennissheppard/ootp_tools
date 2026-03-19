@@ -14,6 +14,8 @@
       --canon-soft: #d8efe7;
       --forecast: #b45309;
       --forecast-soft: #fde9cf;
+      --cli: #6d28d9;
+      --cli-soft: #ede9fe;
       --card: #fffdfa;
       --chip-bg: #ffffff;
       --node-bg: #fffdf8;
@@ -76,6 +78,7 @@
 
     .dot.canon { background: var(--canon); }
     .dot.forecast { background: var(--forecast); }
+    .dot.cli { background: var(--cli); }
 
     .grid {
       display: grid;
@@ -106,6 +109,11 @@
     .lane.forecast .lane-h {
       background: var(--forecast-soft);
       color: #5f3207;
+    }
+
+    .lane.cli .lane-h {
+      background: var(--cli-soft);
+      color: #3b0764;
     }
 
     .lane-body {
@@ -214,6 +222,11 @@
       color: #5f3207;
     }
 
+    .tag.cli {
+      background: var(--cli-soft);
+      color: #3b0764;
+    }
+
     @media (prefers-color-scheme: dark) {
       :root {
         --bg: #0f1412;
@@ -224,6 +237,8 @@
         --canon-soft: #133933;
         --forecast: #f3a24f;
         --forecast-soft: #4a2d10;
+        --cli: #a78bfa;
+        --cli-soft: #2e1065;
         --card: #18201c;
         --chip-bg: #1e2923;
         --node-bg: #202d26;
@@ -239,6 +254,7 @@
 
       .lane.canon .lane-h, .tag.canon { color: #bdf3e8; }
       .lane.forecast .lane-h, .tag.forecast { color: #ffd5a7; }
+      .lane.cli .lane-h, .tag.cli { color: #c4b5fd; }
     }
 
     @media (max-width: 940px) {
@@ -251,15 +267,17 @@
   <div class="wrap">
     <h1>WBL Data Pipelines</h1>
     <p class="subtitle">
-      Two pipelines that answer different questions.
-      <strong>Canonical Current</strong>: "What is this player worth right now?" &mdash;
-      <strong>Forecasting Model</strong>: "What does the model predict for next season?"
-      These are intentionally separate. Numbers may differ between them and that's correct.
+      Three layers that share a single source of truth.
+      <strong>Canonical TR/TFR</strong> is computed once and shared everywhere.
+      <strong>Projections</strong> build on canonical TR to project future seasons.
+      <strong>CLI sync</strong> precomputes both for fast browser loads.
+      All three must produce identical numbers for the same player.
     </p>
 
     <div class="legend">
-      <span class="chip"><span class="dot canon"></span>Canonical Current &mdash; modal-equivalent truth</span>
-      <span class="chip"><span class="dot forecast"></span>Forecasting Model &mdash; ensemble projections</span>
+      <span class="chip"><span class="dot canon"></span>Canonical Current &mdash; TR/TFR source of truth</span>
+      <span class="chip"><span class="dot forecast"></span>Projections &mdash; forward-looking model built on canonical TR</span>
+      <span class="chip"><span class="dot cli"></span>CLI Sync &mdash; precomputes both for Supabase cache</span>
     </div>
 
     <div class="grid">
@@ -272,30 +290,25 @@
             <div class="node">
               <strong>TrueRatingsService</strong>
               getPitcherTrueRatings(year) / getHitterTrueRatings(year) &mdash;
-              authoritative TR, components, blended rates. Cached per year.
+              authoritative TR, estimated ratings, blended rates, wOBA. Cached per year.
+              <em>Single source of truth for all TR values.</em>
+            </div>
+            <div class="node">
+              <strong>HitterTrueRatingsCalculationService</strong>
+              Pure math: multi-year stat blending, scouting regression, wOBA calculation.
+              Used by both browser and CLI (shared import).
             </div>
             <div class="node">
               <strong>TeamRatingsService (TFR pools)</strong>
               getUnifiedPitcherTfrData / getUnifiedHitterTfrData &mdash;
-              canonical TFR, prospect context, development curves.
+              canonical TFR with expanded pool, farm rankings.
             </div>
             <div class="node">
               <strong>ModalDataService</strong>
-              resolveCanonicalPitcherData / resolveCanonicalBatterData &mdash;
-              TR/TFR override logic extracted from profile modals.<br>
-              computePitcherProjection / computeBatterProjection &mdash;
-              projection math extracted from modal renderProjectionContent().
-            </div>
-            <div class="node">
-              <strong>CanonicalCurrentProjectionService</strong>
-              Batches the above per-team for Trade Analyzer.
-              Builds ProjectedPlayer/ProjectedBatter snapshots using modal-equivalent path.
-            </div>
-            <div class="node">
-              <strong>ProjectionService (IP utility only)</strong>
-              calculateProjectedIp &mdash; shared utility for innings-pitched estimation.
-              Used by CanonicalCurrentProjectionService and PitcherProfileModal.
-              <em>Not</em> used for full projections or ensemble math within this pipeline.
+              resolveCanonicalBatterData / resolveCanonicalPitcherData &mdash;
+              overrides caller-provided data with canonical TR/TFR.
+              computeBatterProjection / computePitcherProjection &mdash;
+              projection math using canonical blended rates.
             </div>
           </div>
 
@@ -306,63 +319,63 @@
             <div class="node">
               <strong>Profile Modals</strong>
               BatterProfileModal / PitcherProfileModal &mdash;
-              always re-resolve canonical data inline.
+              always resolve canonical data. WAR badge uses projection line WAR
+              (single computation, no independent recompute).
             </div>
             <div class="node">
               <strong>Trade Analyzer</strong>
               Via CanonicalCurrentProjectionService.
-              Player ratings, projected WAR, trade evaluation all modal-equivalent.
             </div>
             <div class="node">
               <strong>True Ratings View</strong>
-              Canonical TR/TFR maps as source of truth for rating tables.
-            </div>
-            <div class="node">
-              <strong>Team Planning</strong>
-              Canonical TR maps for MLB ratings. TFR pools for prospect ceilings.
+              Canonical TR/TFR maps for rating tables.
             </div>
             <div class="node">
               <strong>Farm Rankings</strong>
-              TFR pools for prospect rankings and Farm Score.
+              TFR pools for prospect rankings.
             </div>
             <div class="node">
               <strong>Team Ratings: Power Rankings</strong>
               Canonical TR for weighted-average team strength.
+              Future years use current rosters + latest-year TR.
             </div>
             <div class="node">
-              <strong>Global Search</strong>
-              Canonical TR + TFR pools for player search results and modal launch.
-            </div>
-            <div class="node">
-              <strong>Explain Tool</strong>
-              Modal-equivalent path for CLI projection traces.
+              <strong>Team Planning / Global Search</strong>
+              Canonical TR + TFR pools.
             </div>
           </div>
         </div>
       </section>
 
-      <!-- ======== FORECASTING MODEL ======== -->
+      <!-- ======== PROJECTIONS ======== -->
       <section class="lane forecast">
-        <div class="lane-h">Forecasting Model &mdash; "What does the model predict?"</div>
+        <div class="lane-h">Projections &mdash; "What will this team/player produce next season?"</div>
         <div class="lane-body">
           <div class="block">
             <h3>Data Sources</h3>
             <div class="node">
-              <strong>ProjectionService</strong>
-              getProjections*(baseYear) &mdash;
-              computes own TR from scratch, 3-model ensemble
-              (40% optimistic, 30% neutral, 30% pessimistic),
-              IP projection pipeline. Supports arbitrary year + preSeasonOnly flag.
+              <strong>BatterProjectionService</strong>
+              Uses canonical TR blended rates + wOBA from TrueRatingsService.
+              Adds PA projection (history-weighted + age curve + injury),
+              SB projection (scouting + historical blending),
+              defensive value (fielding scouting &rarr; defRuns + positional adjustment via DefensiveProjectionService),
+              WAR via calculateBattingWar(woba, pa, lg, sbRuns, defRuns, posAdj).
             </div>
             <div class="node">
-              <strong>BatterProjectionService</strong>
-              getProjectionsWithContext(baseYear) &mdash;
-              hitter batch projections with same ensemble approach.
+              <strong>ProjectionService (pitchers)</strong>
+              Ensemble model (40/30/30 optimistic/neutral/pessimistic).
+              IP projection pipeline. Uses canonical pitcher TR.
             </div>
             <div class="node">
               <strong>TeamRatingsService.getProjectedTeamRatings()</strong>
-              Combines pitcher + hitter projection outputs
-              into team WAR, win projections, standings.
+              Combines pitcher + hitter projections into team WAR,
+              win projections, standings. Year dropdown = target season;
+              internally uses (year-1) as stats base.
+            </div>
+            <div class="node">
+              <strong>LeagueBattingAveragesService</strong>
+              League averages for WAR calculation. Projections use prior year (year-1)
+              as baseline, same across CLI and browser.
             </div>
           </div>
 
@@ -375,14 +388,58 @@
               Player projection tables with year selector and backtesting.
             </div>
             <div class="node">
-              <strong>Team Ratings: Projections + Standings</strong>
+              <strong>Team Ratings: WAR Projections + Win Projections</strong>
               Team WAR projections, win projections, Pythagorean records.
-              Pre-season / Current Year Stats toggle controls stats year.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======== CLI SYNC ======== -->
+      <section class="lane cli">
+        <div class="lane-h">CLI Sync (sync-db.ts) &mdash; precomputes for fast browser loads</div>
+        <div class="lane-body">
+          <div class="block">
+            <h3>What it does</h3>
+            <div class="node">
+              <strong>Step 4: Compute TR</strong>
+              Uses same HitterTrueRatingsCalculationService as browser.
+              Results stored in player_ratings table AND reused by Step 5.5.
             </div>
             <div class="node">
-              <strong>Analysis Services</strong>
-              ProjectionAnalysisService, BatterProjectionAnalysisService &mdash;
-              internal analytical consumers.
+              <strong>Step 5: Compute TFR</strong>
+              Pitcher + hitter TFR. Stored in player_ratings + precomputed_cache.
+            </div>
+            <div class="node">
+              <strong>Step 5.5: Compute Projections + Defensive Value</strong>
+              Uses canonical Step 4 TR (not recomputed). Uses TR blended rates
+              and wOBA directly (not re-derived from scouting ratings).
+              League averages from prior year. PA/SB with history blending.
+              Defensive projection from fielding scouting (raw_data.fielding) + DRS history (when available)
+              via DefensiveProjectionService. defRuns + posAdj included in WAR.
+              Results stored in precomputed_cache (pitcher_projections, batter_projections, defensive_lookup).
+            </div>
+            <div class="node">
+              <strong>Step 6: Build Lookups</strong>
+              Scouting, contract, DOB lookups. Name/age/stamina included for ALL players
+              (not just draftees).
+            </div>
+          </div>
+
+          <div class="arrow">&rarr;</div>
+
+          <div class="block">
+            <h3>Supabase Cache</h3>
+            <div class="node">
+              <strong>player_ratings</strong>
+              pitcher_tr, hitter_tr, pitcher_tfr, hitter_tfr per player.
+              Browser reads via fast path when no custom scouting.
+            </div>
+            <div class="node">
+              <strong>precomputed_cache</strong>
+              pitcher/hitter_projections, tfr_prospects, scouting/contract/dob lookups,
+              defensive_lookup, league_context. Browser reads in ~7 requests total.
+              Projection fast path only used when year === currentYear.
             </div>
           </div>
         </div>
@@ -395,19 +452,19 @@
         <tr>
           <th>View / Mode</th>
           <th>Pipeline</th>
-          <th>Question it answers</th>
+          <th>What it shows</th>
         </tr>
       </thead>
       <tbody>
         <tr>
           <td>Profile Modals</td>
           <td><span class="tag canon">Canonical</span></td>
-          <td>Deep dive on a player's current true level</td>
+          <td>Player's current true level + projection (WAR badge = projection line WAR)</td>
         </tr>
         <tr>
           <td>Trade Analyzer</td>
           <td><span class="tag canon">Canonical</span></td>
-          <td>Evaluate trade assets at current true value</td>
+          <td>Trade asset evaluation at current true value</td>
         </tr>
         <tr>
           <td>True Ratings</td>
@@ -417,7 +474,7 @@
         <tr>
           <td>Farm Rankings</td>
           <td><span class="tag canon">Canonical</span></td>
-          <td>Prospect rankings by TFR</td>
+          <td>Prospect rankings by projected WAR (includes defensive value)</td>
         </tr>
         <tr>
           <td>Team Planning</td>
@@ -427,50 +484,49 @@
         <tr>
           <td>Team Ratings: Power Rankings</td>
           <td><span class="tag canon">Canonical</span></td>
-          <td>Current team strength via TR</td>
+          <td>Current team strength via average TR (future years use current rosters)</td>
         </tr>
         <tr>
-          <td>Team Ratings: Projections &amp; Standings</td>
-          <td><span class="tag forecast">Forecast</span></td>
-          <td>Model-predicted season outcomes</td>
+          <td>Team Ratings: WAR Projections</td>
+          <td><span class="tag forecast">Projection</span></td>
+          <td>Projected team WAR for target season</td>
+        </tr>
+        <tr>
+          <td>Team Ratings: Win Projections</td>
+          <td><span class="tag forecast">Projection</span></td>
+          <td>Projected wins/losses and standings</td>
         </tr>
         <tr>
           <td>Projections View</td>
-          <td><span class="tag forecast">Forecast</span></td>
+          <td><span class="tag forecast">Projection</span></td>
           <td>Per-player forward projections, backtesting</td>
         </tr>
         <tr>
           <td>Global Search</td>
           <td><span class="tag canon">Canonical</span></td>
-          <td>Player search results with canonical TR + TFR context</td>
-        </tr>
-        <tr>
-          <td>Explain Tool (CLI)</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>Debug modal-equivalent projection traces</td>
+          <td>Player search results with canonical TR + TFR</td>
         </tr>
         <tr>
           <td>Data Management</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>Data upload + cache priming (infrastructure, not analytical)</td>
-        </tr>
-        <tr>
-          <td>Other views<br><small style="color:var(--muted)">Analytics, DraftBoard, Calculators, PotentialStats, RatingEstimator</small></td>
           <td>&mdash;</td>
-          <td>No pipeline service dependency</td>
+          <td>Scouting upload, API fetch (pagination: 2000/page), cache priming</td>
         </tr>
       </tbody>
     </table>
 
     <div class="notes">
-      <h2>Key Design Decisions</h2>
+      <h2>Key Design Rules (Mar 2026)</h2>
       <ul>
-        <li><strong>Two pipelines, not a mismatch.</strong> Canonical Current and Forecasting Model answer different questions. A player's projected WAR may differ between them &mdash; that's expected, not a bug.</li>
-        <li><strong>Canonical TR is authoritative.</strong> TrueRatingsService is the single source of truth for current ratings. The Forecasting Model computes its own TR internally for ensemble inputs but does not expose those as player ratings.</li>
-        <li><strong>Modal parity guarantee.</strong> Any view tagged Canonical should show the same ratings and projection numbers as opening that player's profile modal. CanonicalCurrentProjectionService exists to batch this for Trade Analyzer.</li>
-        <li><strong>Forecasting Model is self-contained.</strong> It computes its own TR from arbitrary-year stats, uses ensemble math, supports backtesting and pre-season mode. It doesn't depend on TrueRatingsService and that's intentional &mdash; it needs to work for any historical year.</li>
-        <li><strong>Team Ratings splits intentionally.</strong> Power Rankings mode uses Canonical (current team strength). Projections/Standings modes use Forecasting (model predictions). Different tabs, different questions.</li>
-        <li><strong>Shared utility exception.</strong> ProjectionService.calculateProjectedIp() is used by canonical consumers (PitcherProfileModal, CanonicalCurrentProjectionService) for innings-pitched estimation only. This is a stateless utility call, not a full-projection dependency &mdash; no ensemble math, no TR computation, no forecasting output crosses the pipeline boundary.</li>
+        <li><strong>One TR, everywhere.</strong> TrueRatingsService is the single source of truth. CLI Step 4 computes the same TR using the same shared service. Projections use canonical TR blended rates and wOBA &mdash; never re-derived from scouting ratings.</li>
+        <li><strong>Same number, every view.</strong> A player's projected WAR must be identical in the projection table, the modal WAR badge, and the modal projection line. The badge uses the projection line's computed WAR (no independent recomputation).</li>
+        <li><strong>CLI = browser.</strong> sync-db.ts precomputes projections using the same canonical TR, same wOBA, same league averages (prior year), same PA formula (age curve + injury multiplier + history blending), same SB blending (projectStolenBasesWithHistory). Any drift between CLI and browser is a bug.</li>
+        <li><strong>Year dropdown = target season.</strong> User selects the season they want to see (e.g., 2022). Code internally derives the stats base year (2021). The user never sees or thinks about base years.</li>
+        <li><strong>Precomputed fast paths are year-aware.</strong> Cached projections only used when the requested year matches currentYear. Historical years always compute locally.</li>
+        <li><strong>Custom scouting bypasses all fast paths.</strong> When hasCustomScouting is true, all precomputed Supabase caches are skipped and everything computes locally with merged my > osa scouting data.</li>
+        <li><strong>Power Rankings: future years use current rosters.</strong> Selecting a year beyond the latest completed season shows players on their current teams (from players table), rated by their most recent TR.</li>
+        <li><strong>Supabase teams: parentTeamId defaults to 0.</strong> WBL API stores null for MLB teams. Code uses ?? 0 to match the parentTeamId === 0 convention for root-level teams.</li>
+        <li><strong>WAR includes defensive value.</strong> Batter WAR = (wRAA + replacementRuns + sbRuns + defRuns + posAdj) / runsPerWin. Defensive runs from fielding scouting ratings (position-specific formulas) + DRS when available. Positional adjustment prorated by PA. DefensiveProjectionService is the sole source. Precomputed by CLI, cached in defensive_lookup, read by browser for modal/projection/farm ranking paths.</li>
+        <li><strong>Canonical prospect ranking = projected WAR.</strong> Both Farm Rankings and Top 100 badge sort by projected WAR desc (then TFR tiebreaker). One ranking everywhere.</li>
       </ul>
     </div>
   </div>

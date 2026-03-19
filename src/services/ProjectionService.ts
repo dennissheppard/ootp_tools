@@ -11,6 +11,7 @@ import { teamService } from './TeamService';
 import { minorLeagueStatsService } from './MinorLeagueStatsService';
 import { ensembleProjectionService } from './EnsembleProjectionService';
 import { supabaseDataService } from './SupabaseDataService';
+import { fipWarService } from './FipWarService';
 
 export interface ProjectedPlayer {
   playerId: number;
@@ -178,10 +179,13 @@ class ProjectionService {
   }
 
   async getProjectionsWithContext(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean; preSeasonOnly?: boolean }): Promise<ProjectionContext> {
-    // Fast-path: return precomputed projections from CLI sync
+    // Fast-path: return precomputed projections from CLI sync (only for current/latest year)
     if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
-      const cached = await supabaseDataService.getPrecomputed('pitcher_projections');
-      if (cached) return cached as ProjectionContext;
+      const cachedYear = await dateService.getCurrentYear();
+      if (year === cachedYear) {
+        const cached = await supabaseDataService.getPrecomputed('pitcher_projections');
+        if (cached) return cached as ProjectionContext;
+      }
     }
 
     // 1. Fetch Data
@@ -351,9 +355,9 @@ class ProjectionService {
         if (!isMlbReady) continue;
         // -----------------------
 
-        // Prefer current roster team; fall back to stats team_id only if teamId is null/undefined.
-        // Use ?? so teamId=0 (free agent) is respected, not treated as falsy.
-        const teamId = player.teamId ?? currentStats?.team_id ?? 0;
+        // Use current roster only — don't fall back to stat team_id,
+        // which would assign free agents to their old team from prior year stats.
+        const teamId = player.teamId ?? 0;
         const team = teamMap.get(teamId);
         const ipResult = this.calculateProjectedIp(scouting, preSeasonOnly ? undefined : currentStats, yearlyStats, ageInYear + 1, player.role, tr.trueRating, hasRecentMlb);
 
@@ -446,8 +450,109 @@ class ProjectionService {
             fipLike, // Temporary for ranking
             projectedTrueRating: 0, // Placeholder
             isProspect: !hasRecentMlb,
+            stamina: scouting?.stamina ?? 50,
+            injuryProneness: scouting?.injuryProneness ?? 'Normal',
             ...(ensembleMetadata && { __ensembleMeta: ensembleMetadata }) // Store ensemble metadata if available
         });
+    }
+
+    // 5b. Add draftee/HSC pitcher peak projections (scouting-only, no TR/ensemble)
+    const existingPlayerIds = new Set(tempProjections.map((p: any) => p.playerId));
+    for (const player of allPlayers) {
+      if (player.retired) continue;
+      if (existingPlayerIds.has(player.id)) continue;
+      if (!player.draftEligible && !player.hsc) continue;
+      const pos = player.position || 0;
+      if (pos !== 1) continue; // Pitchers only
+
+      const scouting = scoutingMap.get(player.id);
+      if (!scouting) continue;
+
+      const playerAge = this.calculateAgeAtYear(player, currentYear, statsYear);
+      const teamId = player.teamId ?? 0;
+      const team = teamMap.get(teamId);
+
+      // Use potential ratings for peak projection
+      const peakRatings = {
+        stuff: scouting.stuff,
+        control: scouting.control,
+        hra: scouting.hra,
+      };
+
+      // Determine SP/RP from scouting profile
+      const pitches = scouting.pitches ?? {};
+      const usablePitches = Object.values(pitches).filter((r: any) => r >= 25).length;
+      const stam = scouting.stamina ?? 50;
+      const isSp = usablePitches >= 3 && stam >= 35;
+
+      // IP from stamina
+      let baseIp = isSp ? 10 + (stam * 3.0) : 30 + (stam * 0.6);
+      if (isSp) baseIp = Math.max(100, Math.min(280, baseIp));
+      else baseIp = Math.max(30, Math.min(100, baseIp));
+
+      // Injury modifier
+      const proneness = (scouting.injuryProneness ?? 'Normal').toLowerCase();
+      let injuryMod = 1.0;
+      switch (proneness) {
+        case 'iron man': injuryMod = 1.15; break;
+        case 'durable': injuryMod = 1.10; break;
+        case 'fragile': injuryMod = 0.90; break;
+        case 'wrecked': injuryMod = 0.75; break;
+      }
+      baseIp *= injuryMod;
+      const projIp = Math.round(baseIp);
+
+      const leagueContext = {
+        fipConstant: leagueStats.fipConstant,
+        avgFip: leagueStats.avgFip,
+        runsPerWin: 8.5,
+      };
+
+      const peakStats = PotentialStatsService.calculatePitchingStats(
+        { ...peakRatings, movement: 50, babip: 50 }, projIp, leagueContext,
+      );
+      const peakWar = fipWarService.calculateWar(peakStats.fip, projIp);
+      const fipLike = trueRatingsCalculationService.calculateFipLike(peakStats.k9, peakStats.bb9, peakStats.hr9);
+
+      tempProjections.push({
+        playerId: player.id,
+        name: `${player.firstName} ${player.lastName}`,
+        teamId,
+        teamName: team ? team.nickname : 'FA',
+        position: player.position,
+        level: player.level,
+        parentTeamId: player.parentTeamId,
+        age: playerAge + 1,
+        currentTrueRating: 0,
+        currentPercentile: 0,
+        projectedStats: {
+          k9: peakStats.k9,
+          bb9: peakStats.bb9,
+          hr9: peakStats.hr9,
+          fip: peakStats.fip,
+          war: peakWar,
+          ip: projIp,
+        },
+        projectedRatings: peakRatings,
+        isSp,
+        fipLike,
+        projectedTrueRating: 0,
+        isProspect: true,
+        stamina: stam,
+        injuryProneness: scouting.injuryProneness ?? 'Normal',
+      });
+    }
+
+    // Draftee diagnostic
+    const drafteeProjections = tempProjections.filter((p: any) => p.isProspect && playerMap.get(p.playerId)?.draftEligible);
+    if (drafteeProjections.length > 0) {
+      console.log(`[ProjectionService] 🎓 ${drafteeProjections.length} draftee pitcher projections`);
+      const topDraftees = [...drafteeProjections].sort((a: any, b: any) => a.projectedStats.fip - b.projectedStats.fip).slice(0, 5);
+      console.table(topDraftees.map((p: any) => ({
+        name: p.name, fip: p.projectedStats.fip.toFixed(2), war: p.projectedStats.war.toFixed(1),
+        ip: p.projectedStats.ip, k9: p.projectedStats.k9.toFixed(1), bb9: p.projectedStats.bb9.toFixed(1),
+        stuff: p.projectedRatings.stuff, ctrl: p.projectedRatings.control, hra: p.projectedRatings.hra,
+      })));
     }
 
     // 6. Calculate Projected True Ratings via Percentiles
@@ -482,7 +587,8 @@ class ProjectionService {
 
       return {
           ...p,
-          projectedTrueRating: rating
+          projectedTrueRating: rating,
+          projectedPercentile: percentile,
       };
     });
 
@@ -496,6 +602,14 @@ class ProjectionService {
       if (canonical) {
         p.currentTrueRating = canonical.trueRating;
         p.currentPercentile = canonical.percentile;
+      }
+    }
+
+    // For draftees without TFR/TR, use projected rating + percentile from FIP ranking
+    for (const p of projections) {
+      if (p.isProspect && p.currentTrueRating === 0 && p.projectedTrueRating > 0) {
+        p.currentTrueRating = p.projectedTrueRating;
+        (p as any).currentPercentile = (p as any).projectedPercentile;
       }
     }
 

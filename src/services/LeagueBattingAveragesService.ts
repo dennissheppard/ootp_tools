@@ -291,13 +291,13 @@ class LeagueBattingAveragesService {
 
   /**
    * Calculate batting WAR from wOBA and PA.
-   * Includes optional baserunning runs (SB/CS value).
+   * Includes optional baserunning runs (SB/CS value) and defensive value.
    */
-  calculateBattingWar(woba: number, pa: number, leagueAvg: LeagueBattingAverages, sbRuns: number = 0): number {
+  calculateBattingWar(woba: number, pa: number, leagueAvg: LeagueBattingAverages, sbRuns: number = 0, defRuns: number = 0, posAdj: number = 0): number {
     const wRAA = ((woba - leagueAvg.lgWoba) / leagueAvg.wobaScale) * pa;
     // Add replacement level adjustment (~20 runs per 600 PA)
     const replacementRuns = (pa / 600) * 20;
-    const war = (wRAA + replacementRuns + sbRuns) / leagueAvg.runsPerWin;
+    const war = (wRAA + replacementRuns + sbRuns + defRuns + posAdj) / leagueAvg.runsPerWin;
     return Math.round(war * 10) / 10;
   }
 
