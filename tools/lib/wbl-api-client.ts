@@ -1,8 +1,7 @@
 /**
- * WBL API client — thin JSON fetch wrapper for worldbaseballleague.org.
+ * WBL API client — thin fetch wrapper for worldbaseballleague.org.
  *
- * Auth: x-api-key header
- * All responses are JSON.
+ * Auth: x-api-key header (JSON API only; CSV endpoints are public).
  */
 
 const WBL_BASE = 'https://worldbaseballleague.org';
@@ -39,6 +38,42 @@ export async function wblFetchJson<T = any>(
   if (!res.ok) {
     const body = await res.text().catch(() => '');
     throw new Error(`WBL ${endpoint} → ${res.status}: ${body}`);
+  }
+
+  const text = await res.text();
+  wblBytesTransferred += new TextEncoder().encode(text).byteLength;
+  return JSON.parse(text) as T;
+}
+
+/**
+ * Fetch a raw CSV file from the WBL server (public, no auth).
+ */
+export async function wblFetchCsv(path: string): Promise<string> {
+  const url = new URL(path, WBL_BASE);
+  wblCallCount++;
+  const res = await fetch(url.toString());
+
+  if (!res.ok) {
+    throw new Error(`WBL CSV ${path} → ${res.status}`);
+  }
+
+  const text = await res.text();
+  wblBytesTransferred += new TextEncoder().encode(text).byteLength;
+  return text;
+}
+
+const WBL_FIREBASE_URL = 'https://wbl-gabs-machine-default-rtdb.firebaseio.com';
+
+/**
+ * Fetch JSON from the WBL Firebase Realtime Database (public, no auth).
+ */
+export async function wblFetchFirebase<T = any>(path: string): Promise<T> {
+  const url = `${WBL_FIREBASE_URL}/${path}.json`;
+  wblCallCount++;
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    throw new Error(`WBL Firebase ${path} → ${res.status}`);
   }
 
   const text = await res.text();

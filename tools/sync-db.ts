@@ -33,6 +33,8 @@ import {
 
 import {
   wblFetchJson,
+  wblFetchCsv,
+  wblFetchFirebase,
   wblFetchAllStats,
   wblFetchAllScout,
   getWblStats,
@@ -129,6 +131,117 @@ function mapInjuryProneness(val: string | number | null): string | null {
   if (val == null) return null;
   const s = String(val).toUpperCase();
   return INJURY_MAP[s] ?? String(val);
+}
+
+/**
+ * Parse a human-readable injury duration string into approximate days.
+ * Formats: "5 weeks", "9-10 months", "DtD, 1 day", "DtD, one week", "3 months", "2 days"
+ */
+function parseInjuryDuration(duration: string): number {
+  const s = duration.toLowerCase().trim();
+  // Strip "DtD, " prefix
+  const core = s.startsWith('dtd,') ? s.slice(4).trim() : s;
+
+  // Word numbers
+  const wordNums: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
+
+  // Range: "9-10 months" → use high end
+  const rangeMatch = core.match(/^(\d+)\s*-\s*(\d+)\s+(day|week|month)/);
+  if (rangeMatch) {
+    const high = parseInt(rangeMatch[2], 10);
+    const unit = rangeMatch[3];
+    if (unit.startsWith('month')) return high * 30;
+    if (unit.startsWith('week')) return high * 7;
+    return high;
+  }
+
+  // Numeric: "5 weeks", "3 months", "2 days"
+  const numMatch = core.match(/^(\d+)\s+(day|week|month)/);
+  if (numMatch) {
+    const n = parseInt(numMatch[1], 10);
+    const unit = numMatch[2];
+    if (unit.startsWith('month')) return n * 30;
+    if (unit.startsWith('week')) return n * 7;
+    return n;
+  }
+
+  // Word: "one week"
+  const wordMatch = core.match(/^(\w+)\s+(day|week|month)/);
+  if (wordMatch) {
+    const n = wordNums[wordMatch[1]] ?? 1;
+    const unit = wordMatch[2];
+    if (unit.startsWith('month')) return n * 30;
+    if (unit.startsWith('week')) return n * 7;
+    return n;
+  }
+
+  return 0;
+}
+
+interface FirebaseInjury {
+  player: string;   // "P Gabriel Sowle"
+  injury: string;   // "torn labrum (Shoulder)"
+  duration: string;  // "9-10 months"
+  dlStatus: string;  // "Not on IL"
+}
+
+/**
+ * Fetch injury data from WBL Firebase (primary source).
+ * Returns a Map of "FirstName LastName" → days remaining.
+ * The caller resolves names to player IDs using the player list.
+ */
+async function fetchFirebaseInjuries(teamIds: number[]): Promise<Map<string, number>> {
+  const map = new Map<string, number>();
+  const results = await Promise.all(
+    teamIds.map(id =>
+      wblFetchFirebase<FirebaseInjury[] | null>(`teamHome/${id}/injuries`)
+        .catch(() => null)
+    )
+  );
+  for (const injuries of results) {
+    if (!injuries) continue;
+    for (const inj of injuries) {
+      const days = parseInjuryDuration(inj.duration);
+      if (days <= 0) continue;
+      // Player format: "POS FirstName LastName" — strip position prefix
+      const name = inj.player.replace(/^[A-Z0-9]{1,3}\s+/, '');
+      if (name) map.set(name, days);
+    }
+  }
+  return map;
+}
+
+/**
+ * Fallback: Parse the WBL players.csv to extract active injury days remaining per player.
+ * Returns a Map of player_id → days remaining (only entries > 0).
+ */
+function parseInjuryCsv(csvText: string): Map<number, number> {
+  const lines = csvText.split('\n');
+  if (lines.length < 2) return new Map();
+
+  const headers = lines[0].split(',');
+  const iPlayerId = headers.indexOf('player_id');
+  const iDlLeft = headers.indexOf('injury_dl_left');
+  const iInjLeft = headers.indexOf('injury_left');
+  if (iPlayerId < 0 || (iDlLeft < 0 && iInjLeft < 0)) {
+    console.warn('  ⚠️ Injury CSV: missing expected columns');
+    return new Map();
+  }
+
+  const map = new Map<number, number>();
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) continue;
+    const cols = line.split(',');
+    const dlLeft = iDlLeft >= 0 ? parseInt(cols[iDlLeft], 10) || 0 : 0;
+    const injLeft = iInjLeft >= 0 ? parseInt(cols[iInjLeft], 10) || 0 : 0;
+    const days = Math.max(dlLeft, injLeft);
+    if (days > 0) {
+      const pid = parseInt(cols[iPlayerId], 10);
+      if (!isNaN(pid)) map.set(pid, days);
+    }
+  }
+  return map;
 }
 
 function mapPitcherScoutingRow(r: any, gameDate: string): any {
@@ -284,6 +397,9 @@ interface SyncContext {
   // Precomputed distributions (from precomputed_cache)
   precomputedPitcherDist: any | null;
   precomputedHitterDist: any | null;
+
+  // Active injury: player_id → days remaining (only injured players)
+  injuryDaysMap: Map<number, number>;
 }
 
 async function buildSyncContext(year: number): Promise<SyncContext> {
@@ -440,6 +556,16 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
   console.log(`  Career maps: ${careerIpMap.size} IP, ${careerAbMap.size} AB`);
   console.log(`  Defensive stats: ${defensiveStatsMap.size} players`);
 
+  // Active injury map (from players.injury_days_remaining, written by Step 3)
+  const injuryDaysMap = new Map<number, number>();
+  for (const p of allPlayersRaw) {
+    const days = typeof p.injury_days_remaining === 'string'
+      ? parseInt(p.injury_days_remaining, 10)
+      : (p.injury_days_remaining ?? 0);
+    if (days > 0) injuryDaysMap.set(p.id, days);
+  }
+  console.log(`  Active injuries: ${injuryDaysMap.size} players`);
+
   return {
     year,
     mlbPitchingStats: mlbPitching,
@@ -456,6 +582,7 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
     parkFactorsMap,
     currentYearPitching, currentYearBatting,
     precomputedPitcherDist, precomputedHitterDist,
+    injuryDaysMap,
   };
 }
 
@@ -557,8 +684,46 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
   stats.teams = await supabaseUpsertBatches('teams', dedupedTeams, BATCH_SIZE, 'id');
   console.log(`  ✅ Teams: ${stats.teams} rows`);
 
-  console.log('  Fetching players...');
-  const playersResponse = await wblFetchJson<{ players: any[] }>('/api/players');
+  // Fetch players + injury data (Firebase primary, CSV fallback)
+  const wblTeamIds = dedupedTeams.filter(t => t.league_id === 200).map(t => t.id);
+  console.log('  Fetching players + injury data...');
+  const [playersResponse, firebaseInjuryNames, injuryCsvText] = await Promise.all([
+    wblFetchJson<{ players: any[] }>('/api/players'),
+    fetchFirebaseInjuries(wblTeamIds).catch(err => {
+      console.warn(`  ⚠️ Firebase injury fetch failed: ${err.message}`);
+      return null;
+    }),
+    wblFetchCsv('/csv/players.csv').catch(err => {
+      console.warn(`  ⚠️ CSV injury fetch failed: ${err.message}`);
+      return '';
+    }),
+  ]);
+
+  // Build name→id lookup from the player API response for Firebase name matching
+  const injuryMap = new Map<number, number>();
+  if (firebaseInjuryNames && firebaseInjuryNames.size > 0) {
+    // Firebase returned data — resolve names to player IDs
+    const nameToId = new Map<string, number>();
+    for (const p of playersResponse.players) {
+      if (p.name) nameToId.set(p.name, parseInt(p.player_id, 10));
+    }
+    let matched = 0, unmatched = 0;
+    for (const [name, days] of firebaseInjuryNames) {
+      const pid = nameToId.get(name);
+      if (pid) {
+        injuryMap.set(pid, days);
+        matched++;
+      } else {
+        unmatched++;
+      }
+    }
+    console.log(`  🏥 Firebase injuries: ${matched} matched, ${unmatched} unmatched`);
+  } else {
+    // Fallback to CSV
+    const csvMap = parseInjuryCsv(injuryCsvText);
+    for (const [pid, days] of csvMap) injuryMap.set(pid, days);
+    console.log(`  🏥 CSV injury fallback: ${injuryMap.size} players`);
+  }
 
   // Build player league_id map for contract enrichment
   const playerLeagueMap = new Map<number, number>();
@@ -576,6 +741,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
           team_id: null, parent_team_id: null, level: null,
           position: null, role: null, age: null,
           retired: true, status: 'retired',
+          injury_days_remaining: 0,
         };
       }
 
@@ -618,6 +784,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
         age: p.age ? parseInt(p.age, 10) : null,
         retired: isRetired,
         status,
+        injury_days_remaining: injuryMap.get(id) ?? 0,
       };
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);
@@ -1114,7 +1281,20 @@ async function computeTrueFutureRatings(
       projIp = Math.max(40, Math.min(80, projIp));
     }
 
-    const projWar = fipWarService.calculateWar(result.projFip, projIp);
+    // Apply park HR factor to pitcher prospect's FIP if available
+    const orgId = player?.parent_team_id || player?.team_id || 0;
+    let adjustedHr9 = result.projHr9;
+    let adjustedFip = result.projFip;
+    if (ctx.parkFactorsMap.size > 0) {
+      const parkRow = ctx.parkFactorsMap.get(orgId);
+      if (parkRow) {
+        const hrFactor = computePitcherParkHrFactor(parkRow);
+        adjustedHr9 = result.projHr9 * hrFactor;
+        adjustedFip = fipWarService.calculateFip({ hr9: adjustedHr9, bb9: result.projBb9, k9: result.projK9, ip: 0 });
+      }
+    }
+
+    const projWar = fipWarService.calculateWar(adjustedFip, projIp);
 
     const pitcherProspectData: any = {
         ...result,
@@ -1125,8 +1305,8 @@ async function computeTrueFutureRatings(
         teamId: teamId || 0,
         teamName: team?.name || 'Unknown',
         teamNickname: team?.nickname || '',
-        orgId: player?.parent_team_id || player?.team_id || 0,
-        peakFip: result.projFip,
+        orgId,
+        peakFip: adjustedFip,
         peakWar: Math.round(projWar * 10) / 10,
         peakIp: projIp,
         projIp,
@@ -1142,10 +1322,11 @@ async function computeTrueFutureRatings(
           control: result.trueControl,
           hra: result.trueHra,
         },
+        projHr9: adjustedHr9,
         potentialRatings: {
           stuff: result.projK9,
           control: result.projBb9,
-          hra: result.projHr9,
+          hra: adjustedHr9,
         },
         stats: {
           ip: projIp,
@@ -1278,7 +1459,22 @@ async function computeTrueFutureRatings(
   // Build PA by injury map first — passed to TFR service so it computes all derived fields
   const paByInjury = await buildPaByInjury(dobMap);
 
-  const hitterTfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(hitterTfrInputs, undefined, paByInjury);
+  // Build player info map for park factor adjustments (orgId + bats)
+  let hitterPlayerInfoMap: Map<number, { teamId: number; bats: string }> | undefined;
+  if (ctx.parkFactorsMap.size > 0) {
+    hitterPlayerInfoMap = new Map<number, { teamId: number; bats: string }>();
+    for (const input of hitterTfrInputs) {
+      const player = allPlayerMap.get(input.playerId);
+      const orgId = player?.parent_team_id || player?.team_id || 0;
+      hitterPlayerInfoMap.set(input.playerId, { teamId: orgId, bats: player?.bats ?? 'R' });
+    }
+  }
+
+  const hitterTfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(
+    hitterTfrInputs, undefined, paByInjury,
+    ctx.parkFactorsMap.size > 0 ? ctx.parkFactorsMap : undefined,
+    hitterPlayerInfoMap
+  );
 
   // Build RatedHitterProspect objects
   for (const result of hitterTfrResults) {
@@ -2107,6 +2303,22 @@ async function computeProjections(
     });
   }
 
+  // Injury adjustment: reduce IP proportionally to days missed
+  {
+    const SEASON_DAYS = 180;
+    let injuredPitcherCount = 0;
+    for (const p of tempPitcherProjections) {
+      const injDays = ctx.injuryDaysMap.get(p.playerId) ?? 0;
+      if (injDays > 0 && p.projectedStats.ip > 0) {
+        const ratio = Math.max(0, 1 - injDays / SEASON_DAYS);
+        p.projectedStats.ip = Math.round(p.projectedStats.ip * ratio);
+        p.projectedStats.war = fipWarService.calculateWar(p.projectedStats.fip, p.projectedStats.ip);
+        injuredPitcherCount++;
+      }
+    }
+    if (injuredPitcherCount > 0) console.log(`  🏥 Pitcher injury adjustments: ${injuredPitcherCount}`);
+  }
+
   // Apply park factors to pitcher projections (adjust HR9 → recompute FIP → recompute WAR)
   if (ctx.parkFactorsMap.size > 0) {
     for (const p of tempPitcherProjections) {
@@ -2142,7 +2354,8 @@ async function computeProjections(
   const pitcherProjections = tempPitcherProjections.map((p: any) => {
     const rank = pitcherRanks.get(p.playerId) || pn;
     const pctile = Math.round(((pn - rank + 0.5) / pn) * 1000) / 10;
-    return { ...p, projectedTrueRating: percentileToRating(pctile), projectedPercentile: pctile };
+    const injDays = ctx.injuryDaysMap.get(p.playerId);
+    return { ...p, projectedTrueRating: percentileToRating(pctile), projectedPercentile: pctile, ...(injDays ? { injuryDays: injDays } : {}) };
   });
 
   // Overlay canonical TR
@@ -2159,6 +2372,17 @@ async function computeProjections(
     if (p.isProspect && p.currentTrueRating === 0 && p.projectedTrueRating > 0) {
       p.currentTrueRating = p.projectedTrueRating;
       p.currentPercentile = p.projectedPercentile;
+    }
+  }
+
+  // Attach park factor data for display
+  if (ctx.parkFactorsMap.size > 0) {
+    for (const p of pitcherProjections) {
+      const parkRow = ctx.parkFactorsMap.get(p.teamId);
+      if (parkRow) {
+        p.parkHrFactor = computePitcherParkHrFactor(parkRow);
+        p.parkName = parkRow.park_name;
+      }
     }
   }
 
@@ -2511,6 +2735,16 @@ async function computeProjections(
       applyAgingToRates: (rates, a) => HitterRatingEstimatorService.applyAgingToBlendedRates(rates, hitterAgingService.getAgingModifiers(a)),
     });
 
+    // Injury adjustment: reduce counting stats proportionally to days missed
+    const SEASON_DAYS = 180;
+    const batterInjDays = ctx.injuryDaysMap.get(trResult.playerId) ?? 0;
+    const batterInjRatio = batterInjDays > 0 && modalResult.projPa > 0
+      ? Math.max(0, 1 - batterInjDays / SEASON_DAYS) : 1;
+    const adjPa = batterInjRatio < 1 ? Math.round(modalResult.projPa * batterInjRatio) : modalResult.projPa;
+    const adjWar = batterInjRatio < 1 ? modalResult.projWar * batterInjRatio : modalResult.projWar;
+    const adjHr = batterInjRatio < 1 ? Math.round(modalResult.projHr * batterInjRatio) : modalResult.projHr;
+    const adjSb = batterInjRatio < 1 ? Math.round(modalResult.projSb * batterInjRatio) : modalResult.projSb;
+
     batterProjections.push({
       playerId: trResult.playerId,
       name,
@@ -2530,11 +2764,11 @@ async function computeProjections(
         slg: Math.round(modalResult.projSlg * 1000) / 1000,
         ops: Math.round(modalResult.projOps * 1000) / 1000,
         wrcPlus: modalResult.projOpsPlus,
-        war: Math.round(modalResult.projWar * 10) / 10,
-        pa: modalResult.projPa,
-        hr: modalResult.projHr,
-        rbi: Math.round(modalResult.projHr * 3.5 + modalResult.projPa * 0.08),
-        sb: modalResult.projSb,
+        war: Math.round(adjWar * 10) / 10,
+        pa: adjPa,
+        hr: adjHr,
+        rbi: Math.round(adjHr * 3.5 + adjPa * 0.08),
+        sb: adjSb,
         hrPct: Math.round(modalResult.projHrPct * 10) / 10,
         bbPct: Math.round(modalResult.projBbPct * 10) / 10,
         kPct: Math.round(modalResult.projKPct * 10) / 10,
@@ -2554,6 +2788,9 @@ async function computeProjections(
         avoidK: scouting.avoidK,
         contact: scouting.contact ?? 50,
       } : undefined,
+      parkFactors,
+      parkName: teamParkFactors?.park_name,
+      injuryDays: batterInjDays > 0 ? batterInjDays : undefined,
     });
   }
 
@@ -2565,7 +2802,12 @@ async function computeProjections(
     const war = p.projectedStats.war;
     if (!Number.isFinite(war) || war < -5 || war > 15) batterIssues++;
   }
+  const injuredBatterCount = batterProjections.filter((p: any) => {
+    const injDays = ctx.injuryDaysMap.get(p.playerId) ?? 0;
+    return injDays > 0;
+  }).length;
   console.log(`  ✅ Batter projections: ${batterProjections.length} (${batterIssues} sanity issues)`);
+  if (injuredBatterCount > 0) console.log(`  🏥 Batter injury adjustments: ${injuredBatterCount}`);
   if (drafteeDefNonZero > 0 || drafteeDefZero > 0) {
     console.log(`  🛡️ Draftee defense: ${drafteeDefNonZero} with non-zero def, ${drafteeDefZero} with zero def`);
   }

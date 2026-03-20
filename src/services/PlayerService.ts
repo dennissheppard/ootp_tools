@@ -301,6 +301,7 @@ export class PlayerService {
             hsc: r.hsc ?? null,
             bats: r.bats ?? undefined,
             throws: r.throws ?? undefined,
+            injuryDaysRemaining: r.injury_days_remaining ?? 0,
           }));
         } else {
           console.warn('⚠️ Supabase returned 0 players. Run: npx tsx tools/sync-db.ts');

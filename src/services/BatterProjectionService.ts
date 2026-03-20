@@ -76,6 +76,10 @@ export interface ProjectedBatter {
   };
   /** Flag indicating this is a prospect-like asset in canonical modal path */
   isProspect?: boolean;
+  /** Effective park factors (half home / half away) for this batter's team+hand */
+  parkFactors?: { avg: number; hr: number; d: number; t: number };
+  /** Park name for display */
+  parkName?: string;
 }
 
 export interface BatterProjectionContext {
@@ -171,6 +175,8 @@ interface BatterProjectionPlayerInfo {
   posAdj?: number;
   /** Effective park factors (half home / half away) */
   parkFactors?: { avg: number; hr: number; d: number; t: number };
+  /** Park name for display */
+  parkName?: string;
 }
 
 const POSITION_LABELS: Record<number, string> = {
@@ -183,11 +189,15 @@ class BatterProjectionService {
     options?: { tracePlayerId?: number; trace?: BatterProjectionCalculationTrace; preSeasonOnly?: boolean; projectionTargetYear?: number }
   ): Promise<BatterProjectionContext> {
     // Fast-path: return precomputed projections from CLI sync (only for current/latest year)
+    // TeamRatings passes baseYear (stats year), while game_date year may be +1 (spring training).
+    // Match either: the cache's statsYear directly, or gameYear/gameYear-1.
     if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
-      const cachedYear = await dateService.getCurrentYear();
-      if (year === cachedYear) {
-        const cached = await supabaseDataService.getPrecomputed('batter_projections');
-        if (cached) return cached as BatterProjectionContext;
+      const cached = await supabaseDataService.getPrecomputed('batter_projections');
+      const cacheStatsYear = (cached as any)?.statsYear;
+      // Cache hit when requested year matches the cache's statsYear, OR is within 1 year
+      // (accounts for offseason/spring training year convention mismatches between views)
+      if (cached && cacheStatsYear !== undefined && Math.abs(year - cacheStatsYear) <= 1) {
+        return cached as BatterProjectionContext;
       }
     }
 
@@ -306,6 +316,7 @@ class BatterProjectionService {
         parkFactors: parkFactorsData?.[teamId] && player.bats
           ? computeEffectiveParkFactors(parkFactorsData[teamId], player.bats)
           : undefined,
+        parkName: parkFactorsData?.[teamId]?.park_name,
       });
     }
 
@@ -673,6 +684,8 @@ class BatterProjectionService {
         avoidK: scouting.avoidK,
         contact: scouting.contact ?? 50,
       } : undefined,
+      parkFactors: info.parkFactors,
+      parkName: info.parkName,
     };
 
     return projection;

@@ -149,6 +149,41 @@ body::before {
   gap: 0.25rem;
 }
 
+.scouting-login-modal {
+  overflow: visible;
+}
+.scouting-login-modal .modal-body {
+  overflow: visible;
+}
+
+.header-badges-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.scouting-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+.scouting-badge:hover { opacity: 0.85; }
+.scouting-badge-login {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+.scouting-badge-active {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border: 1px solid rgba(34, 197, 94, 0.3);
+}
+
 .game-date-label {
   font-size: 0.75rem;
   font-weight: 600;
@@ -2056,6 +2091,8 @@ td.player-cell.player-name {
   white-space: nowrap;
   border-radius: 0;
 }
+
+#scouting-modal-team-dropdown .filter-dropdown-btn { border-right: none;}
 
 .trade-team-dropdown-btn { border-right: none; }
 
@@ -5764,6 +5801,20 @@ th .stat-tooltip {
   white-space: nowrap;
 }
 
+.war-park-delta {
+  font-size: 0.8em;
+  font-weight: 500;
+  margin-left: 0.25rem;
+}
+
+.war-park-delta.war-park-up {
+  color: var(--color-success, #22c55e);
+}
+
+.war-park-delta.war-park-down {
+  color: var(--color-danger, #ef4444);
+}
+
 .war-remove-btn {
   background: none;
   border: none;
@@ -8327,6 +8378,44 @@ th .stat-tooltip {
 .batter-profile-modal .injury-prone {
   background: rgba(248, 113, 113, 0.15);
   color: #f87171;
+}
+
+.injury-adjusted {
+  color: #d97706 !important;
+}
+
+.injury-active-badge {
+  font-size: 0.7rem;
+  padding: 0.12rem 0.4rem;
+  border-radius: 3px;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  margin-left: 0.35rem;
+  white-space: nowrap;
+  cursor: help;
+  position: relative;
+}
+.injury-active-badge::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1a1a2e;
+  color: #e8ecf1;
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 0.3rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 9999;
+}
+.injury-active-badge:hover::after {
+  opacity: 1;
 }
 
 /* Player Tags (shared by batter and pitcher modals) */
@@ -11034,5 +11123,284 @@ th .stat-tooltip {
 .toggle-btn-sm {
   padding: 0.25rem 0.65rem !important;
   font-size: 0.78rem !important;
+}
+
+/* ===== Park Factor Indicators ===== */
+
+.park-factor-indicator {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  margin-top: 4px;
+  font-size: 0.65rem;
+  cursor: default;
+}
+
+.park-factor-name {
+  color: var(--color-text-muted);
+  font-size: 0.6rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.park-factor-label {
+  font-weight: 600;
+  font-size: 0.6rem;
+}
+
+/* Standalone park factor color classes (usable on any element) */
+span.pf-hitter-friendly, td.pf-hitter-friendly { color: #e8864a; }
+span.pf-pitcher-friendly, td.pf-pitcher-friendly { color: #4a9ee8; }
+span.pf-neutral, td.pf-neutral { color: var(--color-text-muted); }
+
+.pf-hitter-friendly .park-factor-label { color: #e8864a; }
+.pf-pitcher-friendly .park-factor-label { color: #4a9ee8; }
+.pf-neutral .park-factor-label { color: var(--color-text-muted); }
+
+.park-factor-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%) translateY(-4px);
+  background-color: rgba(15, 20, 25, 0.95);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.15s ease, transform 0.15s ease, visibility 0.15s ease;
+  pointer-events: none;
+}
+
+.park-factor-tooltip::before {
+  content: '';
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  margin-left: -4px;
+  border-width: 4px;
+  border-style: solid;
+  border-color: transparent transparent rgba(15, 20, 25, 0.95) transparent;
+}
+
+.park-factor-indicator:hover .park-factor-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(-50%) translateY(0);
+}
+
+.park-factor-tooltip-row {
+  font-size: 0.7rem;
+  color: var(--color-text-muted);
+  padding: 1px 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.park-factor-tooltip-sep {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+  margin: 3px 0;
+}
+
+/* Park action button in player profile modal */
+.park-action-btn {
+  position: relative;
+}
+
+.park-action-btn .park-factor-tooltip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  transform: none;
+  min-width: 220px;
+}
+
+.park-action-btn:hover .park-factor-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+}
+
+.park-factor-tooltip-header {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin-bottom: 2px;
+}
+
+.park-factor-tooltip-sublabel {
+  font-size: 0.65rem;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+/* Park column in projections table */
+.park-factor-cell {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+}
+.park-factor-cell.pf-hitter-friendly { color: #e8864a; }
+.park-factor-cell.pf-pitcher-friendly { color: #4a9ee8; }
+.park-factor-cell.pf-neutral { color: var(--color-text-muted); }
+
+/* Trade analyzer WAR park delta */
+.war-park-delta {
+  font-size: 0.75rem;
+  margin-left: 4px;
+}
+.war-park-up { color: var(--color-success); }
+.war-park-down { color: var(--color-error); }
+
+/* ===== Parks Page ===== */
+
+.parks-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.5rem;
+  padding: 1rem;
+}
+
+@media (max-width: 900px) {
+  .parks-layout { grid-template-columns: 1fr; }
+}
+
+.park-svg-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.park-svg-container svg {
+  width: 100%;
+  max-width: 460px;
+  height: auto;
+}
+
+.park-info-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+  margin-top: 0.75rem;
+}
+
+.park-info-table th,
+.park-info-table td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.park-info-table th {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.park-lineup-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 6px 10px;
+  background: var(--color-surface);
+  border-radius: var(--border-radius);
+  margin-bottom: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.park-lineup-card:hover,
+.park-lineup-card-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.park-lineup-card .pos-badge {
+  min-width: 28px;
+  text-align: center;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.park-lineup-card .player-name {
+  flex: 1;
+  font-size: 0.8rem;
+}
+
+.park-lineup-card .player-war {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.park-fit-list {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.park-fit-card {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 6px 10px;
+  background: var(--color-surface);
+  border-radius: var(--border-radius);
+  margin-bottom: 4px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.park-fit-card:hover {
+  background: var(--color-surface-hover);
+}
+
+.park-fit-card .player-name {
+  flex: 1;
+  font-size: 0.8rem;
+}
+
+.park-fit-card .fit-delta {
+  font-variant-numeric: tabular-nums;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.park-fit-card .fit-delta.positive { color: var(--color-success); }
+.park-fit-card .fit-delta.negative { color: var(--color-error); }
+
+.park-section-header {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-text);
+  margin: 1rem 0 0.5rem;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.park-narrative {
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  margin: 0.5rem 0;
+}
+
+.park-dropdown-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.parks-dropdown-btn {
+  border-right: none !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: var(--border-radius) !important;
+  padding: 0.5rem 1rem !important;
 }
 

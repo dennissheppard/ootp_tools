@@ -21,8 +21,11 @@ import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../serv
 import { resolveCanonicalBatterData, computeBatterProjection, BatterTrSourceData, snapshotBatterTr, applyBatterTrSnapshot, batterTrFromPrecomputed } from '../services/ModalDataService';
 import { supabaseDataService } from '../services/SupabaseDataService';
 import { computeBatterTags, renderTagsHtml, TagContext } from '../utils/playerTags';
+import { getParkCharacterLabel, ParkFactorRow } from '../services/ParkFactorService';
 import { analyticsService } from '../services/AnalyticsService';
 import { playerService } from '../services/PlayerService';
+import { batterProjectionService } from '../services/BatterProjectionService';
+import { getRouter } from '../router';
 
 // Eagerly resolve all team logo URLs via Vite glob
 const _logoModules = (import.meta as Record<string, any>).glob('../images/logos/*.png', { eager: true, import: 'default' }) as Record<string, string>;
@@ -30,6 +33,14 @@ const teamLogoMap: Record<string, string> = {};
 for (const [path, url] of Object.entries(_logoModules)) {
   const filename = path.split('/').pop()?.replace('.png', '')?.toLowerCase() ?? '';
   teamLogoMap[filename] = url;
+}
+
+/** Format injury days as a human-readable duration (e.g. "3 weeks", "5 months") */
+function formatInjuryDuration(days: number): string {
+  if (days <= 3) return 'day-to-day';
+  if (days <= 13) return `${days} days`;
+  if (days <= 6 * 7) return `${Math.round(days / 7)} weeks`;
+  return `${Math.round(days / 30)} months`;
 }
 
 export interface BatterProfileData {
@@ -102,6 +113,7 @@ export interface BatterProfileData {
 
   // Park factors (effective half home / half away)
   parkFactors?: { avg: number; hr: number; d: number; t: number };
+  rawParkFactors?: ParkFactorRow;
 
   // TFR for prospects
   isProspect?: boolean;
@@ -213,6 +225,7 @@ export class BatterProfileModal {
   private currentStats: BatterSeasonStats[] = [];
   private _lastProjectionWar: number | undefined;
   private _lastProjection: any | undefined;
+  private injuryDaysRemaining: number = 0;
 
   // Track which radar series are hidden via legend toggle
   private hiddenSeries = new Set<string>();
@@ -363,6 +376,7 @@ export class BatterProfileModal {
     this._lastProjectionWar = undefined;
     this._lastProjection = undefined;
     this._draftLabel = null;
+    this.injuryDaysRemaining = 0;
     // Reset analysis view — default to projections (AI fetched on demand)
     this.viewMode = 'projections';
     this.cachedAnalysisHtml = '';
@@ -424,6 +438,9 @@ export class BatterProfileModal {
 
     this.overlay.classList.add('visible');
     this.overlay.setAttribute('aria-hidden', 'false');
+
+    // Push /player/:id URL
+    getRouter().openPlayer(data.playerId);
 
     // Bind escape key
     this.boundKeyHandler = (e: KeyboardEvent) => {
@@ -507,25 +524,47 @@ export class BatterProfileModal {
             data.posAdj = entry[1];
           }
         }
-        if (parkFactorsData) {
-          const { computeEffectiveParkFactors } = await import('../services/ParkFactorService');
-          const allPlayers = await playerService.getAllPlayers();
-          const player = allPlayers.find(p => p.id === data.playerId);
-          if (player) {
-            const parentTeamId = player.parentTeamId || player.teamId;
-            const teamPf = parkFactorsData[parentTeamId];
-            if (teamPf) {
-              data.parkFactors = computeEffectiveParkFactors(teamPf, player.bats ?? 'R');
-            }
+        const allPlayers = await playerService.getAllPlayers();
+        const player = allPlayers.find(p => p.id === data.playerId);
+        // Active injury days for projection adjustment
+        this.injuryDaysRemaining = player?.injuryDaysRemaining ?? 0;
+        if (parkFactorsData && player) {
+          const { computeEffectiveParkFactors, ensureParkName } = await import('../services/ParkFactorService');
+          const parentTeamId = player.parentTeamId || player.teamId;
+          const teamPf = parkFactorsData[parentTeamId];
+          if (teamPf) {
+            data.parkFactors = computeEffectiveParkFactors(teamPf, player.bats ?? 'R');
+            data.rawParkFactors = teamPf;
+            await ensureParkName(teamPf);
           }
         }
       } catch { /* lookups not available */ }
     }
 
-    // Clear caller-provided PA/WAR for non-prospects so the modal always recomputes
-    // from the player's actual MLB history using projectionYear (not currentYear).
-    // Callers may have computed these with stale year filters.
-    if (!data.isProspect) {
+    // Overlay precomputed projection for current-year non-prospects (injury/park adjusted).
+    // The precomputed cache is the canonical source — avoids independent recomputation.
+    if (!data.isProspect && supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
+      try {
+        const cachedCtx = await batterProjectionService.getProjectionsWithContext(currentYear - 1);
+        if (generation !== this.showGeneration) return;
+        const cachedProj = cachedCtx?.projections?.find((p: any) => p.playerId === data.playerId);
+        if (cachedProj) {
+          data.projPa = cachedProj.projectedStats.pa;
+          data.projWar = cachedProj.projectedStats.war;
+          data.projHr = cachedProj.projectedStats.hr;
+          data.projSb = cachedProj.projectedStats.sb;
+        } else {
+          // Player not in cache (e.g. called up mid-season) — clear so modal recomputes
+          data.projPa = undefined;
+          data.projWar = undefined;
+        }
+      } catch {
+        // Cache not available — clear so modal recomputes
+        data.projPa = undefined;
+        data.projWar = undefined;
+      }
+    } else if (!data.isProspect) {
+      // Custom scouting or non-Supabase — clear so modal recomputes from canonical TR
       data.projPa = undefined;
       data.projWar = undefined;
     }
@@ -760,12 +799,8 @@ export class BatterProfileModal {
     this.overlay.classList.remove('visible');
     this.overlay.setAttribute('aria-hidden', 'true');
 
-    // Clear deep-link ?player= param so refresh doesn't re-open
-    const url = new URL(window.location.href);
-    if (url.searchParams.has('player')) {
-      url.searchParams.delete('player');
-      window.history.replaceState({}, '', url.pathname + url.search);
-    }
+    // Restore tab URL (replaces /player/:id or ?player= with the current tab path)
+    getRouter().closePlayer();
 
     if (this.boundKeyHandler) {
       document.removeEventListener('keydown', this.boundKeyHandler);
@@ -1056,9 +1091,78 @@ export class BatterProfileModal {
               stroke-dasharray="${halfCirc}" stroke-dashoffset="${dashOff}"
               style="transition: stroke-dashoffset 0.6s ease-out;" />
           </svg>
-          <div class="emblem-gauge-score">${warText}</div>
+          <div class="emblem-gauge-score${this.injuryDaysRemaining >= 18 ? ' injury-adjusted' : ''}">${warText}</div>
         </div>
       </div>
+    `;
+  }
+
+  private renderParkButton(data: BatterProfileData): string {
+    if (!data.rawParkFactors) return '';
+    const pf = data.rawParkFactors;
+    const eff = data.parkFactors;
+    const { label, class: pfClass } = getParkCharacterLabel(pf);
+    if (!eff) return '';
+
+    // Current projected stats are already park-adjusted; back out to get neutral
+    const projWar = this._lastProjectionWar ?? data.projWar;
+    const parkAvg = data.projAvg;
+    const parkHr = data.projHr;
+    const parkWoba = data.projWoba;
+    const parkWar = projWar;
+
+    // If no projections yet, show just the park name
+    if (parkAvg === undefined && parkHr === undefined) {
+      return `
+        <button class="modal-action-btn park-action-btn ${pfClass}" data-action="park" data-team-id="${pf.team_id}">
+          <span style="font-size:14px;">&#127967;</span>
+        </button>
+      `;
+    }
+
+    const neutAvg = parkAvg !== undefined ? parkAvg / eff.avg : undefined;
+    const neutHr = parkHr !== undefined ? Math.round(parkHr / eff.hr) : undefined;
+    const combinedFactor = eff.hr * 0.35 + eff.avg * 0.30 + eff.d * 0.20 + eff.t * 0.05 + 1.0 * 0.10;
+    const neutWoba = parkWoba !== undefined ? parkWoba / combinedFactor : undefined;
+    const offPortion = parkWar !== undefined ? Math.max(0, parkWar * 0.7) : undefined;
+    const neutWar = (parkWar !== undefined && offPortion !== undefined)
+      ? parkWar - offPortion + offPortion / combinedFactor : undefined;
+
+    const fmtAvg = (v: number) => v.toFixed(3);
+    const fmtWoba = (v: number) => v.toFixed(3);
+    const fmtWar = (v: number) => v.toFixed(1);
+
+    const clsDelta = (park: number, neut: number, higherIsBetter: boolean) => {
+      const diff = park - neut;
+      if (Math.abs(diff) < 0.001) return 'pf-neutral';
+      return (diff > 0) === higherIsBetter ? 'pf-hitter-friendly' : 'pf-pitcher-friendly';
+    };
+
+    let rows = `<table style="border-collapse:collapse; width:100%; font-size:0.7rem; font-variant-numeric:tabular-nums;">
+      <tr style="color:var(--color-text-muted);"><td></td><td>Neutral</td><td>${pf.park_name}</td></tr>`;
+    if (parkAvg !== undefined && neutAvg !== undefined) {
+      rows += `<tr><td style="color:var(--color-text-muted);">AVG</td><td>${fmtAvg(neutAvg)}</td><td class="${clsDelta(parkAvg, neutAvg, true)}">${fmtAvg(parkAvg)}</td></tr>`;
+    }
+    if (parkHr !== undefined && neutHr !== undefined) {
+      rows += `<tr><td style="color:var(--color-text-muted);">HR</td><td>${neutHr}</td><td class="${clsDelta(parkHr, neutHr, true)}">${parkHr}</td></tr>`;
+    }
+    if (parkWoba !== undefined && neutWoba !== undefined) {
+      rows += `<tr><td style="color:var(--color-text-muted);">wOBA</td><td>${fmtWoba(neutWoba)}</td><td class="${clsDelta(parkWoba, neutWoba, true)}">${fmtWoba(parkWoba)}</td></tr>`;
+    }
+    if (parkWar !== undefined && neutWar !== undefined) {
+      rows += `<tr><td style="color:var(--color-text-muted);">WAR</td><td>${fmtWar(neutWar)}</td><td class="${clsDelta(parkWar, neutWar, true)}">${fmtWar(parkWar)}</td></tr>`;
+    }
+    rows += '</table>';
+
+    return `
+      <button class="modal-action-btn park-action-btn ${pfClass}" data-action="park" data-team-id="${pf.team_id}">
+        <span style="font-size:14px;">&#127967;</span>
+        <div class="park-factor-tooltip">
+          <div class="park-factor-tooltip-header">${pf.park_name} · <span class="${pfClass}">${label}</span></div>
+          <div class="park-factor-tooltip-sep"></div>
+          ${rows}
+        </div>
+      </button>
     `;
   }
 
@@ -1069,6 +1173,7 @@ export class BatterProfileModal {
 
     const injury = s?.injuryProneness ?? data.injuryProneness ?? 'Normal';
     const injuryClass = this.getInjuryBadgeClass(injury);
+    const injuryStatusHtml = this.renderInjuryStatus();
     const personalityHtml = this.renderPersonalityVitalsColumn();
 
     // Tags are rendered in renderBody(), not here
@@ -1086,7 +1191,7 @@ export class BatterProfileModal {
         </div>
         <div class="metadata-info-row">
           <span class="info-label">Injury:</span>
-          <span class="injury-badge ${injuryClass}">${injury}</span>
+          <span class="injury-badge ${injuryClass}">${injury}</span>${injuryStatusHtml}
         </div>
       </div>
       ${personalityHtml ? `<span class="header-divider"></span>${personalityHtml}<span class="header-divider" style="visibility:hidden;"></span>` : '<span class="header-divider" style="visibility:hidden;"></span>'}
@@ -1140,6 +1245,16 @@ export class BatterProfileModal {
       'Wrecked': 'injury-prone',
     };
     return classMap[injury] ?? 'injury-normal';
+  }
+
+  private renderInjuryStatus(): string {
+    const days = this.injuryDaysRemaining;
+    if (days <= 0) return '';
+    const duration = formatInjuryDuration(days);
+    const SEASON_DAYS = 180;
+    const pct = Math.min(Math.round((days / SEASON_DAYS) * 100), 100);
+    const tipText = `−${pct}% PA &amp; WAR`;
+    return ` <span class="injury-active-badge" data-tip="${tipText}">🏥 out ${duration}</span>`;
   }
 
   private formatSalary(salary: number): string {
@@ -1280,6 +1395,7 @@ export class BatterProfileModal {
         <div class="profile-tab-actions">
           ${tagsHtml}
           <div class="modal-action-buttons">
+            ${this.renderParkButton(data)}
             <button class="modal-action-btn" data-action="share" title="Copy link to clipboard">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
             </button>
@@ -1725,6 +1841,9 @@ export class BatterProfileModal {
         .map(s => ({ sb: s.sb, cs: s.cs, pa: s.pa })),
       applyAgingToRates: (rates, a) => HitterRatingEstimatorService.applyAgingToBlendedRates(rates, hitterAgingService.getAgingModifiers(a)),
     });
+
+    // Note: injury/park adjustments are already baked into the precomputed cache values
+    // (data.projPa/projWar set from cache in show()). No manual adjustment needed here.
 
     // Destructure for template compatibility
     const { projAvg, projObp, projSlg, projBbPct, projKPct, projHrPct,
@@ -2281,13 +2400,20 @@ export class BatterProfileModal {
   private bindActionButtons(): void {
     const shareBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="share"]');
     const tradeBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="trade"]');
+    const parkBtn = this.overlay?.querySelector<HTMLButtonElement>('.modal-action-btn[data-action="park"]');
+
+    parkBtn?.addEventListener('click', () => {
+      const teamId = parkBtn.dataset.teamId;
+      if (teamId) {
+        this.hide();
+        window.dispatchEvent(new CustomEvent('wbl:open-parks', { detail: { teamId: parseInt(teamId, 10) } }));
+      }
+    });
 
     shareBtn?.addEventListener('click', () => {
       if (!this.currentData) return;
-      const url = new URL(window.location.href);
-      url.search = '';
-      url.searchParams.set('player', String(this.currentData.playerId));
-      navigator.clipboard.writeText(url.toString()).then(() => {
+      const shareUrl = getRouter().playerUrl(this.currentData.playerId);
+      navigator.clipboard.writeText(shareUrl).then(() => {
         shareBtn.classList.add('action-success');
         shareBtn.title = 'Copied!';
         setTimeout(() => {
@@ -2420,14 +2546,13 @@ export class BatterProfileModal {
 
         this.projectionMode = newMode;
 
-        // Re-render just the projection section
+        if (!this.currentData) return;
+
+        // Re-render projection section (updates _lastProjection and _lastProjectionWar)
         const projSection = this.overlay?.querySelector('.projection-section');
-        if (projSection && this.currentData) {
-          const newHtml = this.renderProjectionContent(this.currentData, this.currentStats);
-          projSection.outerHTML = newHtml;
-          // Re-bind toggle and flip card events on the new section
+        if (projSection) {
+          projSection.outerHTML = this.renderProjectionContent(this.currentData, this.currentStats);
           this.bindProjectionToggle();
-          // Re-bind flip cards in projection
           const flipCells = this.overlay?.querySelectorAll<HTMLElement>('.projection-section .flip-cell');
           flipCells?.forEach(cell => {
             cell.addEventListener('click', (e) => {
@@ -2436,6 +2561,21 @@ export class BatterProfileModal {
             });
           });
         }
+
+        // Re-render ratings section (radar badges read from updated _lastProjection)
+        const ratingsSection = this.overlay?.querySelector('.ratings-section');
+        if (ratingsSection) {
+          ratingsSection.outerHTML = this.renderRatingsSection(this.currentData);
+          this.bindLegendToggle();
+          this.initRadarChart(this.currentData);
+          this.initRunningRadarChart(this.currentData);
+          this.initFieldingRadarChart();
+          this.bindFieldingTabEvents();
+        }
+
+        // Re-render WAR badge
+        const warSlot = this.overlay?.querySelector('.war-header-slot');
+        if (warSlot) warSlot.innerHTML = this.renderWarEmblem(this.currentData);
       });
     });
   }
@@ -2783,7 +2923,7 @@ export class BatterProfileModal {
         // Update header emblems after projection recompute
         const ratingsSlot = this.overlay?.querySelector('.rating-emblem-slot');
         if (ratingsSlot) ratingsSlot.innerHTML = this.renderRatingEmblem(this.currentData);
-        const warSlot = this.overlay?.querySelector('.war-emblem-slot');
+        const warSlot = this.overlay?.querySelector('.war-header-slot');
         if (warSlot) warSlot.innerHTML = this.renderWarEmblem(this.currentData);
 
         // Invalidate cached analysis since scout data changed

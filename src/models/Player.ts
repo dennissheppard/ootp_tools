@@ -16,6 +16,7 @@ export interface Player {
   hsc: string | null;
   bats?: string;   // R, L, S (switch)
   throws?: string; // R, L
+  injuryDaysRemaining?: number; // Days until return from current injury (0 = healthy)
 }
 
 export enum Position {

@@ -12,6 +12,7 @@ import { minorLeagueStatsService } from './MinorLeagueStatsService';
 import { ensembleProjectionService } from './EnsembleProjectionService';
 import { supabaseDataService } from './SupabaseDataService';
 import { fipWarService } from './FipWarService';
+import { computePitcherParkHrFactor } from './ParkFactorService';
 
 export interface ProjectedPlayer {
   playerId: number;
@@ -44,6 +45,10 @@ export interface ProjectedPlayer {
   fipLike?: number;
   /** Flag indicating this is a prospect without MLB stats */
   isProspect?: boolean;
+  /** Effective park HR factor (half home / half away) for this pitcher's team */
+  parkHrFactor?: number;
+  /** Park name for display */
+  parkName?: string;
 }
 
 export interface ProjectionContext {
@@ -180,12 +185,19 @@ class ProjectionService {
 
   async getProjectionsWithContext(year: number, options?: { forceRosterRefresh?: boolean; useEnsemble?: boolean; preSeasonOnly?: boolean }): Promise<ProjectionContext> {
     // Fast-path: return precomputed projections from CLI sync (only for current/latest year)
+    // TeamRatings passes baseYear (stats year), while game_date year may be +1 (spring training).
+    // Match either: the cache's statsYear directly, or gameYear/gameYear-1.
     if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
-      const cachedYear = await dateService.getCurrentYear();
-      if (year === cachedYear) {
-        const cached = await supabaseDataService.getPrecomputed('pitcher_projections');
-        if (cached) return cached as ProjectionContext;
+      const cached = await supabaseDataService.getPrecomputed('pitcher_projections');
+      const cacheStatsYear = (cached as any)?.statsYear;
+      // Cache hit when requested year matches the cache's statsYear, OR is within 1 year
+      // (accounts for offseason/spring training year convention mismatches between views)
+      if (cached && cacheStatsYear !== undefined && Math.abs(year - cacheStatsYear) <= 1) {
+        const sowle = (cached as any).projections?.find((p: any) => p.playerId === 7340);
+        console.log(`[PitcherProj CACHE HIT] year=${year} cacheStatsYear=${cacheStatsYear} sowle.ip=${sowle?.projectedStats?.ip} sowle.war=${sowle?.projectedStats?.war}`);
+        return cached as ProjectionContext;
       }
+      console.log(`[PitcherProj CACHE MISS] year=${year} cacheStatsYear=${cacheStatsYear} cached=${!!cached}`);
     }
 
     // 1. Fetch Data
@@ -266,6 +278,12 @@ class ProjectionService {
         ...aaaStats.map(s => s.id),
         ...aaStats.map(s => s.id)
     ]);
+
+    // Load park factors for display (browser-side only)
+    let parkFactorsData: Record<number, any> | null = null;
+    if (supabaseDataService.isConfigured) {
+      parkFactorsData = await supabaseDataService.getPrecomputed('park_factors');
+    }
 
     // 3. Prepare TR Inputs
     const playerIds = new Set<number>();
@@ -608,6 +626,17 @@ class ProjectionService {
       if (p.isProspect && p.currentTrueRating === 0 && p.projectedTrueRating > 0) {
         p.currentTrueRating = p.projectedTrueRating;
         (p as any).currentPercentile = (p as any).projectedPercentile;
+      }
+    }
+
+    // 8. Attach park factor data for display
+    if (parkFactorsData) {
+      for (const p of projections) {
+        const parkRow = parkFactorsData[p.teamId];
+        if (parkRow) {
+          p.parkHrFactor = computePitcherParkHrFactor(parkRow);
+          p.parkName = parkRow.park_name;
+        }
       }
     }
 

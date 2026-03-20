@@ -10,6 +10,8 @@
       --ink: #182018;
       --muted: #4f5f53;
       --line: #9aa89d;
+      --data: #0369a1;
+      --data-soft: #e0f2fe;
       --canon: #136f63;
       --canon-soft: #d8efe7;
       --forecast: #b45309;
@@ -21,6 +23,7 @@
       --node-bg: #fffdf8;
       --notes-bg: rgba(255, 255, 255, .6);
       --shadow: rgba(24, 32, 24, .06);
+      --danger: #dc2626;
     }
 
     * { box-sizing: border-box; }
@@ -34,224 +37,103 @@
       color: var(--ink);
     }
 
-    .wrap {
-      max-width: 1180px;
-      margin: 0 auto;
-    }
+    .wrap { max-width: 1180px; margin: 0 auto; }
+    h1 { margin: 0 0 .5rem; font-size: clamp(1.4rem, 2.2vw, 2.2rem); letter-spacing: .01em; }
+    .subtitle { margin: 0 0 1.25rem; color: var(--muted); font-size: .98rem; line-height: 1.4; }
 
-    h1 {
-      margin: 0 0 .5rem;
-      font-size: clamp(1.4rem, 2.2vw, 2.2rem);
-      letter-spacing: .01em;
-    }
-
-    .subtitle {
-      margin: 0 0 1.25rem;
-      color: var(--muted);
-      font-size: .98rem;
-      line-height: 1.4;
-    }
-
-    .legend {
-      display: flex;
-      flex-wrap: wrap;
-      gap: .5rem;
-      margin: 0 0 1.3rem;
-    }
-
+    .legend { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 1.3rem; }
     .chip {
-      display: inline-flex;
-      align-items: center;
-      gap: .4rem;
-      border-radius: 999px;
-      border: 1px solid var(--line);
-      background: var(--chip-bg);
-      font-size: .82rem;
-      padding: .35rem .62rem;
+      display: inline-flex; align-items: center; gap: .4rem;
+      border-radius: 999px; border: 1px solid var(--line);
+      background: var(--chip-bg); font-size: .82rem; padding: .35rem .62rem;
     }
-
-    .dot {
-      width: .65rem;
-      height: .65rem;
-      border-radius: 50%;
-    }
-
+    .dot { width: .65rem; height: .65rem; border-radius: 50%; }
+    .dot.data { background: var(--data); }
     .dot.canon { background: var(--canon); }
     .dot.forecast { background: var(--forecast); }
     .dot.cli { background: var(--cli); }
 
-    .grid {
-      display: grid;
-      grid-template-columns: 1fr;
-      gap: 1rem;
-    }
-
+    .grid { display: grid; grid-template-columns: 1fr; gap: 1rem; }
     .lane {
-      border: 1px solid var(--line);
-      border-radius: 14px;
-      overflow: hidden;
-      background: var(--card);
+      border: 1px solid var(--line); border-radius: 14px;
+      overflow: hidden; background: var(--card);
       box-shadow: 0 8px 20px var(--shadow);
     }
-
     .lane-h {
-      padding: .7rem .9rem;
-      font-weight: 700;
-      letter-spacing: .01em;
-      border-bottom: 1px solid var(--line);
+      padding: .7rem .9rem; font-weight: 700;
+      letter-spacing: .01em; border-bottom: 1px solid var(--line);
     }
-
-    .lane.canon .lane-h {
-      background: var(--canon-soft);
-      color: #0b3d35;
-    }
-
-    .lane.forecast .lane-h {
-      background: var(--forecast-soft);
-      color: #5f3207;
-    }
-
-    .lane.cli .lane-h {
-      background: var(--cli-soft);
-      color: #3b0764;
-    }
+    .lane.data .lane-h { background: var(--data-soft); color: #023e73; }
+    .lane.canon .lane-h { background: var(--canon-soft); color: #0b3d35; }
+    .lane.forecast .lane-h { background: var(--forecast-soft); color: #5f3207; }
+    .lane.cli .lane-h { background: var(--cli-soft); color: #3b0764; }
 
     .lane-body {
-      padding: .8rem;
-      display: grid;
+      padding: .8rem; display: grid;
       grid-template-columns: 1.25fr .9fr .9fr;
-      gap: .7rem;
-      align-items: start;
+      gap: .7rem; align-items: start;
     }
+    .lane-body.two-col { grid-template-columns: 1fr 1fr; }
 
     .block {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: .65rem .7rem;
-      background: var(--chip-bg);
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: .65rem .7rem; background: var(--chip-bg);
     }
-
     .block h3 {
-      margin: 0 0 .45rem;
-      font-size: .88rem;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .05em;
+      margin: 0 0 .45rem; font-size: .88rem; color: var(--muted);
+      text-transform: uppercase; letter-spacing: .05em;
     }
-
     .node {
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      padding: .45rem .52rem;
-      margin: .38rem 0;
-      background: var(--node-bg);
-      font-size: .84rem;
-      line-height: 1.28;
+      border: 1px solid var(--line); border-radius: 10px;
+      padding: .45rem .52rem; margin: .38rem 0;
+      background: var(--node-bg); font-size: .84rem; line-height: 1.28;
     }
-
     .node strong { display: block; font-size: .86rem; }
-
     .arrow {
-      text-align: center;
-      font-weight: 700;
-      color: var(--muted);
-      font-size: .9rem;
-      margin: .25rem 0;
+      text-align: center; font-weight: 700;
+      color: var(--muted); font-size: .9rem; margin: .25rem 0;
     }
 
     .notes {
-      margin-top: 1rem;
-      border: 1px dashed var(--line);
-      border-radius: 10px;
-      padding: .8rem .9rem;
-      background: var(--notes-bg);
-      font-size: .84rem;
-      line-height: 1.35;
+      margin-top: 1rem; border: 1px dashed var(--line);
+      border-radius: 10px; padding: .8rem .9rem;
+      background: var(--notes-bg); font-size: .84rem; line-height: 1.35;
     }
-
-    .notes h2 {
-      margin: 0 0 .45rem;
-      font-size: .95rem;
-      letter-spacing: .01em;
-    }
-
-    .notes ul {
-      margin: .1rem 0 0 1rem;
-      padding: 0;
-    }
-
+    .notes h2 { margin: 0 0 .45rem; font-size: .95rem; letter-spacing: .01em; }
+    .notes ul { margin: .1rem 0 0 1rem; padding: 0; }
     .notes li { margin: .22rem 0; }
+    .notes.rules { border-color: var(--danger); }
+    .notes.rules h2 { color: var(--danger); }
 
-    .view-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 1rem;
-      font-size: .84rem;
-    }
-
-    .view-table th,
-    .view-table td {
-      text-align: left;
-      padding: .45rem .6rem;
-      border-bottom: 1px solid var(--line);
-    }
-
-    .view-table th {
-      font-weight: 700;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: .04em;
-      font-size: .78rem;
-    }
-
+    .view-table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: .84rem; }
+    .view-table th, .view-table td { text-align: left; padding: .45rem .6rem; border-bottom: 1px solid var(--line); }
+    .view-table th { font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; font-size: .78rem; }
     .view-table .tag {
-      display: inline-block;
-      border-radius: 4px;
-      padding: .15rem .4rem;
-      font-size: .78rem;
-      font-weight: 600;
+      display: inline-block; border-radius: 4px;
+      padding: .15rem .4rem; font-size: .78rem; font-weight: 600;
     }
-
-    .tag.canon {
-      background: var(--canon-soft);
-      color: #0b3d35;
-    }
-
-    .tag.forecast {
-      background: var(--forecast-soft);
-      color: #5f3207;
-    }
-
-    .tag.cli {
-      background: var(--cli-soft);
-      color: #3b0764;
-    }
+    .tag.canon { background: var(--canon-soft); color: #0b3d35; }
+    .tag.forecast { background: var(--forecast-soft); color: #5f3207; }
+    .tag.cli { background: var(--cli-soft); color: #3b0764; }
+    .tag.data { background: var(--data-soft); color: #023e73; }
 
     @media (prefers-color-scheme: dark) {
       :root {
-        --bg: #0f1412;
-        --ink: #e5eee8;
-        --muted: #a9bbb0;
-        --line: #3a4a42;
-        --canon: #37b7a6;
-        --canon-soft: #133933;
-        --forecast: #f3a24f;
-        --forecast-soft: #4a2d10;
-        --cli: #a78bfa;
-        --cli-soft: #2e1065;
-        --card: #18201c;
-        --chip-bg: #1e2923;
-        --node-bg: #202d26;
-        --notes-bg: rgba(26, 36, 31, .85);
-        --shadow: rgba(0, 0, 0, .35);
+        --bg: #0f1412; --ink: #e5eee8; --muted: #a9bbb0; --line: #3a4a42;
+        --data: #38bdf8; --data-soft: #0c2d48;
+        --canon: #37b7a6; --canon-soft: #133933;
+        --forecast: #f3a24f; --forecast-soft: #4a2d10;
+        --cli: #a78bfa; --cli-soft: #2e1065;
+        --card: #18201c; --chip-bg: #1e2923; --node-bg: #202d26;
+        --notes-bg: rgba(26, 36, 31, .85); --shadow: rgba(0, 0, 0, .35);
+        --danger: #f87171;
       }
-
       body {
         background:
           radial-gradient(circle at 8% 12%, #1a2320 0, #0f1412 45%),
           radial-gradient(circle at 86% 84%, #111916 0, #0f1412 40%);
       }
-
+      .lane.data .lane-h, .tag.data { color: #7dd3fc; }
       .lane.canon .lane-h, .tag.canon { color: #bdf3e8; }
       .lane.forecast .lane-h, .tag.forecast { color: #ffd5a7; }
       .lane.cli .lane-h, .tag.cli { color: #c4b5fd; }
@@ -259,6 +141,7 @@
 
     @media (max-width: 940px) {
       .lane-body { grid-template-columns: 1fr; }
+      .lane-body.two-col { grid-template-columns: 1fr; }
       .arrow { transform: rotate(90deg); display: inline-block; }
     }
   </style>
@@ -267,129 +150,59 @@
   <div class="wrap">
     <h1>WBL Data Pipelines</h1>
     <p class="subtitle">
-      Three layers that share a single source of truth.
-      <strong>Canonical TR/TFR</strong> is computed once and shared everywhere.
-      <strong>Projections</strong> build on canonical TR to project future seasons.
-      <strong>CLI sync</strong> precomputes both for fast browser loads.
-      All three must produce identical numbers for the same player.
+      Four layers. The <strong>CLI sync</strong> fetches data from external sources, computes everything, and writes the canonical answers to Supabase.
+      The <strong>browser is a pure reader</strong> &mdash; it reads precomputed values from Supabase for current-year data.
+      The browser only recomputes when <strong>custom scouting</strong> is active or when viewing <strong>historical years</strong>.
     </p>
 
     <div class="legend">
-      <span class="chip"><span class="dot canon"></span>Canonical Current &mdash; TR/TFR source of truth</span>
-      <span class="chip"><span class="dot forecast"></span>Projections &mdash; forward-looking model built on canonical TR</span>
-      <span class="chip"><span class="dot cli"></span>CLI Sync &mdash; precomputes both for Supabase cache</span>
+      <span class="chip"><span class="dot data"></span>External Data &mdash; WBL API, Firebase, CSV</span>
+      <span class="chip"><span class="dot cli"></span>CLI Sync &mdash; fetches, computes, writes to Supabase</span>
+      <span class="chip"><span class="dot canon"></span>Supabase Cache &mdash; canonical source of truth for the browser</span>
+      <span class="chip"><span class="dot forecast"></span>Browser Recompute &mdash; only when custom scouting or historical year</span>
     </div>
 
     <div class="grid">
-      <!-- ======== CANONICAL CURRENT ======== -->
-      <section class="lane canon">
-        <div class="lane-h">Canonical Current &mdash; "What is this player worth right now?"</div>
-        <div class="lane-body">
+
+      <!-- ======== EXTERNAL DATA SOURCES ======== -->
+      <section class="lane data">
+        <div class="lane-h">External Data Sources &mdash; "Where does the raw data come from?"</div>
+        <div class="lane-body two-col">
           <div class="block">
-            <h3>Data Sources</h3>
+            <h3>CLI Sync Reads (sync-db.ts)</h3>
             <div class="node">
-              <strong>TrueRatingsService</strong>
-              getPitcherTrueRatings(year) / getHitterTrueRatings(year) &mdash;
-              authoritative TR, estimated ratings, blended rates, wOBA. Cached per year.
-              <em>Single source of truth for all TR values.</em>
+              <strong>WBL JSON API (authenticated)</strong>
+              /api/players, /api/teams, /api/playerpitchstats, /api/playerbatstats,
+              /api/contract, /api/scout (OSA scouting), /api/drs, /api/date.
+              Auth: x-api-key header.
             </div>
             <div class="node">
-              <strong>HitterTrueRatingsCalculationService</strong>
-              Pure math: multi-year stat blending, scouting regression, wOBA calculation.
-              Used by both browser and CLI (shared import).
+              <strong>WBL Firebase (public)</strong>
+              teamHome/{teamId}/injuries &mdash; active injury data (player, duration, injury type).
+              Primary source for injury_days_remaining.
             </div>
             <div class="node">
-              <strong>TeamRatingsService (TFR pools)</strong>
-              getUnifiedPitcherTfrData / getUnifiedHitterTfrData &mdash;
-              canonical TFR with expanded pool, farm rankings.
-            </div>
-            <div class="node">
-              <strong>ModalDataService</strong>
-              resolveCanonicalBatterData / resolveCanonicalPitcherData &mdash;
-              overrides caller-provided data with canonical TR/TFR.
-              computeBatterProjection / computePitcherProjection &mdash;
-              projection math using canonical blended rates.
+              <strong>WBL CSV (public, fallback)</strong>
+              /csv/players.csv &mdash; fallback injury source if Firebase unavailable.
+              Fields: injury_dl_left, injury_left. Less current than Firebase.
             </div>
           </div>
-
-          <div class="arrow">&rarr;</div>
-
           <div class="block">
-            <h3>Consumers</h3>
+            <h3>Browser Reads Directly</h3>
             <div class="node">
-              <strong>Profile Modals</strong>
-              BatterProfileModal / PitcherProfileModal &mdash;
-              always resolve canonical data. WAR badge uses projection line WAR
-              (single computation, no independent recompute).
+              <strong>WBL API: /api/date</strong>
+              Game date + season. Used by DateService for year detection.
             </div>
             <div class="node">
-              <strong>Trade Analyzer</strong>
-              Via CanonicalCurrentProjectionService.
+              <strong>WBL API: /api/scout (custom scouting only)</strong>
+              Team-specific scouting ratings (paginated, 2000/page).
+              Only fetched when user triggers custom scouting import.
+              Stored in IndexedDB. Sets hasCustomScouting flag.
             </div>
             <div class="node">
-              <strong>True Ratings View</strong>
-              Canonical TR/TFR maps for rating tables.
-            </div>
-            <div class="node">
-              <strong>Farm Rankings</strong>
-              TFR pools for prospect rankings.
-            </div>
-            <div class="node">
-              <strong>Team Ratings: Power Rankings</strong>
-              Canonical TR for weighted-average team strength.
-              Future years use current rosters + latest-year TR.
-            </div>
-            <div class="node">
-              <strong>Team Planning / Global Search</strong>
-              Canonical TR + TFR pools.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- ======== PROJECTIONS ======== -->
-      <section class="lane forecast">
-        <div class="lane-h">Projections &mdash; "What will this team/player produce next season?"</div>
-        <div class="lane-body">
-          <div class="block">
-            <h3>Data Sources</h3>
-            <div class="node">
-              <strong>BatterProjectionService</strong>
-              Uses canonical TR blended rates + wOBA from TrueRatingsService.
-              Adds PA projection (history-weighted + age curve + injury),
-              SB projection (scouting + historical blending),
-              defensive value (fielding scouting &rarr; defRuns + positional adjustment via DefensiveProjectionService),
-              WAR via calculateBattingWar(woba, pa, lg, sbRuns, defRuns, posAdj).
-            </div>
-            <div class="node">
-              <strong>ProjectionService (pitchers)</strong>
-              Ensemble model (40/30/30 optimistic/neutral/pessimistic).
-              IP projection pipeline. Uses canonical pitcher TR.
-            </div>
-            <div class="node">
-              <strong>TeamRatingsService.getProjectedTeamRatings()</strong>
-              Combines pitcher + hitter projections into team WAR,
-              win projections, standings. Year dropdown = target season;
-              internally uses (year-1) as stats base.
-            </div>
-            <div class="node">
-              <strong>LeagueBattingAveragesService</strong>
-              League averages for WAR calculation. Projections use prior year (year-1)
-              as baseline, same across CLI and browser.
-            </div>
-          </div>
-
-          <div class="arrow">&rarr;</div>
-
-          <div class="block">
-            <h3>Consumers</h3>
-            <div class="node">
-              <strong>Projections View</strong>
-              Player projection tables with year selector and backtesting.
-            </div>
-            <div class="node">
-              <strong>Team Ratings: WAR Projections + Win Projections</strong>
-              Team WAR projections, win projections, Pythagorean records.
+              <strong>Nothing else.</strong>
+              All stats, players, contracts, OSA scouting, injuries come from Supabase.
+              The browser never calls /api/players, /api/playerpitchstats, etc.
             </div>
           </div>
         </div>
@@ -397,53 +210,180 @@
 
       <!-- ======== CLI SYNC ======== -->
       <section class="lane cli">
-        <div class="lane-h">CLI Sync (sync-db.ts) &mdash; precomputes for fast browser loads</div>
-        <div class="lane-body">
+        <div class="lane-h">CLI Sync (sync-db.ts) &mdash; fetches, computes, writes canonical answers</div>
+        <div class="lane-body two-col">
           <div class="block">
-            <h3>What it does</h3>
+            <h3>Pipeline Steps</h3>
+            <div class="node">
+              <strong>Step 1-3: Fetch + Write Raw Data</strong>
+              Teams, players (+ injury_days_remaining from Firebase/CSV), stats, contracts,
+              OSA scouting &rarr; Supabase tables. Patch IC player levels. Build SyncContext.
+            </div>
             <div class="node">
               <strong>Step 4: Compute TR</strong>
-              Uses same HitterTrueRatingsCalculationService as browser.
-              Results stored in player_ratings table AND reused by Step 5.5.
+              Pitcher + hitter True Ratings via shared HitterTrueRatingsCalculationService.
+              Stored in player_ratings table. Reused by all subsequent steps.
             </div>
             <div class="node">
               <strong>Step 5: Compute TFR</strong>
-              Pitcher + hitter TFR. Stored in player_ratings + precomputed_cache.
+              Pitcher + hitter True Future Ratings (peak projections for prospects).
+              Stored in player_ratings + precomputed_cache (tfr_prospects arrays).
+              Includes peak WAR, peak IP/PA, peak rates.
             </div>
             <div class="node">
-              <strong>Step 5.5: Compute Projections + Defensive Value</strong>
-              Uses canonical Step 4 TR (not recomputed). Uses TR blended rates
-              and wOBA directly (not re-derived from scouting ratings).
-              League averages from prior year. PA/SB with history blending.
-              Defensive projection from fielding scouting (raw_data.fielding) + DRS history (when available)
-              via DefensiveProjectionService. defRuns + posAdj included in WAR.
-              Results stored in precomputed_cache (pitcher_projections, batter_projections, defensive_lookup).
+              <strong>Step 5.5: Compute Projections</strong>
+              Current-season projections for all MLB-ready players.
+              Uses Step 4 canonical TR. Applies ALL adjustments:
+              injury (days remaining &rarr; PA/IP reduction), park factors,
+              aging, defensive value, SB blending.
+              <em>This is the canonical projection. Browser reads it, does not recompute.</em>
             </div>
             <div class="node">
               <strong>Step 6: Build Lookups</strong>
-              Scouting, contract, DOB lookups. Name/age/stamina included for ALL players
-              (not just draftees).
+              Scouting, contract, DOB, defensive, league_context lookups.
+              Compact JSONB for fast browser reads (~7 requests total).
             </div>
           </div>
-
-          <div class="arrow">&rarr;</div>
-
           <div class="block">
-            <h3>Supabase Cache</h3>
+            <h3>Supabase Output (canonical cache)</h3>
             <div class="node">
               <strong>player_ratings</strong>
               pitcher_tr, hitter_tr, pitcher_tfr, hitter_tfr per player.
-              Browser reads via fast path when no custom scouting.
+              Browser reads for TR badges, rating bars, TFR upside.
             </div>
             <div class="node">
-              <strong>precomputed_cache</strong>
-              pitcher/hitter_projections, tfr_prospects, scouting/contract/dob lookups,
-              defensive_lookup, league_context. Browser reads in ~7 requests total.
-              Projection fast path only used when year === currentYear.
+              <strong>precomputed_cache: projections</strong>
+              pitcher_projections, batter_projections &mdash; full projection arrays
+              with WAR, PA/IP, rates, park factors, injury adjustment, defensive value.
+              <em>Every view that shows projected WAR/PA/IP reads from here.</em>
+            </div>
+            <div class="node">
+              <strong>precomputed_cache: TFR prospects</strong>
+              pitcher_tfr_prospects, hitter_tfr_prospects &mdash; peak projections
+              for prospects. Used by Farm Rankings, Draft Board, Team Planning, modal peak mode.
+            </div>
+            <div class="node">
+              <strong>precomputed_cache: lookups</strong>
+              scouting, contract, DOB, defensive_lookup, league_context.
+            </div>
+            <div class="node">
+              <strong>players table</strong>
+              injury_days_remaining column &mdash; set by sync from Firebase/CSV.
+              Read by modal for injury badge display.
             </div>
           </div>
         </div>
       </section>
+
+      <!-- ======== BROWSER: READ FROM CACHE ======== -->
+      <section class="lane canon">
+        <div class="lane-h">Browser: Read Precomputed &mdash; the default path for all current-year data</div>
+        <div class="lane-body two-col">
+          <div class="block">
+            <h3>What the browser reads</h3>
+            <div class="node">
+              <strong>Current-year projections (WAR, PA, IP)</strong>
+              BatterProjectionService + ProjectionService read from precomputed_cache.
+              All views that show projected WAR/PA/IP consume these services.
+              <em>No independent recomputation. The CLI answer IS the answer.</em>
+            </div>
+            <div class="node">
+              <strong>Canonical TR</strong>
+              TrueRatingsService reads from player_ratings (fast path)
+              or computes from stats + scouting (when custom scouting active).
+            </div>
+            <div class="node">
+              <strong>Peak projections (TFR)</strong>
+              TeamRatingsService reads tfr_prospects from precomputed_cache.
+              Used for Farm Rankings, Draft Board, Team Planning, modal peak toggle.
+            </div>
+            <div class="node">
+              <strong>Player injury status</strong>
+              PlayerService reads injury_days_remaining from players table.
+              Used by modals for injury badge. Projection impact already baked into cached projections.
+            </div>
+          </div>
+          <div class="block">
+            <h3>All consumer views</h3>
+            <div class="node">
+              <strong>Profile Modals (current mode)</strong>
+              WAR badge + projection row read precomputed projection for current year.
+              Modal resolves canonical TR for rating bars/percentiles.
+            </div>
+            <div class="node">
+              <strong>Projections View</strong>
+              Reads precomputed batter + pitcher projection arrays directly.
+            </div>
+            <div class="node">
+              <strong>Team Ratings (all tabs)</strong>
+              Power Rankings, WAR Projections, Win Projections, Standings &mdash;
+              all read precomputed projections for per-player WAR/IP/PA.
+            </div>
+            <div class="node">
+              <strong>Trade Analyzer</strong>
+              Player valuation uses precomputed projection WAR.
+            </div>
+            <div class="node">
+              <strong>Farm Rankings / Draft Board</strong>
+              Prospect rankings read precomputed TFR + peak projections.
+            </div>
+            <div class="node">
+              <strong>Team Planning</strong>
+              Roster construction reads precomputed projections + TFR for peak values.
+            </div>
+            <div class="node">
+              <strong>Global Search</strong>
+              Search results show TR + TFR from precomputed ratings.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ======== BROWSER: RECOMPUTE (EXCEPTIONS) ======== -->
+      <section class="lane forecast">
+        <div class="lane-h">Browser: Recompute &mdash; only these specific cases</div>
+        <div class="lane-body two-col">
+          <div class="block">
+            <h3>When the browser recomputes</h3>
+            <div class="node">
+              <strong>Custom scouting active (hasCustomScouting = true)</strong>
+              User uploaded their own scouting ratings. Precomputed cache is invalid
+              for affected players. Browser recomputes TR &rarr; TFR &rarr; projections
+              using merged my &gt; osa scouting. All fast paths bypassed.
+            </div>
+            <div class="node">
+              <strong>Historical year selected</strong>
+              No precomputed cache for past years. Browser computes projections
+              from historical stats. Year dropdown &gt; 1 year from current = recompute.
+            </div>
+            <div class="node">
+              <strong>Backtesting mode (ProjectionsView)</strong>
+              Comparing projections vs actual stats for a completed season.
+              Requires computing projections from pre-season data.
+            </div>
+          </div>
+          <div class="block">
+            <h3>Shared computation services (used by recompute paths)</h3>
+            <div class="node">
+              <strong>HitterTrueRatingsCalculationService</strong>
+              Pure math: stat blending, scouting regression, wOBA.
+              Shared import between CLI + browser. Same code, same results.
+            </div>
+            <div class="node">
+              <strong>ModalDataService</strong>
+              computeBatterProjection / computePitcherProjection &mdash;
+              pure functions for projection math. Used by CLI Step 5.5
+              AND browser recompute paths. Same code, same results.
+            </div>
+            <div class="node">
+              <strong>ProjectionService / BatterProjectionService</strong>
+              Orchestration: fetch data, call computation services, return results.
+              Fast path: read precomputed cache. Slow path: recompute.
+            </div>
+          </div>
+        </div>
+      </section>
+
     </div>
 
     <!-- ======== VIEW SUMMARY TABLE ======== -->
@@ -451,84 +391,111 @@
       <thead>
         <tr>
           <th>View / Mode</th>
-          <th>Pipeline</th>
+          <th>Data Source</th>
+          <th>Recomputes?</th>
           <th>What it shows</th>
         </tr>
       </thead>
       <tbody>
         <tr>
-          <td>Profile Modals</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>Player's current true level + projection (WAR badge = projection line WAR)</td>
+          <td>Profile Modals (current)</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No &mdash; reads cached projection WAR/PA/IP</td>
+          <td>Current-year projection + TR ratings + injury badge</td>
         </tr>
         <tr>
-          <td>Trade Analyzer</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>Trade asset evaluation at current true value</td>
-        </tr>
-        <tr>
-          <td>True Ratings</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>League-wide current ratings dashboard</td>
-        </tr>
-        <tr>
-          <td>Farm Rankings</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>Prospect rankings by projected WAR (includes defensive value)</td>
-        </tr>
-        <tr>
-          <td>Team Planning</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>Roster construction with current ratings</td>
-        </tr>
-        <tr>
-          <td>Team Ratings: Power Rankings</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>Current team strength via average TR (future years use current rosters)</td>
-        </tr>
-        <tr>
-          <td>Team Ratings: WAR Projections</td>
-          <td><span class="tag forecast">Projection</span></td>
-          <td>Projected team WAR for target season</td>
-        </tr>
-        <tr>
-          <td>Team Ratings: Win Projections</td>
-          <td><span class="tag forecast">Projection</span></td>
-          <td>Projected wins/losses and standings</td>
+          <td>Profile Modals (peak)</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No &mdash; reads cached TFR peak projection</td>
+          <td>Peak projection assuming full development</td>
         </tr>
         <tr>
           <td>Projections View</td>
-          <td><span class="tag forecast">Projection</span></td>
-          <td>Per-player forward projections, backtesting</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No (current year) / Yes (historical)</td>
+          <td>Per-player projections, backtesting</td>
+        </tr>
+        <tr>
+          <td>Team Ratings: Power Rankings</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No &mdash; reads cached projections for per-player WAR/IP</td>
+          <td>Team strength via player projections</td>
+        </tr>
+        <tr>
+          <td>Team Ratings: WAR/Win Projections</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No &mdash; reads cached projections</td>
+          <td>Team WAR, win projections, standings</td>
+        </tr>
+        <tr>
+          <td>Trade Analyzer</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No</td>
+          <td>Trade asset evaluation at projected value</td>
+        </tr>
+        <tr>
+          <td>Farm Rankings / Draft Board</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No &mdash; reads cached TFR prospects</td>
+          <td>Prospect rankings by peak projected WAR</td>
+        </tr>
+        <tr>
+          <td>Team Planning</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No &mdash; reads cached projections + TFR</td>
+          <td>Roster construction with current + peak projections</td>
+        </tr>
+        <tr>
+          <td>True Ratings View</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No &mdash; reads player_ratings</td>
+          <td>League-wide TR/TFR dashboard</td>
         </tr>
         <tr>
           <td>Global Search</td>
-          <td><span class="tag canon">Canonical</span></td>
-          <td>Player search results with canonical TR + TFR</td>
+          <td><span class="tag canon">Precomputed</span></td>
+          <td>No</td>
+          <td>Search results with TR + TFR</td>
         </tr>
         <tr>
-          <td>Data Management</td>
-          <td>&mdash;</td>
-          <td>Scouting upload, API fetch (pagination: 2000/page), cache priming</td>
+          <td>Custom Scouting (any view)</td>
+          <td><span class="tag forecast">Recompute</span></td>
+          <td>Yes &mdash; merged scouting invalidates cache</td>
+          <td>Same views, recomputed with custom ratings</td>
+        </tr>
+        <tr>
+          <td>Historical Year (any view)</td>
+          <td><span class="tag forecast">Recompute</span></td>
+          <td>Yes &mdash; no cache for past years</td>
+          <td>Same views, computed from historical data</td>
         </tr>
       </tbody>
     </table>
 
-    <div class="notes">
-      <h2>Key Design Rules (Mar 2026)</h2>
+    <!-- ======== DESIGN RULES ======== -->
+    <div class="notes rules">
+      <h2>Invariants &mdash; these must always be true</h2>
       <ul>
-        <li><strong>One TR, everywhere.</strong> TrueRatingsService is the single source of truth. CLI Step 4 computes the same TR using the same shared service. Projections use canonical TR blended rates and wOBA &mdash; never re-derived from scouting ratings.</li>
-        <li><strong>Same number, every view.</strong> A player's projected WAR must be identical in the projection table, the modal WAR badge, and the modal projection line. The badge uses the projection line's computed WAR (no independent recomputation).</li>
-        <li><strong>CLI = browser.</strong> sync-db.ts precomputes projections using the same canonical TR, same wOBA, same league averages (prior year), same PA formula (age curve + injury multiplier + history blending), same SB blending (projectStolenBasesWithHistory). Any drift between CLI and browser is a bug.</li>
-        <li><strong>Year dropdown = target season.</strong> User selects the season they want to see (e.g., 2022). Code internally derives the stats base year (2021). The user never sees or thinks about base years.</li>
-        <li><strong>Precomputed fast paths are year-aware.</strong> Cached projections only used when the requested year matches currentYear. Historical years always compute locally.</li>
-        <li><strong>Custom scouting bypasses all fast paths.</strong> When hasCustomScouting is true, all precomputed Supabase caches are skipped and everything computes locally with merged my > osa scouting data.</li>
-        <li><strong>Power Rankings: future years use current rosters.</strong> Selecting a year beyond the latest completed season shows players on their current teams (from players table), rated by their most recent TR.</li>
-        <li><strong>Supabase teams: parentTeamId defaults to 0.</strong> WBL API stores null for MLB teams. Code uses ?? 0 to match the parentTeamId === 0 convention for root-level teams.</li>
-        <li><strong>WAR includes defensive value.</strong> Batter WAR = (wRAA + replacementRuns + sbRuns + defRuns + posAdj) / runsPerWin. Defensive runs from fielding scouting ratings (position-specific formulas) + DRS when available. Positional adjustment prorated by PA. DefensiveProjectionService is the sole source. Precomputed by CLI, cached in defensive_lookup, read by browser for modal/projection/farm ranking paths.</li>
-        <li><strong>Canonical prospect ranking = projected WAR.</strong> Both Farm Rankings and Top 100 badge sort by projected WAR desc (then TFR tiebreaker). One ranking everywhere.</li>
+        <li><strong>One number, everywhere.</strong> A player's projected WAR/PA/IP must be identical across the projection table, modal WAR badge, modal projection row, team ratings, power rankings, and trade analyzer. If they differ, it's a bug.</li>
+        <li><strong>Precomputed cache = canonical answer.</strong> For current-year data, the precomputed cache is the single source of truth. Views read it; they do not recompute independently. Adjustments (injury, park factors, defensive value, aging) are applied once in the CLI pipeline and baked into the cache.</li>
+        <li><strong>Browser recompute = exception, not default.</strong> The browser only recomputes projections when custom scouting is active (hasCustomScouting flag) or when viewing historical years. No other path should trigger independent recomputation.</li>
+        <li><strong>CLI = browser math.</strong> sync-db uses the same pure computation functions as the browser (shared imports). When the browser does recompute, it must produce identical results to the CLI for the same inputs.</li>
+        <li><strong>New adjustments go in one place.</strong> Any new projection adjustment (injury, park factor, aging curve, etc.) is added to the CLI pipeline (sync-db Step 5.5). It automatically flows to all views via the precomputed cache. It is NOT added to individual views or modals.</li>
       </ul>
     </div>
+
+    <div class="notes">
+      <h2>Key Design Rules</h2>
+      <ul>
+        <li><strong>Year dropdown = target season.</strong> User selects the season they want to see (e.g., 2022). Code internally derives the stats base year (2021). The user never sees or thinks about base years.</li>
+        <li><strong>Custom scouting bypasses all fast paths.</strong> When hasCustomScouting is true, all precomputed Supabase caches are skipped and everything computes locally with merged my &gt; osa scouting data.</li>
+        <li><strong>WAR includes defensive value.</strong> Batter WAR = (wRAA + replacementRuns + sbRuns + defRuns + posAdj) / runsPerWin. Precomputed by CLI, cached in defensive_lookup.</li>
+        <li><strong>Injury adjustment = PA/IP reduction.</strong> Active injury days (from Firebase) reduce projected PA/IP proportionally: ratio = max(0, 1 - injuryDays/180). Applied once in CLI Step 5.5. Threshold for visual indicator: 18+ days (&ge;10% impact).</li>
+        <li><strong>Park factor adjustment.</strong> Batter: effective park factors by batter handedness. Pitcher: HR9 park factor. Applied once in CLI Step 5.5.</li>
+        <li><strong>Canonical prospect ranking = peak projected WAR.</strong> Farm Rankings, Draft Board, Top 100 badge all sort by peak WAR desc from precomputed TFR.</li>
+      </ul>
+    </div>
+
   </div>
 </body>
 </html>

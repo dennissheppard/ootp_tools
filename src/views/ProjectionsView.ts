@@ -20,6 +20,7 @@ import { standingsService } from '../services/StandingsService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
+import { formatParkFactor } from '../services/ParkFactorService';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -155,8 +156,22 @@ export class ProjectionsView {
             return this.renderFlipCell(p.projectedStats.hr9.toFixed(2), estHra.toString(), 'Est HRA Rating');
         }},
         { key: 'projFIP', label: 'Proj FIP', sortKey: 'projectedStats.fip', accessor: p => p.projectedStats.fip.toFixed(2) },
-        { key: 'projWAR', label: 'Proj WAR', sortKey: 'projectedStats.war', accessor: p => p.projectedStats.war.toFixed(1) },
-        { key: 'projIP', label: 'Proj IP', sortKey: 'projectedStats.ip', accessor: p => p.projectedStats.ip }
+        { key: 'projWAR', label: 'Proj WAR', sortKey: 'projectedStats.war', accessor: p => {
+            const val = p.projectedStats.war.toFixed(1);
+            return (p as any).injuryDays >= 18 ? `<span class="injury-adjusted">${val}</span>` : val;
+        }},
+        { key: 'park', label: 'Park', sortKey: 'parkHrFactor', accessor: p => {
+            const hrF = p.parkHrFactor;
+            if (hrF === undefined) return '-';
+            const cls = hrF > 1.025 ? 'pf-hitter-friendly' : hrF < 0.975 ? 'pf-pitcher-friendly' : 'pf-neutral';
+            const label = formatParkFactor(hrF);
+            const title = p.parkName ? `${p.parkName} — HR: ${label}` : `HR: ${label}`;
+            return `<span class="park-factor-cell ${cls}" title="${title}">${label}</span>`;
+        }},
+        { key: 'projIP', label: 'Proj IP', sortKey: 'projectedStats.ip', accessor: p => {
+            const val = p.projectedStats.ip;
+            return (p as any).injuryDays >= 18 ? `<span class="injury-adjusted">${val}</span>` : val;
+        }}
     ];
 
     // Only add backcasting columns if we have actual stats for the selected year
@@ -197,13 +212,29 @@ export class ProjectionsView {
         const oWar = Math.round((war - (defRuns + posAdj) / runsPerWin) * 10) / 10;
         const sign = (v: number) => v >= 0 ? '+' : '';
         const tooltip = `oWAR: ${oWar.toFixed(1)} | Fielding: ${sign(defRuns)}${defRuns.toFixed(1)} runs | Pos adj: ${sign(posAdj)}${posAdj.toFixed(1)} runs | Park-adjusted`;
-        return `<span title="${tooltip}">${war.toFixed(1)}</span>`;
+        const cls = (b as any).injuryDays >= 18 ? ' class="injury-adjusted"' : '';
+        return `<span${cls} title="${tooltip}">${war.toFixed(1)}</span>`;
       }},
       { key: 'projDef', label: 'Def', sortKey: 'projectedStats.defRuns', accessor: b => {
         const defRuns = b.projectedStats.defRuns ?? 0;
         const posAdj = b.projectedStats.posAdj ?? 0;
         const total = defRuns + posAdj;
         return total >= 0 ? `+${total.toFixed(1)}` : total.toFixed(1);
+      }},
+      { key: 'park', label: 'Park', sortKey: 'parkHrSort', accessor: b => {
+        const pf = b.parkFactors;
+        if (!pf) return '-';
+        const hrF = pf.hr;
+        const cls = hrF > 1.025 ? 'pf-hitter-friendly' : hrF < 0.975 ? 'pf-pitcher-friendly' : 'pf-neutral';
+        const hrLabel = formatParkFactor(hrF);
+        const title = [
+          b.parkName ?? '',
+          `HR: ${hrLabel}`,
+          `AVG: ${formatParkFactor(pf.avg)}`,
+          `2B: ${formatParkFactor(pf.d)}`,
+          `3B: ${formatParkFactor(pf.t)}`,
+        ].filter(Boolean).join(' — ');
+        return `<span class="park-factor-cell ${cls}" title="${title}">${hrLabel}</span>`;
       }}
     );
 
@@ -285,7 +316,10 @@ export class ProjectionsView {
     batterDefaults.push(
       { key: 'projObp', label: 'Proj OBP', sortKey: 'projectedStats.obp', accessor: b => b.projectedStats.obp.toFixed(3) },
       { key: 'projSlg', label: 'Proj SLG', sortKey: 'projectedStats.slg', accessor: b => b.projectedStats.slg.toFixed(3) },
-      { key: 'projPa', label: 'Proj PA', sortKey: 'projectedStats.pa', accessor: b => b.projectedStats.pa.toString() }
+      { key: 'projPa', label: 'Proj PA', sortKey: 'projectedStats.pa', accessor: b => {
+        const val = b.projectedStats.pa.toString();
+        return (b as any).injuryDays >= 18 ? `<span class="injury-adjusted">${val}</span>` : val;
+      }}
     );
 
     if (this.hasBatterActualStats) {
@@ -2342,6 +2376,9 @@ export class ProjectionsView {
               const key = this.sortKey.replace('actualStats.', '');
               valA = a.actualStats?.[key as keyof typeof a.actualStats];
               valB = b.actualStats?.[key as keyof typeof b.actualStats];
+          } else if (this.sortKey === 'parkHrSort') {
+              valA = a.parkFactors?.hr;
+              valB = b.parkFactors?.hr;
           } else {
               valA = (a as any)[this.sortKey];
               valB = (b as any)[this.sortKey];
