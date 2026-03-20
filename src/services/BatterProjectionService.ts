@@ -197,8 +197,13 @@ class BatterProjectionService {
       // Cache hit when requested year matches the cache's statsYear, OR is within 1 year
       // (accounts for offseason/spring training year convention mismatches between views)
       if (cached && cacheStatsYear !== undefined && Math.abs(year - cacheStatsYear) <= 1) {
+        if (year !== cacheStatsYear) {
+          console.warn(`[BatterProj] cache hit with year mismatch: requested=${year} cached=${cacheStatsYear} (±1 tolerance)`);
+        }
         return cached as BatterProjectionContext;
       }
+      console.warn(`[BatterProj] cache MISS: requested=${year} cached=${cacheStatsYear ?? 'none'}`);
+
     }
 
     const preSeasonOnly = options?.preSeasonOnly ?? false;
