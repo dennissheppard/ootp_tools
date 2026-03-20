@@ -95,6 +95,11 @@ export interface PitcherProfileData {
   tfrControl?: number;
   tfrHra?: number;
 
+  // Peak projection (from precomputed TFR cache)
+  peakIp?: number;
+  peakWar?: number;
+  peakFip?: number;
+
   // Role
   role?: number;
 
@@ -449,6 +454,13 @@ export class PitcherProfileModal {
 
     // 3-5. Apply canonical data overrides (TR, TFR, prospect detection, derived projections)
     resolveCanonicalPitcherData(data, playerTR, tfrEntry);
+
+    // Populate peak projection from precomputed TFR (canonical peak answer)
+    if (tfrEntry) {
+      data.peakIp = (tfrEntry as any).peakIp ?? (tfrEntry as any).projIp;
+      data.peakWar = (tfrEntry as any).peakWar;
+      data.peakFip = (tfrEntry as any).peakFip;
+    }
 
     // Build trBySource so scouting toggle can swap projections
     if (supabaseDataService.hasCustomScouting && !data.isProspect) {

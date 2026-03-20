@@ -801,17 +801,17 @@ export function computePitcherProjection(
     ? (((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47)
     : (data.projFip ?? (((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47));
 
-  // IP
+  // IP — peak mode uses precomputed TFR value when available, falls back to estimate
   const s = deps.scoutingData;
   const stamina = s?.stamina ?? data.scoutStamina;
   const injury = s?.injuryProneness ?? data.injuryProneness;
   const projIp = isTogglePeak
-    ? deps.estimateIp(stamina ?? 50, injury)
+    ? ((data as any).peakIp ?? deps.estimateIp(stamina ?? 50, injury))
     : (data.projIp ?? deps.projectedIp ?? deps.estimateIp(stamina ?? 50, injury));
 
-  // WAR — always recalculate in peak mode
+  // WAR — peak mode uses precomputed TFR value when available
   const projWar = isPeakMode
-    ? deps.calculateWar(projFip, projIp)
+    ? ((data as any).peakWar ?? deps.calculateWar(projFip, projIp))
     : (data.projWar ?? deps.calculateWar(projFip, projIp));
 
   // Counting stats
