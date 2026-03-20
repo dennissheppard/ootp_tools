@@ -64,7 +64,7 @@ function reportMismatch(m: Mismatch): void {
   recentMismatches.push(m);
 
   console.error(
-    `%c[CONSISTENCY] %c${m.playerName}%c — ${m.source} shows ${m.field}=${m.displayed} but cache has ${m.field}=${m.cached}`,
+    `%c[CONSISTENCY] %c${m.playerName} (${m.playerId})%c — ${m.source} shows ${m.field}=${m.displayed} but expected ${m.field}=${m.cached}`,
     'color: #d97706; font-weight: bold',
     'color: #ef4444; font-weight: bold',
     'color: #d97706'
@@ -203,7 +203,7 @@ export const consistencyChecker = {
   ): void {
     if (!isDevMode) return;
     const { displayedWar, projFip, projIp } = components;
-    const replFip = components.replacementFip ?? 5.41;
+    const replFip = components.replacementFip ?? 5.20; // Must match FipWarService.WBL_DEFAULTS
     const rpw = components.runsPerWin ?? 8.50;
     if (projIp <= 0) return;
     // Independent WAR calculation from raw formula
@@ -268,7 +268,7 @@ if (isDevMode) {
     icon.style.fontWeight = 'bold';
     banner.appendChild(icon);
     const detail = document.createElement('span');
-    detail.textContent = `${latest.playerName}: ${latest.source} shows ${latest.field}=${latest.displayed} but cache has ${latest.field}=${latest.cached}`;
+    detail.textContent = `${latest.playerName} (${latest.playerId}): ${latest.source} shows ${latest.field}=${latest.displayed} but expected ${latest.field}=${latest.cached}`;
     banner.appendChild(detail);
     if (mismatches.length > 1) {
       const count = document.createElement('span');
