@@ -344,6 +344,7 @@ export class DataManagementView {
             ovr: r.overall ? parseFloat(r.overall) : undefined,
             pot: r.potential ? parseFloat(r.potential) : undefined,
             pitches: Object.keys(pitches).length > 0 ? pitches : undefined,
+            babip: r.pitching?.pbabip ? String(r.pitching.pbabip) : undefined,
           });
         } else {
           hitterRatings.push({

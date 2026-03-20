@@ -114,6 +114,8 @@ export function simulateGame(
     awaySetupUsed: false,
     homePinchedSlots: new Set<number>(),
     awayPinchedSlots: new Set<number>(),
+    homeSB: 0,
+    awaySB: 0,
   };
 
   while (true) {
@@ -181,6 +183,8 @@ function buildGameResult(state: GameState, home: TeamSnapshot, away: TeamSnapsho
     awayCloserSave,
     homeCloserPlayerId,
     awayCloserPlayerId,
+    homeSB: state.homeSB,
+    awaySB: state.awaySB,
   };
 }
 
@@ -266,6 +270,7 @@ function simulateHalfInning(
           if (rng() < successRate) {
             state.bases[1] = true;
             state.bases[0] = false;
+            if (isHome) state.homeSB++; else state.awaySB++;
           } else {
             state.outs++;
             state.bases[0] = false;
@@ -329,10 +334,11 @@ function simulateHalfInning(
  * Uses empirical MLB probabilities for runner advancement on contact.
  *
  * Key probabilities (from MLB run expectancy data):
- *   Single:  Runner on 2nd scores ~60%. Runner on 1st reaches 3rd ~30%.
- *   Double:  Runner on 1st scores ~60% (otherwise to 3rd).
- *   Out:     Sac fly (runner on 3rd scores) ~12% with < 2 outs only — impossible on 3rd out.
- *            Productive groundout (runner on 2nd → 3rd) ~15% with < 2 outs only.
+ *   Single:  Runner on 2nd scores ~68%. Runner on 1st reaches 3rd ~30%.
+ *   Double:  Runner on 1st scores ~52% (otherwise to 3rd).
+ *   Out:     Sac fly (runner on 3rd scores) ~18% with < 2 outs only.
+ *            Groundout scores runner from 3rd ~10% with < 2 outs.
+ *            Productive groundout (runner on 2nd → 3rd) ~18% with < 2 outs only.
  *            Both effects are zero with 2 outs since the out ends the inning before any advancement matters.
  */
 function advanceRunners(bases: BaseState, outcome: PAOutcome, rng: RNG, outs: number): number {
@@ -360,10 +366,10 @@ function advanceRunners(bases: BaseState, outcome: PAOutcome, rng: RNG, outs: nu
       if (bases[2]) runs++;
       // Runner on 2nd always scores
       if (bases[1]) runs++;
-      // Runner on 1st: scores 44%, otherwise to 3rd
+      // Runner on 1st: scores 52%, otherwise to 3rd
       let r1to3on2B = false;
       if (bases[0]) {
-        if (rng() < 0.44) runs++;
+        if (rng() < 0.52) runs++;
         else r1to3on2B = true;
       }
       // Reset bases: batter to 2nd, possibly runner from 1st on 3rd
@@ -376,10 +382,10 @@ function advanceRunners(bases: BaseState, outcome: PAOutcome, rng: RNG, outs: nu
     case '1B': {
       // Runner on 3rd always scores
       if (bases[2]) runs++;
-      // Runner on 2nd: scores 60%, otherwise to 3rd
+      // Runner on 2nd: scores 68%, otherwise to 3rd
       let new3rd = false;
       if (bases[1]) {
-        if (rng() < 0.60) runs++;
+        if (rng() < 0.68) runs++;
         else new3rd = true;
       }
       // Runner on 1st: to 3rd 30% (if open), otherwise to 2nd
@@ -417,15 +423,18 @@ function advanceRunners(bases: BaseState, outcome: PAOutcome, rng: RNG, outs: nu
       // inning ends on the out, so no runners can score or advance afterward.
       // K never advances runners (no contact).
       if (outcome === 'OUT' && outs < 2) {
-        // Sac fly: runner on 3rd scores ~12% of non-K outs with < 2 outs
-        // (~8% unconditionally across all out counts — matches MLB sac fly rates)
-        if (bases[2] && rng() < 0.12) {
+        // Sac fly: runner on 3rd scores ~18% of non-K outs with < 2 outs
+        if (bases[2] && rng() < 0.18) {
           runs++;
           bases[2] = false;
         }
-        // Productive groundout: runner on 2nd advances to 3rd ~15% of the time
-        // (ball hit to right side of infield; sets up scoring chance next PA)
-        if (bases[1] && !bases[2] && rng() < 0.15) {
+        // Groundout with runner on 3rd: scores ~10% (productive groundout to IF)
+        if (bases[2] && rng() < 0.10) {
+          runs++;
+          bases[2] = false;
+        }
+        // Productive groundout: runner on 2nd advances to 3rd ~18% of the time
+        if (bases[1] && !bases[2] && rng() < 0.18) {
           bases[2] = true;
           bases[1] = false;
         }

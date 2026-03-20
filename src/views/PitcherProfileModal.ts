@@ -156,10 +156,17 @@ export class PitcherProfileModal {
   private blockingYears: number | undefined;
   private top100Rank: number | undefined;
 
-  // Sorted league FIP distributions (ascending) for percentile calculation
+  // Sorted league distributions (ascending) for percentile calculation
   private leagueFipDistribution: number[] = [];
   private spFipDistribution: number[] = [];
   private rpFipDistribution: number[] = [];
+  // Component distributions by role (sorted ascending)
+  private spK9Distribution: number[] = [];
+  private rpK9Distribution: number[] = [];
+  private spBb9Distribution: number[] = [];
+  private rpBb9Distribution: number[] = [];
+  private spHr9Distribution: number[] = [];
+  private rpHr9Distribution: number[] = [];
 
   // Projection toggle state
   private projectionMode: 'current' | 'peak' = 'current';
@@ -167,6 +174,9 @@ export class PitcherProfileModal {
 
   // ProjectionService-derived IP (populated in show())
   private projectedIp: number | null = null;
+  // Cached projection from renderProjectionContent (used by career stats row for consistency)
+  private _cachedProj: { projK9: number; projBb9: number; projHr9: number; projFip: number; projIp: number; projWar: number } | null = null;
+  private _draftLabel: string | null = null;
 
   // Track which radar series are hidden via legend toggle
   private hiddenSeries = new Set<string>();
@@ -298,6 +308,8 @@ export class PitcherProfileModal {
     const generation = ++this.showGeneration;
 
     this.projectionMode = 'current';
+    this._cachedProj = null;
+    this._draftLabel = null;
     this.viewMode = 'projections';
     this.cachedAnalysisHtml = '';
     // Reset cached development snapshots from previous player
@@ -467,6 +479,26 @@ export class PitcherProfileModal {
       this.rpFipDistribution = leagueCtx?.rpFipDistribution ?? [];
       this.leagueDollarPerWar = leagueCtx?.dollarPerWar?.length > 0 ? leagueCtx.dollarPerWar : undefined;
 
+      // Build K/9, BB/9, HR/9 distributions from pitcher projections (same pool as ProjectionsView)
+      try {
+        const allProj = await projectionService.getProjections(currentYear);
+        const spK9: number[] = [], rpK9: number[] = [];
+        const spBb9: number[] = [], rpBb9: number[] = [];
+        const spHr9: number[] = [], rpHr9: number[] = [];
+        for (const p of allProj) {
+          const arr = p.isSp ? [spK9, spBb9, spHr9] : [rpK9, rpBb9, rpHr9];
+          arr[0].push(p.projectedStats.k9);
+          arr[1].push(p.projectedStats.bb9);
+          arr[2].push(p.projectedStats.hr9);
+        }
+        this.spK9Distribution = spK9.sort((a, b) => a - b);
+        this.rpK9Distribution = rpK9.sort((a, b) => a - b);
+        this.spBb9Distribution = spBb9.sort((a, b) => a - b);
+        this.rpBb9Distribution = rpBb9.sort((a, b) => a - b);
+        this.spHr9Distribution = spHr9.sort((a, b) => a - b);
+        this.rpHr9Distribution = rpHr9.sort((a, b) => a - b);
+      } catch { /* projections not available */ }
+
       this.myScoutingData = myScouting ?? null;
       this.osaScoutingData = osaScouting ?? null;
 
@@ -498,6 +530,22 @@ export class PitcherProfileModal {
       } else {
         this.drafteeInitialProj = null;
         this.drafteeInitialSource = null;
+      }
+
+      // Resolve draft-eligible / HS-College label for Free Agents
+      if (data.team === 'Free Agent') {
+        try {
+          const player = await playerService.getPlayerById(data.playerId);
+          if (player?.draftEligible) {
+            const year = this.projectionYear ?? new Date().getFullYear();
+            this._draftLabel = `Draft Eligible (${year})`;
+          } else if (player?.hsc) {
+            this._draftLabel = player.hsc;
+          }
+          if (this._draftLabel && teamEl) {
+            teamEl.innerHTML = this.formatTeamInfo(data.team, data.parentTeam);
+          }
+        } catch { /* player lookup failed */ }
       }
 
       // Render header slots with scouting data
@@ -630,10 +678,15 @@ export class PitcherProfileModal {
         warSlot.innerHTML = this.renderWarEmblem(data);
       }
 
-      // Render full body
+      // Render full body (populates _cachedProj from Projections tab)
       if (bodyEl) {
         bodyEl.innerHTML = this.renderBody(data, allStats);
         this.bindBodyEvents();
+
+        // Re-render WAR badge with cached projection values (ensures consistency with Projections tab)
+        if (warSlot && this._cachedProj) {
+          warSlot.innerHTML = this.renderWarEmblem(data);
+        }
 
         requestAnimationFrame(() => {
           const emblem = this.overlay?.querySelector('.rating-emblem');
@@ -692,6 +745,10 @@ export class PitcherProfileModal {
 
   private formatTeamInfo(team?: string, parentTeam?: string): string {
     if (!team) return '';
+    // Draft-eligible / HS-College prospects: update label after player lookup
+    if (team === 'Free Agent' && this._draftLabel) {
+      return `<span class="team-name">${this._draftLabel}</span>`;
+    }
     if (parentTeam) {
       return `<span class="team-name">${team}</span> <span class="parent-team">(${parentTeam})</span>`;
     }
@@ -848,6 +905,8 @@ export class PitcherProfileModal {
   }
 
   private calculateProjWar(data: PitcherProfileData): number | undefined {
+    // Prefer cached projection (matches Projections tab exactly)
+    if (this._cachedProj) return this._cachedProj.projWar;
     if (data.projWar !== undefined) return data.projWar;
     const stats = this.computeProjectedStats(data);
     if (stats.projFip !== undefined && stats.projIp !== undefined) {
@@ -1077,6 +1136,35 @@ export class PitcherProfileModal {
     return this.rpFipDistribution.length > 0 ? this.rpFipDistribution : this.leagueFipDistribution;
   }
 
+  private renderStatBox(label: string, value: string, percentile: number | undefined, cssClass: string): string {
+    const barHtml = percentile !== undefined
+      ? `<div class="stat-box-bar-track"><div class="stat-box-bar-fill" style="width:${percentile}%"></div></div>`
+      : '';
+    return `
+      <div class="stat-box ${cssClass}">
+        <span class="stat-box-label">${label}</span>
+        <span class="stat-box-value">${value}</span>
+        ${barHtml}
+      </div>
+    `;
+  }
+
+  /** Compute percentile from a sorted distribution. lowerIsBetter inverts the ranking. */
+  private computeDistPercentile(value: number | undefined, dist: number[], lowerIsBetter = false): number | undefined {
+    if (value === undefined || dist.length === 0) return undefined;
+    const rank = dist.filter(v => lowerIsBetter ? v > value : v < value).length;
+    return Math.min(99, Math.max(1, Math.round((rank / dist.length) * 100)));
+  }
+
+  private computeFipPercentile(fip: number | undefined, dist: number[]): number | undefined {
+    if (typeof fip !== 'number' || dist.length === 0) return undefined;
+    let betterThanCount = 0;
+    for (let i = 0; i < dist.length; i++) {
+      if (dist[i] >= fip) { betterThanCount = dist.length - i; break; }
+    }
+    return Math.round((betterThanCount / dist.length) * 100);
+  }
+
   private formatPercentile(p: number): string {
     const rounded = Math.round(p);
     const suffix = rounded === 11 || rounded === 12 || rounded === 13 ? 'th'
@@ -1118,8 +1206,9 @@ export class PitcherProfileModal {
   private renderBody(data: PitcherProfileData, stats: PitcherSeasonStats[]): string {
     const isRetired = data.retired === true;
     if (isRetired) this.viewMode = 'career';
-    const ratingsSection = this.renderRatingsSection(data);
+    // Render projections FIRST — populates _cachedProj used by ratings stat boxes and career stats
     const projectionContent = this.renderProjectionContent(data, stats);
+    const ratingsSection = this.renderRatingsSection(data);
     const careerContent = this.renderCareerStatsContent(stats);
 
     // Compute player tags
@@ -1236,26 +1325,54 @@ export class PitcherProfileModal {
     // Arsenal + Stamina column
     const arsenalHtml = this.renderArsenalColumn(data);
 
-    // FIP emblem (middle column)
-    const fipEmblemHtml = this.renderFipEmblem(data);
+    // Projected stat boxes — use cached projection (from Projections tab) for consistency
+    const cp = this._cachedProj;
+    const boxFip = cp?.projFip ?? projStats.projFip;
+    const boxK9 = cp?.projK9 ?? projStats.projK9;
+    const boxBb9 = cp?.projBb9 ?? projStats.projBb9;
+    const boxHr9 = cp?.projHr9 ?? projStats.projHr9;
+    const peakPrefix = data.isProspect ? 'Peak ' : 'Proj ';
+    const fipBadgeClass = this.getFipBadgeClass(boxFip);
+
+    // Compute percentiles from real league distributions (same method as ProjectionsView)
+    const s2 = this.scoutingData;
+    const role = determinePitcherRole({ pitchRatings: s2?.pitches ?? data.pitchRatings, stamina: s2?.stamina ?? data.scoutStamina, ootpRole: data.role });
+    const isSp = role === 'SP' || role === 'SW';
+    const fipDist = this.getFipDistributionForPlayer(data);
+    const fipPctl = this.computeFipPercentile(boxFip, fipDist);
+    const k9Pctl = this.computeDistPercentile(boxK9, isSp ? this.spK9Distribution : this.rpK9Distribution);
+    const bb9Pctl = this.computeDistPercentile(boxBb9, isSp ? this.spBb9Distribution : this.rpBb9Distribution, true);
+    const hr9Pctl = this.computeDistPercentile(boxHr9, isSp ? this.spHr9Distribution : this.rpHr9Distribution, true);
 
     return `
       <div class="ratings-section">
+        <div class="ratings-top-bar">
+          ${scoutToggleHtml}
+          <div class="legend-inline">
+            <span class="legend-item" data-series="True Rating"><span class="legend-dot legend-dot-true"></span><span class="legend-text">True Rating</span></span>
+            ${hasTfrCeiling ? '<span class="legend-item" data-series="True Future Rating"><span class="legend-dot legend-dot-tfr"></span><span class="legend-text">True Future Rating</span></span>' : ''}
+            ${s ? `<span class="legend-item" data-series="scout"><span class="legend-dot legend-dot-scout"></span><span class="legend-text">${this.scoutingIsOsa ? 'OSA' : 'My Scout'}</span></span>` : ''}
+            <span class="legend-item" data-series="Stat Projections"><span class="legend-dot legend-dot-proj"></span><span class="legend-text">Stat Projections</span></span>
+          </div>
+        </div>
         <div class="ratings-layout">
-          <div class="ratings-radar-col">
-            <div class="chart-section-header">
-              <h4 class="chart-section-label">Pitching Ratings</h4>
-              ${scoutToggleHtml}
+          <div class="ratings-left-col">
+            <div class="ratings-panel ratings-panel-pitching">
+              <div class="ratings-panel-header"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="1.5"/></svg>Pitching</div>
+              <div class="radar-chart-wrapper">
+                <div id="pitcher-radar-chart"></div>
+                ${pitchingAxisLabelsHtml}
+              </div>
             </div>
-            <div class="radar-chart-wrapper">
-              <div id="pitcher-radar-chart"></div>
-              ${pitchingAxisLabelsHtml}
+            <div class="pitching-stat-boxes">
+              ${this.renderStatBox(`${peakPrefix}FIP`, typeof boxFip === 'number' ? boxFip.toFixed(2) : '--', fipPctl, fipBadgeClass)}
+              ${this.renderStatBox(`${peakPrefix}K/9`, boxK9?.toFixed(1) ?? '--', k9Pctl, 'stat-box-k9')}
+              ${this.renderStatBox(`${peakPrefix}BB/9`, boxBb9?.toFixed(1) ?? '--', bb9Pctl, 'stat-box-bb9')}
+              ${this.renderStatBox(`${peakPrefix}HR/9`, boxHr9?.toFixed(1) ?? '--', hr9Pctl, 'stat-box-hr9')}
             </div>
           </div>
-          <div class="fip-col">
-            ${fipEmblemHtml}
-          </div>
-          <div class="arsenal-col">
+          <div class="ratings-panel ratings-panel-arsenal">
+            <div class="ratings-panel-header"><svg viewBox="0 0 24 24"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>Peripherals</div>
             ${arsenalHtml}
           </div>
         </div>
@@ -1526,49 +1643,36 @@ export class PitcherProfileModal {
       });
     }
 
-    if (series.length === 0) return;
+    // Filter out hidden series
+    const visibleSeries = series.filter(s2 => !this.hiddenSeries.has(s2.name));
+
+    // If no visible series, render with transparent placeholder to keep the grid visible
+    const chartSeries = visibleSeries.length > 0 ? visibleSeries : [{
+      name: '_empty',
+      data: categories.map(() => 20),
+      color: 'transparent',
+    }];
 
     this.radarChart = new RadarChart({
       containerId: 'pitcher-radar-chart',
       categories,
-      series,
-      height: 300,
-      radarSize: 120,
+      series: chartSeries,
+      height: 260,
+      radarSize: 105,
       min: 20,
       max: 85,
-      legendPosition: 'left',
-      offsetX: -40,
-      onLegendClick: (seriesName) => {
-        if (this.hiddenSeries.has(seriesName)) {
-          this.hiddenSeries.delete(seriesName);
-        } else {
-          this.hiddenSeries.add(seriesName);
-        }
-        this.updateAxisBadgeVisibility();
-        requestAnimationFrame(() => this.addProjectionLegendItem());
-      },
-      onUpdated: () => {
-        requestAnimationFrame(() => this.addProjectionLegendItem());
-      },
+      showLegend: false,
+      offsetX: 0,
+      onLegendClick: () => {},
+      onUpdated: () => {},
     });
     this.radarChart.render();
 
-    // Defer series toggles until ApexCharts has fully initialized its DOM
-    const seriesNames = new Set(series.map(s => s.name));
-    const seriesToHide = [...this.hiddenSeries].filter(n => n !== 'Stat Projections' && seriesNames.has(n));
-    if (seriesToHide.length > 0 || this.hiddenSeries.size > 0) {
+    // Apply badge visibility for any previously hidden series
+    if (this.hiddenSeries.size > 0) {
       requestAnimationFrame(() => {
-        for (const name of seriesToHide) {
-          this.radarChart?.toggleSeries(name);
-        }
-        // Re-inject custom legend item after ApexCharts legend DOM settles
-        requestAnimationFrame(() => {
-          this.addProjectionLegendItem();
-          this.updateAxisBadgeVisibility();
-        });
+        this.updateAxisBadgeVisibility();
       });
-    } else {
-      this.addProjectionLegendItem();
     }
   }
 
@@ -1683,7 +1787,7 @@ export class PitcherProfileModal {
 
     for (const [seriesName, badgeClass] of Object.entries(badgeMap)) {
       const isHidden = this.hiddenSeries.has(seriesName);
-      const badges = this.overlay.querySelectorAll<HTMLElement>(`.ratings-radar-col .${badgeClass}`);
+      const badges = this.overlay.querySelectorAll<HTMLElement>(`.ratings-section .${badgeClass}`);
       badges.forEach(badge => {
         badge.style.display = isHidden ? 'none' : '';
       });
@@ -1695,6 +1799,46 @@ export class PitcherProfileModal {
       // Don't hide the stamina IP badge
       if (badge.classList.contains('stamina-ip-badge')) return;
       badge.style.display = projHidden ? 'none' : '';
+    });
+  }
+
+  /** Wire up the inline legend dots as series toggles */
+  private bindLegendToggle(): void {
+    const items = this.overlay?.querySelectorAll<HTMLElement>('.legend-item[data-series]');
+    if (!items) return;
+
+    // Apply initial state
+    items.forEach(item => {
+      const series = item.dataset.series!;
+      const resolvedName = series === 'scout'
+        ? (this.scoutingIsOsa ? 'OSA Scout' : 'My Scout')
+        : series;
+      if (this.hiddenSeries.has(resolvedName)) {
+        item.classList.add('legend-inactive');
+      }
+    });
+
+    items.forEach(item => {
+      item.addEventListener('click', () => {
+        const series = item.dataset.series!;
+        const resolvedName = series === 'scout'
+          ? (this.scoutingIsOsa ? 'OSA Scout' : 'My Scout')
+          : series;
+
+        if (this.hiddenSeries.has(resolvedName)) {
+          this.hiddenSeries.delete(resolvedName);
+          item.classList.remove('legend-inactive');
+        } else {
+          this.hiddenSeries.add(resolvedName);
+          item.classList.add('legend-inactive');
+        }
+
+        // Re-render chart from scratch with only visible series
+        if (series !== 'Stat Projections' && this.currentData) {
+          this.initRadarChart(this.currentData);
+        }
+        this.updateAxisBadgeVisibility();
+      });
     });
   }
 
@@ -1718,6 +1862,9 @@ export class PitcherProfileModal {
     const { projK9, projBb9, projHr9, projFip, projIp, projWar,
             projK, projBb, projHr, age, ratingLabel, projNote,
             isPeakMode, showActualComparison, ratings } = proj;
+
+    // Cache for career stats row consistency
+    this._cachedProj = { projK9, projBb9, projHr9, projFip, projIp, projWar };
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
     const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;
@@ -1824,13 +1971,13 @@ export class PitcherProfileModal {
       return `<p class="no-stats">No pitching stats found for this player.</p>`;
     }
 
-    // Build projection row from computed projection stats
-    const ps = this.computeProjectedStats(this.currentData!);
+    // Build projection row from cached projection (same values as Projections tab)
+    const ps = this._cachedProj;
     let projRow = '';
-    if (ps.projIp !== undefined && ps.projFip !== undefined) {
-      const projK = ps.projK9 !== undefined ? Math.round(ps.projK9 * ps.projIp / 9) : 0;
-      const projBb = ps.projBb9 !== undefined ? Math.round(ps.projBb9 * ps.projIp / 9) : 0;
-      const projHr = ps.projHr9 !== undefined ? Math.round(ps.projHr9 * ps.projIp / 9) : 0;
+    if (ps) {
+      const projK = Math.round(ps.projK9 * ps.projIp / 9);
+      const projBb = Math.round(ps.projBb9 * ps.projIp / 9);
+      const projHr = Math.round(ps.projHr9 * ps.projIp / 9);
       projRow = `
         <tr class="projection-row">
           <td style="text-align: center; font-weight: 600;" title="True Projection">TP</td>
@@ -1840,10 +1987,10 @@ export class PitcherProfileModal {
           <td style="text-align: center;">${projK}</td>
           <td style="text-align: center;">${projBb}</td>
           <td style="text-align: center;">${projHr}</td>
-          <td style="text-align: center;">${ps.projK9?.toFixed(2) ?? '—'}</td>
-          <td style="text-align: center;">${ps.projBb9?.toFixed(2) ?? '—'}</td>
-          <td style="text-align: center;">${ps.projHr9?.toFixed(2) ?? '—'}</td>
-          <td style="text-align: center;">${ps.projWar?.toFixed(1) ?? '—'}</td>
+          <td style="text-align: center;">${ps.projK9.toFixed(2)}</td>
+          <td style="text-align: center;">${ps.projBb9.toFixed(2)}</td>
+          <td style="text-align: center;">${ps.projHr9.toFixed(2)}</td>
+          <td style="text-align: center;">${ps.projWar.toFixed(1)}</td>
         </tr>
       `;
     }
@@ -2155,6 +2302,7 @@ export class PitcherProfileModal {
     });
     this.initRadarChart(this.currentData!);
     this.initArsenalRadarChart(this.currentData!);
+    this.bindLegendToggle();
     this.lockTabContentHeight();
 
     // Auto-fetch analysis if it's the default view (skip for retired players)
@@ -2516,6 +2664,7 @@ export class PitcherProfileModal {
         if (ratingsSection) {
           ratingsSection.outerHTML = this.renderRatingsSection(this.currentData);
           this.bindScoutSourceToggle();
+          this.bindLegendToggle();
           this.initRadarChart(this.currentData);
           this.initArsenalRadarChart(this.currentData);
         }

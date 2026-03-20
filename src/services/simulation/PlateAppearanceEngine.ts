@@ -49,6 +49,25 @@ export function buildLeagueAverageRates(
 }
 
 // ============================================================================
+// Calibration Constants (tune these to match WBL historical team stat ranges)
+// ============================================================================
+
+// Spread amplification: amplify batter/pitcher deviations from league average
+// before log5 to counteract log5's compression of extreme rates.
+// >1 = more spread between good and bad hitters/pitchers.
+const HR_BATTER_SPREAD = 1.50;    // Power hitters hit more HR, weak hitters fewer
+const HR_PITCHER_SPREAD = 1.50;   // Bad pitchers allow more HR, good pitchers fewer
+const K_PITCHER_SPREAD = 1.50;    // Good K pitchers K more, bad K fewer
+const POST_HR_MULT = 1.12;        // Post-log5 HR boost (NOT absorbed by league baseline)
+
+// XBH contact-pool protection: fraction of batter's raw 2B/3B rate preserved
+// from contact-pool compression. The contact pool (1-BB-K-HR) shrinks when
+// facing good pitchers, which uniformly suppresses all contact outcomes.
+// In reality, doubles/triples are more batter-driven than pitcher-driven.
+// 0 = full compression (current), 1 = ignore pitching effect on XBH entirely.
+const XBH_PROTECT = 0.40;
+
+// ============================================================================
 // Log5 Matchup
 // ============================================================================
 
@@ -57,15 +76,12 @@ export function buildLeagueAverageRates(
  *
  * Two-stage approach:
  * 1. Log5 determines the "three true outcomes" (K, BB, HR) — these are
- *    influenced by both pitcher and batter.
+ *    influenced by both pitcher and batter. Spread amplification on HR and
+ *    pitcher K to counteract log5 compression.
  * 2. The remaining contact probability (1 - K - BB - HR) is distributed
  *    among batted-ball outcomes (1B, 2B, 3B, OUT) using the batter's
- *    batted-ball profile. Pitchers primarily influence TTO; batted-ball
- *    distribution is batter-driven.
- *
- * This ensures a good pitcher (high K, low BB/HR) properly suppresses
- * offense by reducing the contact pool, rather than just reshuffling
- * probability via normalization.
+ *    batted-ball profile. XBH rates are partially protected from contact-pool
+ *    compression via blending with the batter's raw rate.
  */
 export function computeMatchupVector(
   batter: BatterSnapshot,
@@ -73,10 +89,15 @@ export function computeMatchupVector(
   league: LeagueAverageRates,
   out: PAVector,
 ): void {
-  // Stage 1: Log5 for three true outcomes
+  // Stage 1: Log5 for three true outcomes with spread amplification
+  // Amplify deviations from league average before log5
+  const ampBatterHR = Math.max(0.001, league.hrRate + (batter.pHR - league.hrRate) * HR_BATTER_SPREAD);
+  const ampPitcherHR = Math.max(0.001, league.hrRate + (pitcher.pHR - league.hrRate) * HR_PITCHER_SPREAD);
+  const ampPitcherK = Math.max(0.01, league.kPct + (pitcher.pK - league.kPct) * K_PITCHER_SPREAD);
+
   let pBB = log5(batter.pBB, pitcher.pBB, league.bbPct);
-  let pK = log5(batter.pK, pitcher.pK, league.kPct);
-  let pHR = log5(batter.pHR, pitcher.pHR, league.hrRate);
+  let pK = log5(batter.pK, ampPitcherK, league.kPct);
+  let pHR = log5(ampBatterHR, ampPitcherHR, league.hrRate) * POST_HR_MULT;
 
   // Clamp TTO total so contact rate stays non-negative
   const ttoTotal = pBB + pK + pHR;
@@ -104,10 +125,35 @@ export function computeMatchupVector(
     return;
   }
 
-  out.pSingle = contactRate * (batter.pSingle / batterContact);
-  out.pDouble = contactRate * (batter.pDouble / batterContact);
-  out.pTriple = contactRate * (batter.pTriple / batterContact);
-  out.pOut    = contactRate * (batter.pOut    / batterContact);
+  // XBH contact-pool protection: blend compressed rate with batter's raw rate
+  // to preserve more individual variance in doubles/triples
+  const batterNaturalContact = 1 - batter.pBB - batter.pK - batter.pHR;
+  const xbhContact = contactRate * (1 - XBH_PROTECT) + batterNaturalContact * XBH_PROTECT;
+
+  let rawDouble = xbhContact * (batter.pDouble / batterContact);
+  let rawTriple = xbhContact * (batter.pTriple / batterContact);
+
+  // Clamp XBH so they don't exceed the actual contact rate
+  const xbhTotal = rawDouble + rawTriple;
+  if (xbhTotal > contactRate * 0.40) {
+    const scale = (contactRate * 0.40) / xbhTotal;
+    rawDouble *= scale;
+    rawTriple *= scale;
+  }
+
+  out.pDouble = rawDouble;
+  out.pTriple = rawTriple;
+
+  // Singles and outs get the remainder, proportioned by batter profile
+  const remaining = contactRate - out.pDouble - out.pTriple;
+  const soTotal = batter.pSingle + batter.pOut;
+  if (soTotal > 0) {
+    out.pSingle = remaining * (batter.pSingle / soTotal);
+    out.pOut = remaining * (batter.pOut / soTotal);
+  } else {
+    out.pSingle = 0;
+    out.pOut = remaining;
+  }
 }
 
 function log5(pBatter: number, pPitcher: number, pLeague: number): number {

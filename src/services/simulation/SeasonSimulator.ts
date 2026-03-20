@@ -187,7 +187,7 @@ export async function runSeasonSimulation(
 
   for (let sim = 0; sim < config.numSimulations; sim++) {
     const { records: seasonResult, batterStats, pitcherStats, gsStats } =
-      simulateOneSeason(teams, schedule, teamMap, homeBoostedTeamMap, league, config, sim, leagueDefShift);
+      simulateOneSeason(teams, schedule, teamMap, homeBoostedTeamMap, league, config, sim, leagueDefShift, playerTeamMap);
 
     // Store records and track champions
     for (const [teamId, rec] of seasonResult) {
@@ -195,6 +195,33 @@ export async function runSeasonSimulation(
       if (rec.wonChampionship) {
         champCounts.set(teamId, (champCounts.get(teamId) ?? 0) + 1);
       }
+    }
+
+    // Aggregate player stats into team-level records for this season
+    // (includes phantom callup players registered via phantomRegistry)
+    for (const [pid, bs] of batterStats) {
+      const info = playerTeamMap.get(pid);
+      if (!info) continue;
+      const rec = seasonResult.get(info.teamId);
+      if (!rec) continue;
+      rec.battingAB += bs.ab;
+      rec.battingH += bs.h;
+      rec.battingHR += bs.hr;
+      rec.battingBB += bs.bb;
+      rec.battingK += bs.k;
+      rec.batting2B += bs.doubles;
+      rec.batting3B += bs.triples;
+    }
+    for (const [pid, ps] of pitcherStats) {
+      const info = playerTeamMap.get(pid);
+      if (!info || pid < 0) continue;
+      const rec = seasonResult.get(info.teamId);
+      if (!rec) continue;
+      rec.pitchingOuts += ps.outs;
+      rec.pitchingER += ps.er;
+      rec.pitchingK += ps.k;
+      rec.pitchingBB += ps.bb;
+      rec.pitchingHR += ps.hr;
     }
 
     // Accumulate batter stats
@@ -288,14 +315,29 @@ export async function runSeasonSimulation(
   for (const d of detailTeams) {
     const team = teams.find(t => t.abbr === d.abbr);
     if (!team) continue;
-    const players = team.lineup.map(b => `${b.position} ${b.name}: ${b.defRuns >= 0 ? '+' : ''}${b.defRuns.toFixed(1)}`).join(', ');
-    console.log(`  [${d.abbr} detail] ${players}`);
+    
   }
   // ── end defense diagnostic ──
 
+  // ── Team stat calibration diagnostic ──
+  const sorted = [...teamSummaries].sort((a, b) => b.meanWins - a.meanWins);
+  const statMin = (fn: (s: TeamSummary) => number) => Math.round(Math.min(...sorted.map(fn)));
+  const statMax = (fn: (s: TeamSummary) => number) => Math.round(Math.max(...sorted.map(fn)));
+  const statMed = (fn: (s: TeamSummary) => number) => {
+    const vals = sorted.map(fn).sort((a, b) => a - b);
+    return vals[Math.floor(vals.length / 2)];
+  };
+  const eraMin = (statMin(s => s.medianPitchingERA * 100) / 100).toFixed(2);
+  const eraMed = (statMed(s => s.medianPitchingERA) as number).toFixed(2);
+  const eraMax = (statMax(s => s.medianPitchingERA * 100) / 100).toFixed(2);
+  const avgMin = (statMin(s => s.medianBattingAvg * 1000) / 1000).toFixed(3);
+  const avgMed = (Math.round(statMed(s => s.medianBattingAvg) * 1000) / 1000).toFixed(3);
+  const avgMax = (statMax(s => s.medianBattingAvg * 1000) / 1000).toFixed(3);
+  console.log(`[SIM_CAL] AVG=${avgMin}/${avgMed}/${avgMax} HR=${statMin(s=>s.medianBattingHR)}/${statMed(s=>s.medianBattingHR)}/${statMax(s=>s.medianBattingHR)} 2B=${statMin(s=>s.medianBatting2B)}/${statMed(s=>s.medianBatting2B)}/${statMax(s=>s.medianBatting2B)} 3B=${statMin(s=>s.medianBatting3B)}/${statMed(s=>s.medianBatting3B)}/${statMax(s=>s.medianBatting3B)} BB=${statMin(s=>s.medianBattingBB)}/${statMed(s=>s.medianBattingBB)}/${statMax(s=>s.medianBattingBB)} K=${statMin(s=>s.medianBattingK)}/${statMed(s=>s.medianBattingK)}/${statMax(s=>s.medianBattingK)} SB=${statMin(s=>s.medianBattingSB)}/${statMed(s=>s.medianBattingSB)}/${statMax(s=>s.medianBattingSB)} R=${statMin(s=>s.medianRS)}/${statMed(s=>s.medianRS)}/${statMax(s=>s.medianRS)} ERA=${eraMin}/${eraMed}/${eraMax} pK=${statMin(s=>s.medianPitchingK)}/${statMed(s=>s.medianPitchingK)}/${statMax(s=>s.medianPitchingK)} pBB=${statMin(s=>s.medianPitchingBB)}/${statMed(s=>s.medianPitchingBB)}/${statMax(s=>s.medianPitchingBB)} pHR=${statMin(s=>s.medianPitchingHR)}/${statMed(s=>s.medianPitchingHR)}/${statMax(s=>s.medianPitchingHR)} RA=${statMin(s=>s.medianRA)}/${statMed(s=>s.medianRA)}/${statMax(s=>s.medianRA)}`);
+
   return {
     config,
-    teamSummaries: teamSummaries.sort((a, b) => b.meanWins - a.meanWins),
+    teamSummaries: sorted,
     elapsedMs: performance.now() - startTime,
     leaderboards,
   };
@@ -323,55 +365,109 @@ function findBenchSub(bench: BatterSnapshot[], position: string, currentLineup: 
       ?? bench.find(b => !usedIds.has(b.playerId));
 }
 
-// Replacement-level batter used when no backup catcher is available
-const REPLACEMENT_CATCHER: BatterSnapshot = {
-  playerId: -1,
-  name: 'Replacement C',
-  position: 'C',
+// Replacement-level batter template — phantom callup/minor leaguer
+const REPLACEMENT_RATES = {
   pBB: 0.065, pK: 0.230, pHR: 0.018,
   pTriple: 0.003, pDouble: 0.040, pSingle: 0.170,
   pOut: 0.474,
   projectedPa: 200,
-  injuryTier: 'Normal',
+  injuryTier: 'Normal' as string,
   speed: 30, stealAggression: 20, stealAbility: 20,
   woba: 0.280, positionRating: 40, defRuns: -2,
 };
 
-function buildGameLineup(team: TeamSnapshot, state: TeamSeasonState): { snapshot: TeamSnapshot; catcherRested: boolean } {
+function makeReplacementBatter(position: string, teamId: number, slotIdx: number): BatterSnapshot {
+  // Team-unique negative ID: -(teamId * 100 + slotIdx) to avoid collisions
+  return { ...REPLACEMENT_RATES, playerId: -(teamId * 100 + slotIdx), name: `Callup ${position}`, position };
+}
+
+// Full-time PA benchmark: a starter playing every game gets ~720 PA
+// (162 games × ~4.45 PA/game). Higher value = less resting.
+const FULL_TIME_PA = 720;
+
+/** Compute start probability from projected PA (0.0 to 1.0) */
+function getStartProb(projectedPa: number): number {
+  return Math.min(1.0, Math.max(0.05, projectedPa / FULL_TIME_PA));
+}
+
+function buildGameLineup(team: TeamSnapshot, state: TeamSeasonState, rng: RNG, phantomRegistry?: Map<number, { teamId: number; leagueId: number; name: string }>): { snapshot: TeamSnapshot; catcherRested: boolean } {
   const lineup = [...team.lineup];
   let catcherRested = false;
+  const usedBenchIds = new Set<number>();
 
-  // Catcher rest: determine frequency from projectedPa to match expected workload.
-  // A full-time player gets ~4.5 PA/game over 162 games = ~729 PA max.
-  // If projectedPa < 729, the catcher needs (162 - projectedPa/4.5) rest days.
-  // Frequency = games between rest days = 162 / restDays.
-  const catcherSlot = lineup.findIndex(b => b.position === 'C');
-  if (catcherSlot >= 0) {
-    const catcher = lineup[catcherSlot];
-    const maxPa = 162 * 4.5;
-    const targetPa = Math.min(catcher.projectedPa, maxPa);
-    const restDays = Math.max(1, Math.round(162 - targetPa / 4.5));
-    const restFreq = Math.max(2, Math.floor((162 - restDays) / restDays)); // Games between rest days
-    if (state.catcherGamesPlayed >= restFreq) {
-      const backupC = team.bench.find(b => b.position === 'C');
-      const sub = backupC ?? REPLACEMENT_CATCHER;
-      lineup[catcherSlot] = sub;
-      state.restingSlots.add(catcherSlot);
-      catcherRested = true;
-    }
-  }
-
-  // Check injury-based rest for each slot
+  // For each lineup slot: check PA-budget start probability, then injury rest.
+  // Cascade: starter → bench player → phantom replacement.
   for (let i = 0; i < lineup.length; i++) {
-    if (state.restingSlots.has(i)) continue;  // already resting (e.g. catcher)
-    const batter = team.lineup[i];
-    const restThreshold = getRestThreshold(batter.injuryTier);
-    if (state.consecutiveStarts[i] >= restThreshold) {
-      const benchSub = findBenchSub(team.bench, batter.position, lineup);
-      if (benchSub) {
-        lineup[i] = benchSub;
-        state.restingSlots.add(i);
+    const starter = team.lineup[i];
+    let needsSub = false;
+
+    // PA-budget check: roll against start probability
+    const startProb = getStartProb(starter.projectedPa);
+    if (startProb < 1.0 && rng() > startProb) {
+      needsSub = true;
+    }
+
+    // Injury-based rest: consecutive starts threshold
+    if (!needsSub) {
+      const restThreshold = getRestThreshold(starter.injuryTier);
+      if (state.consecutiveStarts[i] >= restThreshold) {
+        needsSub = true;
       }
+    }
+
+    // Catcher fatigue rest (on top of other rest checks)
+    if (!needsSub && starter.position === 'C') {
+      const maxPa = 162 * 4.5;
+      const targetPa = Math.min(starter.projectedPa, maxPa);
+      const restDays = Math.max(1, Math.round(162 - targetPa / 4.5));
+      const restFreq = Math.max(2, Math.floor((162 - restDays) / restDays));
+      if (state.catcherGamesPlayed >= restFreq) {
+        needsSub = true;
+      }
+    }
+
+    if (needsSub) {
+      // Try bench player at this position (also subject to their own startProb).
+      // Bench players use a reduced start probability to ensure phantoms get
+      // a realistic share of PA (~8-12% of team total).
+      const BENCH_PROB_SCALE = 0.60;  // bench accepts 60% of their startProb
+      let subbed = false;
+      for (const bench of team.bench) {
+        if (usedBenchIds.has(bench.playerId)) continue;
+        if (bench.position !== starter.position && bench.position !== 'DH') continue;
+        const benchStartProb = getStartProb(bench.projectedPa) * BENCH_PROB_SCALE;
+        if (rng() <= benchStartProb) {
+          lineup[i] = bench;
+          usedBenchIds.add(bench.playerId);
+          subbed = true;
+          break;
+        }
+      }
+      // Fallback: any available bench player regardless of position
+      if (!subbed) {
+        for (const bench of team.bench) {
+          if (usedBenchIds.has(bench.playerId)) continue;
+          const benchStartProb = getStartProb(bench.projectedPa) * BENCH_PROB_SCALE;
+          if (rng() <= benchStartProb) {
+            lineup[i] = bench;
+            usedBenchIds.add(bench.playerId);
+            subbed = true;
+            break;
+          }
+        }
+      }
+      // Final fallback: phantom replacement-level callup
+      if (!subbed) {
+        const phantom = makeReplacementBatter(starter.position, team.teamId, i);
+        lineup[i] = phantom;
+        // Register phantom so its stats count toward team totals
+        if (phantomRegistry && !phantomRegistry.has(phantom.playerId)) {
+          phantomRegistry.set(phantom.playerId, { teamId: team.teamId, leagueId: team.leagueId, name: phantom.name });
+        }
+      }
+
+      state.restingSlots.add(i);
+      if (starter.position === 'C') catcherRested = true;
     }
   }
 
@@ -444,6 +540,7 @@ function simulateOneSeason(
   config: SimConfig,
   simIndex: number,
   leagueDefShift: number = 0,
+  playerTeamMap?: Map<number, { teamId: number; leagueId: number; name: string }>,
 ): { records: Map<number, TeamSeasonRecord>; batterStats: Map<number, PlayerGameStats>; pitcherStats: Map<number, PitcherGameStats>; gsStats: Map<number, number> } {
   const rng = createRNG(simIndex * 7919 + 42);
   const shuffled = shuffleSchedule(schedule, rng);
@@ -454,6 +551,9 @@ function simulateOneSeason(
       teamId: t.teamId, wins: 0, losses: 0,
       runsScored: 0, runsAllowed: 0,
       divisionRank: 0, madePlayoffs: false, wonChampionship: false,
+      battingAB: 0, battingH: 0, battingHR: 0, battingBB: 0, battingK: 0,
+      batting2B: 0, batting3B: 0, battingSB: 0,
+      pitchingOuts: 0, pitchingER: 0, pitchingK: 0, pitchingBB: 0, pitchingHR: 0,
     });
   }
 
@@ -540,8 +640,8 @@ function simulateOneSeason(
     const homeTired = getTiredRelievers(homeBaseRaw, homeSeasonState);
     const awayTired = getTiredRelievers(awayBase, awaySeasonState);
 
-    const { snapshot: home, catcherRested: homeCatcherRested } = buildGameLineup(homeBase, homeSeasonState);
-    const { snapshot: away, catcherRested: awayCatcherRested } = buildGameLineup(awayBase, awaySeasonState);
+    const { snapshot: home, catcherRested: homeCatcherRested } = buildGameLineup(homeBase, homeSeasonState, rng, playerTeamMap);
+    const { snapshot: away, catcherRested: awayCatcherRested } = buildGameLineup(awayBase, awaySeasonState, rng, playerTeamMap);
 
     if (isDebugSim) {
       if (homeCatcherRested) catcherRestCounts.set(game.homeTeamId, (catcherRestCounts.get(game.homeTeamId) ?? 0) + 1);
@@ -598,6 +698,8 @@ function simulateOneSeason(
     homeRec.runsAllowed += result.awayScore;
     awayRec.runsScored += result.awayScore;
     awayRec.runsAllowed += result.homeScore;
+    homeRec.battingSB += result.homeSB;
+    awayRec.battingSB += result.awaySB;
 
     rotationIdx.set(home.teamId, (homeStarter + 1) % Math.max(1, home.rotation.length));
     rotationIdx.set(away.teamId, (awayStarter + 1) % Math.max(1, away.rotation.length));
@@ -639,7 +741,7 @@ function simulateOneSeason(
   }
 
   if (config.includePlayoffs) {
-    determinePlayoffs(records, teams, rng, homeBoostedTeamMap, league);
+    determinePlayoffs(records, teams, rng, homeBoostedTeamMap, teamMap, league);
   }
 
   return { records, batterStats, pitcherStats, gsStats };
@@ -764,6 +866,7 @@ function determinePlayoffs(
   teams: TeamSnapshot[],
   rng: RNG,
   homeBoostedTeamMap: Map<number, TeamSnapshot>,
+  teamMap: Map<number, TeamSnapshot>,
   league: LeagueAverageRates,
 ): void {
   // 4 division winners + best records get playoff spots
@@ -823,12 +926,12 @@ function determinePlayoffs(
     if (leaguePO.length < 2) continue;
 
     // Simple: best record vs worst, 2nd vs 3rd
-    const ds1Winner = simulatePlayoffSeries(leaguePO[0], leaguePO[3] ?? leaguePO[leaguePO.length - 1], 5, homeBoostedTeamMap, league, rng);
-    const ds2Winner = simulatePlayoffSeries(leaguePO[1], leaguePO[2] ?? leaguePO[leaguePO.length - 1], 5, homeBoostedTeamMap, league, rng);
+    const ds1Winner = simulatePlayoffSeries(leaguePO[0], leaguePO[3] ?? leaguePO[leaguePO.length - 1], 5, homeBoostedTeamMap, teamMap, league, rng);
+    const ds2Winner = simulatePlayoffSeries(leaguePO[1], leaguePO[2] ?? leaguePO[leaguePO.length - 1], 5, homeBoostedTeamMap, teamMap, league, rng);
     const pennantWinner = simulatePlayoffSeries(
       records.get(ds1Winner)!,
       records.get(ds2Winner)!,
-      7, homeBoostedTeamMap, league, rng,
+      7, homeBoostedTeamMap, teamMap, league, rng,
     );
 
     // Tag pennant winner for WS
@@ -838,7 +941,7 @@ function determinePlayoffs(
   // World Series
   const pennantWinners = [...records.values()].filter((r: any) => r._pennant);
   if (pennantWinners.length === 2) {
-    const wsWinner = simulatePlayoffSeries(pennantWinners[0], pennantWinners[1], 7, homeBoostedTeamMap, league, rng);
+    const wsWinner = simulatePlayoffSeries(pennantWinners[0], pennantWinners[1], 7, homeBoostedTeamMap, teamMap, league, rng);
     records.get(wsWinner)!.wonChampionship = true;
   }
 
@@ -853,22 +956,25 @@ function simulatePlayoffSeries(
   team2Rec: TeamSeasonRecord,
   gamesNeeded: number,
   homeBoostedTeamMap: Map<number, TeamSnapshot>,
+  teamMap: Map<number, TeamSnapshot>,
   league: LeagueAverageRates,
   rng: RNG,
 ): number {
   const winsNeeded = Math.ceil(gamesNeeded / 2);
   let t1Wins = 0;
   let t2Wins = 0;
-  const t1 = homeBoostedTeamMap.get(team1Rec.teamId)!;
-  const t2 = homeBoostedTeamMap.get(team2Rec.teamId)!;
+  const t1Home = homeBoostedTeamMap.get(team1Rec.teamId)!;
+  const t2Home = homeBoostedTeamMap.get(team2Rec.teamId)!;
+  const t1Away = teamMap.get(team1Rec.teamId)!;
+  const t2Away = teamMap.get(team2Rec.teamId)!;
 
   while (t1Wins < winsNeeded && t2Wins < winsNeeded) {
     // Home advantage: higher seed gets more home games (2-2-1-1-1 format)
     const gameNum = t1Wins + t2Wins;
     const t1IsHome = gameNum < 2 || gameNum === 4 || gameNum === 6;
 
-    const home = t1IsHome ? t1 : t2;
-    const away = t1IsHome ? t2 : t1;
+    const home = t1IsHome ? t1Home : t2Home;
+    const away = t1IsHome ? t2Away : t1Away;
     const starterIdx = (t1Wins + t2Wins) % 4; // cycle through top 4 starters
 
     const result = simulateGame(home, away, starterIdx, starterIdx, league, rng);
@@ -889,29 +995,47 @@ function simulatePlayoffSeries(
 // Results Aggregation
 // ============================================================================
 
+function median(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = arr.slice().sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)];
+}
+
 function aggregateResults(
   teams: TeamSnapshot[],
   allRecords: Map<number, TeamSeasonRecord[]>,
   numSims: number,
 ): TeamSummary[] {
+  const empty: TeamSummary = {
+    teamId: 0, teamName: '', abbr: '',
+    meanWins: 0, medianWins: 0, stdDev: 0,
+    minWins: 0, maxWins: 0, p10Wins: 0, p90Wins: 0,
+    meanRS: 0, meanRA: 0,
+    playoffPct: 0, divisionWinPct: 0, championshipPct: 0,
+    medianBattingAvg: 0, medianBattingBB: 0, medianBattingK: 0,
+    medianBattingHR: 0, medianBatting2B: 0, medianBatting3B: 0,
+    medianBattingSB: 0, medianRS: 0,
+    medianPitchingERA: 0, medianPitchingK: 0, medianPitchingBB: 0,
+    medianPitchingHR: 0, medianRA: 0,
+  };
+
   return teams.map(t => {
     const records = allRecords.get(t.teamId) ?? [];
     const wins = records.map(r => r.wins).sort((a, b) => a - b);
 
     if (wins.length === 0) {
-      return {
-        teamId: t.teamId,
-        teamName: t.teamName,
-        abbr: t.abbr,
-        meanWins: 0, medianWins: 0, stdDev: 0,
-        minWins: 0, maxWins: 0, p10Wins: 0, p90Wins: 0,
-        meanRS: 0, meanRA: 0,
-        playoffPct: 0, divisionWinPct: 0, championshipPct: 0,
-      };
+      return { ...empty, teamId: t.teamId, teamName: t.teamName, abbr: t.abbr };
     }
 
     const mean = wins.reduce((a, b) => a + b, 0) / wins.length;
     const variance = wins.reduce((sum, w) => sum + (w - mean) ** 2, 0) / wins.length;
+
+    // Compute per-sim batting/pitching stats for median calculation
+    const battingAvgs = records.map(r => r.battingAB > 0 ? r.battingH / r.battingAB : 0);
+    const pitchingERAs = records.map(r => {
+      const ip = r.pitchingOuts / 3;
+      return ip > 0 ? (r.pitchingER / ip) * 9 : 0;
+    });
 
     return {
       teamId: t.teamId,
@@ -929,6 +1053,21 @@ function aggregateResults(
       playoffPct: Math.round(records.filter(r => r.madePlayoffs).length / numSims * 1000) / 10,
       divisionWinPct: Math.round(records.filter(r => r.divisionRank === 1).length / numSims * 1000) / 10,
       championshipPct: Math.round(records.filter(r => r.wonChampionship).length / numSims * 1000) / 10,
+      // Median team batting stats
+      medianBattingAvg: Math.round(median(battingAvgs) * 1000) / 1000,
+      medianBattingBB: median(records.map(r => r.battingBB)),
+      medianBattingK: median(records.map(r => r.battingK)),
+      medianBattingHR: median(records.map(r => r.battingHR)),
+      medianBatting2B: median(records.map(r => r.batting2B)),
+      medianBatting3B: median(records.map(r => r.batting3B)),
+      medianBattingSB: median(records.map(r => r.battingSB)),
+      medianRS: median(records.map(r => r.runsScored)),
+      // Median team pitching stats
+      medianPitchingERA: Math.round(median(pitchingERAs) * 100) / 100,
+      medianPitchingK: median(records.map(r => r.pitchingK)),
+      medianPitchingBB: median(records.map(r => r.pitchingBB)),
+      medianPitchingHR: median(records.map(r => r.pitchingHR)),
+      medianRA: median(records.map(r => r.runsAllowed)),
     };
   });
 }
@@ -946,9 +1085,9 @@ function buildLeaderboards(
   numSims: number,
 ): SimLeaderboards {
   // Build per-player batting averages (divide totals by numSims)
+  // Includes phantom callup players (pid < 0) — they're registered in playerTeamMap
   const allBatters: SimPlayerBattingStats[] = [];
   for (const [pid, totals] of allSimBatterTotals) {
-    if (pid < 0) continue; // skip placeholders
     const info = playerTeamMap.get(pid);
     if (!info) continue;
 
@@ -1108,7 +1247,7 @@ function buildLeaderboards(
     .sort((a, b) => b.war - a.war)
     .slice(0, 10);
 
-  return { northernBatters, southernBatters, northernPitchers, southernPitchers };
+  return { northernBatters, southernBatters, northernPitchers, southernPitchers, allBatters, allPitchers };
 }
 
 // ============================================================================

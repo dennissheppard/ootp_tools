@@ -16,7 +16,7 @@ import { emitDataSourceBadges, ScoutingDataMode, SeasonDataMode } from '../utils
 import { teamLogoImg } from '../utils/teamLogos';
 import { supabaseDataService } from '../services/SupabaseDataService';
 import { runSimulation } from '../services/simulation/SimulationService';
-import type { SimulationResults } from '../services/simulation/SimulationTypes';
+import type { SimulationResults, TeamSummary } from '../services/simulation/SimulationTypes';
 import { DEFAULT_SIM_CONFIG } from '../services/simulation/SimulationTypes';
 
 // WAR→Wins calibration constants
@@ -55,6 +55,9 @@ export class TeamRatingsView {
   private viewMode: 'projected' | 'power-rankings' | 'standings' = (localStorage.getItem('wbl-teamratings-viewMode') as 'projected' | 'power-rankings' | 'standings') || 'power-rankings';
   private showByDivision: boolean = false;
   private standingsMode: 'war' | 'simulation' = 'war';
+  private simTableMode: 'wins' | 'stats' = 'wins';
+  private simStatsSortKey: string = 'meanWins';
+  private simStatsSortAsc: boolean = false;
   private simulationResults: SimulationResults | null = null;
   private isSimulating: boolean = false;
   private statsMode: 'preseason' | 'current' = (localStorage.getItem('wbl-teamratings-statsMode') as 'preseason' | 'current') || 'preseason';
@@ -1381,13 +1384,15 @@ export class TeamRatingsView {
 
         this.simulationResults = await runSimulation(
           { ...DEFAULT_SIM_CONFIG, numSimulations: numSims, includePlayoffs, year: statsYear },
-          (completed, total, status) => {
-            const pct = Math.round((completed / total) * 100);
+          (completed, total, status) => { const pct = Math.round((completed / total) * 100);
             if (progressFill) progressFill.style.width = `${pct}%`;
             if (progressLabel) progressLabel.textContent = status ? `${pct}% — ${status}` : `${pct}%`;
             if (runBtn) runBtn.textContent = `Simulating... ${pct}%`;
           }
         );
+
+        // Expose for devtools: window._simRoster('DEN')
+        (window as any).__lastSimResults = this.simulationResults;
 
         this.renderSimulationResultsTable(container.closest('#rotation-rankings') ?? container);
       } catch (err) {
@@ -1409,7 +1414,73 @@ export class TeamRatingsView {
 
       let tableContent: string;
 
-      if (this.showByDivision) {
+      if (this.simTableMode === 'stats') {
+        // Stats view — median team batting & pitching stats, sortable columns
+        type StatCol = { key: string; label: string; title: string; getValue: (s: TeamSummary) => number; format: (v: number) => string; lowerIsBetter?: boolean; border?: boolean; bold?: boolean };
+        const statCols: StatCol[] = [
+          { key: 'medianBattingAvg', label: 'AVG', title: 'Median team batting average', getValue: s => s.medianBattingAvg, format: v => v.toFixed(3).replace(/^0/, '') },
+          { key: 'medianBattingHR', label: 'HR', title: 'Median team home runs', getValue: s => s.medianBattingHR, format: v => String(v) },
+          { key: 'medianBatting2B', label: '2B', title: 'Median team doubles', getValue: s => s.medianBatting2B, format: v => String(v) },
+          { key: 'medianBatting3B', label: '3B', title: 'Median team triples', getValue: s => s.medianBatting3B, format: v => String(v) },
+          { key: 'medianBattingBB', label: 'BB', title: 'Median team walks drawn', getValue: s => s.medianBattingBB, format: v => String(v) },
+          { key: 'medianBattingK', label: 'K', title: 'Median team strikeouts', getValue: s => s.medianBattingK, format: v => String(v), lowerIsBetter: true },
+          { key: 'medianBattingSB', label: 'SB', title: 'Median team stolen bases', getValue: s => s.medianBattingSB, format: v => String(v) },
+          { key: 'medianRS', label: 'R', title: 'Median team runs scored', getValue: s => s.medianRS, format: v => String(v), bold: true },
+          { key: 'medianPitchingERA', label: 'ERA', title: 'Median team ERA', getValue: s => s.medianPitchingERA, format: v => v.toFixed(2), lowerIsBetter: true, border: true },
+          { key: 'medianPitchingK', label: 'K', title: 'Median team pitcher strikeouts', getValue: s => s.medianPitchingK, format: v => String(v) },
+          { key: 'medianPitchingBB', label: 'BB', title: 'Median team walks allowed', getValue: s => s.medianPitchingBB, format: v => String(v), lowerIsBetter: true },
+          { key: 'medianPitchingHR', label: 'HR', title: 'Median team home runs allowed', getValue: s => s.medianPitchingHR, format: v => String(v), lowerIsBetter: true },
+          { key: 'medianRA', label: 'RA', title: 'Median team runs allowed', getValue: s => s.medianRA, format: v => String(v), lowerIsBetter: true, bold: true },
+        ];
+
+        const sortCol = statCols.find(c => c.key === this.simStatsSortKey);
+        const sorted = [...teamSummaries].sort((a, b) => {
+          if (!sortCol) return b.meanWins - a.meanWins;
+          const va = sortCol.getValue(a), vb = sortCol.getValue(b);
+          return this.simStatsSortAsc ? va - vb : vb - va;
+        });
+
+        const arrow = (key: string) => this.simStatsSortKey === key ? (this.simStatsSortAsc ? ' ▲' : ' ▼') : '';
+        const thStyle = 'text-align:center;cursor:pointer;user-select:none;white-space:nowrap;';
+
+        const statsRows = sorted.map((s, i) => {
+          const nickname = s.teamName.split(' ').pop() ?? '';
+          const cells = statCols.map(c => {
+            const borderStyle = c.border ? 'border-left:1px solid var(--border-color);' : '';
+            const boldStyle = c.bold ? 'font-weight:500;' : '';
+            return `<td style="text-align:center;${borderStyle}${boldStyle}">${c.format(c.getValue(s))}</td>`;
+          }).join('');
+          return `<tr>
+            <td style="font-weight:bold;color:var(--color-text-muted);">${i + 1}</td>
+            <td style="font-weight:600;text-align:left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(nickname, 'team-btn-logo')}${s.teamName}</div></td>
+            ${cells}
+          </tr>`;
+        }).join('');
+
+        const headerCells = statCols.map(c => {
+          const borderStyle = c.border ? 'border-left:1px solid var(--border-color);' : '';
+          return `<th style="${thStyle}${borderStyle}" title="${c.title}" data-sort-key="${c.key}">${c.label}${arrow(c.key)}</th>`;
+        }).join('');
+
+        tableContent = `
+          <table class="stats-table standings-table sim-stats-table" style="width: 100%;">
+            <thead>
+              <tr>
+                <th style="width: 40px;">#</th>
+                <th style="text-align: left;">Team</th>
+                <th colspan="8" style="text-align: center; border-bottom: 2px solid var(--accent-color);">Batting</th>
+                <th colspan="5" style="text-align: center; border-bottom: 2px solid var(--accent-color); border-left: 1px solid var(--border-color);">Pitching</th>
+              </tr>
+              <tr>
+                <th></th>
+                <th></th>
+                ${headerCells}
+              </tr>
+            </thead>
+            <tbody>${statsRows}</tbody>
+          </table>
+        `;
+      } else if (this.showByDivision) {
         // Division-grouped view
         const divisionHtmls = DIVISIONS.map(div => {
           const divTeams = div.teams
@@ -1527,10 +1598,14 @@ export class TeamRatingsView {
           <p class="note-text" style="margin: 0.25rem 0 0.75rem; line-height: 1.4;">
             Each season simulates every game using per-PA matchup probabilities (batter vs pitcher via log5). Includes division-weighted scheduling, rotation cycling, and bullpen management.
           </p>
-          <div style="margin-bottom: 0.75rem;">
+          <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; align-items: center;">
             <button id="sim-rerun-btn" class="toggle-btn" style="padding: 0.35rem 1rem; font-size: 0.8rem;">
               Re-run Simulation
             </button>
+            <div style="margin-left: auto; display: flex; gap: 0.25rem;">
+              <button class="toggle-btn toggle-btn-sm sim-table-toggle ${this.simTableMode === 'wins' ? 'active' : ''}" data-mode="wins">Wins</button>
+              <button class="toggle-btn toggle-btn-sm sim-table-toggle ${this.simTableMode === 'stats' ? 'active' : ''}" data-mode="stats">Stats</button>
+            </div>
           </div>
           ${tableContent}
           ${leaderboardHtml}
@@ -1542,6 +1617,30 @@ export class TeamRatingsView {
       rerunBtn?.addEventListener('click', () => {
         this.simulationResults = null;
         this.renderLists();
+      });
+
+      // Bind stats/wins toggle
+      container.querySelectorAll('.sim-table-toggle').forEach(btn => {
+        btn.addEventListener('click', () => {
+          this.simTableMode = (btn as HTMLElement).dataset.mode as 'wins' | 'stats';
+          this.renderSimulationResultsTable(container);
+        });
+      });
+
+      // Bind sortable column headers in stats table
+      container.querySelectorAll('.sim-stats-table th[data-sort-key]').forEach(th => {
+        th.addEventListener('click', () => {
+          const key = (th as HTMLElement).dataset.sortKey!;
+          if (this.simStatsSortKey === key) {
+            this.simStatsSortAsc = !this.simStatsSortAsc;
+          } else {
+            this.simStatsSortKey = key;
+            // Default sort direction: lower-is-better stats sort ascending, others descending
+            const lowerIsBetter = ['medianBattingK', 'medianPitchingERA', 'medianPitchingBB', 'medianPitchingHR', 'medianRA'].includes(key);
+            this.simStatsSortAsc = lowerIsBetter;
+          }
+          this.renderSimulationResultsTable(container);
+        });
       });
 
       // Bind player name links in leaderboards
@@ -1601,7 +1700,11 @@ export class TeamRatingsView {
 
     const pitcherTable = (title: string, pitchers: import('../services/simulation/SimulationTypes').SimPlayerPitchingStats[]) => {
       if (pitchers.length === 0) return '';
-      const rows = pitchers.map((p, i) => `
+      const rows = pitchers.map((p, i) => {
+        const k9 = p.ip > 0 ? (p.k / p.ip * 9).toFixed(1) : '--';
+        const bb9 = p.ip > 0 ? (p.bb / p.ip * 9).toFixed(1) : '--';
+        const hr9 = p.ip > 0 ? (p.hr / p.ip * 9).toFixed(1) : '--';
+        return `
         <tr>
           <td style="color:var(--color-text-muted);font-weight:bold;">${i + 1}</td>
           ${logoCell(p.teamId)}
@@ -1610,11 +1713,11 @@ export class TeamRatingsView {
           <td style="text-align:center;">${Math.round(p.ip)}</td>
           <td style="text-align:center;">${p.era.toFixed(2)}</td>
           <td style="text-align:center;color:${Math.abs(p.fip - p.era) > 1 ? 'var(--color-warning)' : 'inherit'};">${p.fip.toFixed(2)}</td>
-          <td style="text-align:center;">${Math.round(p.k)}</td>
-          <td style="text-align:center;">${Math.round(p.bb)}</td>
-          <td style="text-align:center;">${Math.round(p.hr)}</td>
-          <td style="text-align:center;">${Math.round(p.saves)}</td>
-        </tr>`).join('');
+          <td style="text-align:center;">${k9}</td>
+          <td style="text-align:center;">${bb9}</td>
+          <td style="text-align:center;">${hr9}</td>
+        </tr>`;
+      }).join('');
       return `
         <div>
           <h4 class="section-label" style="margin-bottom:0.5rem;">${title}</h4>
@@ -1627,10 +1730,9 @@ export class TeamRatingsView {
               <th style="text-align:center;">IP</th>
               <th style="text-align:center;">ERA</th>
               <th style="text-align:center;">FIP</th>
-              <th style="text-align:center;">K</th>
-              <th style="text-align:center;">BB</th>
-              <th style="text-align:center;">HR</th>
-              <th style="text-align:center;">SV</th>
+              <th style="text-align:center;">K/9</th>
+              <th style="text-align:center;">BB/9</th>
+              <th style="text-align:center;">HR/9</th>
             </tr></thead>
             <tbody>${rows}</tbody>
           </table>
@@ -2869,7 +2971,25 @@ export class TeamRatingsView {
         showYearLabel: !!playerSeasonYear
       };
 
-      // TFR skipped here — modal fetches canonical TFR internally
+      // Look up TFR data for peak potential / radar overlay
+      try {
+        const farmData = await teamRatingsService.getFarmData(playerSeasonYear ?? this.selectedYear);
+        const farmProspect = farmData.prospects.find(p => p.playerId === playerId);
+        if (farmProspect) {
+          (profileData as any).trueFutureRating = farmProspect.trueFutureRating;
+          (profileData as any).tfrPercentile = farmProspect.percentile;
+          (profileData as any).tfrStuff = farmProspect.trueRatings?.stuff;
+          (profileData as any).tfrControl = farmProspect.trueRatings?.control;
+          (profileData as any).tfrHra = farmProspect.trueRatings?.hra;
+          (profileData as any).tfrBySource = farmProspect.tfrBySource;
+          (profileData as any).hasTfrUpside = (farmProspect.trueFutureRating > (profileData.trueRating ?? 0))
+            || hasComponentUpside(
+              [profileData.estimatedStuff, profileData.estimatedControl, profileData.estimatedHra],
+              [farmProspect.trueRatings?.stuff, farmProspect.trueRatings?.control, farmProspect.trueRatings?.hra]
+            );
+        }
+      } catch (e) { /* TFR data not available */ }
+
       await pitcherProfileModal.show(profileData as any, playerSeasonYear ?? this.selectedYear);
     } else {
       // Batter
@@ -2925,7 +3045,37 @@ export class TeamRatingsView {
         projWoba: playerData.woba,
       };
 
-      // TFR skipped here — modal fetches canonical TFR internally
+      // Look up TFR data for peak potential / radar overlay
+      try {
+        const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(playerSeasonYear ?? this.selectedYear);
+        const tfrEntry = unifiedData.prospects.find(p => p.playerId === playerId);
+        if (tfrEntry) {
+          profileData.trueFutureRating = tfrEntry.trueFutureRating;
+          profileData.tfrPercentile = tfrEntry.percentile;
+          profileData.tfrPower = tfrEntry.trueRatings.power;
+          profileData.tfrEye = tfrEntry.trueRatings.eye;
+          profileData.tfrAvoidK = tfrEntry.trueRatings.avoidK;
+          profileData.tfrContact = tfrEntry.trueRatings.contact;
+          profileData.tfrGap = tfrEntry.trueRatings.gap;
+          profileData.tfrSpeed = tfrEntry.trueRatings.speed;
+          profileData.tfrBbPct = tfrEntry.projBbPct;
+          profileData.tfrKPct = tfrEntry.projKPct;
+          profileData.tfrHrPct = tfrEntry.projHrPct;
+          profileData.tfrAvg = tfrEntry.projAvg;
+          profileData.tfrObp = tfrEntry.projObp;
+          profileData.tfrSlg = tfrEntry.projSlg;
+          profileData.tfrPa = tfrEntry.projPa;
+          profileData.tfrBySource = tfrEntry.tfrBySource;
+          profileData.hasTfrUpside = (tfrEntry.trueFutureRating > (profileData.trueRating ?? 0))
+            || hasComponentUpside(
+              [profileData.estimatedPower, profileData.estimatedEye, profileData.estimatedAvoidK,
+               profileData.estimatedContact, profileData.estimatedGap, profileData.estimatedSpeed],
+              [tfrEntry.trueRatings.power, tfrEntry.trueRatings.eye, tfrEntry.trueRatings.avoidK,
+               tfrEntry.trueRatings.contact, tfrEntry.trueRatings.gap, tfrEntry.trueRatings.speed]
+            );
+        }
+      } catch (e) { /* TFR data not available */ }
+
       await this.batterProfileModal.show(profileData, playerSeasonYear ?? this.selectedYear);
     }
   }
@@ -3015,7 +3165,37 @@ export class TeamRatingsView {
         projHr: this.viewMode === 'projected' ? row.stats?.hr : undefined,
       };
 
-      // TFR skipped here — modal fetches canonical TFR internally
+      // Look up TFR data for peak potential / radar overlay
+      try {
+        const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(seasonYear);
+        const tfrEntry = unifiedData.prospects.find(p => p.playerId === row.playerId);
+        if (tfrEntry) {
+          profileData.trueFutureRating = tfrEntry.trueFutureRating;
+          profileData.tfrPercentile = tfrEntry.percentile;
+          profileData.tfrPower = tfrEntry.trueRatings.power;
+          profileData.tfrEye = tfrEntry.trueRatings.eye;
+          profileData.tfrAvoidK = tfrEntry.trueRatings.avoidK;
+          profileData.tfrContact = tfrEntry.trueRatings.contact;
+          profileData.tfrGap = tfrEntry.trueRatings.gap;
+          profileData.tfrSpeed = tfrEntry.trueRatings.speed;
+          profileData.tfrBbPct = tfrEntry.projBbPct;
+          profileData.tfrKPct = tfrEntry.projKPct;
+          profileData.tfrHrPct = tfrEntry.projHrPct;
+          profileData.tfrAvg = tfrEntry.projAvg;
+          profileData.tfrObp = tfrEntry.projObp;
+          profileData.tfrSlg = tfrEntry.projSlg;
+          profileData.tfrPa = tfrEntry.projPa;
+          profileData.tfrBySource = tfrEntry.tfrBySource;
+          profileData.hasTfrUpside = (tfrEntry.trueFutureRating > (profileData.trueRating ?? 0))
+            || hasComponentUpside(
+              [profileData.estimatedPower, profileData.estimatedEye, profileData.estimatedAvoidK,
+               profileData.estimatedContact, profileData.estimatedGap, profileData.estimatedSpeed],
+              [tfrEntry.trueRatings.power, tfrEntry.trueRatings.eye, tfrEntry.trueRatings.avoidK,
+               tfrEntry.trueRatings.contact, tfrEntry.trueRatings.gap, tfrEntry.trueRatings.speed]
+            );
+        }
+      } catch (e) { /* TFR data not available */ }
+
       await this.batterProfileModal.show(profileData, seasonYear);
       return;
     }
@@ -3111,7 +3291,25 @@ export class TeamRatingsView {
         : undefined
     };
 
-    // TFR skipped here — modal fetches canonical TFR internally
+    // Look up TFR data for peak potential / radar overlay
+    try {
+      const farmData = await teamRatingsService.getFarmData(seasonYear);
+      const farmProspect = farmData.prospects.find(p => p.playerId === row.playerId);
+      if (farmProspect) {
+        (profileData as any).trueFutureRating = farmProspect.trueFutureRating;
+        (profileData as any).tfrPercentile = farmProspect.percentile;
+        (profileData as any).tfrStuff = farmProspect.trueRatings?.stuff;
+        (profileData as any).tfrControl = farmProspect.trueRatings?.control;
+        (profileData as any).tfrHra = farmProspect.trueRatings?.hra;
+        (profileData as any).tfrBySource = farmProspect.tfrBySource;
+        (profileData as any).hasTfrUpside = (farmProspect.trueFutureRating > (profileData.trueRating ?? 0))
+          || hasComponentUpside(
+            [profileData.estimatedStuff, profileData.estimatedControl, profileData.estimatedHra],
+            [farmProspect.trueRatings?.stuff, farmProspect.trueRatings?.control, farmProspect.trueRatings?.hra]
+          );
+      }
+    } catch (e) { /* TFR data not available */ }
+
     await pitcherProfileModal.show(profileData as any, seasonYear);
   }
 

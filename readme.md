@@ -394,7 +394,7 @@ Single source of truth with shared computation (see `docs/pipeline-map.html`):
 | `TrueRatingsView` | Pitcher/batter dashboard with TR/projections; level-based filtering (MLB / Minor Leaguers / Future Draftees / Free Agents) via scouting `Lev`/`HSC` columns |
 | `FarmRankingsView` | Top 100 prospects, org rankings with Farm Score |
 | `ProjectionsView` | Future performance projections with 3-model ensemble |
-| `TeamRatingsView` | Power Rankings / WAR Projections / Win Projections (WAR-Based or Monte Carlo Simulation) |
+| `TeamRatingsView` | Power Rankings / WAR Projections / Win Projections (WAR-Based or Monte Carlo Simulation). Sim results have Wins/Stats toggle; Stats view shows sortable median team batting + pitching stats |
 | `TeamPlanningView` | 6-year roster planning grid with prospects, contracts, trade market |
 | `TradeAnalyzerView` | Multi-asset trade evaluation (MLB + prospects + draft picks) |
 | `DataManagementView` | File uploads with header validation; analytics dashboard (localhost only, double-click logo to open). |
@@ -440,11 +440,11 @@ An alternative to WAR-based win projections under Team Ratings → Win Projectio
 
 | File | Purpose |
 |-|-|
-| `SimulationTypes.ts` | Interfaces, division structure (4 divisions × 5 teams), config defaults; `BatterSnapshot` has `woba`, `positionRating`, `defRuns`, `stealAggression`, `stealAbility`; `PitcherSnapshot` has `trueRating`, `stamina`, `injuryProneness`; `TeamSeasonState` tracks `relieverConsecutiveDays` for fatigue; `GameState` tracks `homeSetupUsed`/`awaySetupUsed` for setup man role |
-| `PlateAppearanceEngine.ts` | Two-stage PA model: proper log5 matchup (`(b*p/L) / ((b*p/L) + (1-b)(1-p)/(1-L))`) for K/BB/HR, batter batted-ball profile for contact outcomes (1B/2B/3B/OUT) |
-| `GameEngine.ts` | Game state machine: innings/outs/bases/score, probabilistic runner advancement (runner on 2B scores 60% on 1B, runner on 1B scores 44% on 2B, sac flies 12% on non-K outs with <2 outs, runner 2B→3B 15% on outs), SB attempts (gated by SR/STE scouting ratings, breakeven-aware), stamina-based SP pitch limit (`stamina + 50`, clamped [70,130] — 40 stamina → ~90 pitches, 70 stamina → ~120), 8th-inning hook at 90+ pitches, early hook >5 ER in ≤4 IP, performance-based 7th-inning hook at 75+ pitches if >3 ER, role-based bullpen (closer for 9th when winning, setup man for 7th-8th within 3 runs, MR cycling, mopup arms for blowouts), 3-day reliever fatigue tracking, team defense BABIP modifier (weighted by `defRuns`, DH excluded, centered around league average), walk-offs, extra innings (capped at 18), pinch hitting, position defense sub; pitch-per-PA estimates calibrated to WBL in-game data (~3.4 pitches/PA, ~14.7 pitches/IP) |
+| `SimulationTypes.ts` | Interfaces, division structure (4 divisions × 5 teams), config defaults; `BatterSnapshot` has `woba`, `positionRating`, `defRuns`, `stealAggression`, `stealAbility`; `PitcherSnapshot` has `trueRating`, `stamina`, `injuryProneness`; `TeamSeasonState` tracks `relieverConsecutiveDays` for fatigue; `GameState` tracks `homeSetupUsed`/`awaySetupUsed` for setup man role, `homeSB`/`awaySB` for stolen bases; `TeamSeasonRecord` tracks per-season team batting stats (AB/H/HR/BB/K/2B/3B/SB) and pitching stats (outs/ER/K/BB/HR); `TeamSummary` includes median team batting and pitching stats across sims |
+| `PlateAppearanceEngine.ts` | Two-stage PA model: proper log5 matchup (`(b*p/L) / ((b*p/L) + (1-b)(1-p)/(1-L))`) for K/BB/HR with spread amplification (HR batter/pitcher 1.5×, pitcher K 1.5×), post-log5 HR multiplier (1.12×), batter batted-ball profile for contact outcomes (1B/2B/3B/OUT) with XBH contact-pool protection (0.40) |
+| `GameEngine.ts` | Game state machine: innings/outs/bases/score, probabilistic runner advancement (runner on 2B scores 63% on 1B, runner on 1B scores 44% on 2B, sac flies 15% on non-K outs with <2 outs, runner 2B→3B 15% on outs), SB attempts (gated by SR/STE scouting ratings, breakeven-aware), stamina-based SP pitch limit (`stamina + 50`, clamped [70,130] — 40 stamina → ~90 pitches, 70 stamina → ~120), 8th-inning hook at 90+ pitches, early hook >5 ER in ≤4 IP, performance-based 7th-inning hook at 75+ pitches if >3 ER, role-based bullpen (closer for 9th when winning, setup man for 7th-8th within 3 runs, MR cycling, mopup arms for blowouts), 3-day reliever fatigue tracking, team defense BABIP modifier (weighted by `defRuns`, DH excluded, centered around league average), walk-offs, extra innings (capped at 18), pinch hitting, position defense sub; pitch-per-PA estimates calibrated to WBL in-game data (~3.4 pitches/PA, ~14.7 pitches/IP) |
 | `SeasonSimulator.ts` | Division-weighted 162-game schedule (18 div / 8 same-league / 5 interleague), async season loop with UI yielding, playoff bracket (4 div winners + 4 WC → DS → LCS → WS); injury-based batter rest, catcher rest, injury-based SP rotation skips (replacement-level arm fills in) and RP unavailability (added to tired set), per-PA stat tracking with GS tracking → post-sim leaderboards with WAR (batters: wOBA-based WAR, pitchers: FIP-based fWAR with replacement-level = lgERA × 1.38, runsPerWin = 9), dynamic FIP constant, team logos |
-| `SimulationService.ts` | Converts `getProjectedTeamRatings()` → `TeamSnapshot[]` using projected/blended rates (not raw stats — prevents small-sample distortions like 0 BB in 9 IP), threads `stamina`/`injuryProneness`/`defRuns` from scouting data through to snapshots, computes league baseline from population, calibrates league batting average to WBL target (~.273) via singles boost |
+| `SimulationService.ts` | Converts `getProjectedTeamRatings()` → `TeamSnapshot[]` using projected/blended rates (not raw stats — prevents small-sample distortions like 0 BB in 9 IP), threads `stamina`/`injuryProneness`/`defRuns`/`stealAggression`/`stealAbility` from scouting data through to snapshots, computes league baseline from population, pre-sim XBH spread amplification (2B 17×, 3B 45× deviation from mean) + mean calibration, AVG calibration via singles boost to .273 target |
 
 **Data flow:**
 ```
@@ -452,17 +452,20 @@ TeamRatingsService.getProjectedTeamRatings(year, { preSeasonOnly: true })
   → RatedBatter[] (with projected bbPct/kPct/hrPct/avg/woba, SB scouting ratings, defRuns)
   → RatedPlayer[] (pitchers with projected k9/bb9/hr9/fip, stamina, injuryProneness)
   → SimulationService.convertBatter/Pitcher() (rate → PA probability vector)
-  → AVG calibration (scale pSingle to match WBL league AVG target)
+  → XBH spread amplification (2B/3B batter variance × 17/45, takes from singles+outs)
+  → HR/2B/3B mean calibration multipliers
+  → AVG calibration (scale pSingle to match WBL league AVG target .273)
   → computeLeagueRatesFromSnapshots() (league baseline = population average)
   → SeasonSimulator.runSeasonSimulation() (N seasons × 162 games × ~70 PA/game)
-  → SimulationResults (mean/median/SD wins, RS/RA, playoff%, div%, champ%, leaderboards with WAR)
+  → SimulationResults (mean/median/SD wins, RS/RA, median team batting stats [AVG/HR/2B/3B/BB/K/SB], median team pitching stats [ERA/K/BB/HR/RA], playoff%, div%, champ%, leaderboards with WAR)
 ```
 
 **Key design decisions:**
 - **Projected rates, not raw stats**: Uses `getProjectedTeamRatings` (blended/regressed projections) instead of `getPowerRankings` (raw stats). Prevents small-sample pitchers from having extreme rates (e.g., 0 BB/9 from a 9 IP callup).
 - **Proper log5 formula**: `P = (b*p/L) / ((b*p/L) + (1-b)(1-p)/(1-L))` with full denominator normalization. The simplified `b*p/L` form systematically distorted extreme rates.
-- **Two-stage matchup formula**: Log5 determines K/BB/HR (pitcher + batter influence), then remaining contact probability is distributed by the batter's batted-ball profile. This ensures good pitchers properly suppress offense by shrinking the contact pool.
-- **League AVG calibration**: Pre-season projections under-project batting average. A post-conversion calibration step scales `pSingle` for all batters to match the WBL league average (~.273), compensating for log5 compression.
+- **Two-stage matchup formula**: Log5 determines K/BB/HR (pitcher + batter influence) with spread amplification to counteract log5 compression of extreme rates (HR batter/pitcher 1.5×, pitcher K 1.5×). Post-log5 HR multiplier (1.12×) boosts HR output since pre-sim mean boosts are absorbed by the league baseline. Remaining contact probability is distributed by the batter's batted-ball profile with XBH contact-pool protection (40% of raw 2B/3B rate preserved from pitcher-driven compression). Singles and outs absorb the compression instead.
+- **XBH spread calibration**: The projection system produces very narrow team-level doubles/triples variance (only ~20 doubles range across 20 teams). Pre-sim spread amplification scales batter-to-batter deviations from the league mean (2B: 17×, 3B: 45×) to match WBL historical team stat ranges (2014-2022). Budget taken from pSingle+pOut proportionally, not from pHR.
+- **League AVG calibration**: Pre-season projections under-project batting average. A post-conversion calibration step scales `pSingle` for all batters to match the WBL league average (~.273). Runs after XBH calibration so singles absorb the correct residual.
 - **Probabilistic runner advancement**: Singles don't always advance runners one base — runner on 2B scores 60% of the time on singles, runner on 1B reaches 3rd 30%. On doubles, runner on 1B scores 44% (otherwise to 3rd). Non-K outs with <2 outs produce sac flies (runner on 3B scores 12%) and productive groundouts (runner 2B→3B 15%).
 - **Role-based bullpen management**: Closer (best RP by TR, idx 0) reserved for 9th inning when winning. Setup man (2nd-best RP, idx 1) enters 7th-8th when within 3 runs, cycles after 1 inning. Middle relievers cycle at ~35 pitches. Mopup arms (idx 3+) pitch multi-inning stints in blowout losses. 3-day consecutive appearance limit with per-game fatigue tracking.
 - **Stolen bases**: Gated by STE (Stealing Ability) breakeven — only attempts when success rate ≥ 72%. Attempt rate from SR (Stealing Aggressiveness) piecewise linear model calibrated from WBL scouting data.
@@ -470,10 +473,12 @@ TeamRatingsService.getProjectedTeamRatings(year, { preSeasonOnly: true })
 - **Injury-based pitcher availability**: SP rotation skips (Iron Man 0%, Durable 2%, Normal 5%, Fragile 12%, Wrecked 25%) — injured starter replaced by replacement-level arm. RP per-game unavailability (Iron Man 0%, Durable 1%, Normal 3%, Fragile 8%, Wrecked 18%) — unavailable RPs added to tired set.
 - **Team defense BABIP modifier**: Sum of lineup `defRuns` (from `DefensiveProjectionService`, already position-weighted — great SS > great 1B), DH excluded, centered around league average. Shifts `pSingle ↔ pOut` before PA resolution. Scaled aggressively to reflect WBL's defense-heavy meta (~2.5-3 wins for best defensive team).
 - **Leaderboards**: Sorted by WAR. Batter WAR: wOBA-based with replacement-level adjustment (+20 runs per 600 PA), runsPerWin=9. Pitcher WAR: FIP-based fWAR with replacement FIP = lgERA × 1.38, dynamic FIP constant (lgFIP = lgERA). GS tracked for SP diagnostics. Team logos displayed.
-- **Run environment calibration**: Targeting ~4.5 R/G, .273 AVG, .322 OBP, matching WBL league averages. Per-team counting stats (2B, 3B, HR, BB) validated against actual WBL totals.
+- **Run environment calibration**: Calibrated against WBL historical team stat ranges (2014-2022). Targets: ~4.4 R/G, .273 AVG, team HR 90-210, 2B 220-360, 3B 18-63, ERA 3.65-5.45. Calibration constants in `PlateAppearanceEngine.ts` (spread amps, post-log5 HR mult, XBH protection) and `SimulationService.ts` (XBH spread/mean multipliers, AVG target). Diagnostic log `[SIM_CAL]` prints min/median/max for all team stats after each sim run.
 - **Position-aware lineup construction**: Sim uses scarcity-based position assignment (`constructOptimalLineup`) — fills C/SS first, then 2B/3B/CF, then corners/DH. Prevents duplicate positions. Current roster only (no stat-based team_id fallback for free agents).
+- **PA-budget system**: Each batter has `startProb = projectedPa / 720`. Before each game, every lineup slot rolls against startProb. If the starter rests, the bench player at that position rolls (at 60% of their startProb). If both rest, a phantom replacement-level callup fills the slot. This naturally distributes PA: full-timers (projected 650 PA) play ~90% of games, platoon players (~400 PA) play ~56%, bench players fill in selectively, and phantoms absorb ~3-17% of team PA depending on roster composition. Phantom callups use team-unique negative playerIds and are registered in the player-team map so their stats count toward team totals.
+- **`window._simRoster(abbr)`**: Console-accessible roster dump after simulation. Shows full batting/pitching stats per player (including phantom callups), team totals, and PA distribution. Call from devtools after running a sim. Results stored on `window.__lastSimResults`.
 
-**Debug**: `debugDumpTeams()` in SimulationService — logs league baseline, per-team rate summary table, division assignments, schedule validation (162 games), and flags outlier teams. Commented out by default; uncomment the call in `runSimulation()` or export to `window` for devtools access.
+**Debug**: `debugDumpTeams()` in SimulationService — logs league baseline, per-team rate summary table, division assignments, schedule validation (162 games), and flags outlier teams. Commented out by default; uncomment the call in `runSimulation()` or export to `window` for devtools access. `[SIM_RATES]` log shows pre-sim per-team projected XBH rates after calibration.
 
 ### Team Planning
 
@@ -613,7 +618,9 @@ Historical blend (MLB players with qualifying seasons):
 - Scouting: `/api/scout?tid=&passphrase=` → `{ total, limit, count, offset, ratings: [...] }` (caps at 2000/page, paginate with `offset`)
 - Levels: `wbl`, `aaa`, `aa`, `a`, `r`
 
-**CSV Column Mappings:**
+**CSV Column Mappings (legacy fallback only):**
+
+> CSV parsing is retained as a fallback in `ScoutingDataService` and `HitterScoutingDataService` but is not used in production. Primary scouting data comes from the WBL API (`/api/scout`) via DataManagementView or Supabase via sync-db.
 
 *Pitcher Scouting:* `player_id, name, stuff, control, hra [, age, ovr, pot, pitches...]`
 

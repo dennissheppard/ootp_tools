@@ -1773,12 +1773,22 @@ class TeamRatingsService {
   async getProjectedTeamRatings(baseYear: number, options?: { preSeasonOnly?: boolean }): Promise<TeamRatingResult[]> {
       const preSeasonOnly = options?.preSeasonOnly ?? false;
       const leagueContextYear = preSeasonOnly ? baseYear - 1 : baseYear;
-      const [pitcherProjections, leagueStats, batterProjectionsCtx, leagueBattingAvg] = await Promise.all([
+      const [pitcherProjections, leagueStats, batterProjectionsCtx, leagueBattingAvg, hitterScoutingRaw] = await Promise.all([
         projectionService.getProjections(baseYear, { forceRosterRefresh: false, preSeasonOnly }),
         leagueStatsService.getLeagueStats(leagueContextYear),
         batterProjectionService.getProjectionsWithContext(baseYear, { preSeasonOnly }),
-        leagueBattingAveragesService.getLeagueAverages(leagueContextYear)
+        leagueBattingAveragesService.getLeagueAverages(leagueContextYear),
+        supabaseDataService.isConfigured ? supabaseDataService.getHitterScouting() : Promise.resolve([]),
       ]);
+      // Build SR/STE/injury lookup from hitter scouting
+      const hitterScoutMap = new Map<number, { sr: number; ste: number; injury: string }>();
+      for (const s of hitterScoutingRaw) {
+        hitterScoutMap.set(s.playerId, {
+          sr: s.stealingAggressiveness ?? 50,
+          ste: s.stealingAbility ?? 50,
+          injury: s.injuryProneness ?? 'Normal',
+        });
+      }
 
       const teamGroups = new Map<number, {
         rotation: RatedPlayer[],
@@ -1848,8 +1858,8 @@ class TeamRatingsService {
               blendedKPct: b.projectedStats.kPct,
               blendedHrPct: b.projectedStats.hrPct,
               blendedAvg: b.projectedStats.avg,
-              stealAggression: (b as any).scoutingData?.stealingAggressiveness ?? 50,
-              stealAbility: (b as any).scoutingData?.stealingAbility ?? 50,
+              stealAggression: hitterScoutMap.get(b.playerId)?.sr ?? 50,
+              stealAbility: hitterScoutMap.get(b.playerId)?.ste ?? 50,
               woba: b.projectedStats.woba,
               projWar: b.projectedStats.war,
               percentile: b.percentile,

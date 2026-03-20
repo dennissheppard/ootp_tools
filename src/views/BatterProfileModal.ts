@@ -170,6 +170,7 @@ export class BatterProfileModal {
   private myScoutingData: HitterScoutingRatings | null = null;
   private osaScoutingData: HitterScoutingRatings | null = null;
   private projectionYear: number = new Date().getFullYear();
+  private _draftLabel: string | null = null;
   private currentData: BatterProfileData | null = null;
 
   // Development tab state
@@ -363,6 +364,7 @@ export class BatterProfileModal {
     this.projectionMode = 'current';
     this._lastProjectionWar = undefined;
     this._lastProjection = undefined;
+    this._draftLabel = null;
     // Reset analysis view — default to projections (AI fetched on demand)
     this.viewMode = 'projections';
     this.cachedAnalysisHtml = '';
@@ -588,6 +590,22 @@ export class BatterProfileModal {
         this.scoutingIsOsa = false;
       }
 
+      // Resolve draft-eligible / HS-College label for Free Agents
+      if (data.team === 'Free Agent') {
+        try {
+          const player = await playerService.getPlayerById(data.playerId);
+          if (player?.draftEligible) {
+            const year = this.projectionYear ?? new Date().getFullYear();
+            this._draftLabel = `Draft Eligible (${year})`;
+          } else if (player?.hsc) {
+            this._draftLabel = player.hsc;
+          }
+          if (this._draftLabel && teamEl) {
+            teamEl.innerHTML = this.formatTeamInfo(data.team, data.parentTeam);
+          }
+        } catch { /* player lookup failed */ }
+      }
+
       // Now render header slots with scouting data
       if (ratingsSlot) {
         ratingsSlot.innerHTML = this.renderRatingEmblem(data);
@@ -781,6 +799,10 @@ export class BatterProfileModal {
 
   private formatTeamInfo(team?: string, parentTeam?: string): string {
     if (!team) return '';
+    // Draft-eligible / HS-College prospects: update label after player lookup
+    if (team === 'Free Agent' && this._draftLabel) {
+      return `<span class="team-name">${this._draftLabel}</span>`;
+    }
     if (parentTeam) {
       return `<span class="team-name">${team}</span> <span class="parent-team">(${parentTeam})</span>`;
     }

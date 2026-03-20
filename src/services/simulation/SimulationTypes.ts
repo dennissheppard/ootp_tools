@@ -130,6 +130,9 @@ export interface GameState {
   // Pinch hit tracking
   homePinchedSlots: Set<number>;
   awayPinchedSlots: Set<number>;
+  // Stolen base tracking
+  homeSB: number;
+  awaySB: number;
 }
 
 export type PAOutcome = 'BB' | 'K' | 'HR' | '3B' | '2B' | '1B' | 'OUT';
@@ -146,6 +149,8 @@ export interface GameResult {
   awayCloserSave: boolean;
   homeCloserPlayerId: number;  // -1 if closer wasn't used
   awayCloserPlayerId: number;
+  homeSB: number;
+  awaySB: number;
 }
 
 // ============================================================================
@@ -215,6 +220,9 @@ export interface SimLeaderboards {
   southernBatters: SimPlayerBattingStats[];
   northernPitchers: SimPlayerPitchingStats[];
   southernPitchers: SimPlayerPitchingStats[];
+  /** Full roster data for all players (not just top 10) */
+  allBatters: SimPlayerBattingStats[];
+  allPitchers: SimPlayerPitchingStats[];
 }
 
 // ============================================================================
@@ -230,6 +238,21 @@ export interface TeamSeasonRecord {
   divisionRank: number;
   madePlayoffs: boolean;
   wonChampionship: boolean;
+  // Team batting stats (accumulated per season)
+  battingAB: number;
+  battingH: number;
+  battingHR: number;
+  battingBB: number;
+  battingK: number;
+  batting2B: number;
+  batting3B: number;
+  battingSB: number;
+  // Team pitching stats (accumulated per season)
+  pitchingOuts: number;
+  pitchingER: number;
+  pitchingK: number;
+  pitchingBB: number;
+  pitchingHR: number;
 }
 
 export interface TeamSummary {
@@ -248,6 +271,21 @@ export interface TeamSummary {
   playoffPct: number;
   divisionWinPct: number;
   championshipPct: number;
+  // Median team batting stats
+  medianBattingAvg: number;
+  medianBattingBB: number;
+  medianBattingK: number;
+  medianBattingHR: number;
+  medianBatting2B: number;
+  medianBatting3B: number;
+  medianBattingSB: number;
+  medianRS: number;
+  // Median team pitching stats
+  medianPitchingERA: number;
+  medianPitchingK: number;
+  medianPitchingBB: number;
+  medianPitchingHR: number;
+  medianRA: number;
 }
 
 export interface SimulationResults {

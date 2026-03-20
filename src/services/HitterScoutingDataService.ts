@@ -10,6 +10,7 @@ type HitterScoutingHeaderKey = 'playerId' | 'playerName' | 'power' | 'eye' | 'av
 const STORAGE_KEY_PREFIX = 'wbl_hitter_scouting_ratings_';
 const USE_INDEXEDDB = true;
 
+// CSV column header aliases — used only by the legacy parseScoutingCsv() fallback path
 const HEADER_ALIASES: Record<HitterScoutingHeaderKey, string[]> = {
   playerId: ['playerid', 'player_id', 'id', 'pid'],
   playerName: ['playername', 'player_name', 'name', 'player'],
@@ -39,6 +40,11 @@ const HEADER_ALIASES: Record<HitterScoutingHeaderKey, string[]> = {
 // Note: Hit Tool (HT P) is NOT mapped - Contact is used instead for AVG prediction (r=0.97 vs r=0.82)
 
 class HitterScoutingDataService {
+  /**
+   * LEGACY CSV FALLBACK — Not used in production.
+   * Primary scouting data comes from the WBL API (DataManagementView) or Supabase (sync-db).
+   * Retained as a fallback if the API is unavailable and users need to import from CSV files.
+   */
   parseScoutingCsv(csvText: string, source: ScoutingSource = 'my'): HitterScoutingRatings[] {
     const lines = csvText
       .split(/\r?\n/)

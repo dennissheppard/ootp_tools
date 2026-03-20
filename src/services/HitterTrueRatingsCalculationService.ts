@@ -141,6 +141,7 @@ export interface HitterTrueRatingTrace {
   scoutingBlend?: {
     effectiveDevRatio: number;
     scoutingExpectedRates: { bbPct: number; kPct: number; hrPct: number; iso: number; avg: number };
+    credibilityAdjustedWeights?: { bbPct: number; kPct: number; hrPct: number; avg: number };
     weights: {
       bbPct: { baseScoutWeight: number; scoutBoost: number; scoutWeight: number; confidencePa: number };
       kPct: { baseScoutWeight: number; scoutBoost: number; scoutWeight: number; confidencePa: number };
@@ -253,6 +254,29 @@ const SCOUTING_BLEND_THRESHOLDS = {
 
 /** Fallback threshold when component not specified */
 const SCOUTING_BLEND_CONFIDENCE_PA = 200;
+
+/**
+ * Scouting credibility discount: reduce a scouting grade's blend weight when
+ * it dramatically contradicts the player's regressed stats. A gap beyond 1σ
+ * (population SD for that stat) progressively discounts the scout's influence.
+ *
+ * Examples: scout says Contact 55 (→ .248 AVG) but player's regressed AVG is .302
+ *   → gap = |.302 - .248| / .030 = 1.8σ → credibility = max(0.10, 1 - (1.8-1.0)*0.4) = 0.68
+ *   → scoutWeight *= 0.68 (scout influence reduced by ~1/3 for that component)
+ *
+ * A scout whose grades agree with the stats (gap < 1σ) keeps full weight.
+ */
+function applyScoutingCredibility(
+  scoutWeight: number,
+  regressedRate: number,
+  scoutExpectedRate: number,
+  populationSD: number,
+): number {
+  const gapSigma = Math.abs(regressedRate - scoutExpectedRate) / populationSD;
+  if (gapSigma <= 1.0) return scoutWeight;
+  const credibility = Math.max(0.10, 1 - (gapSigma - 1.0) * 0.4);
+  return scoutWeight * credibility;
+}
 
 /** Default league averages (WBL calibrated) */
 const DEFAULT_LEAGUE_AVERAGES: HitterLeagueAverages = {
@@ -557,15 +581,27 @@ class HitterTrueRatingsCalculationService {
       const hrWeights = this.getScoutingBlendWeights(effectivePa, SCOUTING_BLEND_THRESHOLDS.hrPct, effectiveDevRatio);
       const avgWeights = this.getScoutingBlendWeights(effectivePa, SCOUTING_BLEND_THRESHOLDS.avg, effectiveDevRatio);
 
-      blendedBbPct = (1 - bbWeights.scoutWeight) * regressedBbPct + bbWeights.scoutWeight * scoutExpected.bbPct;
-      blendedKPct = (1 - kWeights.scoutWeight) * regressedKPct + kWeights.scoutWeight * scoutExpected.kPct;
-      blendedHrPct = (1 - hrWeights.scoutWeight) * regressedHrPct + hrWeights.scoutWeight * scoutExpected.hrPct;
-      blendedAvg = (1 - avgWeights.scoutWeight) * regressedAvg + avgWeights.scoutWeight * scoutExpected.avg;
+      // Scouting credibility discount: when a scouting grade dramatically
+      // contradicts the regressed stats (>1σ gap), reduce its weight for that
+      // component. A scout saying "55 Contact" when the player hits .300+ for
+      // years gets discounted; a scout who agrees with the stats keeps full weight.
+      const bbCredWt = applyScoutingCredibility(bbWeights.scoutWeight, regressedBbPct, scoutExpected.bbPct, 2.5);
+      const kCredWt = applyScoutingCredibility(kWeights.scoutWeight, regressedKPct, scoutExpected.kPct, 4.0);
+      const hrCredWt = applyScoutingCredibility(hrWeights.scoutWeight, regressedHrPct, scoutExpected.hrPct, 1.5);
+      const avgCredWt = applyScoutingCredibility(avgWeights.scoutWeight, regressedAvg, scoutExpected.avg, 0.030);
+
+      blendedBbPct = (1 - bbCredWt) * regressedBbPct + bbCredWt * scoutExpected.bbPct;
+      blendedKPct = (1 - kCredWt) * regressedKPct + kCredWt * scoutExpected.kPct;
+      blendedHrPct = (1 - hrCredWt) * regressedHrPct + hrCredWt * scoutExpected.hrPct;
+      blendedAvg = (1 - avgCredWt) * regressedAvg + avgCredWt * scoutExpected.avg;
 
       if (trace) {
         trace.scoutingBlend = {
           effectiveDevRatio,
           scoutingExpectedRates: { ...scoutExpected },
+          credibilityAdjustedWeights: {
+            bbPct: bbCredWt, kPct: kCredWt, hrPct: hrCredWt, avg: avgCredWt,
+          },
           weights: {
             bbPct: { ...bbWeights, confidencePa: SCOUTING_BLEND_THRESHOLDS.bbPct },
             kPct: { ...kWeights, confidencePa: SCOUTING_BLEND_THRESHOLDS.kPct },

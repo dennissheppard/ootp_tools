@@ -176,40 +176,97 @@ export async function loadTeamSnapshots(year: number): Promise<TeamSnapshot[]> {
     };
   });
 
-  // Calibrate batting average: the pre-season projection model under-projects AVG.
-  // Compute current league AVG from batter vectors, then scale pSingle to match
-  // the known WBL league average (~.273). This also fixes OBP as a side effect.
-  // Target slightly above WBL actual (.273) to compensate for log5 compression
-  const TARGET_LEAGUE_AVG = 0.278;
-  const allBatters = teams.flatMap(t => t.lineup);
-  let totalH = 0, totalAB = 0;
-  for (const b of allBatters) {
-    const ab = 1 - b.pBB; // AB fraction of PA
-    totalH += (b.pSingle + b.pDouble + b.pTriple + b.pHR) * ab; // hits per AB (approximate)
-    totalAB += ab;
-  }
-  // Hits per AB = (pSingle + pDouble + pTriple + pHR) summed, then divide by sum of AB fractions
-  // Simpler: just average the hit rates
-  const currentAvg = allBatters.length > 0
-    ? allBatters.reduce((s, b) => {
-        const abFrac = 1 - b.pBB;
-        return s + (b.pSingle + b.pDouble + b.pTriple + b.pHR) / abFrac;
-      }, 0) / allBatters.length
-    : TARGET_LEAGUE_AVG;
+  // ── XBH mean-shift calibration ──
+  // Multiplicative boost to compensate for log5 + contact-pool compression
+  // ── Team-level XBH spread amplification ──
+  // The projection system produces narrow team-level 2B/3B variance (~20 doubles
+  // range across 20 teams). Instead of distorting individual batter rates (which
+  // creates unrealistic player lines), we amplify the deviation of each TEAM's
+  // average XBH rate from the league mean, then scale all batters on that team
+  // proportionally. This preserves realistic individual rate relationships while
+  // creating historical team-level spread.
+  const TEAM_DOUBLE_SPREAD = 17.0;   // team-level 2B deviation amplifier
+  const TEAM_TRIPLE_SPREAD = 45.0;   // team-level 3B deviation amplifier
+  const DOUBLE_MEAN_MULT = 1.08;
+  const TRIPLE_MEAN_MULT = 1.20;
 
-  if (currentAvg > 0 && currentAvg < TARGET_LEAGUE_AVG) {
-    // Scale up pSingle for all batters (and bench) to close the AVG gap.
-    // Only adjust singles — XBH rates are already calibrated.
-    const deficit = TARGET_LEAGUE_AVG - currentAvg; // e.g., .273 - .265 = .008
-    // deficit in AVG = deficit in singles per AB. Convert to per-PA boost:
-    const singleBoostPerPA = deficit * (1 - 0.07); // avg bbPct ~7%
-    for (const team of teams) {
-      for (const b of [...team.lineup, ...team.bench]) {
-        b.pSingle += singleBoostPerPA;
-        b.pOut = Math.max(0, b.pOut - singleBoostPerPA);
+  // Compute league-wide average 2B/3B rates from lineup batters
+  const allLineup = teams.flatMap(t => t.lineup);
+  const lgPDbl = allLineup.reduce((s, b) => s + b.pDouble, 0) / allLineup.length;
+  const lgPTri = allLineup.reduce((s, b) => s + b.pTriple, 0) / allLineup.length;
+  const _spreadDebug: Record<string, any> = {};
+  if (typeof window !== 'undefined') (window as any).__spreadDebug = _spreadDebug;
+
+  for (const team of teams) {
+    const lu = team.lineup;
+    if (lu.length === 0) continue;
+
+    // Compute this team's average 2B/3B rate
+    const teamAvgDbl = lu.reduce((s, b) => s + b.pDouble, 0) / lu.length;
+    const teamAvgTri = lu.reduce((s, b) => s + b.pTriple, 0) / lu.length;
+
+    // Amplify team deviation from league mean
+    const ampTeamDbl = lgPDbl + (teamAvgDbl - lgPDbl) * TEAM_DOUBLE_SPREAD;
+    const ampTeamTri = lgPTri + (teamAvgTri - lgPTri) * TEAM_TRIPLE_SPREAD;
+
+    // Compute team-level multiplier (preserves within-team relative differences)
+    const dblMult = teamAvgDbl > 0 ? Math.max(0.3, (ampTeamDbl / teamAvgDbl)) * DOUBLE_MEAN_MULT : 1;
+    const triMult = teamAvgTri > 0 ? Math.max(0.3, (ampTeamTri / teamAvgTri)) * TRIPLE_MEAN_MULT : 1;
+
+    _spreadDebug[team.abbr] = { teamAvgDbl, lgPDbl, dev: teamAvgDbl - lgPDbl, ampTeamDbl, dblMult, triMult };
+
+    // Apply to all batters on this team (lineup + bench)
+    for (const b of [...lu, ...team.bench]) {
+      const oldDbl = b.pDouble;
+      const oldTri = b.pTriple;
+      b.pDouble *= dblMult;
+      b.pTriple *= triMult;
+
+      // Absorb XBH change: 70% from singles, 30% from outs.
+      // Taking mostly from singles corrects the hit-type mix (too many 1B vs XBH)
+      // while taking a little from outs nudges AVG up toward the ~.273 target.
+      const xbhDelta = (b.pDouble - oldDbl) + (b.pTriple - oldTri);
+      if (xbhDelta !== 0) {
+        const fromSingles = xbhDelta * 0.70;
+        const fromOuts = xbhDelta * 0.30;
+        if (b.pSingle > fromSingles + 0.01 && b.pOut > fromOuts + 0.01) {
+          b.pSingle -= fromSingles;
+          b.pOut -= fromOuts;
+        } else {
+          // Fallback: split proportionally if pools are too small
+          const soPool = b.pSingle + b.pOut;
+          if (soPool > 0.05) {
+            const singleShare = b.pSingle / soPool;
+            b.pSingle = Math.max(0.01, b.pSingle - xbhDelta * singleShare);
+            b.pOut = Math.max(0.01, b.pOut - xbhDelta * (1 - singleShare));
+          }
+        }
       }
     }
   }
+
+  // AVG calibration removed — individual projections should drive team-level
+  // stats naturally. A hardcoded league AVG target inflated every batter's
+  // sim line ~13 points above their canonical projection.
+
+  // ── Per-team rate diagnostic ──
+  const teamDblRates = teams.map(t => {
+    const lu = t.lineup;
+    const avgDbl = lu.reduce((s, b) => s + b.pDouble, 0) / lu.length;
+    const avgHR = lu.reduce((s, b) => s + b.pHR, 0) / lu.length;
+    const avgTri = lu.reduce((s, b) => s + b.pTriple, 0) / lu.length;
+    return { abbr: t.abbr, dbl: avgDbl, hr: avgHR, tri: avgTri };
+  }).sort((a, b) => a.dbl - b.dbl);
+  const dblMin = (teamDblRates[0].dbl * 5400).toFixed(0);
+  const dblMax = (teamDblRates[teamDblRates.length - 1].dbl * 5400).toFixed(0);
+  const hrMin = (Math.min(...teamDblRates.map(t => t.hr)) * 5400).toFixed(0);
+  const hrMax = (Math.max(...teamDblRates.map(t => t.hr)) * 5400).toFixed(0);
+  const triMin = (Math.min(...teamDblRates.map(t => t.tri)) * 5400).toFixed(0);
+  const triMax = (Math.max(...teamDblRates.map(t => t.tri)) * 5400).toFixed(0);
+  console.log(`[SIM_RATES] Pre-sim projected per-5400AB: 2B=${dblMin}-${dblMax} HR=${hrMin}-${hrMax} 3B=${triMin}-${triMax} | ${teamDblRates[0].abbr}(low 2B)=${(teamDblRates[0].dbl*5400).toFixed(0)} ${teamDblRates[teamDblRates.length-1].abbr}(high 2B)=${(teamDblRates[teamDblRates.length-1].dbl*5400).toFixed(0)}`);
+
+  // Debug: expose snapshots for inspection
+  if (typeof window !== 'undefined') (window as any).__simSnapshots = teams;
 
   return teams;
 }
@@ -446,4 +503,60 @@ export function debugDumpTeams(teams: TeamSnapshot[], league: LeagueAverageRates
   }
 
   console.groupEnd();
+}
+
+/**
+ * Dump a team's roster stats from the last simulation.
+ * Call from devtools: window._simRoster('DEN') or window._simRoster('Denver')
+ */
+export function dumpTeamRoster(results: SimulationResults, teamQuery: string): void {
+  if (!results.leaderboards) { console.log('No leaderboard data'); return; }
+  const { allBatters, allPitchers } = results.leaderboards;
+  if (!allBatters) { console.log('No full roster data — re-run simulation'); return; }
+
+  const q = teamQuery.toUpperCase();
+  const summary = results.teamSummaries.find(s =>
+    s.abbr.toUpperCase() === q || s.teamName.toUpperCase().includes(q)
+  );
+  if (!summary) { console.log(`Team "${teamQuery}" not found. Teams: ${results.teamSummaries.map(s => s.abbr).join(', ')}`); return; }
+  const teamId = summary.teamId;
+
+  console.log(`\n=== ${summary.teamName} (${summary.abbr}) — Simulated Roster ===`);
+  console.log(`Team: ${summary.meanWins}W, RS=${summary.medianRS}, RA=${summary.medianRA}\n`);
+
+  // Batters
+  const batters = allBatters.filter(b => b.teamId === teamId).sort((a, b) => b.pa - a.pa);
+  const batLines = batters.map(b =>
+    `${b.name.padEnd(22)} ${String(Math.round(b.pa)).padStart(4)} ${String(Math.round(b.ab)).padStart(4)} ${b.avg.toFixed(3)} ${b.obp.toFixed(3)} ${b.slg.toFixed(3)} ${String(Math.round(b.hr)).padStart(3)} ${String(Math.round(b.doubles)).padStart(3)} ${String(Math.round(b.triples)).padStart(3)} ${String(Math.round(b.bb)).padStart(3)} ${String(Math.round(b.k)).padStart(4)} ${b.war.toFixed(1).padStart(5)}`
+  );
+  console.log(`[SIM_ROSTER] BATTERS\nPlayer                  PA   AB   AVG   OBP   SLG  HR  2B  3B  BB    K   WAR\n${batLines.join('\n')}`);
+
+  // Team batting totals
+  const totPA = batters.reduce((s, b) => s + b.pa, 0);
+  const totAB = batters.reduce((s, b) => s + b.ab, 0);
+  const totH = batters.reduce((s, b) => s + b.h, 0);
+  const tot2B = batters.reduce((s, b) => s + b.doubles, 0);
+  const tot3B = batters.reduce((s, b) => s + b.triples, 0);
+  const totHR = batters.reduce((s, b) => s + b.hr, 0);
+  const totBB = batters.reduce((s, b) => s + b.bb, 0);
+  const totK = batters.reduce((s, b) => s + b.k, 0);
+  console.log(`TEAM TOTALS: PA=${Math.round(totPA)} AB=${Math.round(totAB)} AVG=${(totH/totAB).toFixed(3)} H=${Math.round(totH)} 2B=${Math.round(tot2B)} 3B=${Math.round(tot3B)} HR=${Math.round(totHR)} BB=${Math.round(totBB)} K=${Math.round(totK)}`);
+
+  // Pitchers
+  const pitchers = allPitchers.filter(p => p.teamId === teamId).sort((a, b) => b.ip - a.ip);
+  if (pitchers.length > 0) {
+    const pitLines = pitchers.map(p =>
+      `${p.name.padEnd(22)} ${String(Math.round(p.ip)).padStart(4)} ${p.era.toFixed(2).padStart(5)} ${p.fip.toFixed(2).padStart(5)} ${String(Math.round(p.k)).padStart(4)} ${String(Math.round(p.bb)).padStart(3)} ${String(Math.round(p.hr)).padStart(3)} ${p.war.toFixed(1).padStart(5)}`
+    );
+    console.log(`[SIM_ROSTER] PITCHERS\nPlayer                  IP   ERA   FIP    K  BB  HR   WAR\n${pitLines.join('\n')}`);
+  }
+}
+
+// Wire roster dump to window for devtools access
+if (typeof window !== 'undefined') {
+  (window as any)._simRoster = (teamQuery: string) => {
+    const results = (window as any).__lastSimResults;
+    if (!results) { console.log('No simulation results. Run a sim first.'); return; }
+    dumpTeamRoster(results, teamQuery);
+  };
 }

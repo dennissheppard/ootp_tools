@@ -9,6 +9,7 @@ type ScoutingHeaderKey = 'playerId' | 'playerName' | 'stuff' | 'control' | 'hra'
 const STORAGE_KEY_PREFIX = 'wbl_scouting_ratings_';
 const USE_INDEXEDDB = true; // Feature flag to switch between localStorage and IndexedDB
 
+// CSV column header aliases — used only by the legacy parseScoutingCsv() fallback path
 const HEADER_ALIASES: Record<ScoutingHeaderKey, string[]> = {
   playerId: ['playerid', 'player_id', 'id', 'pid'],
   playerName: ['playername', 'player_name', 'name', 'player'],
@@ -47,6 +48,11 @@ export const PITCH_TYPE_ALIASES = new Set([
 export type ScoutingSource = 'my' | 'osa';
 
 class ScoutingDataService {
+  /**
+   * LEGACY CSV FALLBACK — Not used in production.
+   * Primary scouting data comes from the WBL API (DataManagementView) or Supabase (sync-db).
+   * Retained as a fallback if the API is unavailable and users need to import from CSV files.
+   */
   parseScoutingCsv(csvText: string, source: ScoutingSource = 'my'): PitcherScoutingRatings[] {
     const lines = csvText
       .split(/\r?\n/)
