@@ -17,22 +17,23 @@ The app uses a **CLI-first data pipeline**: a local CLI tool writes all data to 
 ### Data Flow
 
 ```
-WBL API ──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
-                                              ↓
-                                        Browser (read-only)
-                                              ↑
-                                     WBL API (date + scouting only)
+WBL API (authenticated) ──┐
+WBL Firebase (public)   ──┼──→ CLI (tools/sync-db.ts) ──→ Supabase (PostgreSQL)
+WBL CSV (public,fallback)─┘                                       ↓
+                                                            Browser (read-only)
+                                                                  ↑
+                                                         WBL API (date + custom scouting only)
 ```
 
-1. **CLI sync** (`npx tsx tools/sync-db.ts`): Fetches current-year data from WBL API, writes players/teams/stats/contracts to Supabase, computes TR, TFR, and projections, writes pre-computed ratings to `player_ratings` table and projections to `precomputed_cache`
-2. **Browser**: Reads from Supabase for all data. Only WBL API calls are `/api/date/` and `/api/scout` (custom scouting fetch with pagination, 2000 per page). Without Supabase, the app falls back to CSV/API for dev mode.
-3. **Pre-computed ratings + projections**: TR, TFR, and pitcher/batter projections are computed by the CLI and stored as JSONB in `player_ratings` / `precomputed_cache`. The browser loads them directly — no expensive computation on page load. Projection fast paths are **year-aware**: only used when the requested year matches `currentYear`.
+1. **CLI sync** (`npx tsx tools/sync-db.ts`): Fetches current-year data from WBL API (players, teams, stats, contracts, OSA scouting), active injuries from WBL Firebase (with CSV fallback), writes to Supabase, computes TR, TFR, and projections (with injury/park/defensive adjustments baked in), writes to `player_ratings` + `precomputed_cache`
+2. **Browser**: Pure reader. Reads precomputed projections and ratings from Supabase. Only direct WBL API calls are `/api/date` and `/api/scout` (custom scouting fetch). Browser **never recomputes projections** for current-year data unless custom scouting is active or viewing historical years.
+3. **Precomputed cache = canonical answer**: The projection values in `precomputed_cache` are the single source of truth for all views. Every view (projections table, modals, team ratings, trade analyzer) reads the same cached WAR/PA/IP. Adjustments (injury, park factors, defensive value, aging) are applied once in CLI Step 5.5.
 
 ### Supabase Tables
 
 | Table | Purpose |
 |-|-|
-| `players` | Full player data (name, team, age, level, position, role). Level values: 1=MLB, 2=AAA, 3=AA, 4=A, 5=R, 6=IC (set by CLI from contract league_id) |
+| `players` | Full player data (name, team, age, level, position, role, injury_days_remaining). Level values: 1=MLB, 2=AAA, 3=AA, 4=A, 5=R, 6=IC (set by CLI from contract league_id). `injury_days_remaining` set by CLI from WBL Firebase (0 = healthy) |
 | `teams` | Team names, nicknames, parent relationships |
 | `pitching_stats` | MLB + MiLB pitching stats by year/league/split (PK: id, year, level_id) |
 | `batting_stats` | MLB + MiLB batting stats by year/league/split (PK: id, year, level_id) |
@@ -86,7 +87,7 @@ npx tsx tools/sync-db.ts --force         # Re-sync even if DB is up to date
 
 **Env vars** (`.env.local`): `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`
 
-**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts from WBL API → Patch IC player levels (contract league_id=-200 → level=6) → Build SyncContext (15 parallel queries including career aggregate RPCs) → Step 4: Compute TR (pitcher + hitter, shared `HitterTrueRatingsCalculationService`) → Step 5: Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Step 5.5: Compute projections using **Step 4 canonical TR** + `computeBatterProjection()` from ModalDataService (same function the browser uses — guarantees identical numbers between CLI cache and browser display) → Step 6: Build scouting/contract/DOB lookups (name/age/stamina included for ALL players, not just draftees) → Set game_date
+**Steps:** Detect game date → Clear stale data → Fetch teams/players/stats/contracts from WBL API + injuries from Firebase (CSV fallback) → Patch IC player levels (contract league_id=-200 → level=6) → Build SyncContext (15 parallel queries including career aggregate RPCs) → Step 4: Compute TR (pitcher + hitter, shared `HitterTrueRatingsCalculationService`) → Step 5: Compute TFR (pitcher + hitter) + store TFR arrays in precomputed_cache → Step 5.5: Compute projections using **Step 4 canonical TR** + `computeBatterProjection()` from ModalDataService. Applies injury adjustment (PA/IP reduction from `injury_days_remaining`), park factors, and defensive value. Results stored in `precomputed_cache` → Step 6: Build scouting/contract/DOB lookups (name/age/stamina included for ALL players, not just draftees) → Set game_date
 
 **Skip detection:** The CLI compares the DB's `game_date` (set as the very last step of a successful sync) against the WBL API date. If they match, the sync exits early — no work needed. Use `--force` to override.
 
@@ -328,27 +329,40 @@ Steps: Multi-year weighted stats → 4-year rolling average → FIP-aware regres
 
 ### Pipeline Architecture
 
-Single source of truth with shared computation (see `docs/pipeline-map.html`):
+See `docs/pipeline-map.html` for the full interactive diagram.
 
-- **Canonical TR** (`TrueRatingsService`): Authoritative True Ratings, blended rates, wOBA. Used by ALL views and projections. CLI Step 4 computes the same TR using the shared `HitterTrueRatingsCalculationService`.
-- **Batter projections** (`BatterProjectionService` + `ModalDataService.computeBatterProjection()`): Single computation function used by ALL three paths — sync-db precompute, browser projection table, and profile modal. Takes canonical TR blended rates, applies aging delta, computes PA/SB/wOBA/WAR. No separate formulas anywhere.
-- **Pitcher projections** (`ProjectionService`): Ensemble math (40/30/30 optimistic/neutral/pessimistic).
-- **CLI sync**: Precomputes both pipelines. Step 5.5 calls `computeBatterProjection()` with the same deps as the browser — guarantees identical output.
+**Core principle: precomputed cache = canonical answer.** For current-year data, all projected WAR/PA/IP comes from the precomputed cache written by sync-db. The browser reads these values; it does not recompute independently. Adjustments (injury, park factors, defensive value, aging) are applied once in CLI Step 5.5 and flow to all views automatically.
 
-**Same player = same number everywhere.** Profile modal WAR badge, projection stat line, Team WAR table, and CLI precomputed cache must all show identical WAR for the same player/year. This is enforced by using a single computation function (`computeBatterProjection`) across all paths, with canonical TR as the sole input source. Profile modal clears caller-provided `projPa`/`projWar` for non-prospects and recomputes from canonical history using `projectionYear` (not `currentYear`).
+**Browser recomputes only when:**
+- **Custom scouting active** (`hasCustomScouting` flag) — user uploaded their own ratings, precomputed cache is invalid
+- **Historical year selected** — no precomputed cache for past years
+- **Backtesting mode** — comparing projections vs actual stats for completed seasons
 
-| View | Data Source | Notes |
+**Shared computation services** (used by both CLI and browser recompute paths):
+- `HitterTrueRatingsCalculationService` — TR math (shared import)
+- `ModalDataService.computeBatterProjection()` — batter projection math (shared import)
+- `FipWarService` — pitcher WAR formula
+
+**Dev-only consistency checker** (`ConsistencyChecker`): Runs on localhost after every modal render. Two layers:
+1. **Cache check** — compares displayed WAR/PA/IP against precomputed cache values
+2. **Formula check** — independently derives WAR from projection components (wOBA+PA or FIP+IP) via raw formula, compares against displayed WAR
+
+Mismatches trigger an amber banner on the page. See `src/services/ConsistencyChecker.ts`.
+
+| View | Data Source | Recomputes? |
 |-|-|-|
-| Profile modals | Canonical TR + projection | WAR badge uses projection line WAR (no independent recompute) |
-| Trade Analyzer | Canonical TR/TFR | On-demand projection from canonical data |
-| True Ratings | Canonical TR/TFR | Rating tables |
-| Farm Rankings | TFR pools | Prospect rankings (sorted by projected peak WAR, interleaves pitchers + hitters) |
-| Team Planning | Canonical TR + TFR | Roster construction |
-| Global Search | Canonical TR + TFR | Search results |
-| Team Ratings: Power Rankings | Canonical TR | Weighted-average TR; future years use current rosters |
-| Team Ratings: WAR/Win Projections | Projections | Year dropdown = target season; code derives base year |
-| Projections view | Projections | Year selector, backtesting |
-| Data Management | — | Scouting upload (API pagination: 2000/page), cache priming |
+| Profile modals (current) | Precomputed cache | No — reads cached WAR/PA/IP |
+| Profile modals (peak) | Precomputed TFR | No — reads cached peak projections |
+| Projections view | Precomputed cache | No (current year) / Yes (historical) |
+| Team Ratings: Power Rankings | Actual stats + canonical TR | No recompute — uses real season stats |
+| Team Ratings: WAR/Win Projections | Precomputed cache | No — reads cached projections |
+| Trade Analyzer | Precomputed cache | No |
+| Farm Rankings / Draft Board | Precomputed TFR | No |
+| Team Planning | Precomputed cache + TFR | No |
+| True Ratings | Precomputed player_ratings | No |
+| Global Search | Precomputed player_ratings | No |
+| Custom Scouting (any view) | Browser recompute | Yes — merged scouting invalidates cache |
+| Data Management | — | Scouting upload (API pagination: 2000/page) |
 
 ## Key Services
 
@@ -379,7 +393,8 @@ Single source of truth with shared computation (see `docs/pipeline-map.html`):
 
 | Service | Purpose |
 |---------|---------|
-| `ModalDataService` | **Single source of truth for batter projections.** `resolveCanonicalBatterData()` applies canonical TR + aging delta. `computeBatterProjection()` computes all projected stats (AVG/OBP/SLG/wOBA/WAR/PA/SB). Used by sync-db, BatterProjectionService, and profile modals |
+| `ModalDataService` | Projection math functions. `resolveCanonicalBatterData()` applies canonical TR + aging delta. `computeBatterProjection()` / `computePitcherProjection()` compute all projected stats. Used by sync-db to precompute, and by browser only when recomputing (custom scouting/historical). For current-year data, modals read from precomputed cache instead of calling these |
+| `ConsistencyChecker` | Dev-only runtime validation. Compares displayed projection values against precomputed cache + independently derives WAR from components via raw formula. Amber banner on mismatch. Zero production overhead |
 | `CanonicalCurrentProjectionService` | Builds cached modal-equivalent MLB projection snapshots for current-year canonical pipeline consumers |
 | `SupabaseDataService` | Primary data layer — PostgREST queries with auto-pagination, column whitelists, pre-computed rating reads |
 | `SyncOrchestrator` | Data-ready check: `checkDataReady()` verifies `game_date` is set in Supabase. No hero detection or write tracking |
