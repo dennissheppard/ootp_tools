@@ -18,6 +18,7 @@ import { supabaseDataService } from '../services/SupabaseDataService';
 import { runSimulation } from '../services/simulation/SimulationService';
 import type { SimulationResults, TeamSummary } from '../services/simulation/SimulationTypes';
 import { DEFAULT_SIM_CONFIG } from '../services/simulation/SimulationTypes';
+import { getRouter } from '../router';
 
 // WAR→Wins calibration constants
 // Recalibrated Feb 2026: piecewise projection-based calibration on 236 team-seasons (2005-2020).
@@ -112,6 +113,39 @@ export class TeamRatingsView {
     { key: 'bullpen', label: 'Bullpen', sortKey: 'bullpen', title: 'Average True Rating of top 8 relievers' },
     { key: 'bench', label: 'Bench', sortKey: 'bench', title: 'Average True Rating of remaining bench batters' }
   ];
+
+  /** Build query params reflecting current sub-state for URL. */
+  private getUrlParams(): Record<string, string> {
+    const params: Record<string, string> = {};
+    if (this.viewMode !== 'power-rankings') params.view = this.viewMode;
+    if ((this.viewMode === 'projected' || this.viewMode === 'standings') && this.statsMode !== 'preseason') params.stats = this.statsMode;
+    if (this.viewMode === 'standings' && this.standingsMode !== 'war') params.standings = this.standingsMode;
+    if (this.viewMode === 'standings' && this.standingsMode === 'simulation' && this.simTableMode !== 'wins') params.simView = this.simTableMode;
+    return params;
+  }
+
+  /** Update the URL to reflect current sub-state (no history entry). */
+  private syncUrl(): void {
+    getRouter().replace('tab-team-ratings', this.getUrlParams());
+  }
+
+  /** Apply URL query params to restore sub-state (called from router on direct navigation). */
+  applyUrlParams(params: URLSearchParams): void {
+    const view = params.get('view') as 'projected' | 'power-rankings' | 'standings' | null;
+    if (view && ['projected', 'power-rankings', 'standings'].includes(view)) {
+      this.viewMode = view;
+      try { localStorage.setItem('wbl-teamratings-viewMode', view); } catch { /* ignore */ }
+    }
+    const stats = params.get('stats') as 'preseason' | 'current' | null;
+    if (stats && ['preseason', 'current'].includes(stats)) {
+      this.statsMode = stats;
+      try { localStorage.setItem('wbl-teamratings-statsMode', stats); } catch { /* ignore */ }
+    }
+    const standings = params.get('standings') as 'war' | 'simulation' | null;
+    if (standings && ['war', 'simulation'].includes(standings)) this.standingsMode = standings;
+    const simView = params.get('simView') as 'wins' | 'stats' | null;
+    if (simView && ['wins', 'stats'].includes(simView)) this.simTableMode = simView;
+  }
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -307,6 +341,7 @@ export class TeamRatingsView {
 
         // Reload data
         this.updateDataSourceBadges();
+        this.syncUrl();
         this.showLoadingState();
         this.loadData();
       });
@@ -371,6 +406,7 @@ export class TeamRatingsView {
         });
 
         this.updateDataSourceBadges();
+        this.syncUrl();
         this.showLoadingState();
         this.loadData();
       });
@@ -403,6 +439,7 @@ export class TeamRatingsView {
           el.setAttribute('aria-pressed', String(isActive));
         });
 
+        this.syncUrl();
         this.renderLists();
       });
     });
@@ -426,6 +463,7 @@ export class TeamRatingsView {
         });
 
         this.updateDataSourceBadges();
+        this.syncUrl();
         this.showLoadingState();
         this.loadData();
       });
@@ -1623,6 +1661,7 @@ export class TeamRatingsView {
       container.querySelectorAll('.sim-table-toggle').forEach(btn => {
         btn.addEventListener('click', () => {
           this.simTableMode = (btn as HTMLElement).dataset.mode as 'wins' | 'stats';
+          this.syncUrl();
           this.renderSimulationResultsTable(container);
         });
       });
@@ -3086,20 +3125,18 @@ export class TeamRatingsView {
     const row = entry.player;
     const seasonYear = entry.seasonYear ?? this.selectedYear;
 
-    // Fetch full player info for team labels
-    const player = await playerService.getPlayerById(row.playerId);
+    // Resolve team labels synchronously from cached services (no awaits)
+    const player = playerService.hasCachedPlayers()
+      ? await playerService.getPlayerById(row.playerId) : null;
     let teamLabel = '';
     let parentLabel = '';
-
     if (player) {
       const team = await teamService.getTeamById(player.teamId);
       if (team) {
         teamLabel = `${team.name} ${team.nickname}`;
         if (team.parentTeamId !== 0) {
           const parent = await teamService.getTeamById(team.parentTeamId);
-          if (parent) {
-            parentLabel = parent.nickname;
-          }
+          if (parent) parentLabel = parent.nickname;
         }
       }
     }
@@ -3108,14 +3145,7 @@ export class TeamRatingsView {
     const isBatter = entry.type === 'lineup' || entry.type === 'bench' || (player && player.position !== 1);
 
     if (isBatter) {
-      // Get batter scouting from both sources
-      const [myScoutingRatings, osaScoutingRatings] = await Promise.all([
-        hitterScoutingDataService.getLatestScoutingRatings('my'),
-        hitterScoutingDataService.getLatestScoutingRatings('osa')
-      ]);
-      const myScouting = myScoutingRatings.find(s => s.playerId === row.playerId);
-      const osaScouting = osaScoutingRatings.find(s => s.playerId === row.playerId);
-
+      // Build profile data from what we already have — no heavy fetches before showing modal
       const profileData: BatterProfileData = {
         playerId: row.playerId,
         playerName: row.name,
@@ -3131,17 +3161,7 @@ export class TeamRatingsView {
         estimatedContact: row.estimatedContact,
         estimatedGap: row.estimatedGap,
         estimatedSpeed: row.estimatedSpeed,
-        scoutPower: myScouting?.power,
-        scoutEye: myScouting?.eye,
-        scoutAvoidK: myScouting?.avoidK,
-        scoutContact: myScouting?.contact,
-        scoutGap: myScouting?.gap,
-        scoutSpeed: myScouting?.speed,
-        scoutSR: myScouting?.stealingAggressiveness,
-        scoutSTE: myScouting?.stealingAbility,
-        scoutOvr: myScouting?.ovr,
-        scoutPot: myScouting?.pot,
-        injuryProneness: myScouting?.injuryProneness || osaScouting?.injuryProneness,
+        // Scouting will be fetched by the modal's own async flow
         pa: row.stats?.pa,
         avg: row.stats?.avg,
         obp: row.stats?.obp,
@@ -3165,57 +3185,12 @@ export class TeamRatingsView {
         projHr: this.viewMode === 'projected' ? row.stats?.hr : undefined,
       };
 
-      // Look up TFR data for peak potential / radar overlay
-      try {
-        const unifiedData = await teamRatingsService.getUnifiedHitterTfrData(seasonYear);
-        const tfrEntry = unifiedData.prospects.find(p => p.playerId === row.playerId);
-        if (tfrEntry) {
-          profileData.trueFutureRating = tfrEntry.trueFutureRating;
-          profileData.tfrPercentile = tfrEntry.percentile;
-          profileData.tfrPower = tfrEntry.trueRatings.power;
-          profileData.tfrEye = tfrEntry.trueRatings.eye;
-          profileData.tfrAvoidK = tfrEntry.trueRatings.avoidK;
-          profileData.tfrContact = tfrEntry.trueRatings.contact;
-          profileData.tfrGap = tfrEntry.trueRatings.gap;
-          profileData.tfrSpeed = tfrEntry.trueRatings.speed;
-          profileData.tfrBbPct = tfrEntry.projBbPct;
-          profileData.tfrKPct = tfrEntry.projKPct;
-          profileData.tfrHrPct = tfrEntry.projHrPct;
-          profileData.tfrAvg = tfrEntry.projAvg;
-          profileData.tfrObp = tfrEntry.projObp;
-          profileData.tfrSlg = tfrEntry.projSlg;
-          profileData.tfrPa = tfrEntry.projPa;
-          profileData.tfrBySource = tfrEntry.tfrBySource;
-          profileData.hasTfrUpside = (tfrEntry.trueFutureRating > (profileData.trueRating ?? 0))
-            || hasComponentUpside(
-              [profileData.estimatedPower, profileData.estimatedEye, profileData.estimatedAvoidK,
-               profileData.estimatedContact, profileData.estimatedGap, profileData.estimatedSpeed],
-              [tfrEntry.trueRatings.power, tfrEntry.trueRatings.eye, tfrEntry.trueRatings.avoidK,
-               tfrEntry.trueRatings.contact, tfrEntry.trueRatings.gap, tfrEntry.trueRatings.speed]
-            );
-        }
-      } catch (e) { /* TFR data not available */ }
-
+      // Show modal immediately with loading skeleton — TFR/scouting loaded by modal's async flow
       await this.batterProfileModal.show(profileData, seasonYear);
       return;
     }
 
-    // Otherwise handle as Pitcher
-    // Get scouting from both sources
-    const [myRatings, osaRatings] = await Promise.all([
-      scoutingDataService.getLatestScoutingRatings('my'),
-      scoutingDataService.getLatestScoutingRatings('osa')
-    ]);
-    const myScouting = myRatings.find(s => s.playerId === row.playerId);
-    const osaScouting = osaRatings.find(s => s.playerId === row.playerId);
-    const scouting = myScouting || osaScouting;
-
-    // Extract pitch names and ratings if available
-    const pitches = scouting?.pitches ? Object.keys(scouting.pitches) : [];
-    const pitchRatings = scouting?.pitches ?? {};
-    const usablePitchCount = (row as any).pitchCount; // Already calculated in TeamRatingsService
-
-    // Determine if we should show the year label (only for historical data)
+    // Otherwise handle as Pitcher — show modal immediately, let it fetch scouting/TFR internally
     const currentYear = this.currentGameYear ?? await dateService.getCurrentYear();
     const isHistorical = seasonYear < currentYear - 1;
 
@@ -3231,56 +3206,24 @@ export class TeamRatingsView {
       estimatedStuff: (row as any).trueStuff,
       estimatedControl: (row as any).trueControl,
       estimatedHra: (row as any).trueHra,
-
-      // My Scout data
-      scoutStuff: myScouting?.stuff,
-      scoutControl: myScouting?.control,
-      scoutHra: myScouting?.hra,
-      scoutStamina: myScouting?.stamina,
-      scoutInjuryProneness: myScouting?.injuryProneness,
-      scoutOvr: myScouting?.ovr,
-      scoutPot: myScouting?.pot,
-
-      // OSA data
-      osaStuff: osaScouting?.stuff,
-      osaControl: osaScouting?.control,
-      osaHra: osaScouting?.hra,
-      osaStamina: osaScouting?.stamina,
-      osaInjuryProneness: osaScouting?.injuryProneness,
-      osaOvr: osaScouting?.ovr,
-      osaPot: osaScouting?.pot,
-
-      // Toggle state
-      activeScoutSource: myScouting ? 'my' : 'osa',
-      hasMyScout: !!myScouting,
-      hasOsaScout: !!osaScouting,
-
-      pitchCount: usablePitchCount,
-      pitches,
-      pitchRatings,
+      pitchCount: (row as any).pitchCount,
       isProspect: false,
       year: seasonYear,
       showYearLabel: isHistorical,
       projectionYear: seasonYear,
       projectionBaseYear: Math.max(2000, seasonYear - 1),
       forceProjection: this.viewMode === 'projected',
-      // Pass projection data directly so the modal doesn't recalculate
       projIp: this.viewMode === 'projected' ? row.stats.ip : undefined,
       projWar: this.viewMode === 'projected' ? (row.stats.war ?? undefined) : undefined,
       projK9: this.viewMode === 'projected' ? row.stats.k9 : undefined,
       projBb9: this.viewMode === 'projected' ? row.stats.bb9 : undefined,
       projHr9: this.viewMode === 'projected' ? row.stats.hr9 : undefined,
       projFip: this.viewMode === 'projected' ? row.stats.fip : undefined,
-
       projectionOverride: this.viewMode === 'projected'
         ? {
             projectedStats: {
-              ip: row.stats.ip,
-              k9: row.stats.k9,
-              bb9: row.stats.bb9,
-              hr9: row.stats.hr9,
-              fip: row.stats.fip,
-              war: row.stats.war ?? 0
+              ip: row.stats.ip, k9: row.stats.k9, bb9: row.stats.bb9,
+              hr9: row.stats.hr9, fip: row.stats.fip, war: row.stats.war ?? 0
             },
             projectedRatings: {
               stuff: (row as any).trueStuff,
@@ -3291,25 +3234,7 @@ export class TeamRatingsView {
         : undefined
     };
 
-    // Look up TFR data for peak potential / radar overlay
-    try {
-      const farmData = await teamRatingsService.getFarmData(seasonYear);
-      const farmProspect = farmData.prospects.find(p => p.playerId === row.playerId);
-      if (farmProspect) {
-        (profileData as any).trueFutureRating = farmProspect.trueFutureRating;
-        (profileData as any).tfrPercentile = farmProspect.percentile;
-        (profileData as any).tfrStuff = farmProspect.trueRatings?.stuff;
-        (profileData as any).tfrControl = farmProspect.trueRatings?.control;
-        (profileData as any).tfrHra = farmProspect.trueRatings?.hra;
-        (profileData as any).tfrBySource = farmProspect.tfrBySource;
-        (profileData as any).hasTfrUpside = (farmProspect.trueFutureRating > (profileData.trueRating ?? 0))
-          || hasComponentUpside(
-            [profileData.estimatedStuff, profileData.estimatedControl, profileData.estimatedHra],
-            [farmProspect.trueRatings?.stuff, farmProspect.trueRatings?.control, farmProspect.trueRatings?.hra]
-          );
-      }
-    } catch (e) { /* TFR data not available */ }
-
+    // Scouting and TFR data loaded by the modal's own async flow
     await pitcherProfileModal.show(profileData as any, seasonYear);
   }
 

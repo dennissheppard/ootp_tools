@@ -546,7 +546,7 @@ export class BatterProfileModal {
     // The precomputed cache is the canonical source — avoids independent recomputation.
     if (!data.isProspect && supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
       try {
-        const cachedCtx = await batterProjectionService.getProjectionsWithContext(currentYear - 1);
+        const cachedCtx = await batterProjectionService.getProjectionsWithContext(currentYear);
         if (generation !== this.showGeneration) return;
         const cachedProj = cachedCtx?.projections?.find((p: any) => p.playerId === data.playerId);
         if (cachedProj) {

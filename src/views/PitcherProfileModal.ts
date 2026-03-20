@@ -667,7 +667,7 @@ export class PitcherProfileModal {
       if (data.projIp === undefined && !data.isProspect
           && supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
         try {
-          const cachedCtx = await projectionService.getProjectionsWithContext(currentYear - 1);
+          const cachedCtx = await projectionService.getProjectionsWithContext(currentYear);
           if (generation !== this.showGeneration) return;
           const cachedProj = cachedCtx?.projections?.find((p: any) => p.playerId === data.playerId);
           if (cachedProj) {
