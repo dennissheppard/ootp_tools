@@ -1861,6 +1861,20 @@ export class BatterProfileModal {
     if (!isPeakMode) {
       consistencyChecker.checkBatter(data.playerId, data.playerName,
         { war: projWar, pa: projPa, hr: projHr, sb: projSb }, 'BatterProfileModal');
+      // Formula check: independently derive WAR from components (sbRuns excluded — small, ~0-2 runs)
+      if (this.leagueAvg && projPa > 0) {
+        consistencyChecker.checkBatterWarFormula(data.playerId, data.playerName, {
+          displayedWar: projWar,
+          projWoba: proj.projWoba,
+          projPa: projPa,
+          lgWoba: this.leagueAvg.lgWoba,
+          wobaScale: this.leagueAvg.wobaScale,
+          runsPerWin: this.leagueAvg.runsPerWin,
+          sbRuns: 0, // SB runs not on projection result; tolerance covers the ~0.2 WAR gap
+          defRuns: projDefRuns,
+          posAdj: projPosAdj,
+        }, 'BatterProfileModal');
+      }
     }
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;

@@ -1941,10 +1941,18 @@ export class PitcherProfileModal {
     // Cache for career stats row consistency
     this._cachedProj = { projK9, projBb9, projHr9, projFip, projIp, projWar };
 
-    // Dev-only: verify displayed values match precomputed cache
+    // Dev-only: verify displayed values match precomputed cache + formula
     if (!isPeakMode) {
       consistencyChecker.checkPitcher(data.playerId, data.playerName ?? '',
         { war: projWar, ip: projIp, fip: projFip }, 'PitcherProfileModal');
+      // Formula check: independently derive WAR from FIP + IP
+      if (projIp > 0 && projFip > 0) {
+        consistencyChecker.checkPitcherWarFormula(data.playerId, data.playerName ?? '', {
+          displayedWar: projWar,
+          projFip,
+          projIp,
+        }, 'PitcherProfileModal');
+      }
     }
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;

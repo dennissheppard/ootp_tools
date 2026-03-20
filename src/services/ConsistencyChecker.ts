@@ -75,6 +75,7 @@ function reportMismatch(m: Mismatch): void {
 
 const TOLERANCES: Record<string, number> = {
   war: 0.15,
+  'war (formula)': 0.3, // Wider: batter formula excludes SB runs (~0.2 WAR max)
   pa: 5,
   ip: 5,
   hr: 3,
@@ -138,6 +139,83 @@ export const consistencyChecker = {
         }
       }
     } catch { /* silent */ }
+  },
+
+  /**
+   * Formula-based internal consistency check (works with custom scouting too).
+   * Takes the projection's OUTPUT components and independently derives WAR via
+   * the raw formula, then compares against the projection's displayed WAR.
+   *
+   * This catches: stale PA fed to WAR calc, IP reduced but WAR not recomputed,
+   * wOBA from one source but PA from another, etc.
+   *
+   * NOT a "true === true" test — the projection pipeline computes WAR through
+   * dozens of intermediate steps; this recalculates directly from final components.
+   */
+  checkBatterWarFormula(
+    playerId: number,
+    playerName: string,
+    components: {
+      displayedWar: number;
+      projWoba: number;
+      projPa: number;
+      lgWoba: number;
+      wobaScale: number;
+      runsPerWin: number;
+      sbRuns: number;
+      defRuns: number;
+      posAdj: number;
+    },
+    source: string,
+  ): void {
+    if (!isDevMode) return;
+    const { displayedWar, projWoba, projPa, lgWoba, wobaScale, runsPerWin, sbRuns, defRuns, posAdj } = components;
+    if (projPa <= 0) return; // Can't verify zero-PA projections
+    // Independent WAR calculation from raw formula
+    const wRAA = ((projWoba - lgWoba) / wobaScale) * projPa;
+    const replacementRuns = (projPa / 600) * 20;
+    const expectedWar = Math.round(((wRAA + replacementRuns + sbRuns + defRuns + posAdj) / runsPerWin) * 10) / 10;
+
+    if (!isClose('war', displayedWar, expectedWar)) {
+      reportMismatch({
+        playerId, playerName, field: 'war (formula)',
+        displayed: displayedWar, cached: expectedWar,
+        source: `${source} [internal]`, timestamp: Date.now(),
+      });
+    }
+  },
+
+  /**
+   * Formula-based pitcher WAR consistency check.
+   * Derives WAR from FIP + IP using the raw formula, compares against displayed.
+   */
+  checkPitcherWarFormula(
+    playerId: number,
+    playerName: string,
+    components: {
+      displayedWar: number;
+      projFip: number;
+      projIp: number;
+      replacementFip?: number;
+      runsPerWin?: number;
+    },
+    source: string,
+  ): void {
+    if (!isDevMode) return;
+    const { displayedWar, projFip, projIp } = components;
+    const replFip = components.replacementFip ?? 5.41;
+    const rpw = components.runsPerWin ?? 8.50;
+    if (projIp <= 0) return;
+    // Independent WAR calculation from raw formula
+    const expectedWar = Math.round(((replFip - projFip) / rpw) * (projIp / 9) * 10) / 10;
+
+    if (!isClose('war', displayedWar, expectedWar)) {
+      reportMismatch({
+        playerId, playerName, field: 'war (formula)',
+        displayed: displayedWar, cached: expectedWar,
+        source: `${source} [internal]`, timestamp: Date.now(),
+      });
+    }
   },
 
   /** Register a listener for mismatch events (used by UI banner) */
