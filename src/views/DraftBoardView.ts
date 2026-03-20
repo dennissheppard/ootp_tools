@@ -199,10 +199,10 @@ export class DraftBoardView {
     for (const s of hitterScoutMy) hitterScoutMap.set(s.playerId, s);
 
     // Load projections via services (respects hasCustomScouting — recalculates if needed)
-    const statsBaseYear = year - 1;
+    // year = getCurrentYear() = season year (e.g. 2021), which matches cache's statsYear
     const [pitcherProjCtx, batterProjCtx] = await Promise.all([
-      projectionService.getProjectionsWithContext(statsBaseYear).catch(() => null),
-      batterProjectionService.getProjectionsWithContext(statsBaseYear).catch(() => null),
+      projectionService.getProjectionsWithContext(year).catch(() => null),
+      batterProjectionService.getProjectionsWithContext(year).catch(() => null),
     ]);
 
     const pitcherProjMap = new Map<number, any>();
