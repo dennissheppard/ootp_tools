@@ -49,6 +49,8 @@ export interface ProjectedPlayer {
   parkHrFactor?: number;
   /** Park name for display */
   parkName?: string;
+  /** Raw park factor data for tooltip detail (avg, 2B, 3B, handedness splits) */
+  parkRaw?: { avg: number; avg_l: number; avg_r: number; hr: number; hr_l: number; hr_r: number; d: number; t: number };
 }
 
 export interface ProjectionContext {
@@ -193,11 +195,8 @@ class ProjectionService {
       // Cache hit when requested year matches the cache's statsYear, OR is within 1 year
       // (accounts for offseason/spring training year convention mismatches between views)
       if (cached && cacheStatsYear !== undefined && Math.abs(year - cacheStatsYear) <= 1) {
-        const sowle = (cached as any).projections?.find((p: any) => p.playerId === 7340);
-        console.log(`[PitcherProj CACHE HIT] year=${year} cacheStatsYear=${cacheStatsYear} sowle.ip=${sowle?.projectedStats?.ip} sowle.war=${sowle?.projectedStats?.war}`);
         return cached as ProjectionContext;
       }
-      console.log(`[PitcherProj CACHE MISS] year=${year} cacheStatsYear=${cacheStatsYear} cached=${!!cached}`);
     }
 
     // 1. Fetch Data
@@ -636,6 +635,7 @@ class ProjectionService {
         if (parkRow) {
           p.parkHrFactor = computePitcherParkHrFactor(parkRow);
           p.parkName = parkRow.park_name;
+          p.parkRaw = parkRow;
         }
       }
     }
