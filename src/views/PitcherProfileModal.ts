@@ -26,6 +26,7 @@ import { analyticsService } from '../services/AnalyticsService';
 import { getRouter } from '../router';
 import { playerService } from '../services/PlayerService';
 import { supabaseDataService } from '../services/SupabaseDataService';
+import { consistencyChecker } from '../services/ConsistencyChecker';
 
 /** Format injury days as a human-readable duration (e.g. "3 weeks", "5 months") */
 function formatInjuryDuration(days: number): string {
@@ -1939,6 +1940,12 @@ export class PitcherProfileModal {
 
     // Cache for career stats row consistency
     this._cachedProj = { projK9, projBb9, projHr9, projFip, projIp, projWar };
+
+    // Dev-only: verify displayed values match precomputed cache
+    if (!isPeakMode) {
+      consistencyChecker.checkPitcher(data.playerId, data.playerName ?? '',
+        { war: projWar, ip: projIp, fip: projFip }, 'PitcherProfileModal');
+    }
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
     const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;

@@ -25,6 +25,7 @@ import { getParkCharacterLabel, ParkFactorRow } from '../services/ParkFactorServ
 import { analyticsService } from '../services/AnalyticsService';
 import { playerService } from '../services/PlayerService';
 import { batterProjectionService } from '../services/BatterProjectionService';
+import { consistencyChecker } from '../services/ConsistencyChecker';
 import { getRouter } from '../router';
 
 // Eagerly resolve all team logo URLs via Vite glob
@@ -1855,6 +1856,12 @@ export class BatterProfileModal {
     // Store for WAR badge, chart legend, and chart badge consistency
     this._lastProjectionWar = projWar;
     this._lastProjection = proj;
+
+    // Dev-only: verify displayed values match precomputed cache
+    if (!isPeakMode) {
+      consistencyChecker.checkBatter(data.playerId, data.playerName,
+        { war: projWar, pa: projPa, hr: projHr, sb: projSb }, 'BatterProfileModal');
+    }
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
     const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;
