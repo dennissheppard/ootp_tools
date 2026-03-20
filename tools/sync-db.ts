@@ -1225,15 +1225,14 @@ async function computeTrueFutureRatings(
   }
 
   // Build hitter MLB distribution (from context or compute on first run)
-  if (ctx.precomputedHitterDist) {
-    (hitterTrueFutureRatingService as any)._mlbDistCache = ctx.precomputedHitterDist;
-    (hitterTrueFutureRatingService as any)._mlbDistCacheKey = 'def_def_def';
+  // Require wobaValues (added when TFR ranking switched from WAR to wOBA)
+  if (ctx.precomputedHitterDist && ctx.precomputedHitterDist.wobaValues) {
+    hitterTrueFutureRatingService.setMLBDistributionCache(ctx.precomputedHitterDist);
     console.log('  Loaded hitter MLB distribution from precomputed cache');
   } else {
     console.log('  Building hitter MLB distribution from stats...');
     const hitterDist = await buildHitterMlbDistribution(dobMap);
-    (hitterTrueFutureRatingService as any)._mlbDistCache = hitterDist;
-    (hitterTrueFutureRatingService as any)._mlbDistCacheKey = 'def_def_def';
+    hitterTrueFutureRatingService.setMLBDistributionCache(hitterDist);
     await supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_mlb_distribution_def_def_def', data: hitterDist }], 1, 'key');
   }
 
@@ -1267,16 +1266,19 @@ async function computeTrueFutureRatings(
         speed: scouting.speed ?? 50,
         ovr: scouting.ovr,
         pot: scouting.pot,
+        injuryProneness: scouting.injury_proneness,
+        stealingAggressiveness: scouting.stealing_aggressiveness,
+        stealingAbility: scouting.stealing_ability,
       },
       minorLeagueStats: milbBattingByPlayer.get(playerId) || [],
       trueRating: tr,
     });
   });
 
-  const hitterTfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(hitterTfrInputs);
-
-  // Build PA by injury (empirical)
+  // Build PA by injury map first — passed to TFR service so it computes all derived fields
   const paByInjury = await buildPaByInjury(dobMap);
+
+  const hitterTfrResults = await hitterTrueFutureRatingService.calculateTrueFutureRatings(hitterTfrInputs, undefined, paByInjury);
 
   // Build RatedHitterProspect objects
   for (const result of hitterTfrResults) {
@@ -1286,8 +1288,8 @@ async function computeTrueFutureRatings(
     const team = teamMap.get(teamId);
     const injury = scouting.injury_proneness || 'Normal';
 
-    // PA projection from injury tier
-    const projPa = paByInjury.get(injury) ?? 640;
+    // All derived fields (projObp, projSlg, projOps, wrcPlus, projWar, projPa)
+    // are now computed inside calculateTrueFutureRatings() — no duplicate computation needed.
 
     const hitterProspectData: any = {
         ...result,
@@ -1299,7 +1301,6 @@ async function computeTrueFutureRatings(
         teamName: team?.name || 'Unknown',
         teamNickname: team?.nickname || '',
         orgId: player?.parent_team_id || player?.team_id || 0,
-        projPa,
         injury,
         injuryProneness: injury,
         isProspect: true,
@@ -1418,6 +1419,7 @@ async function buildHitterMlbDistribution(dobMap: Map<number, Date>): Promise<an
   const allDoublesRate: number[] = [];
   const allTriplesRate: number[] = [];
   const allWar: number[] = [];
+  const allWoba: number[] = [];
 
   const lgWoba = 0.315;
   const wobaScale = 1.15;
@@ -1470,6 +1472,7 @@ async function buildHitterMlbDistribution(dobMap: Map<number, Date>): Promise<an
     const wRAA = ((wOBA - lgWoba) / wobaScale) * pa;
     const war = (wRAA + replacementRuns) / runsPerWin;
     allWar.push(Math.round(war * 10) / 10);
+    allWoba.push(Math.round(wOBA * 1000) / 1000);
   }
 
   allBbPct.sort((a, b) => a - b);
@@ -1479,6 +1482,7 @@ async function buildHitterMlbDistribution(dobMap: Map<number, Date>): Promise<an
   allDoublesRate.sort((a, b) => a - b);
   allTriplesRate.sort((a, b) => a - b);
   allWar.sort((a, b) => a - b);
+  allWoba.sort((a, b) => a - b);
 
   console.log(`  Built hitter MLB dist: ${allBbPct.length} player-seasons`);
 
@@ -1490,6 +1494,7 @@ async function buildHitterMlbDistribution(dobMap: Map<number, Date>): Promise<an
     doublesRateValues: allDoublesRate,
     triplesRateValues: allTriplesRate,
     warValues: allWar,
+    wobaValues: allWoba,
   };
 }
 

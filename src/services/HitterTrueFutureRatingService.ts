@@ -73,7 +73,17 @@ export interface HitterTrueFutureRatingResult {
   projIso: number;
   /** Projected peak wOBA */
   projWoba: number;
-  /** Projected WAR per 600 PA (used for ranking) */
+  /** Projected OBP */
+  projObp: number;
+  /** Projected SLG */
+  projSlg: number;
+  /** Projected OPS */
+  projOps: number;
+  /** Projected PA (injury-adjusted) */
+  projPa: number;
+  /** wRC+ (100 = league average) */
+  wrcPlus: number;
+  /** Projected WAR (injury-adjusted PA) */
   projWar: number;
   /** Percentile rank among all prospects */
   percentile: number;
@@ -222,6 +232,11 @@ const PERCENTILE_TO_RATING: Array<{ threshold: number; rating: number }> = [
 const CEILING_BOOST_FACTOR = 0.35;
 
 /** wOBA weights */
+/** Default PA projections by injury tier (from empirical MLB peak-age data) */
+const DEFAULT_PA_BY_INJURY = new Map<string, number>([
+  ['Iron Man', 684], ['Durable', 662], ['Normal', 640], ['Fragile', 594], ['Wrecked', 519],
+]);
+
 const WOBA_WEIGHTS = {
   bb: 0.69,
   single: 0.89,
@@ -317,6 +332,12 @@ const COMPONENT_SCOUTING_WEIGHTS = {
 class HitterTrueFutureRatingService {
   private _mlbDistCache: MLBHitterPercentileDistribution | null = null;
   private _mlbDistCacheKey: string | null = null;
+
+  /** Pre-load the MLB distribution cache (used by sync-db to inject Supabase-sourced data) */
+  setMLBDistributionCache(dist: MLBHitterPercentileDistribution, cacheKey = 'def_def_def'): void {
+    this._mlbDistCache = dist;
+    this._mlbDistCacheKey = cacheKey;
+  }
 
   /**
    * Calculate scouting weight for a specific component based on PA.
@@ -1049,7 +1070,8 @@ class HitterTrueFutureRatingService {
    */
   async calculateTrueFutureRatings(
     inputs: HitterTrueFutureRatingInput[],
-    leagueBattingAverages?: LeagueBattingAverages
+    leagueBattingAverages?: LeagueBattingAverages,
+    injuryPaMap?: Map<string, number>
   ): Promise<HitterTrueFutureRatingResult[]> {
     if (inputs.length === 0) {
       return [];
@@ -1109,20 +1131,34 @@ class HitterTrueFutureRatingService {
       // Calculate peak wOBA from blended rates
       const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg, gap, speed);
 
-      // Calculate WAR per 600 PA for ranking (includes baserunning from SR/STE)
+      // Derived rate stats
+      const projIso = this.calculateIsoFromRates(projBbPct, projHrPct, projAvg, gap, speed);
+      const projSlg = projAvg + projIso;
+      const projObp = projAvg + (projBbPct / 100) * (1 - projAvg);
+      const projOps = projObp + projSlg;
+
+      // Injury-adjusted PA
+      const injury = input?.scouting.injuryProneness ?? 'Normal';
+      const projPa = injuryPaMap?.get(injury) ?? DEFAULT_PA_BY_INJURY.get(injury) ?? 640;
+
+      // wRC+ and WAR from projWoba (injury-adjusted PA)
       const lgWoba = leagueBattingAverages?.lgWoba ?? 0.315;
       const wobaScale = leagueBattingAverages?.wobaScale ?? 1.15;
+      const lgRpa = leagueBattingAverages?.lgRpa ?? 0.11;
       const runsPerWin = leagueBattingAverages?.runsPerWin ?? 10;
+
+      const wRaaPerPa = (projWoba - lgWoba) / wobaScale;
+      const wrcPlus = Math.round(((wRaaPerPa + lgRpa) / lgRpa) * 100);
 
       const sr = input?.scouting.stealingAggressiveness;
       const ste = input?.scouting.stealingAbility;
       let sbRuns = 0;
       if (sr !== undefined && ste !== undefined) {
-        const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, 600);
+        const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
         sbRuns = sbProj.sb * 0.2 - sbProj.cs * 0.4;
       }
-      const wRAA = ((projWoba - lgWoba) / wobaScale) * 600;
-      const replacementRuns = 20;
+      const wRAA = wRaaPerPa * projPa;
+      const replacementRuns = (projPa / 600) * 20;
       const projWar = Math.round(((wRAA + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
 
       return {
@@ -1137,8 +1173,13 @@ class HitterTrueFutureRatingService {
         projKPct: Math.round(projKPct * 10) / 10,
         projHrPct: Math.round(projHrPct * 100) / 100,
         projAvg: Math.round(projAvg * 1000) / 1000,
-        projIso: Math.round(this.calculateIsoFromRates(projBbPct, projHrPct, projAvg, gap, speed) * 1000) / 1000,
+        projIso: Math.round(projIso * 1000) / 1000,
         projWoba: Math.round(projWoba * 1000) / 1000,
+        projObp: Math.round(projObp * 1000) / 1000,
+        projSlg: Math.round(projSlg * 1000) / 1000,
+        projOps: Math.round(projOps * 1000) / 1000,
+        projPa,
+        wrcPlus,
         projWar,
       };
     });
@@ -1189,6 +1230,11 @@ class HitterTrueFutureRatingService {
         projAvg: result.projAvg,
         projIso: result.projIso,
         projWoba: result.projWoba,
+        projObp: result.projObp,
+        projSlg: result.projSlg,
+        projOps: result.projOps,
+        projPa: result.projPa,
+        wrcPlus: result.wrcPlus,
         projWar: result.projWar,
         percentile: Math.round(percentile * 10) / 10,
         trueFutureRating,

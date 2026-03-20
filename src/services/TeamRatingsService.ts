@@ -894,15 +894,13 @@ class TeamRatingsService {
           if (!player) return;
 
           // Determine Organization ID via Team Service lookup
+          // Unsigned draftees (no team) get orgId=0
           const team = teamMap.get(player.teamId);
-          if (!team) return;
-
-          // Unified pool includes root org players too (young MLB + farm in one pool)
-          const orgId = team.parentTeamId !== 0 ? team.parentTeamId : team.id;
+          const orgId = team ? (team.parentTeamId !== 0 ? team.parentTeamId : team.id) : 0;
 
           processedCount++;
           const scouting = scoutingMap.get(tfr.playerId);
-          
+
           const pitches = scouting?.pitches ?? {};
           const pitchCount = Object.values(pitches).filter(v => v >= 45).length; // Usable pitches
           const stamina = scouting?.stamina ?? 0;
@@ -1003,7 +1001,7 @@ class TeamRatingsService {
               level: levelLabel,
               teamId: player.teamId,
               orgId: orgId,
-              parentOrg: teamMap.get(orgId)?.nickname ?? team.nickname,
+              parentOrg: teamMap.get(orgId)?.nickname ?? team?.nickname ?? '',
               peakFip: tfr.projFip,
               peakWar: peakWar,
               peakIp: projectedIp,
@@ -1279,9 +1277,6 @@ class TeamRatingsService {
           const player = playerMap.get(playerId);
           if (!player) return;
 
-          const team = teamMap.get(player.teamId);
-          if (!team) return;
-
           const careerMlbStats = careerMlbStatsMap.get(playerId);
           const careerAb = careerMlbStats?.ab ?? 0;
           const starGap = (scouting.pot ?? 0) - (scouting.ovr ?? 0);
@@ -1294,8 +1289,8 @@ class TeamRatingsService {
           const totalPa = minorStats.reduce((sum, s) => sum + s.pa, 0);
 
           if (totalPa === 0 && careerAb === 0) {
-              // No stats at all — player must be on a team (signed professional)
-              if (!player.teamId) return;
+              // No stats at all — must be signed professional or draft-eligible
+              if (!player.teamId && !player.draftEligible) return;
           }
 
           tfrInputs.push({
@@ -1315,18 +1310,19 @@ class TeamRatingsService {
           return osaScouting ? { ...input, scouting: osaScouting } : input;
       });
 
+      // Build empirical PA distributions from MLB peak-age data by injury category
+      const empiricalPaByInjury = await hitterTrueFutureRatingService.buildMLBPaByInjury(scoutingMap);
+
       // Calculate True Future Ratings for both scout priorities
+      // Pass injury PA map so the service computes all derived fields (wrcPlus, projObp, etc.)
       const [tfrResults, tfrResultsOsa] = await Promise.all([
-          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs, leagueAvg ?? undefined),
-          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputsOsa, leagueAvg ?? undefined),
+          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs, leagueAvg ?? undefined, empiricalPaByInjury),
+          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputsOsa, leagueAvg ?? undefined, empiricalPaByInjury),
       ]);
 
       // Build maps for both TFR runs
       const tfrMyResultMap = new Map(tfrResults.map(t => [t.playerId, t]));
       const tfrOsaResultMap = new Map(tfrResultsOsa.map(t => [t.playerId, t]));
-
-      // Build empirical PA distributions from MLB peak-age data by injury category
-      const empiricalPaByInjury = await hitterTrueFutureRatingService.buildMLBPaByInjury(scoutingMap);
 
       // Build prospect list grouped by organization
       const orgGroups = new Map<number, RatedHitterProspect[]>();
@@ -1338,42 +1334,10 @@ class TeamRatingsService {
 
           const { player, scouting, careerAb } = prospectInfo;
           const team = teamMap.get(player.teamId);
-          if (!team) return;
 
           // For IC players on root-level teams, orgId is the team itself
-          const orgId = team.parentTeamId !== 0 ? team.parentTeamId : team.id;
-
-          // Calculate derived stats
-          const projSlg = tfr.projAvg + tfr.projIso;
-          const projObp = tfr.projAvg + (tfr.projBbPct / 100) * (1 - tfr.projAvg);
-          const projOps = projObp + projSlg;
-          const injury = scouting.injuryProneness ?? 'Normal';
-          const projPa = empiricalPaByInjury.get(injury)
-              ?? empiricalPaByInjury.get('Normal')
-              ?? leagueBattingAveragesService.getProjectedPa(scouting.injuryProneness);
-
-          // Calculate wRC+ and WAR using league averages (include baserunning from SR/STE)
-          let wrcPlus = 100; // Default to league average
-          let projWar = 0;
-          const sr = scouting.stealingAggressiveness;
-          const ste = scouting.stealingAbility;
-          let sbRuns = 0;
-          if (sr !== undefined && ste !== undefined) {
-              const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-              sbRuns = leagueBattingAveragesService.calculateBaserunningRuns(sbProj.sb, sbProj.cs);
-          }
-          if (leagueAvg) {
-              wrcPlus = leagueBattingAveragesService.calculateWrcPlus(tfr.projWoba, leagueAvg);
-              projWar = leagueBattingAveragesService.calculateBattingWar(tfr.projWoba, projPa, leagueAvg, sbRuns);
-          } else {
-              // Fallback calculation when league averages not available
-              const lgWoba = 0.315;
-              const wobaScale = 1.15;
-              const runsPerWin = 10;
-              const wRAA = ((tfr.projWoba - lgWoba) / wobaScale) * projPa;
-              const replacementRuns = (projPa / 600) * 20;
-              projWar = Math.round(((wRAA + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
-          }
+          // Unsigned draftees (no team) get orgId=0
+          const orgId = team ? (team.parentTeamId !== 0 ? team.parentTeamId : team.id) : 0;
 
           // IC players have level=6 (set by CLI from contract league_id=-200)
           const hitterLevelLabel = player.level === 6 ? 'IC' : this.getLevelLabel(player.level);
@@ -1386,21 +1350,21 @@ class TeamRatingsService {
               age: tfr.age,
               level: hitterLevelLabel,
               teamId: player.teamId,
-              team: team.nickname,
+              team: team?.nickname ?? '',
               orgId,
-              parentOrg: teamMap.get(orgId)?.nickname ?? team.nickname,
+              parentOrg: teamMap.get(orgId)?.nickname ?? team?.nickname ?? '',
               projWoba: tfr.projWoba,
               projBbPct: tfr.projBbPct,
               projKPct: tfr.projKPct,
               projHrPct: tfr.projHrPct,
               projIso: tfr.projIso,
               projAvg: tfr.projAvg,
-              projObp: Math.round(projObp * 1000) / 1000,
-              projSlg: Math.round(projSlg * 1000) / 1000,
-              projOps: Math.round(projOps * 1000) / 1000,
-              projPa,
-              wrcPlus,
-              projWar,
+              projObp: tfr.projObp,
+              projSlg: tfr.projSlg,
+              projOps: tfr.projOps,
+              projPa: tfr.projPa,
+              wrcPlus: tfr.wrcPlus,
+              projWar: tfr.projWar,
               totalMinorPa: tfr.totalMinorPa,
               injuryProneness: scouting.injuryProneness,
               scoutingRatings: {
@@ -1585,18 +1549,18 @@ class TeamRatingsService {
       }
     }
 
-    // Filter out undrafted players (orgId === 0 = not in any org)
-    const inOrg = prospects.filter(p => p.orgId !== 0);
-    const sorted = [...inOrg].sort((a, b) => b.trueFutureRating - a.trueFutureRating);
+    // All prospects sorted by TFR (including unsigned draftees with orgId=0)
+    const sorted = [...prospects].sort((a, b) => b.trueFutureRating - a.trueFutureRating);
 
     // Build team name lookup
     const teams = await teamService.getAllTeams();
     const teamNameMap = new Map<number, string>();
     for (const t of teams) teamNameMap.set(t.id, t.nickname);
 
-    // Group by org
+    // Org-grouped data excludes unaffiliated players (orgId=0)
     const byOrg = new Map<number, RatedProspect[]>();
     for (const p of sorted) {
+      if (p.orgId === 0) continue;
       if (!byOrg.has(p.orgId)) byOrg.set(p.orgId, []);
       byOrg.get(p.orgId)!.push(p);
     }
@@ -1659,12 +1623,13 @@ class TeamRatingsService {
       }
     }
 
-    // Filter out undrafted players (orgId === 0 = not in any org)
-    const inOrg = prospects.filter(p => p.orgId !== 0);
-    const sorted = [...inOrg].sort((a, b) => b.trueFutureRating - a.trueFutureRating);
+    // All prospects sorted by TFR (including unsigned draftees with orgId=0)
+    const sorted = [...prospects].sort((a, b) => b.trueFutureRating - a.trueFutureRating);
 
+    // Org-grouped data excludes unaffiliated players (orgId=0)
     const byOrg = new Map<number, RatedHitterProspect[]>();
     for (const p of sorted) {
+      if (p.orgId === 0) continue;
       if (!byOrg.has(p.orgId)) byOrg.set(p.orgId, []);
       byOrg.get(p.orgId)!.push(p);
     }

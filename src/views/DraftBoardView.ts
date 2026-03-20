@@ -267,7 +267,10 @@ export class DraftBoardView {
             stuff: scout.stuff, control: scout.control, hra: scout.hra,
             stamina: scout.stamina,
           } : undefined,
-          projStats: proj ? {
+          projStats: tfr ? {
+            k9: tfr.projK9 ?? 0, bb9: tfr.projBb9 ?? 0, hr9: tfr.projHr9 ?? 0,
+            fip: tfr.peakFip, war: tfr.peakWar, ip: tfr.peakIp ?? 0,
+          } : proj ? {
             k9: proj.projectedStats.k9, bb9: proj.projectedStats.bb9, hr9: proj.projectedStats.hr9,
             fip: proj.projectedStats.fip, war: proj.projectedStats.war, ip: proj.projectedStats.ip,
           } : undefined,
@@ -277,6 +280,8 @@ export class DraftBoardView {
         const scout = hitterScoutMap.get(pid);
         const proj = batterProjMap.get(pid);
         if (!tfr && !scout && !proj) continue;
+
+
 
         this.allPlayers.push({
           id: pid,
@@ -298,7 +303,11 @@ export class DraftBoardView {
             power: scout.power, eye: scout.eye, avoidK: scout.avoidK,
             contact: scout.contact, gap: scout.gap, speed: scout.speed,
           } : undefined,
-          projStats: proj ? {
+          projStats: tfr ? {
+            avg: tfr.projAvg, obp: tfr.projObp, slg: tfr.projSlg,
+            ops: tfr.projOps, opsPlus: tfr.wrcPlus,
+            war: tfr.projWar, pa: tfr.projPa, hr: Math.round(tfr.projHrPct * tfr.projPa / 100),
+          } : proj ? {
             avg: proj.projectedStats.avg, obp: proj.projectedStats.obp, slg: proj.projectedStats.slg,
             ops: proj.projectedStats.ops, opsPlus: proj.projectedStats.wrcPlus,
             war: proj.projectedStats.war, pa: proj.projectedStats.pa, hr: proj.projectedStats.hr,
