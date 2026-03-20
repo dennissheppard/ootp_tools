@@ -358,13 +358,6 @@ function getRestThreshold(injuryTier: string): number {
   }
 }
 
-function findBenchSub(bench: BatterSnapshot[], position: string, currentLineup: BatterSnapshot[]): BatterSnapshot | undefined {
-  const usedIds = new Set(currentLineup.map(b => b.playerId));
-  // Prefer a positional match; fall back to any available bench player so rest always triggers.
-  return bench.find(b => b.position === position && !usedIds.has(b.playerId))
-      ?? bench.find(b => !usedIds.has(b.playerId));
-}
-
 // Replacement-level batter template — phantom callup/minor leaguer
 const REPLACEMENT_RATES = {
   pBB: 0.065, pK: 0.230, pHR: 0.018,

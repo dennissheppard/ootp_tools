@@ -915,36 +915,6 @@ export class PitcherProfileModal {
     return undefined;
   }
 
-  // ─── FIP Emblem (middle column in ratings section) ─────────────────
-
-  private renderFipEmblem(data: PitcherProfileData): string {
-    const projStats = this.computeProjectedStats(data);
-    const projFip = projStats.projFip;
-    const fipText = typeof projFip === 'number' ? projFip.toFixed(2) : '--';
-    const fipLabel = data.isProspect ? 'Proj Peak FIP' : 'Proj FIP';
-    const badgeClass = this.getFipBadgeClass(projFip);
-
-    // Compute FIP percentile from tier-matched distribution (lower FIP = higher percentile)
-    let percentileHtml = '';
-    const fipDist = this.getFipDistributionForPlayer(data);
-    if (typeof projFip === 'number' && fipDist.length > 0) {
-      let betterThanCount = 0;
-      for (let i = 0; i < fipDist.length; i++) {
-        if (fipDist[i] >= projFip) { betterThanCount = fipDist.length - i; break; }
-      }
-      const percentile = Math.round((betterThanCount / fipDist.length) * 100);
-      percentileHtml = `<span class="fip-percentile">${this.formatPercentile(percentile)} Percentile</span>`;
-    }
-
-    return `
-      <div class="fip-emblem ${badgeClass}">
-        <span class="fip-emblem-label">${fipLabel}</span>
-        <span class="fip-emblem-value">${fipText}</span>
-        ${percentileHtml}
-      </div>
-    `;
-  }
-
   private getFipBadgeClass(fip?: number): string {
     if (fip === undefined) return 'fip-none';
     if (fip <= 2.75) return 'fip-elite';
@@ -1674,42 +1644,6 @@ export class PitcherProfileModal {
         this.updateAxisBadgeVisibility();
       });
     }
-  }
-
-  private addProjectionLegendItem(): void {
-    const legendContainer = this.overlay?.querySelector<HTMLElement>('.ratings-radar-col .apexcharts-legend');
-    if (!legendContainer) return;
-
-    legendContainer.querySelector('.custom-legend-proj')?.remove();
-
-    const isHidden = this.hiddenSeries.has('Stat Projections');
-
-    const item = document.createElement('div');
-    item.className = 'apexcharts-legend-series custom-legend-proj';
-    if (isHidden) item.classList.add('apexcharts-inactive-legend');
-    item.setAttribute('rel', 'custom-proj');
-    item.style.display = 'flex';
-    item.style.alignItems = 'center';
-    item.style.cursor = 'pointer';
-
-    item.innerHTML = `
-      <span class="apexcharts-legend-marker" style="background: #d4a574; height: 16px; width: 16px; border-radius: 50%; display: inline-block; margin-right: 4px;"></span>
-      <span class="apexcharts-legend-text" style="color: #e7e9ea; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">Stat Projections</span>
-    `;
-
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (this.hiddenSeries.has('Stat Projections')) {
-        this.hiddenSeries.delete('Stat Projections');
-        item.classList.remove('apexcharts-inactive-legend');
-      } else {
-        this.hiddenSeries.add('Stat Projections');
-        item.classList.add('apexcharts-inactive-legend');
-      }
-      this.updateAxisBadgeVisibility();
-    });
-
-    legendContainer.appendChild(item);
   }
 
   private initArsenalRadarChart(data: PitcherProfileData): void {

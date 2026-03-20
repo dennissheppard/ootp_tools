@@ -5,7 +5,6 @@ import { dateService } from '../services/DateService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
 import { supabaseDataService } from '../services/SupabaseDataService';
-import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
 import { pitcherProfileModal } from './PitcherProfileModal';
@@ -21,7 +20,6 @@ import { standingsService } from '../services/StandingsService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
-import { teamRatingsService } from '../services/TeamRatingsService';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -218,12 +216,12 @@ export class ProjectionsView {
 
     batterDefaults.push(
       { key: 'projOps', label: 'Proj OPS', sortKey: 'projectedStats.ops', accessor: b => b.projectedStats.ops.toFixed(3) },
-      { key: 'projWrcPlus', label: 'Proj OPS+', sortKey: 'projectedStats.wrcPlus', accessor: b => b.projectedStats.wrcPlus.toString() }
+      { key: 'projWrcPlus', label: 'Proj wRC+', sortKey: 'projectedStats.wrcPlus', accessor: b => b.projectedStats.wrcPlus.toString() }
     );
 
     if (this.hasBatterActualStats) {
       batterDefaults.push(
-        { key: 'actWrcPlus', label: 'Act OPS+', sortKey: 'actualStats.wrcPlus', accessor: b => b.actualStats ? b.actualStats.wrcPlus.toString() : '' }
+        { key: 'actWrcPlus', label: 'Act wRC+', sortKey: 'actualStats.wrcPlus', accessor: b => b.actualStats ? b.actualStats.wrcPlus.toString() : '' }
       );
     }
 
@@ -727,8 +725,6 @@ export class ProjectionsView {
             const scouting = hitterScoutMap.get(player.id);
             if (!scouting) continue;
 
-            const scoutAvg = ((scouting.contact ?? 50) + (scouting.power ?? 50) + (scouting.eye ?? 50) + (scouting.avoidK ?? 50)) / 4;
-            const tfr = Math.round((0.5 + (scoutAvg - 20) / 60 * 4.5) * 2) / 2;
             const posLabels: Record<number, string> = { 2:'C', 3:'1B', 4:'2B', 5:'3B', 6:'SS', 7:'LF', 8:'CF', 9:'RF', 10:'DH' };
 
             combinedBatters.push({

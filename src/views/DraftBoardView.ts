@@ -10,7 +10,6 @@ import { playerService } from '../services/PlayerService';
 import { teamRatingsService } from '../services/TeamRatingsService';
 import { scoutingDataService } from '../services/ScoutingDataService';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
-import { supabaseDataService } from '../services/SupabaseDataService';
 import { dateService } from '../services/DateService';
 import { projectionService } from '../services/ProjectionService';
 import { batterProjectionService } from '../services/BatterProjectionService';
@@ -106,6 +105,60 @@ export class DraftBoardView {
     } catch { /* ignore */ }
   }
 
+  private exportBoardCsv(): void {
+    const playerMap = new Map(this.allPlayers.map(p => [p.id, p]));
+    const rows = ['rank,player_id,player_name,type'];
+    let pitcherRank = 0, batterRank = 0;
+    this.draftBoardIds.forEach((id) => {
+      const p = playerMap.get(id);
+      if (!p) return;
+      const rank = p.type === 'pitcher' ? ++pitcherRank : ++batterRank;
+      const name = `"${p.name.replace(/"/g, '""')}"`;
+      rows.push(`${rank},${id},${name},${p.type}`);
+    });
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'draft_board.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  private importBoardCsv(): void {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv';
+    input.addEventListener('change', () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const text = reader.result as string;
+        const lines = text.trim().split('\n');
+        const validIds = new Set(this.allPlayers.map(p => p.id));
+        const ids: number[] = [];
+        const seen = new Set<number>();
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i].trim();
+          if (!line || (i === 0 && line.startsWith('rank'))) continue;
+          const parts = line.split(',');
+          const id = parseInt(parts[1], 10);
+          if (!isNaN(id) && validIds.has(id) && !seen.has(id)) {
+            ids.push(id);
+            seen.add(id);
+          }
+        }
+        this.draftBoardIds = ids;
+        this.saveBoard();
+        this.updateBoardCount();
+        this.renderContent();
+      };
+      reader.readAsText(file);
+    });
+    input.click();
+  }
+
   // ── Data Loading ──
 
   private async loadData(): Promise<void> {
@@ -114,7 +167,7 @@ export class DraftBoardView {
     const year = await dateService.getCurrentYear();
     const [allPlayersList, pitcherFarm, hitterFarm] = await Promise.all([
       playerService.getAllPlayers(),
-      teamRatingsService.getFarmData(year),
+      teamRatingsService.getUnifiedPitcherTfrData(year),
       teamRatingsService.getUnifiedHitterTfrData(year),
     ]);
 
@@ -207,6 +260,8 @@ export class DraftBoardView {
           tfrStar: tfr?.trueFutureRating ?? proj?.currentTrueRating ?? 0,
           tfrRatings: tfr?.trueRatings ? {
             stuff: tfr.trueRatings.stuff, control: tfr.trueRatings.control, hra: tfr.trueRatings.hra,
+          } : scout ? {
+            stuff: scout.stuff, control: scout.control, hra: scout.hra,
           } : undefined,
           scoutRatings: scout ? {
             stuff: scout.stuff, control: scout.control, hra: scout.hra,
@@ -235,6 +290,9 @@ export class DraftBoardView {
             power: tfr.trueRatings.power, eye: tfr.trueRatings.eye,
             avoidK: tfr.trueRatings.avoidK, contact: tfr.trueRatings.contact,
             gap: tfr.trueRatings.gap, speed: tfr.trueRatings.speed,
+          } : scout ? {
+            power: scout.power, eye: scout.eye, avoidK: scout.avoidK,
+            contact: scout.contact, gap: scout.gap, speed: scout.speed,
           } : undefined,
           scoutRatings: scout ? {
             power: scout.power, eye: scout.eye, avoidK: scout.avoidK,
@@ -395,40 +453,33 @@ export class DraftBoardView {
     return `<th class="sortable ${isActive ? 'sort-active' : ''}" data-sort="${key}" style="cursor:pointer">${label}${arrow}</th>`;
   }
 
-  private getTfrHeaders(): string {
+  private getTfrHeaders(board = false): string {
+    const sh = (key: string, label: string) => board ? this.boardSortHeader(key, label) : this.sortHeader(key, label);
     if (this.playerTypeMode === 'pitchers') {
-      return ['stuff', 'control', 'hra'].map(k => this.sortHeader(`tfr.${k}`, k.charAt(0).toUpperCase() + k.slice(1))).join('');
+      return ['stuff', 'control', 'hra'].map(k => sh(`tfr.${k}`, k.charAt(0).toUpperCase() + k.slice(1))).join('');
     }
-    return ['power', 'eye', 'avoidK', 'contact', 'gap', 'speed'].map(k => {
-      const labels: Record<string, string> = { power: 'Pow', eye: 'Eye', avoidK: 'AvK', contact: 'Con', gap: 'Gap', speed: 'Spd' };
-      return this.sortHeader(`tfr.${k}`, labels[k] || k);
-    }).join('');
+    const labels: Record<string, string> = { power: 'Pow', eye: 'Eye', avoidK: 'AvK', contact: 'Con', gap: 'Gap', speed: 'Spd' };
+    return ['power', 'eye', 'avoidK', 'contact', 'gap', 'speed'].map(k => sh(`tfr.${k}`, labels[k] || k)).join('');
   }
 
-  private getScoutHeaders(): string {
+  private getScoutHeaders(board = false): string {
+    const sh = (key: string, label: string) => board ? this.boardSortHeader(key, label) : this.sortHeader(key, label);
     if (this.playerTypeMode === 'pitchers') {
-      return ['stuff', 'control', 'hra', 'stamina'].map(k => {
-        const labels: Record<string, string> = { stuff: 'Stuff', control: 'Ctrl', hra: 'HRA', stamina: 'Stam' };
-        return this.sortHeader(`scout.${k}`, labels[k] || k);
-      }).join('');
+      const labels: Record<string, string> = { stuff: 'Stuff', control: 'Ctrl', hra: 'HRA', stamina: 'Stam' };
+      return ['stuff', 'control', 'hra', 'stamina'].map(k => sh(`scout.${k}`, labels[k] || k)).join('');
     }
-    return ['power', 'eye', 'avoidK', 'contact', 'gap', 'speed'].map(k => {
-      const labels: Record<string, string> = { power: 'Pow', eye: 'Eye', avoidK: 'AvK', contact: 'Con', gap: 'Gap', speed: 'Spd' };
-      return this.sortHeader(`scout.${k}`, labels[k] || k);
-    }).join('');
+    const labels: Record<string, string> = { power: 'Pow', eye: 'Eye', avoidK: 'AvK', contact: 'Con', gap: 'Gap', speed: 'Spd' };
+    return ['power', 'eye', 'avoidK', 'contact', 'gap', 'speed'].map(k => sh(`scout.${k}`, labels[k] || k)).join('');
   }
 
-  private getProjectionHeaders(): string {
+  private getProjectionHeaders(board = false): string {
+    const sh = (key: string, label: string) => board ? this.boardSortHeader(key, label) : this.sortHeader(key, label);
     if (this.playerTypeMode === 'pitchers') {
-      return ['k9', 'bb9', 'hr9', 'fip', 'war', 'ip'].map(k => {
-        const labels: Record<string, string> = { k9: 'K/9', bb9: 'BB/9', hr9: 'HR/9', fip: 'FIP', war: 'WAR', ip: 'IP' };
-        return this.sortHeader(`proj.${k}`, labels[k] || k);
-      }).join('');
+      const labels: Record<string, string> = { k9: 'K/9', bb9: 'BB/9', hr9: 'HR/9', fip: 'FIP', war: 'WAR', ip: 'IP' };
+      return ['k9', 'bb9', 'hr9', 'fip', 'war', 'ip'].map(k => sh(`proj.${k}`, labels[k] || k)).join('');
     }
-    return ['avg', 'obp', 'slg', 'opsPlus', 'war', 'hr'].map(k => {
-      const labels: Record<string, string> = { avg: 'AVG', obp: 'OBP', slg: 'SLG', opsPlus: 'OPS+', war: 'WAR', hr: 'HR' };
-      return this.sortHeader(`proj.${k}`, labels[k] || k);
-    }).join('');
+    const labels: Record<string, string> = { avg: 'AVG', obp: 'OBP', slg: 'SLG', opsPlus: 'wRC+', war: 'WAR', hr: 'HR' };
+    return ['avg', 'obp', 'slg', 'opsPlus', 'war', 'hr'].map(k => sh(`proj.${k}`, labels[k] || k)).join('');
   }
 
   private getPlayerListRows(players: DraftPlayer[], boardSet: Set<number>): string {
@@ -504,15 +555,31 @@ export class DraftBoardView {
 
   // ── Draft Board Panel ──
 
-  private renderDraftBoard(content: HTMLElement): void {
+  private getFilteredBoardPlayers(): DraftPlayer[] {
     const playerMap = new Map(this.allPlayers.map(p => [p.id, p]));
-    const boardPlayers = this.draftBoardIds.map(id => playerMap.get(id)).filter(Boolean) as DraftPlayer[];
+    let players = this.draftBoardIds.map(id => playerMap.get(id)).filter(Boolean) as DraftPlayer[];
+
+    players = players.filter(p =>
+      this.playerTypeMode === 'pitchers' ? p.type === 'pitcher' : p.type === 'batter'
+    );
+
+    if (this.selectedPosition !== 'All') {
+      players = players.filter(p => p.posLabel === this.selectedPosition);
+    }
+
+    return players;
+  }
+
+  private renderDraftBoard(content: HTMLElement): void {
+    const totalOnBoard = this.draftBoardIds.length;
+    const positions = this.playerTypeMode === 'pitchers' ? PITCHER_POSITIONS : BATTER_POSITIONS;
+    const filtered = this.getFilteredBoardPlayers();
 
     // Apply temp sort if active
-    let displayPlayers = boardPlayers;
+    let displayPlayers = filtered;
     const isTempSorted = this.boardSortKey !== null;
     if (isTempSorted) {
-      displayPlayers = [...boardPlayers];
+      displayPlayers = [...filtered];
       const key = this.boardSortKey!;
       const dir = this.boardSortDir === 'asc' ? 1 : -1;
       displayPlayers.sort((a, b) => {
@@ -520,29 +587,49 @@ export class DraftBoardView {
         if (key === 'name') return dir * a.name.localeCompare(b.name);
         if (key === 'tfrStar') { va = a.tfrStar; vb = b.tfrStar; }
         else if (key === 'age') { va = a.age; vb = b.age; }
-        else if (key === 'war') { va = a.projStats?.war ?? 0; vb = b.projStats?.war ?? 0; }
-        else if (key === 'keyStat') {
-          va = a.type === 'pitcher' ? (a.projStats?.fip ?? 99) : (a.projStats?.opsPlus ?? 0);
-          vb = b.type === 'pitcher' ? (b.projStats?.fip ?? 99) : (b.projStats?.opsPlus ?? 0);
-        }
-        else { va = 0; vb = 0; }
+        else if (key.startsWith('tfr.')) {
+          const k = key.slice(4);
+          va = a.tfrRatings?.[k] ?? 0; vb = b.tfrRatings?.[k] ?? 0;
+        } else if (key.startsWith('scout.')) {
+          const k = key.slice(6);
+          va = a.scoutRatings?.[k] ?? 0; vb = b.scoutRatings?.[k] ?? 0;
+        } else if (key.startsWith('proj.')) {
+          const k = key.slice(5);
+          va = a.projStats?.[k] ?? 0; vb = b.projStats?.[k] ?? 0;
+        } else { va = 0; vb = 0; }
         return dir * (va - vb);
       });
     }
 
-    // Build board rank lookup (original order) for the # column
+    // Build per-type rank lookup (original board order, but numbered within the active type)
+    const playerMap2 = new Map(this.allPlayers.map(p => [p.id, p]));
+    const activeType = this.playerTypeMode === 'pitchers' ? 'pitcher' : 'batter';
     const boardRank = new Map<number, number>();
-    this.draftBoardIds.forEach((id, i) => boardRank.set(id, i + 1));
-
-    const sortArrow = (key: string, defaultDir: 'asc' | 'desc' = 'desc'): string => {
-      if (this.boardSortKey !== key) return '';
-      return this.boardSortDir === 'asc' ? ' ▲' : ' ▼';
-    };
+    let typeRank = 0;
+    for (const id of this.draftBoardIds) {
+      const p = playerMap2.get(id);
+      if (p && p.type === activeType) boardRank.set(id, ++typeRank);
+    }
 
     content.innerHTML = `
-      <div class="filter-bar" style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem;">
-        <span style="color: var(--color-text-muted); font-size: 0.85em;">${boardPlayers.length} players on board${isTempSorted ? '' : ' — drag to reorder'}</span>
-        <button class="btn btn-danger btn-sm" id="draft-clear-all" style="margin-left: auto;" ${boardPlayers.length === 0 ? 'disabled' : ''}>Clear All</button>
+      <div class="filter-bar" style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap;">
+        <div class="toggle-group">
+          <button class="toggle-btn ${this.playerTypeMode === 'batters' ? 'active' : ''}" data-ptype="batters">Batters</button>
+          <button class="toggle-btn ${this.playerTypeMode === 'pitchers' ? 'active' : ''}" data-ptype="pitchers">Pitchers</button>
+        </div>
+        <div class="toggle-group">
+          ${positions.map(p => `<button class="toggle-btn ${this.selectedPosition === p ? 'active' : ''}" data-pos="${p}">${p}</button>`).join('')}
+        </div>
+        <div class="toggle-group">
+          <button class="toggle-btn ${this.columnMode === 'tfr' ? 'active' : ''}" data-colmode="tfr">TFR Ratings</button>
+          <button class="toggle-btn ${this.columnMode === 'scout' ? 'active' : ''}" data-colmode="scout">Scout Ratings</button>
+          <button class="toggle-btn ${this.columnMode === 'projections' ? 'active' : ''}" data-colmode="projections">Peak Projections</button>
+        </div>
+        <div style="margin-left: auto; display: flex; gap: 0.5rem;">
+          <button class="btn btn-sm" id="draft-import" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);">Import CSV</button>
+          <button class="btn btn-sm" id="draft-export" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);" ${totalOnBoard === 0 ? 'disabled' : ''}>Export CSV</button>
+          <button class="btn btn-danger btn-sm" id="draft-clear-all" ${totalOnBoard === 0 ? 'disabled' : ''}>Clear All</button>
+        </div>
       </div>
       ${isTempSorted ? `
         <div class="board-sort-bar" style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; padding: 0.5rem 0.75rem; background: rgba(99, 102, 241, 0.1); border-radius: var(--border-radius); border: 1px solid rgba(99, 102, 241, 0.3);">
@@ -551,23 +638,16 @@ export class DraftBoardView {
           <button class="btn btn-sm" id="board-reset-sort" style="background: var(--color-surface); border: 1px solid var(--color-border); color: var(--color-text);">Reset</button>
         </div>
       ` : ''}
-      ${boardPlayers.length === 0
+      ${totalOnBoard === 0
         ? '<div style="text-align:center; padding: 3rem; color: var(--color-text-muted);">No players on your board yet. Switch to Player List to add some.</div>'
         : `<div class="draft-table-wrap" style="max-height: calc(100vh - 200px); overflow-y: auto;">
             <table class="stats-table draft-board-table">
-              <thead><tr>
-                <th style="width:24px"></th>
-                <th style="width:30px">#</th>
-                <th class="board-sort-header" data-bsort="name" style="cursor:pointer">Name${sortArrow('name')}</th>
-                <th>Pos</th>
-                <th class="board-sort-header" data-bsort="age" style="cursor:pointer">Age${sortArrow('age')}</th>
-                <th class="board-sort-header" data-bsort="tfrStar" style="cursor:pointer">TFR${sortArrow('tfrStar')}</th>
-                <th class="board-sort-header" data-bsort="war" style="cursor:pointer">WAR${sortArrow('war')}</th>
-                <th class="board-sort-header" data-bsort="keyStat" style="cursor:pointer">Key Stat${sortArrow('keyStat')}</th>
-                <th style="width:30px"></th>
-              </tr></thead>
+              <thead><tr>${this.getBoardHeaders()}</tr></thead>
               <tbody>${displayPlayers.map(p => this.renderBoardRow(p, boardRank.get(p.id) ?? 0)).join('')}</tbody>
             </table>
+          </div>
+          <div style="margin-top: 0.5rem; color: var(--color-text-muted); font-size: 0.8em;">
+            ${filtered.length} shown · ${totalOnBoard} total on board${isTempSorted ? '' : ' · drag to reorder'}
           </div>`
       }
     `;
@@ -575,27 +655,51 @@ export class DraftBoardView {
     this.bindDraftBoardEvents(content);
   }
 
-  private renderBoardRow(p: DraftPlayer, rank: number): string {
-    const war = p.projStats?.war?.toFixed(1) ?? '--';
-    let keyStat = '';
-    if (p.type === 'pitcher') {
-      keyStat = p.projStats?.fip !== undefined ? `${p.projStats.fip.toFixed(2)} FIP` : '--';
+  private getBoardHeaders(): string {
+    let cols = `<th style="width:24px"></th>`;
+    cols += `<th style="width:30px">#</th>`;
+    cols += this.boardSortHeader('name', 'Name');
+    cols += `<th>Pos</th>`;
+    cols += this.boardSortHeader('age', 'Age');
+    cols += this.boardSortHeader('tfrStar', 'TFR');
+
+    if (this.columnMode === 'tfr') {
+      cols += this.getTfrHeaders(true);
+    } else if (this.columnMode === 'scout') {
+      cols += this.getScoutHeaders(true);
     } else {
-      keyStat = p.projStats?.opsPlus !== undefined ? `${Math.round(p.projStats.opsPlus)} OPS+` : '--';
+      cols += this.getProjectionHeaders(true);
     }
 
+    cols += `<th style="width:30px"></th>`;
+    return cols;
+  }
+
+  private boardSortHeader(key: string, label: string): string {
+    const isActive = this.boardSortKey === key;
+    const arrow = isActive ? (this.boardSortDir === 'asc' ? ' ▲' : ' ▼') : '';
+    return `<th class="board-sort-header" data-bsort="${key}" style="cursor:pointer">${label}${arrow}</th>`;
+  }
+
+  private renderBoardRow(p: DraftPlayer, rank: number): string {
     const isTempSorted = this.boardSortKey !== null;
-    return `<tr class="board-row" data-pid="${p.id}" ${isTempSorted ? '' : 'draggable="true"'}>
-      <td class="drag-handle" style="cursor:${isTempSorted ? 'default' : 'grab'}; text-align:center; color: var(--color-text-muted);">${isTempSorted ? '' : '⠿'}</td>
-      <td style="text-align:center; color: var(--color-text-muted);">${rank}</td>
-      <td><button class="player-name-link draft-name" data-pid="${p.id}">${p.name}</button></td>
-      <td style="text-align:center">${p.posLabel}</td>
-      <td style="text-align:center">${p.age}</td>
-      <td style="text-align:center">${this.renderTfrBadge(p.tfrStar)}</td>
-      <td style="text-align:center">${war}</td>
-      <td style="text-align:center">${keyStat}</td>
-      <td><button class="btn-icon draft-remove" data-pid="${p.id}" title="Remove">✕</button></td>
-    </tr>`;
+    let cells = `<td class="drag-handle" style="cursor:${isTempSorted ? 'default' : 'grab'}; text-align:center; color: var(--color-text-muted);">${isTempSorted ? '' : '⠿'}</td>`;
+    cells += `<td style="text-align:center; color: var(--color-text-muted);">${rank}</td>`;
+    cells += `<td><button class="player-name-link draft-name" data-pid="${p.id}">${p.name}</button></td>`;
+    cells += `<td style="text-align:center">${p.posLabel}</td>`;
+    cells += `<td style="text-align:center">${p.age}</td>`;
+    cells += `<td style="text-align:center">${this.renderTfrBadge(p.tfrStar)}</td>`;
+
+    if (this.columnMode === 'tfr') {
+      cells += this.getTfrCells(p);
+    } else if (this.columnMode === 'scout') {
+      cells += this.getScoutCells(p);
+    } else {
+      cells += this.getProjectionCells(p);
+    }
+
+    cells += `<td><button class="btn-icon draft-remove" data-pid="${p.id}" title="Remove">✕</button></td>`;
+    return `<tr class="board-row" data-pid="${p.id}" ${isTempSorted ? '' : 'draggable="true"'}>${cells}</tr>`;
   }
 
   // ── Event Binding ──
@@ -710,6 +814,42 @@ export class DraftBoardView {
   }
 
   private bindDraftBoardEvents(content: HTMLElement): void {
+    // Player type toggle
+    content.querySelectorAll<HTMLElement>('[data-ptype]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const type = btn.dataset.ptype as PlayerTypeMode;
+        if (type && type !== this.playerTypeMode) {
+          this.playerTypeMode = type;
+          this.selectedPosition = 'All';
+          this.boardSortKey = null;
+          this.renderContent();
+        }
+      });
+    });
+
+    // Position filter
+    content.querySelectorAll<HTMLElement>('[data-pos]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const pos = btn.dataset.pos;
+        if (pos && pos !== this.selectedPosition) {
+          this.selectedPosition = pos;
+          this.renderContent();
+        }
+      });
+    });
+
+    // Column mode
+    content.querySelectorAll<HTMLElement>('[data-colmode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.colmode as ColumnMode;
+        if (mode && mode !== this.columnMode) {
+          this.columnMode = mode;
+          this.boardSortKey = null;
+          this.renderContent();
+        }
+      });
+    });
+
     // Remove individual
     content.querySelectorAll<HTMLElement>('.draft-remove').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -730,6 +870,10 @@ export class DraftBoardView {
       this.updateBoardCount();
     });
 
+    // Export/Import
+    content.querySelector('#draft-export')?.addEventListener('click', () => this.exportBoardCsv());
+    content.querySelector('#draft-import')?.addEventListener('click', () => this.importBoardCsv());
+
     // Board column sort headers
     content.querySelectorAll<HTMLElement>('.board-sort-header').forEach(th => {
       th.addEventListener('click', () => {
@@ -738,35 +882,40 @@ export class DraftBoardView {
           this.boardSortDir = this.boardSortDir === 'asc' ? 'desc' : 'asc';
         } else {
           this.boardSortKey = key;
-          // Default direction: lower-is-better for FIP/age, higher for everything else
-          this.boardSortDir = (key === 'age' || key === 'keyStat') ? 'asc' : 'desc';
+          // Default direction: lower-is-better for FIP-like stats and age
+          this.boardSortDir = (key === 'age' || key === 'proj.bb9' || key === 'proj.hr9' || key === 'proj.fip') ? 'asc' : 'desc';
         }
         this.renderContent();
       });
     });
 
-    // Apply sorted order as new board rankings
+    // Apply sorted order as new board rankings (reorders the filtered type within the full board)
     content.querySelector('#board-apply-sort')?.addEventListener('click', () => {
       if (this.boardSortKey === null) return;
-      // Rebuild draftBoardIds in current display order
-      const playerMap = new Map(this.allPlayers.map(p => [p.id, p]));
-      const boardPlayers = this.draftBoardIds.map(id => playerMap.get(id)).filter(Boolean) as DraftPlayer[];
+      const sorted = this.getFilteredBoardPlayers();
       const key = this.boardSortKey!;
       const dir = this.boardSortDir === 'asc' ? 1 : -1;
-      boardPlayers.sort((a, b) => {
+      sorted.sort((a, b) => {
         let va: number, vb: number;
         if (key === 'name') return dir * a.name.localeCompare(b.name);
         if (key === 'tfrStar') { va = a.tfrStar; vb = b.tfrStar; }
         else if (key === 'age') { va = a.age; vb = b.age; }
-        else if (key === 'war') { va = a.projStats?.war ?? 0; vb = b.projStats?.war ?? 0; }
-        else if (key === 'keyStat') {
-          va = a.type === 'pitcher' ? (a.projStats?.fip ?? 99) : (a.projStats?.opsPlus ?? 0);
-          vb = b.type === 'pitcher' ? (b.projStats?.fip ?? 99) : (b.projStats?.opsPlus ?? 0);
-        }
-        else { va = 0; vb = 0; }
+        else if (key.startsWith('tfr.')) {
+          const k = key.slice(4);
+          va = a.tfrRatings?.[k] ?? 0; vb = b.tfrRatings?.[k] ?? 0;
+        } else if (key.startsWith('scout.')) {
+          const k = key.slice(6);
+          va = a.scoutRatings?.[k] ?? 0; vb = b.scoutRatings?.[k] ?? 0;
+        } else if (key.startsWith('proj.')) {
+          const k = key.slice(5);
+          va = a.projStats?.[k] ?? 0; vb = b.projStats?.[k] ?? 0;
+        } else { va = 0; vb = 0; }
         return dir * (va - vb);
       });
-      this.draftBoardIds = boardPlayers.map(p => p.id);
+      // Rebuild: sorted IDs for current type, then remaining IDs in original order
+      const sortedIds = new Set(sorted.map(p => p.id));
+      const otherIds = this.draftBoardIds.filter(id => !sortedIds.has(id));
+      this.draftBoardIds = [...sorted.map(p => p.id), ...otherIds];
       this.boardSortKey = null;
       this.saveBoard();
       this.renderContent();
@@ -777,6 +926,8 @@ export class DraftBoardView {
       this.boardSortKey = null;
       this.renderContent();
     });
+
+    this.bindNameClicks(content);
 
     // Drag and drop reordering (only when not temp-sorted)
     if (this.boardSortKey !== null) return; // Skip drag binding during temp sort
@@ -822,8 +973,6 @@ export class DraftBoardView {
         this.renderContent();
       });
     });
-
-    this.bindNameClicks(content);
   }
 
   private updateBoardCount(): void {

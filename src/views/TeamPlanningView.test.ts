@@ -100,8 +100,8 @@ describe('TeamPlanningView regressions', () => {
 
     const player = makePlayer({ id: 501 });
     view.playerMap.set(player.id, player);
-    view.playerRatingMap.set(player.id, 0.5); // stale value
-    view.canonicalPitcherTrMap.set(player.id, 4.5); // canonical fallback should win
+    view.playerRatingMap.set(player.id, 0.5);
+    view.canonicalPitcherTrMap.set(player.id, 4.5);
 
     view.gridRows = [
       {
@@ -142,8 +142,8 @@ describe('TeamPlanningView regressions', () => {
     const player = makePlayer({ id: 777 });
 
     view.playerMap.set(player.id, player);
-    view.playerRatingMap.set(player.id, 0.5); // stale list value
-    view.canonicalPitcherTrMap.set(player.id, 4.5); // resolved value expected in picker
+    view.playerRatingMap.set(player.id, 0.5);
+    view.canonicalPitcherTrMap.set(player.id, 4.5);
     view.gridRows = [
       {
         position: 'MR5',

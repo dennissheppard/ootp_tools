@@ -266,7 +266,7 @@ const SCOUTING_BLEND_CONFIDENCE_PA = 200;
  *
  * A scout whose grades agree with the stats (gap < 1σ) keeps full weight.
  */
-function applyScoutingCredibility(
+export function applyScoutingCredibility(
   scoutWeight: number,
   regressedRate: number,
   scoutExpectedRate: number,
@@ -365,7 +365,7 @@ class HitterTrueRatingsCalculationService {
     inputs: HitterTrueRatingInput[],
     leagueAverages: HitterLeagueAverages = DEFAULT_LEAGUE_AVERAGES,
     yearWeights?: number[],
-    leagueBattingAverages?: LeagueBattingAverages
+    _leagueBattingAverages?: LeagueBattingAverages
   ): HitterTrueRatingResult[] {
     // Step 1: Compute weighted rates for each player (needed for SB/CS rates)
     const weightedRatesMap = new Map<number, WeightedRates>();
@@ -382,31 +382,7 @@ class HitterTrueRatingsCalculationService {
     // Step 4.5: Calculate percentile-based component ratings
     this.calculateComponentRatingsFromPercentiles(results);
 
-    // Step 4.6: Compute WAR per 600 PA for ranking
-    const lgWoba = leagueBattingAverages?.lgWoba ?? 0.315;
-    const wobaScale = leagueBattingAverages?.wobaScale ?? 1.15;
-    const runsPerWin = leagueBattingAverages?.runsPerWin ?? 10;
-
-    results.forEach(result => {
-      const weighted = weightedRatesMap.get(result.playerId);
-      const sbPerPa = weighted?.sbPerPa ?? 0;
-      const csPerPa = weighted?.csPerPa ?? 0;
-
-      // Standardized 600 PA offensive WAR for percentile ranking only.
-      // This is NOT used for projections, team standings, or display — those all use
-      // BatterProjectionService (which includes defensive value via DefensiveProjectionService).
-      // This rate-based WAR exists solely to sort hitters for the percentile badge
-      // on the True Rating display (e.g. "97th percentile"). It intentionally excludes
-      // defensive value since it measures offensive quality at a standardized PA.
-      const sb600 = sbPerPa * 600;
-      const cs600 = csPerPa * 600;
-      const sbRuns = sb600 * 0.2 - cs600 * 0.4;
-      const wRAA = ((result.woba - lgWoba) / wobaScale) * 600;
-      const replacementRuns = 20; // 20 runs per 600 PA
-      result.war = Math.round(((wRAA + replacementRuns + sbRuns) / runsPerWin) * 10) / 10;
-    });
-
-    // Step 5: Calculate percentiles across all hitters (now by WAR instead of wOBA)
+    // Step 5: Calculate percentiles across all hitters by wOBA (rate-based, PA-independent)
     this.calculatePercentiles(results);
 
     // Step 6: Convert percentiles to ratings
@@ -682,7 +658,7 @@ class HitterTrueRatingsCalculationService {
       estimatedGap: 0,    // Calculated via percentile in next step
       estimatedSpeed: 0,  // Calculated via percentile in next step
       woba: Math.round(woba * 1000) / 1000,
-      war: 0, // Computed in calculateTrueRatings after all players processed
+      war: 0, // Legacy field — ranking now uses wOBA directly
       percentile: 0,
       trueRating: 0,
       totalPa: Math.round(weighted.totalPa),
@@ -1137,21 +1113,21 @@ class HitterTrueRatingsCalculationService {
   calculatePercentiles(results: HitterTrueRatingResult[]): void {
     if (results.length === 0) return;
 
-    // Sort by WAR descending (higher is better)
+    // Sort by wOBA descending (higher is better, rate-based, PA-independent)
     // Handle NaN values to prevent infinite sort loop
     const sorted = [...results].sort((a, b) => {
-      const aWar = Number.isNaN(a.war) ? -999 : a.war;
-      const bWar = Number.isNaN(b.war) ? -999 : b.war;
-      return bWar - aWar;
+      const aWoba = Number.isNaN(a.woba) ? -999 : a.woba;
+      const bWoba = Number.isNaN(b.woba) ? -999 : b.woba;
+      return bWoba - aWoba;
     });
 
     // Assign ranks (handle ties with average rank)
     const ranks = new Map<number, number>();
     let i = 0;
     while (i < sorted.length) {
-      const currentWar = sorted[i].war;
+      const currentWoba = sorted[i].woba;
       let j = i;
-      while (j < sorted.length && sorted[j].war === currentWar) {
+      while (j < sorted.length && sorted[j].woba === currentWoba) {
         j++;
       }
       const avgRank = (i + 1 + j) / 2;
@@ -1161,7 +1137,7 @@ class HitterTrueRatingsCalculationService {
       i = j;
     }
 
-    // Convert rank to percentile (higher WAR = higher percentile)
+    // Convert rank to percentile (higher wOBA = higher percentile)
     const n = results.length;
     results.forEach(result => {
       const rank = ranks.get(result.playerId) || n;

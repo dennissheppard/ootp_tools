@@ -204,8 +204,6 @@ export class BatterProfileModal {
   private blockingYears: number | undefined;
   private top100Rank: number | undefined;
 
-  // Cached projected PA for legend display
-  private cachedProjPa: number | undefined;
 
   // Dynamic league averages (loaded per year)
   private leagueAvg: LeagueBattingAverages | null = null;
@@ -1492,112 +1490,6 @@ export class BatterProfileModal {
     `;
   }
 
-  private computeProjectedStats(data: BatterProfileData): {
-    projAvg?: number; projHrPct?: number; projBbPct?: number;
-    projKPct?: number; projHr?: number; proj2b?: number; projSba?: number;
-    projSbPct?: number; proj3b?: number; projPa?: number;
-  } {
-    const s = this.scoutingData;
-    const sr = s?.stealingAggressiveness ?? data.scoutSR ?? 50;
-    const ste = s?.stealingAbility ?? data.scoutSTE ?? 50;
-    const hasSrSte = (s?.stealingAggressiveness !== undefined) || (data.scoutSR !== undefined);
-
-    let projAvg: number | undefined;
-    let projHrPct: number | undefined;
-    let projBbPct: number | undefined;
-    let projKPct: number | undefined;
-    let proj2b: number | undefined;
-    let proj3b: number | undefined;
-    let projSba: number | undefined;
-    let projSbPct: number | undefined;
-
-    // For prospects, prefer TFR blended rates (which update on scout toggle)
-    const isProspectCtx = data.trueRating === undefined && data.trueFutureRating !== undefined;
-
-    if (isProspectCtx && data.tfrAvg !== undefined) {
-      projAvg = data.tfrAvg;
-    } else if (data.projAvg !== undefined) {
-      projAvg = data.projAvg;
-    } else if (data.estimatedContact !== undefined) {
-      projAvg = data.projAvg ?? HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
-    }
-
-    if (isProspectCtx && data.tfrHrPct !== undefined) {
-      projHrPct = data.tfrHrPct;
-    } else if (data.projHrPct !== undefined) {
-      projHrPct = data.projHrPct;
-    } else if (data.estimatedPower !== undefined) {
-      projHrPct = data.projHrPct ?? HitterRatingEstimatorService.expectedHrPct(data.estimatedPower);
-    }
-
-    if (isProspectCtx && data.tfrBbPct !== undefined) {
-      projBbPct = data.tfrBbPct;
-    } else if (data.projBbPct !== undefined) {
-      projBbPct = data.projBbPct;
-    } else if (data.estimatedEye !== undefined) {
-      projBbPct = data.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
-    }
-
-    if (isProspectCtx && data.tfrKPct !== undefined) {
-      projKPct = data.tfrKPct;
-    } else if (data.projKPct !== undefined) {
-      projKPct = data.projKPct;
-    } else if (data.estimatedAvoidK !== undefined) {
-      projKPct = data.projKPct ?? HitterRatingEstimatorService.expectedKPct(data.estimatedAvoidK);
-    }
-
-    // Projected PA — prefer pre-calculated value from caller (e.g. BatterProjectionService)
-    // to stay consistent with the projections table. Only recalculate as fallback.
-    // Exclude current year to avoid partial-season contamination.
-    const injuryProneness = s?.injuryProneness ?? data.injuryProneness;
-    const age = data.age ?? 27;
-    let projPa: number;
-    if (data.projPa !== undefined) {
-      projPa = data.projPa;
-    } else {
-      const mlbHistory = (this.currentStats ?? [])
-        .filter(s2 => s2.level === 'MLB' && s2.year < this.projectionYear)
-        .map(s2 => ({ year: s2.year, pa: s2.pa }));
-      projPa = mlbHistory.length > 0
-        ? leagueBattingAveragesService.getProjectedPaWithHistory(mlbHistory, age, injuryProneness)
-        : leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
-    }
-    const projAb = Math.round(projPa * 0.88);
-    const projHr = projHrPct !== undefined ? Math.round(projPa * (projHrPct / 100)) : undefined;
-
-    // Projected 2B from gap rating
-
-    if (data.projDoublesRate !== undefined) {
-      proj2b = Math.round(projAb * data.projDoublesRate);
-    } else {
-      // For prospects: use TFR gap (peak potential) for peak projection, not current TR gap
-      const gapForProj = data.tfrGap ?? data.estimatedGap ?? s?.gap;
-      if (gapForProj !== undefined) {
-        proj2b = Math.round(projAb * HitterRatingEstimatorService.expectedDoublesRate(gapForProj));
-      }
-    }
-
-    // Projected 3B from speed rating
-    if (data.projTriplesRate !== undefined) {
-      proj3b = Math.round(projAb * data.projTriplesRate);
-    } else {
-      const speedForProj = data.tfrSpeed ?? data.estimatedSpeed ?? s?.speed ?? data.scoutSpeed;
-      if (speedForProj !== undefined) {
-        proj3b = Math.round(projAb * HitterRatingEstimatorService.expectedTriplesRate(speedForProj));
-      }
-    }
-
-    // Running stats from SR/STE
-    if (hasSrSte) {
-      const sbProj = HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-      const totalSba = (data.projSb ?? sbProj.sb) + (data.projCs ?? sbProj.cs);
-      projSba = totalSba;
-      projSbPct = totalSba > 0 ? ((data.projSb ?? sbProj.sb) / totalSba) * 100 : undefined;
-    }
-
-    return { projAvg, projHrPct, projBbPct, projKPct, projHr, proj2b, projSba, projSbPct, proj3b, projPa };
-  }
-
   private initRadarChart(data: BatterProfileData): void {
     // Destroy existing
     if (this.radarChart) {
@@ -1696,45 +1588,6 @@ export class BatterProfileModal {
         this.updateAxisBadgeVisibility();
       });
     }
-  }
-
-  /** Inject a custom "Stat Projections" toggle into the hitting chart legend */
-  private addProjectionLegendItem(): void {
-    const legendContainer = this.overlay?.querySelector<HTMLElement>('.ratings-panel-hitting .apexcharts-legend');
-    if (!legendContainer) return;
-
-    // Remove existing custom item if present (re-injection after ApexCharts re-render)
-    legendContainer.querySelector('.custom-legend-proj')?.remove();
-
-    const isHidden = this.hiddenSeries.has('Stat Projections');
-
-    const item = document.createElement('div');
-    item.className = 'apexcharts-legend-series custom-legend-proj';
-    if (isHidden) item.classList.add('apexcharts-inactive-legend');
-    item.setAttribute('rel', 'custom-proj');
-    item.style.display = 'flex';
-    item.style.alignItems = 'center';
-    item.style.cursor = 'pointer';
-
-    const paLabel = this.cachedProjPa !== undefined ? ` (${this.cachedProjPa} PA)` : '';
-    item.innerHTML = `
-      <span class="apexcharts-legend-marker" style="background: #d4a574; height: 16px; width: 16px; border-radius: 50%; display: inline-block; margin-right: 4px;"></span>
-      <span class="apexcharts-legend-text" style="color: #e7e9ea; font-size: 11px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">Stat Projections${paLabel}</span>
-    `;
-
-    item.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (this.hiddenSeries.has('Stat Projections')) {
-        this.hiddenSeries.delete('Stat Projections');
-        item.classList.remove('apexcharts-inactive-legend');
-      } else {
-        this.hiddenSeries.add('Stat Projections');
-        item.classList.add('apexcharts-inactive-legend');
-      }
-      this.updateAxisBadgeVisibility();
-    });
-
-    legendContainer.appendChild(item);
   }
 
   private initRunningRadarChart(data: BatterProfileData): void {
@@ -1882,7 +1735,6 @@ export class BatterProfileModal {
 
     // Store for WAR badge, chart legend, and chart badge consistency
     this._lastProjectionWar = projWar;
-    this.cachedProjPa = projPa;
     this._lastProjection = proj;
 
     const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;

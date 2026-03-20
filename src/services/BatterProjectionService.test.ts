@@ -1,15 +1,6 @@
 import { batterProjectionService } from './BatterProjectionService';
 import { supabaseDataService } from './SupabaseDataService';
 
-// Mock SupabaseDataService for precomputed fast-path tests
-jest.mock('./SupabaseDataService', () => ({
-  supabaseDataService: {
-    isConfigured: false,
-    hasCustomScouting: false,
-    getPrecomputed: jest.fn(),
-  },
-}));
-
 jest.mock('./DateService', () => ({
   dateService: {
     getCurrentYear: jest.fn().mockResolvedValue(2021),
@@ -48,8 +39,6 @@ describe('BatterProjectionService', () => {
       (supabaseDataService as any).isConfigured = true;
       (supabaseDataService as any).hasCustomScouting = true;
 
-      // This will fail because dependent services aren't mocked,
-      // but we can verify getPrecomputed was NOT called with 'batter_projections'
       try {
         await batterProjectionService.getProjectionsWithContext(2021);
       } catch {
@@ -64,7 +53,6 @@ describe('BatterProjectionService', () => {
       (supabaseDataService as any).hasCustomScouting = false;
       (supabaseDataService.getPrecomputed as jest.Mock).mockResolvedValue(null);
 
-      // Will fail at dependent services, but getPrecomputed was called and returned null
       try {
         await batterProjectionService.getProjectionsWithContext(2021);
       } catch {

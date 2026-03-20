@@ -24,7 +24,7 @@ import { HitterScoutingRatings } from '../models/ScoutingData';
 import { supabaseDataService } from './SupabaseDataService';
 import { resolveCanonicalBatterData, computeBatterProjection } from './ModalDataService';
 import { computeEffectiveParkFactors } from './ParkFactorService';
-import type { BatterProfileData } from '../views/BatterProfileModal';
+// BatterProfileData type used indirectly via 'any' cast in calculateProjectionFromTrueRating
 
 export interface ProjectedBatter {
   playerId: number;
@@ -547,10 +547,10 @@ class BatterProjectionService {
     info: BatterProjectionPlayerInfo,
     leagueAvg: LeagueBattingAverages | null,
     historicalStats: YearlyHittingStats[] = [],
-    trace?: BatterProjectionCalculationTrace,
+    _trace?: BatterProjectionCalculationTrace,
     projectionYear?: number,
   ): ProjectedBatter {
-    const { age, teamId, teamName, position, level, parentTeamId, name, scouting, fromMyScout } = info;
+    const { age, teamId, teamName, position, level, parentTeamId, name, scouting, fromMyScout: _fromMyScout } = info;
 
     // Build a BatterProfileData-like object and use resolveCanonicalBatterData +
     // computeBatterProjection — the SAME functions the modal uses. This guarantees

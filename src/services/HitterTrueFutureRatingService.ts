@@ -138,6 +138,7 @@ export interface MLBHitterPercentileDistribution {
   doublesRateValues: number[]; // Sorted ascending (higher is better) - 2B per AB
   triplesRateValues: number[]; // Sorted ascending (higher is better) - 3B per AB
   warValues: number[];    // Sorted ascending (higher is better) - WAR per 600 PA
+  wobaValues: number[];   // Sorted ascending (higher is better) - wOBA
 }
 
 // ============================================================================
@@ -610,7 +611,7 @@ class HitterTrueFutureRatingService {
     // Check precomputed cache (static 2015-2020 data that never changes between syncs)
     if (supabaseDataService.isConfigured) {
       const cached = await supabaseDataService.getPrecomputed(`hitter_mlb_distribution_${cacheKey}`);
-      if (cached) {
+      if (cached && cached.wobaValues) {
         this._mlbDistCache = cached;
         this._mlbDistCacheKey = cacheKey;
         return cached;
@@ -625,6 +626,7 @@ class HitterTrueFutureRatingService {
     const allDoublesRate: number[] = [];
     const allTriplesRate: number[] = [];
     const allWar: number[] = [];
+    const allWoba: number[] = [];
 
     // Use game-specific league averages (same as used for prospect WAR)
     const lgWoba = leagueBattingAverages?.lgWoba ?? 0.315;
@@ -691,6 +693,7 @@ class HitterTrueFutureRatingService {
             const sbRuns = (stat.sb * 0.2 - stat.cs * 0.4) * (600 / pa);
             const war = (wRAA + replacementRuns + sbRuns) / runsPerWin;
             allWar.push(Math.round(war * 10) / 10);
+            allWoba.push(Math.round(woba * 1000) / 1000);
           }
         }
       } catch (error) {
@@ -706,6 +709,7 @@ class HitterTrueFutureRatingService {
     allDoublesRate.sort((a, b) => a - b); // Ascending: lower values = lower percentile
     allTriplesRate.sort((a, b) => a - b); // Ascending: lower values = lower percentile
     allWar.sort((a, b) => a - b);    // Ascending: lower values = lower percentile
+    allWoba.sort((a, b) => a - b);   // Ascending: lower values = lower percentile
 
     this._mlbDistCache = {
       bbPctValues: allBbPct,
@@ -715,6 +719,7 @@ class HitterTrueFutureRatingService {
       doublesRateValues: allDoublesRate,
       triplesRateValues: allTriplesRate,
       warValues: allWar,
+      wobaValues: allWoba,
     };
     this._mlbDistCacheKey = cacheKey;
 
@@ -1138,11 +1143,11 @@ class HitterTrueFutureRatingService {
       };
     });
 
-    // Log top prospect WAR values with full rate breakdowns for debugging
-    // Step 5: Map WAR to MLB peak-year WAR distribution for final TFR rating
+    // Step 5: Map wOBA to MLB peak-year wOBA distribution for final TFR rating
+    // Using wOBA (rate-based) instead of WAR removes injury/PA volume from ceiling rating.
     // (Components and final rating both compared to MLB, not other prospects)
     return resultsWithWoba.map((result) => {
-      const percentile = this.findValuePercentileInDistribution(result.projWar, mlbDist.warValues, true);
+      const percentile = this.findValuePercentileInDistribution(result.projWoba, mlbDist.wobaValues, true);
       const trueFutureRating = this.percentileToRating(percentile);
 
       // True ratings from percentiles: rating = 20 + (percentile / 100) * 60

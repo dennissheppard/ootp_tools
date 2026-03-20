@@ -17,7 +17,7 @@ export const LEAGUE_IDS: Record<string, number> = {
 };
 
 export const supabaseDataService = {
-  get isConfigured() { return false; },
+  isConfigured: false,
   hasCustomScouting: false,
   query: jest.fn().mockResolvedValue([]),
   upsert: jest.fn().mockResolvedValue(undefined),

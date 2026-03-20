@@ -18,6 +18,7 @@ import {
   HitterTrueRatingInput,
   HitterTrueRatingResult,
   YearlyHittingStats,
+  applyScoutingCredibility,
 } from './HitterTrueRatingsCalculationService';
 import { HitterScoutingRatings } from '../models/ScoutingData';
 import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
@@ -893,5 +894,114 @@ describe('Scouting Blend — development ratio scaling', () => {
       regressed, target, 350, 350,
     );
     expect(blended).toBeCloseTo((regressed + target) / 2, 4);
+  });
+});
+
+// ============================================================================
+// 9. Scouting Credibility Discount
+// ============================================================================
+
+describe('Scouting Credibility Discount', () => {
+  test('no discount when gap < 1σ', () => {
+    // Scout says .270, stats say .280 — gap = 0.33σ (within tolerance)
+    const result = applyScoutingCredibility(0.15, 0.280, 0.270, 0.030);
+    expect(result).toBe(0.15); // unchanged
+  });
+
+  test('no discount when gap exactly 1σ', () => {
+    const result = applyScoutingCredibility(0.15, 0.280, 0.250, 0.030);
+    expect(result).toBeCloseTo(0.15, 6); // 1.0σ = boundary, no discount
+  });
+
+  test('progressive discount beyond 1σ', () => {
+    // Gap = 1.8σ: credibility = max(0.10, 1 - (1.8-1.0)*0.4) = 0.68
+    const result = applyScoutingCredibility(0.158, 0.302, 0.248, 0.030);
+    expect(result).toBeCloseTo(0.158 * 0.68, 4);
+    expect(result).toBeLessThan(0.158);
+    expect(result).toBeGreaterThan(0);
+  });
+
+  test('extreme gap floors at 10% of original weight', () => {
+    // Gap = 5σ: credibility = max(0.10, 1 - (5-1)*0.4) = max(0.10, -0.6) = 0.10
+    const result = applyScoutingCredibility(0.20, 0.350, 0.200, 0.030);
+    expect(result).toBeCloseTo(0.20 * 0.10, 4);
+  });
+
+  test('works symmetrically (scout overestimates)', () => {
+    // Scout says .330 but stats say .260 — gap = 2.33σ
+    const result = applyScoutingCredibility(0.15, 0.260, 0.330, 0.030);
+    const expected = 0.15 * Math.max(0.10, 1 - (2.33 - 1.0) * 0.4);
+    expect(result).toBeCloseTo(expected, 3);
+    expect(result).toBeLessThan(0.15);
+  });
+
+  test('integration: veteran with bad scout grade gets credibility discount on AVG', () => {
+    // Sykes-like: Contact 55 (→ ~.248 AVG) but actually hits .300+
+    const veteranInput: HitterTrueRatingInput = {
+      playerId: 200,
+      playerName: 'Veteran Contact Hitter',
+      yearlyStats: [
+        { year: 2024, pa: 640, ab: 580, h: 180, d: 30, t: 3, hr: 22, bb: 50, k: 100, sb: 5, cs: 2 },
+        { year: 2023, pa: 620, ab: 565, h: 170, d: 28, t: 2, hr: 20, bb: 45, k: 95, sb: 4, cs: 2 },
+        { year: 2022, pa: 600, ab: 545, h: 165, d: 25, t: 3, hr: 18, bb: 42, k: 90, sb: 6, cs: 3 },
+      ],
+      scoutingRatings: {
+        playerId: 200, contact: 55, power: 65, eye: 55, avoidK: 50,
+        gap: 50, speed: 45, ovr: 3.5, pot: 3.5,
+      },
+    };
+    // Same player but with Contact 75 (scout agrees with stats)
+    const goodScoutInput: HitterTrueRatingInput = {
+      ...veteranInput,
+      playerId: 201,
+      playerName: 'Same Hitter Good Scout',
+      scoutingRatings: {
+        ...veteranInput.scoutingRatings!,
+        playerId: 201, contact: 75,
+      },
+    };
+
+    const inputs = [veteranInput, goodScoutInput, avgHitterInput];
+    const results = hitterTrueRatingsCalculationService.calculateTrueRatings(inputs);
+    const badScoutResult = results.find(r => r.playerId === 200)!;
+    const goodScoutResult = results.find(r => r.playerId === 201)!;
+
+    // Bad scout's AVG should be HIGHER than if scout had full weight
+    // (credibility discount lets stats dominate)
+    // Good scout's AVG should be slightly higher still (scout agrees so no discount)
+    expect(badScoutResult.blendedAvg).toBeGreaterThan(0.290);
+    // The gap between them should be small — credibility discount narrows it
+    expect(Math.abs(badScoutResult.blendedAvg - goodScoutResult.blendedAvg)).toBeLessThan(0.010);
+  });
+
+  test('integration: player where scout agrees gets no credibility discount', () => {
+    // Average hitter with matching scout grades — credibility should be 1.0
+    const matchedInput: HitterTrueRatingInput = {
+      playerId: 202,
+      playerName: 'Matched Scout Hitter',
+      yearlyStats: avgHitterStats,
+      scoutingRatings: {
+        playerId: 202, contact: 55, power: 50, eye: 50, avoidK: 45,
+        gap: 50, speed: 50, ovr: 3.0, pot: 3.0,
+      },
+    };
+    const noScoutInput: HitterTrueRatingInput = {
+      playerId: 203,
+      playerName: 'No Scout Hitter',
+      yearlyStats: avgHitterStats,
+    };
+
+    const withScout = hitterTrueRatingsCalculationService.calculateTrueRatings(
+      [matchedInput, eliteHitterInput, speedHitterInput]
+    );
+    const withoutScout = hitterTrueRatingsCalculationService.calculateTrueRatings(
+      [noScoutInput, eliteHitterInput, speedHitterInput]
+    );
+    const sResult = withScout.find(r => r.playerId === 202)!;
+    const nResult = withoutScout.find(r => r.playerId === 203)!;
+
+    // With matched scout, the scouting blend should still apply (no credibility discount)
+    // so the result should differ from no-scout
+    expect(sResult.blendedAvg).not.toBeCloseTo(nResult.blendedAvg, 3);
   });
 });

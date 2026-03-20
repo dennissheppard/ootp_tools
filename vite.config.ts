@@ -31,5 +31,13 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    exclude: [
+      'node_modules/**',
+      // These test files use Jest-specific APIs (jest.mock, __mocks__) and
+      // are run by the pre-commit hook via npx jest instead.
+      'src/services/BatterProjectionService.test.ts',
+      'src/services/ProjectionService.test.ts',
+      'src/views/TeamPlanningView.test.ts',
+    ],
   },
 });
