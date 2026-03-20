@@ -203,7 +203,8 @@ export class TeamPlanningView {
   private allTeams: Team[] = [];
   private teamLookup: Map<number, Team> = new Map();
   private selectedTeamId: number | null = null;
-  private gameYear: number = 2021;
+  private gameYear: number = 2021;       // Stats year (for TR/TFR/PowerRankings queries)
+  private planningStartYear: number = 2022; // Display year (projection target, shown in grid columns)
   private gridRows: GridRow[] = [];
   private playerMap: Map<number, Player> = new Map();
   private contractMap: Map<number, Contract> = new Map();
@@ -470,13 +471,15 @@ export class TeamPlanningView {
     try {
       const gridContainer = this.container.querySelector<HTMLElement>('#team-planning-grid-container');
 
-      const [teams, year] = await Promise.all([
+      const [teams, year, targetYear] = await Promise.all([
         teamService.getAllTeams(),
         dateService.getCurrentYear(),
+        dateService.getProjectionTargetYear(),
       ]);
 
       this.allTeams = teams;
       this.gameYear = year;
+      this.planningStartYear = targetYear;
 
       this.populateTeamDropdown();
 
@@ -882,7 +885,7 @@ export class TeamPlanningView {
 
       for (const prospect of available) {
         const devFromYear = this.devOverrides.get(prospect.playerId);
-        const isDevActive = devFromYear !== undefined && this.gameYear + yi >= devFromYear;
+        const isDevActive = devFromYear !== undefined && this.planningStartYear + yi >= devFromYear;
         const prospectCurrentRating = isDevActive
           ? prospect.trueFutureRating
           : (this.prospectCurrentRatingMap.get(prospect.playerId) ?? prospect.trueFutureRating);
@@ -979,7 +982,7 @@ export class TeamPlanningView {
           if (overridePlayerIds.has(p.playerId)) continue; // Already placed by user override
           if (pitcherETA.get(p.playerId)! > yi || p.age + yi < MIN_PROSPECT_GRID_AGE) continue;
           const pDevFromYear = this.devOverrides.get(p.playerId);
-          const isPDevActive = pDevFromYear !== undefined && this.gameYear + yi >= pDevFromYear;
+          const isPDevActive = pDevFromYear !== undefined && this.planningStartYear + yi >= pDevFromYear;
           const pCurrent = isPDevActive ? p.trueFutureRating : (this.prospectCurrentRatingMap.get(p.playerId) ?? p.trueFutureRating);
           const pProjected = this.projectPlanningRating(pCurrent, p.trueFutureRating, p.age, yi);
           if (pProjected <= incumbentRating) continue;
@@ -1015,7 +1018,7 @@ export class TeamPlanningView {
           if (usedThisYear.has(p.playerId)) continue;
           if (pitcherETA.get(p.playerId)! > yi || p.age + yi < MIN_PROSPECT_GRID_AGE) continue;
           const bpDevFromYear = this.devOverrides.get(p.playerId);
-          const isBpDevActive = bpDevFromYear !== undefined && this.gameYear + yi >= bpDevFromYear;
+          const isBpDevActive = bpDevFromYear !== undefined && this.planningStartYear + yi >= bpDevFromYear;
           const pCurrent = isBpDevActive ? p.trueFutureRating : (this.prospectCurrentRatingMap.get(p.playerId) ?? p.trueFutureRating);
           const pProjected = this.projectPlanningRating(pCurrent, p.trueFutureRating, p.age, yi);
           if (pProjected <= incumbentRating) continue;
@@ -1143,7 +1146,7 @@ export class TeamPlanningView {
         const peakRating = (tfr !== undefined && tfr > rating) ? tfr : rating;
         // Dev override: player is already at peak from the effective year onward — skip growth phase
         const devFromYear = this.devOverrides.get(playerId!);
-        const effectiveCurrentRating = (devFromYear !== undefined && this.gameYear + yearOffset >= devFromYear) ? peakRating : rating;
+        const effectiveCurrentRating = (devFromYear !== undefined && this.planningStartYear + yearOffset >= devFromYear) ? peakRating : rating;
         const projectedRating = this.projectPlanningRating(effectiveCurrentRating, peakRating, baseAge, yearOffset);
 
         cells.set(year, {
@@ -1174,7 +1177,7 @@ export class TeamPlanningView {
   private getYearRange(): number[] {
     const years: number[] = [];
     for (let i = 0; i < 6; i++) {
-      years.push(this.gameYear + i);
+      years.push(this.planningStartYear + i);
     }
     return years;
   }
@@ -1810,7 +1813,7 @@ export class TeamPlanningView {
     const container = this.container.querySelector<HTMLElement>('#tp-summary-container');
     if (!container) return;
 
-    const filterYear = this.analysisYear >= 0 ? this.gameYear + this.analysisYear : undefined;
+    const filterYear = this.analysisYear >= 0 ? this.planningStartYear + this.analysisYear : undefined;
     const assessments = this.assessPositions(filterYear);
     const allGaps = this.analyzePositionGaps();
     // Filter gaps by selected year: only show gaps relevant to that year
@@ -1861,7 +1864,7 @@ export class TeamPlanningView {
         return b.emptyYears - a.emptyYears;
       });
       return '<ul class="summary-list">' + sorted.map(gap => {
-        const yearsUntilGap = gap.gapStartYear - this.gameYear;
+        const yearsUntilGap = gap.gapStartYear - this.planningStartYear;
         let suggestion: string;
         if (yearsUntilGap <= 1) {
           suggestion = `${gap.position} needed now, lean college player or trade target`;
@@ -1879,7 +1882,7 @@ export class TeamPlanningView {
     const allActive = this.analysisYear === -1 ? ' active' : '';
     const yearSelectorHtml = `<button class="toggle-btn analysis-year-btn${allActive}" data-year-offset="-1">All</button>` +
       yearRange.map(y => {
-        const offset = y - this.gameYear;
+        const offset = y - this.planningStartYear;
         const active = offset === this.analysisYear ? ' active' : '';
         return `<button class="toggle-btn analysis-year-btn${active}" data-year-offset="${offset}">${y}</button>`;
       }).join('');
@@ -2087,7 +2090,7 @@ export class TeamPlanningView {
       if (devFromYear !== undefined && override.year >= devFromYear) {
         const tfr = this.playerTfrMap.get(override.playerId!);
         if (tfr !== undefined) {
-          const yearOffset = override.year - this.gameYear;
+          const yearOffset = override.year - this.planningStartYear;
           const baseAge = override.age - yearOffset; // undo the age-at-year offset to get current age
           const peakRating = Math.max(tfr, effectiveRating);
           effectiveRating = this.projectPlanningRating(peakRating, peakRating, baseAge, yearOffset);
@@ -2368,7 +2371,7 @@ export class TeamPlanningView {
 
     // Build projected age/rating map only for future years.
     // For current year edits, displayRatingMap provides the correct current ability.
-    const yearOffset = year - this.gameYear;
+    const yearOffset = year - this.planningStartYear;
     let projectedDataMap: Map<number, { projectedAge: number; projectedRating: number }> | undefined;
     if (yearOffset > 0) {
       projectedDataMap = new Map<number, { projectedAge: number; projectedRating: number }>();
@@ -2378,7 +2381,7 @@ export class TeamPlanningView {
         const tfr = this.playerTfrMap.get(p.id);
         const peakRating = (tfr !== undefined && tfr > currentRating) ? tfr : currentRating;
         const pDevFromYear = this.devOverrides.get(p.id);
-        const effectiveCurrent = (pDevFromYear !== undefined && this.gameYear + yearOffset >= pDevFromYear) ? Math.max(currentRating, peakRating) : currentRating;
+        const effectiveCurrent = (pDevFromYear !== undefined && this.planningStartYear + yearOffset >= pDevFromYear) ? Math.max(currentRating, peakRating) : currentRating;
         const projRating = this.projectPlanningRating(effectiveCurrent, peakRating, baseAge, yearOffset);
         projectedDataMap.set(p.id, { projectedAge: baseAge + yearOffset, projectedRating: projRating });
       }
@@ -2499,7 +2502,7 @@ export class TeamPlanningView {
 
       for (let i = 0; i < years && startIndex + i < yearRange.length; i++) {
         const targetYear = yearRange[startIndex + i];
-        const yearOffset = targetYear - this.gameYear;
+        const yearOffset = targetYear - this.planningStartYear;
         const key = `${this.selectedTeamId}_${position}_${targetYear}`;
         const record: TeamPlanningOverrideRecord = {
           key,
@@ -2617,7 +2620,7 @@ export class TeamPlanningView {
 
       for (let i = 0; i < controlYears && startIndex + i < yearRange.length; i++) {
         const targetYear = yearRange[startIndex + i];
-        const yearOffset = targetYear - this.gameYear;
+        const yearOffset = targetYear - this.planningStartYear;
         const key = `${this.selectedTeamId}_${position}_${targetYear}`;
 
         // Project rating: grow from current ability toward peak, then age decline.
@@ -2705,7 +2708,7 @@ export class TeamPlanningView {
     const needs: TeamNeed[] = [];
     const surplusProspects: SurplusProspect[] = [];
     const surplusMlbPlayers: SurplusMlbPlayer[] = [];
-    const targetYear = this.gameYear + yearOffset;
+    const targetYear = this.planningStartYear + yearOffset;
 
     // --- Detect needs ---
     // For the selected team, use grid data (includes prospect fill + overrides).
@@ -3400,12 +3403,12 @@ export class TeamPlanningView {
     }
 
     const matches = this.findTradeMatches();
-    const targetYear = this.gameYear + this.tradeMarketYear;
+    const targetYear = this.planningStartYear + this.tradeMarketYear;
 
     // Year selector buttons
     const yearRange = this.getYearRange();
     const yearSelectorHtml = yearRange.map(y => {
-      const offset = y - this.gameYear;
+      const offset = y - this.planningStartYear;
       const active = offset === this.tradeMarketYear ? ' active' : '';
       return `<button class="toggle-btn market-year-btn${active}" data-year-offset="${offset}">${y}</button>`;
     }).join('');
