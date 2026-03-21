@@ -369,6 +369,7 @@ export interface BatterProjectionResult {
   projCs: number;
   projWoba: number;
   projWar: number;
+  projSbRuns: number;
   projDefRuns: number;
   projPosAdj: number;
   projOps: number;
@@ -693,7 +694,7 @@ export function computeBatterProjection(
   return {
     projAvg, projObp, projSlg, projBbPct, projKPct, projHrPct,
     projPa, projHr, proj2b, proj3b, projSb, projCs,
-    projWoba, projWar, projDefRuns: projDefRuns, projPosAdj: projPosAdj, projOps, projOpsPlus,
+    projWoba, projWar, projSbRuns, projDefRuns: projDefRuns, projPosAdj: projPosAdj, projOps, projOpsPlus,
     age, ratingLabel, projNote,
     isPeakMode, showActualComparison,
     ratings: {

@@ -1867,7 +1867,7 @@ export class BatterProfileModal {
     if (!isPeakMode) {
       consistencyChecker.checkBatter(data.playerId, data.playerName,
         { war: projWar, pa: projPa, hr: projHr, sb: projSb }, 'BatterProfileModal');
-      // Formula check: independently derive WAR from components (sbRuns excluded — small, ~0-2 runs)
+      // Formula check: independently derive WAR from components
       if (this.leagueAvg && projPa > 0) {
         consistencyChecker.checkBatterWarFormula(data.playerId, data.playerName, {
           displayedWar: projWar,
@@ -1876,7 +1876,7 @@ export class BatterProfileModal {
           lgWoba: this.leagueAvg.lgWoba,
           wobaScale: this.leagueAvg.wobaScale,
           runsPerWin: this.leagueAvg.runsPerWin,
-          sbRuns: 0, // SB runs not on projection result; tolerance covers the ~0.2 WAR gap
+          sbRuns: proj.projSbRuns,
           defRuns: projDefRuns,
           posAdj: projPosAdj,
         }, 'BatterProfileModal');
