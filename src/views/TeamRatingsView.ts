@@ -169,11 +169,8 @@ export class TeamRatingsView {
     await this.loadCurrentGameYear();
     const maxYear = this.projectionDisplayYear ?? this.currentGameYear!;
     this.yearOptions = Array.from({ length: maxYear - 2000 + 1 }, (_, i) => maxYear - i);
-    if (this.viewMode === 'projected' || this.viewMode === 'standings') {
-      this.selectedYear = this.projectionDisplayYear ?? this.currentGameYear!;
-    } else if (this.currentGameYear !== null) {
-      this.selectedYear = this.currentGameYear;
-    }
+    // Default to projection target year for all modes (2022 during 2021/2022 offseason)
+    this.selectedYear = this.projectionDisplayYear ?? this.currentGameYear!;
     this.renderLayout();
     this.loadData();
   }
@@ -732,10 +729,12 @@ export class TeamRatingsView {
         <div class="stats-table-container">
             <h3 class="section-title">${this.selectedYear} Team Projections <span class="note-text">(Ranked by ${this.getProjectionsSortLabel()})</span></h3>
             <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">Total is a weighted composite: 40% Rotation + 40% Lineup + 15% Bullpen + 5% Bench. Uses a blend of past seasons to project, so even at the end of this season it won't be 100% correct.</p>
+            <div class="scroll-x">
             <table class="stats-table projections-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>
             </table>
+            </div>
         </div>
       `;
 
@@ -2134,10 +2133,12 @@ export class TeamRatingsView {
             <p class="note-text" style="margin: 0.25rem 0 0.75rem 0; line-height: 1.4;">
               ${tableDesc}
             </p>
+            <div class="scroll-x">
             <table class="stats-table power-rankings-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>
             </table>
+            </div>
         </div>
       `;
 
