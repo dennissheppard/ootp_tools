@@ -9,25 +9,13 @@ import { storageMigration } from '../services/StorageMigration';
 import { AnalyticsDashboardView } from './AnalyticsDashboardView';
 import { syncOrchestrator } from '../services/SyncOrchestrator';
 import { supabaseDataService } from '../services/SupabaseDataService';
-import { teamRatingsService } from '../services/TeamRatingsService';
-import { apiFetch } from '../services/ApiClient';
-import { teamService } from '../services/TeamService';
-import { getTeamLogoUrl } from '../utils/teamLogos';
-import type { PitcherScoutingRatings } from '../models/ScoutingData';
-import type { HitterScoutingRatings } from '../models/ScoutingData';
-
-const INJURY_MAP: Record<string, string> = {
-  IRN: 'Iron Man', DUR: 'Durable', NOR: 'Normal', FRG: 'Fragile', WRK: 'Wrecked',
-};
 
 export class DataManagementView {
   private container: HTMLElement;
   private messageModal: MessageModal;
   private currentGameDate: string = '';
   private hasLoadedData = false;
-  private teamAbbrMap = new Map<string, string>(); // nickname → abbr
-  private selectedTeamNickname = '';
-  private selectedTeamAbbr = '';
+  // Team scouting login moved to ScoutingLoginModal (header badge)
 
   constructor(container: HTMLElement) {
     this.container = container;
@@ -106,7 +94,7 @@ export class DataManagementView {
         <div id="analytics-dashboard-container" style="display: none;"></div>
 
         <h2 class="section-title">Data Management</h2>
-        <p class="section-subtitle">Stats and OSA scouting are synced automatically. Use this page to load your team's private scouting.</p>
+        <p class="section-subtitle">Stats and OSA scouting are synced automatically. Load your team's scouting via the badge in the header.</p>
 
         <div id="migration-banner" style="display: none; background: rgba(255, 193, 7, 0.1); border-left: 3px solid #ffc107; padding: 1rem; margin-bottom: 1rem; border-radius: 4px;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
@@ -119,36 +107,6 @@ export class DataManagementView {
         </div>
 
         <div class="potential-stats-content" style="grid-template-columns: 1fr;">
-          <div class="csv-upload-container">
-            <h3 class="form-title">Team Scouting</h3>
-            <p style="font-size: 0.85em; color: var(--color-text-muted); margin-bottom: 1rem;">
-              Load your team's private scouting ratings. These are stored locally in your browser only.
-            </p>
-
-            <div class="rating-inputs" style="grid-template-columns: 1fr 1fr; margin-bottom: 1rem;">
-              <div class="rating-field">
-                <label>Team</label>
-                <div class="filter-dropdown" id="scout-team-dropdown" style="width: 100%;">
-                  <button class="filter-dropdown-btn" style="width: 100%; text-align: left;" aria-haspopup="true" aria-expanded="false">
-                    <span id="scout-team-display">Select your team...</span> ▾
-                  </button>
-                  <div class="filter-dropdown-menu" id="scout-team-menu" style="max-height: 300px; overflow-y: auto;"></div>
-                </div>
-              </div>
-              <div class="rating-field">
-                <label for="scout-passphrase">Passphrase</label>
-                <input type="text" id="scout-passphrase" placeholder="Enter team passphrase" autocomplete="off" data-lpignore="true" data-form-type="other" style="width: 100%; padding: 0.4rem 0.5rem; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border); border-radius: 4px; -webkit-text-security: disc;">
-              </div>
-            </div>
-
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-              <p style="font-size: 0.78em; color: var(--color-text-muted); margin: 0; max-width: 70%;">
-                Your passphrase is not stored. Scouting ratings are saved locally in your browser and never uploaded to any server.
-              </p>
-              <button id="fetch-scouting-btn" class="btn btn-primary" disabled>Fetch Scouting</button>
-            </div>
-          </div>
-
           <div class="results-container">
             <h3 class="form-title">Existing Data</h3>
             <div class="table-wrapper">
@@ -174,251 +132,15 @@ export class DataManagementView {
 
     this.bindEvents();
     this.checkMigrationNeeded();
-    this.loadTeamDropdown();
   }
 
   private bindEvents(): void {
-    const passphrase = this.container.querySelector<HTMLInputElement>('#scout-passphrase');
-    const fetchBtn = this.container.querySelector<HTMLButtonElement>('#fetch-scouting-btn');
-
-    passphrase?.addEventListener('input', () => this.updateFetchEnabled());
-    fetchBtn?.addEventListener('click', () => this.handleFetchTeamScouting());
-
-    // Team dropdown open/close
-    const dropdownBtn = this.container.querySelector('#scout-team-dropdown .filter-dropdown-btn');
-    dropdownBtn?.addEventListener('click', (e) => {
-      e.stopPropagation();
-      const dropdown = this.container.querySelector('#scout-team-dropdown');
-      dropdown?.classList.toggle('open');
-    });
-    document.addEventListener('click', (e) => {
-      if (!(e.target as HTMLElement).closest('#scout-team-dropdown')) {
-        this.container.querySelector('#scout-team-dropdown')?.classList.remove('open');
-      }
-    });
-
     // Migration button
     const migrateBtn = this.container.querySelector<HTMLButtonElement>('#migrate-btn');
     migrateBtn?.addEventListener('click', () => this.handleMigration());
   }
 
-  private updateFetchEnabled(): void {
-    const fetchBtn = this.container.querySelector<HTMLButtonElement>('#fetch-scouting-btn');
-    const passphrase = this.container.querySelector<HTMLInputElement>('#scout-passphrase');
-    if (fetchBtn) {
-      fetchBtn.disabled = !this.selectedTeamAbbr || !passphrase?.value;
-    }
-  }
-
-  private async loadTeamDropdown(): Promise<void> {
-    const menu = this.container.querySelector<HTMLElement>('#scout-team-menu');
-    if (!menu) return;
-    try {
-      // Load from both sources: teamService for proper filtering, WBL API for abbreviations
-      const [allTeams, apiRes] = await Promise.all([
-        teamService.getAllTeams(),
-        apiFetch('/api/teams?level=wbl').then(r => r.ok ? r.json() : null).catch(() => null),
-      ]);
-
-      // Build nickname → abbr map from WBL API
-      if (apiRes?.teams) {
-        for (const t of Object.values(apiRes.teams) as { abbr: string; nickname: string }[]) {
-          this.teamAbbrMap.set(t.nickname, t.abbr);
-        }
-      }
-
-      // Filter to real MLB orgs (teams with minor league affiliates, excludes All-Star teams)
-      const orgsWithAffiliates = new Set<number>();
-      for (const t of allTeams) {
-        if (t.parentTeamId > 0) orgsWithAffiliates.add(t.parentTeamId);
-      }
-      const mainTeams = allTeams
-        .filter(t => t.parentTeamId === 0 && orgsWithAffiliates.has(t.id))
-        .sort((a, b) => a.nickname.localeCompare(b.nickname));
-
-      menu.innerHTML = mainTeams.map(t => {
-        const logoUrl = getTeamLogoUrl(t.nickname);
-        const logoHtml = logoUrl ? `<img class="team-dropdown-logo" src="${logoUrl}" alt="">` : '';
-        return `<div class="filter-dropdown-item" data-nickname="${t.nickname}" data-abbr="${this.teamAbbrMap.get(t.nickname) ?? ''}">${logoHtml}${t.nickname}</div>`;
-      }).join('');
-
-      // Bind click handlers
-      menu.querySelectorAll('.filter-dropdown-item').forEach(item => {
-        item.addEventListener('click', () => {
-          const el = item as HTMLElement;
-          this.selectedTeamNickname = el.dataset.nickname ?? '';
-          this.selectedTeamAbbr = el.dataset.abbr ?? '';
-
-          // Update display
-          const display = this.container.querySelector<HTMLElement>('#scout-team-display');
-          if (display) {
-            const logoUrl = getTeamLogoUrl(this.selectedTeamNickname);
-            const logoHtml = logoUrl ? `<img class="team-btn-logo" src="${logoUrl}" alt="">` : '';
-            display.innerHTML = `${logoHtml}${this.selectedTeamNickname}`;
-          }
-
-          // Update selected state
-          menu.querySelectorAll('.filter-dropdown-item').forEach(i => i.classList.remove('selected'));
-          el.classList.add('selected');
-
-          // Close dropdown
-          this.container.querySelector('#scout-team-dropdown')?.classList.remove('open');
-          this.updateFetchEnabled();
-        });
-      });
-    } catch {
-      // Silently fail — dropdown stays empty
-    }
-  }
-
-  private async handleFetchTeamScouting(): Promise<void> {
-    const passphraseInput = this.container.querySelector<HTMLInputElement>('#scout-passphrase');
-    const fetchBtn = this.container.querySelector<HTMLButtonElement>('#fetch-scouting-btn');
-    const teamAbbr = this.selectedTeamAbbr;
-    const passphrase = passphraseInput?.value;
-    if (!teamAbbr || !passphrase) return;
-
-    if (fetchBtn) { fetchBtn.disabled = true; fetchBtn.textContent = 'Fetch Scouting'; }
-    this.showScoutingOverlay();
-    this.updateScoutingOverlay('Fetching scouting data...', 'Connecting to WBL API');
-
-    try {
-      const gameDate = this.currentGameDate || await dateService.getCurrentDate();
-
-      // Paginate: API caps at 2000 per request
-      const PAGE_SIZE = 2000;
-      let allRatings: any[] = [];
-      let offset = 0;
-      let total = Infinity;
-
-      while (offset < total) {
-        const url = `/api/scout?tid=${encodeURIComponent(teamAbbr)}&passphrase=${encodeURIComponent(passphrase)}&limit=${PAGE_SIZE}&offset=${offset}`;
-        const res = await apiFetch(url);
-        if (!res.ok) {
-          const body = await res.text().catch(() => '');
-          throw new Error(body || `HTTP ${res.status}`);
-        }
-        const data = await res.json();
-        const pageRatings = data.ratings as any[];
-        if (!pageRatings || pageRatings.length === 0) break;
-
-        allRatings = allRatings.concat(pageRatings);
-        total = data.total ?? pageRatings.length;
-        offset += pageRatings.length;
-
-        this.updateScoutingOverlay('Fetching scouting data...', `${allRatings.length} of ${total} records`);
-
-        if (pageRatings.length < PAGE_SIZE) break; // Last page
-      }
-
-      const ratings = allRatings;
-      if (ratings.length === 0) {
-        this.dismissScoutingOverlay();
-        this.messageModal.show('No Results', 'No scouting ratings returned. Check your team and passphrase.');
-        return;
-      }
-
-      this.updateScoutingOverlay('Processing ratings...', `${ratings.length} records fetched`);
-
-      const pitcherRatings: PitcherScoutingRatings[] = [];
-      const hitterRatings: HitterScoutingRatings[] = [];
-
-      for (const r of ratings) {
-        const injury = r.injury_proneness ? (INJURY_MAP[String(r.injury_proneness).toUpperCase()] ?? String(r.injury_proneness)) : undefined;
-        if (r.is_pitcher) {
-          const pitches: Record<string, number> = {};
-          if (r.pitching?.pitches) {
-            for (const [k, v] of Object.entries(r.pitching.pitches)) {
-              const val = parseInt(String(v), 10);
-              if (val > 0) pitches[k] = val;
-            }
-          }
-          pitcherRatings.push({
-            playerId: parseInt(r.player_id, 10),
-            playerName: r.player_name || undefined,
-            stuff: parseInt(r.pitching?.stuff, 10) || 20,
-            control: parseInt(r.pitching?.control, 10) || 20,
-            hra: parseInt(r.pitching?.hra, 10) || 20,
-            stamina: r.pitching?.stamina ? parseInt(r.pitching.stamina, 10) : undefined,
-            injuryProneness: injury,
-            ovr: r.overall ? parseFloat(r.overall) : undefined,
-            pot: r.potential ? parseFloat(r.potential) : undefined,
-            pitches: Object.keys(pitches).length > 0 ? pitches : undefined,
-            babip: r.pitching?.pbabip ? String(r.pitching.pbabip) : undefined,
-          });
-        } else {
-          hitterRatings.push({
-            playerId: parseInt(r.player_id, 10),
-            playerName: r.player_name || undefined,
-            power: parseInt(r.batting?.power, 10) || 20,
-            eye: parseInt(r.batting?.eye, 10) || 20,
-            avoidK: parseInt(r.batting?.avoidKs, 10) || 20,
-            contact: parseInt(r.batting?.contact, 10) || 20,
-            gap: parseInt(r.batting?.gap, 10) || 20,
-            speed: parseInt(r.batting?.speed, 10) || 20,
-            stealingAggressiveness: r.batting?.sbAgg ? parseInt(r.batting.sbAgg, 10) : undefined,
-            stealingAbility: r.batting?.steal ? parseInt(r.batting.steal, 10) : undefined,
-            injuryProneness: injury,
-            ovr: parseFloat(r.overall) || 2.5,
-            pot: parseFloat(r.potential) || 2.5,
-            fielding: r.fielding || undefined,
-          });
-        }
-      }
-
-      // Save to IndexedDB via existing scouting services
-      this.updateScoutingOverlay('Saving to browser...', `${pitcherRatings.length} pitchers, ${hitterRatings.length} hitters`);
-      if (pitcherRatings.length > 0) {
-        await scoutingDataService.saveScoutingRatings(gameDate, pitcherRatings, 'my');
-      }
-      if (hitterRatings.length > 0) {
-        await hitterScoutingDataService.saveScoutingRatings(gameDate, hitterRatings, 'my');
-      }
-
-      // Clear passphrase from UI
-      if (passphraseInput) passphraseInput.value = '';
-
-      let resultMessage: string;
-
-      // Recalculate if Supabase user
-      if (supabaseDataService.isConfigured) {
-        supabaseDataService.hasCustomScouting = true;
-        trueRatingsService.clearCaches();
-        teamRatingsService.clearTfrCaches();
-
-        this.updateScoutingOverlay('Recalculating ratings...', 'This may take a moment');
-
-        try {
-          const year = await dateService.getCurrentYear();
-          await trueRatingsService.warmCachesForComputation(year);
-          const [hitterTr, pitcherTr] = await Promise.all([
-            trueRatingsService.getHitterTrueRatings(year),
-            trueRatingsService.getPitcherTrueRatings(year),
-            teamRatingsService.getUnifiedHitterTfrData(year),
-            teamRatingsService.getFarmData(year),
-          ]);
-          resultMessage = `Loaded ${pitcherRatings.length} pitcher and ${hitterRatings.length} hitter ratings.\nRecalculated: ${hitterTr.size} hitter TRs, ${pitcherTr.size} pitcher TRs.`;
-        } catch (err) {
-          console.error('Failed to recalculate ratings:', err);
-          resultMessage = `Loaded ${pitcherRatings.length} pitcher and ${hitterRatings.length} hitter ratings.\nRating recalculation failed — try refreshing.`;
-        }
-      } else {
-        resultMessage = `Loaded ${pitcherRatings.length} pitcher and ${hitterRatings.length} hitter ratings from ${this.selectedTeamNickname || teamAbbr}.`;
-      }
-
-      this.dismissScoutingOverlay();
-      this.messageModal.show('Scouting Loaded', resultMessage);
-
-      window.dispatchEvent(new CustomEvent('scoutingDataUpdated', { detail: { source: 'my' } }));
-      this.refreshExistingDataList();
-    } catch (err) {
-      console.error('Team scouting fetch failed:', err);
-      this.dismissScoutingOverlay();
-      this.messageModal.show('Fetch Failed', `Could not load scouting data. Check your passphrase and try again.\n\n${err}`);
-    } finally {
-      if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.textContent = 'Fetch Scouting'; }
-    }
-  }
+  // Team scouting login form moved to ScoutingLoginModal (launched from header badge).
 
   private async refreshExistingDataList(): Promise<void> {
       const tbody = this.container.querySelector<HTMLElement>('#existing-data-list');
@@ -742,81 +464,7 @@ export class DataManagementView {
   private onboardingMessageInterval?: number;
   private onboardingOverlay?: HTMLElement;
   private onboardingClickBlocker?: (e: MouseEvent) => void;
-  private scoutingOverlay?: HTMLElement;
-  private scoutingClickBlocker?: (e: MouseEvent) => void;
-
-  private showScoutingOverlay(): void {
-    const overlay = document.createElement('div');
-    overlay.id = 'scouting-fullscreen-overlay';
-    overlay.style.cssText = `
-      position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-      z-index: 1200;
-      background: rgba(0, 0, 0, 0.7);
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-    `;
-    overlay.innerHTML = `
-      <div style="
-        background: var(--color-surface);
-        border: 1px solid var(--color-border);
-        border-radius: 12px;
-        padding: 2rem 2.5rem;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        gap: 1.25rem;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-        min-width: 320px;
-        max-width: 90vw;
-        text-align: center;
-      ">
-        <div class="scouting-spinner" style="
-          width: 40px; height: 40px;
-          border: 3px solid var(--color-border);
-          border-top-color: var(--color-primary);
-          border-radius: 50%;
-          animation: scouting-spin 0.8s linear infinite;
-        "></div>
-        <div id="scouting-overlay-status" style="font-size: 0.95rem; color: var(--color-text); font-weight: 500;"></div>
-        <div id="scouting-overlay-detail" style="font-size: 0.82rem; color: var(--color-text-muted);"></div>
-      </div>
-      <style>
-        @keyframes scouting-spin {
-          to { transform: rotate(360deg); }
-        }
-      </style>
-    `;
-    document.body.appendChild(overlay);
-    this.scoutingOverlay = overlay;
-
-    const clickBlocker = (e: MouseEvent) => {
-      e.preventDefault();
-      e.stopPropagation();
-    };
-    document.addEventListener('click', clickBlocker, true);
-    this.scoutingClickBlocker = clickBlocker;
-  }
-
-  private updateScoutingOverlay(status: string, detail?: string): void {
-    if (!this.scoutingOverlay) return;
-    const statusEl = this.scoutingOverlay.querySelector<HTMLElement>('#scouting-overlay-status');
-    const detailEl = this.scoutingOverlay.querySelector<HTMLElement>('#scouting-overlay-detail');
-    if (statusEl) statusEl.textContent = status;
-    if (detailEl) detailEl.textContent = detail ?? '';
-  }
-
-  private dismissScoutingOverlay(): void {
-    if (this.scoutingClickBlocker) {
-      document.removeEventListener('click', this.scoutingClickBlocker, true);
-      this.scoutingClickBlocker = undefined;
-    }
-    if (this.scoutingOverlay) {
-      this.scoutingOverlay.remove();
-      this.scoutingOverlay = undefined;
-    }
-  }
+  // Scouting overlay methods moved to ScoutingLoginModal
 
 
 

@@ -52,3 +52,9 @@ homers.json
 .claude/settings.local.json
 .claude/settings.local.json
 nul
+public/data/players_scouted_ratings.csv
+public/data/players_temp.csv
+public/data/pitcher_draft_board.html
+public/data/woba_draft_board.html
+public/data/last_year_batting_stats_and_ratings.txt
+public/data/last_year_stats_pitch_ratings.html

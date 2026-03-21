@@ -1,4 +1,5 @@
 import { supabaseDataService } from '../services/SupabaseDataService';
+import { scoutingLoginModal } from '../views/ScoutingLoginModal';
 
 const DISMISSED_KEY = 'wbl-osa-banner-dismissed';
 
@@ -16,7 +17,7 @@ export function osaBannerHtml(): string {
         <span class="osa-scouting-banner-text">
           📊 <strong>Using OSA scouting only!</strong>
           Your scout is usually more accurate than OSA ratings. This mainly impacts True Future Ratings for prospects — True Ratings rely mostly on stats.
-          <a href="#" class="osa-scouting-banner-link" data-action="navigate-data-mgmt">Load your team's scouting</a>
+          <a href="#" class="osa-scouting-banner-link" data-action="open-scouting-login">Load your team's scouting</a>
         </span>
         <button class="osa-scouting-banner-close" data-action="dismiss-osa-banner" aria-label="Dismiss">&times;</button>
       </div>
@@ -24,7 +25,7 @@ export function osaBannerHtml(): string {
   `;
 }
 
-/** Bind banner events (dismiss + nav link). Call once after rendering. */
+/** Bind banner events (dismiss + login modal link). Call once after rendering. */
 export function bindOsaBannerEvents(container: HTMLElement): void {
   const banner = container.querySelector<HTMLElement>('#osa-scouting-banner');
   if (!banner) return;
@@ -34,9 +35,9 @@ export function bindOsaBannerEvents(container: HTMLElement): void {
     banner.remove();
   });
 
-  banner.querySelector('[data-action="navigate-data-mgmt"]')?.addEventListener('click', (e) => {
+  banner.querySelector('[data-action="open-scouting-login"]')?.addEventListener('click', (e) => {
     e.preventDefault();
-    window.dispatchEvent(new CustomEvent('wbl:navigate-tab', { detail: { tabId: 'tab-data-management' } }));
+    scoutingLoginModal.show();
   });
 
   // Auto-hide when scouting is uploaded

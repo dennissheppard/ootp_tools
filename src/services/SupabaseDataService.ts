@@ -408,6 +408,35 @@ class SupabaseDataService {
     } catch { return null; }
   }
 
+  /**
+   * Bulk fetch position ratings (pos2-pos9) for all hitters with scouting data.
+   * Returns Map<playerId, Record<string, number>> where keys are "pos2"-"pos9" (20-80 scale).
+   */
+  async getBulkPositionRatings(): Promise<Map<number, Record<string, number>>> {
+    if (!this.configured) return new Map();
+    try {
+      const rows = await this.query<{ player_id: number; raw_data: any }>(
+        'hitter_scouting',
+        `select=player_id,raw_data&source=eq.osa&order=player_id,snapshot_date.desc`
+      );
+      const map = new Map<number, Record<string, number>>();
+      for (const row of rows) {
+        if (map.has(row.player_id)) continue; // only latest snapshot per player
+        const fielding = row.raw_data?.fielding;
+        if (!fielding) continue;
+        const posRatings: Record<string, number> = {};
+        for (let i = 2; i <= 9; i++) {
+          const val = parseInt(fielding[`pos${i}`], 10);
+          if (val > 0) posRatings[`pos${i}`] = val;
+        }
+        if (Object.keys(posRatings).length > 0) {
+          map.set(row.player_id, posRatings);
+        }
+      }
+      return map;
+    } catch { return new Map(); }
+  }
+
   // ──────────────────────────────────────────────
   // Player DOBs
   // ──────────────────────────────────────────────

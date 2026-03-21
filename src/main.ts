@@ -5,20 +5,29 @@ import { teamService } from './services/TeamService';
 import { dateService } from './services/DateService';
 import { supabaseDataService } from './services/SupabaseDataService';
 import { indexedDBService } from './services/IndexedDBService';
-import { SearchView, PlayerListView, LoadingView, ErrorView, DraftBoardView, TrueRatingsView, FarmRankingsView, TeamRatingsView, DataManagementView, CalculatorsView, ProjectionsView, GlobalSearchBar, TeamPlanningView, TradeAnalyzerView, AboutView } from './views';
+// Core views loaded eagerly (needed for initial render + shell)
+import { SearchView } from './views/SearchView';
+import { PlayerListView } from './views/PlayerListView';
+import { LoadingView } from './views/LoadingView';
+import { ErrorView } from './views/ErrorView';
+import { GlobalSearchBar } from './views/GlobalSearchBar';
+import { TrueRatingsView } from './views/TrueRatingsView';
+// Heavy views loaded lazily via dynamic import() in switchTabDom/initializeViews
+import type { ProjectionsView } from './views/ProjectionsView';
+import type { TeamRatingsView } from './views/TeamRatingsView';
+import type { TeamPlanningView } from './views/TeamPlanningView';
+import type { TradeAnalyzerView } from './views/TradeAnalyzerView';
+import type { ParksView } from './views/ParksView';
+
 import { analyticsService } from './services/AnalyticsService';
 import { setApiCallTracker, setSupabaseMode } from './services/ApiClient';
 import { renderDataSourceBadges, SeasonDataMode, ScoutingDataMode } from './utils/dataSourceBadges';
 import { scoutingDataService } from './services/ScoutingDataService';
 import { hitterScoutingDataService } from './services/HitterScoutingDataService';
-
-function getDeepLinkPlayerId(): number | null {
-  const params = new URLSearchParams(window.location.search);
-  const raw = params.get('player');
-  if (!raw) return null;
-  const id = parseInt(raw, 10);
-  return Number.isFinite(id) && id > 0 ? id : null;
-}
+import { initRouter, getRouter } from './router';
+import { batterProfileModal } from './views/BatterProfileModal';
+import { pitcherProfileModal } from './views/PitcherProfileModal';
+import { scoutingLoginModal } from './views/ScoutingLoginModal';
 
 setApiCallTracker((endpoint, bytes, status, duration_ms) =>
   analyticsService.trackApiCall(endpoint, bytes, status, duration_ms)
@@ -38,25 +47,37 @@ class App {
   private teamRatingsView?: TeamRatingsView;
   private teamPlanningView?: TeamPlanningView;
   private tradeAnalyzerView?: TradeAnalyzerView;
+  private parksView?: ParksView;
   private projectionsContainer!: HTMLElement;
   private teamRatingsContainer!: HTMLElement;
   private teamPlanningContainer!: HTMLElement;
   private tradeAnalyzerContainer!: HTMLElement;
+  private parksContainer!: HTMLElement;
 
   private selectedYear?: number;
   private isGlobalSearchActive = false;
+  private pendingPlayerId?: number;
+  private lazyContainers!: Record<string, HTMLElement>;
+  private lazyViewsInitialized = new Set<string>();
 
   private readonly TAB_PREF_KEY = 'wbl-active-tab';
 
   constructor(isFirstTime: boolean = false) {
     this.controller = new PlayerController();
 
-    // If first-time user, show About page as background while onboarding loads
+    // Initialize router — URL is the source of truth for initial tab
+    initRouter((tabId, params, playerId) => this.onRouterNavigate(tabId, params, playerId));
+
     if (isFirstTime) {
       console.log('🎬 Showing About page for onboarding');
       this.activeTabId = 'tab-about';
     } else {
-      this.restoreTabPreference();
+      // Resolve initial tab from URL, falling back to localStorage
+      const initial = getRouter().resolveInitialTab();
+      this.activeTabId = initial.tabId === 'tab-about'
+        ? (localStorage.getItem(this.TAB_PREF_KEY) ?? 'tab-about')
+        : initial.tabId;
+      this.pendingPlayerId = initial.playerId;
     }
 
     this.initializeDOM();
@@ -69,20 +90,20 @@ class App {
 
     analyticsService.trackAppOpen();
 
-    // Trigger onboarding if first-time user
-    // This must happen AFTER views are initialized so listeners are ready
     if (isFirstTime) {
-      // Use setTimeout to ensure DOM is fully ready
       setTimeout(() => {
         window.dispatchEvent(new CustomEvent('wbl:first-time-onboarding'));
       }, 100);
     }
 
-    // Handle ?player=XXXX deep links
     if (!isFirstTime) {
-      this.handlePlayerDeepLink();
-      // Check if bundled OSA scouting files have been updated (non-blocking).
-      // Skip for Supabase users — scouting data lives in the DB, not bundled CSVs.
+      // Open player modal if URL was /player/:id or ?player=ID
+      if (this.pendingPlayerId) {
+        this.handlePlayerDeepLink(this.pendingPlayerId);
+      }
+      // Set the initial URL if user arrived at bare domain with a localStorage-restored tab
+      getRouter().navigate(this.activeTabId);
+
       if (!supabaseDataService.isConfigured) {
         this.checkBundledOsaFreshness();
       }
@@ -111,10 +132,7 @@ class App {
     }
   }
 
-  private async handlePlayerDeepLink(): Promise<void> {
-    const playerId = getDeepLinkPlayerId();
-    if (!playerId) return;
-
+  private async handlePlayerDeepLink(playerId: number): Promise<void> {
     // Try fast path first (pre-computed ratings from Supabase → instant modal)
     // Opens modal on top of the current tab — no need to switch to True Ratings
     if (supabaseDataService.isConfigured) {
@@ -123,20 +141,166 @@ class App {
     }
 
     // Fallback: need True Ratings view for full data load + modal
-    this.activeTabId = 'tab-true-ratings';
-    localStorage.setItem(this.TAB_PREF_KEY, 'tab-true-ratings');
+    this.switchTabDom('tab-true-ratings');
+    this.trueRatingsView.openPlayerDeepLink(playerId);
+  }
+
+  /** Router popstate/navigation callback — called when URL changes via back/forward. */
+  private onRouterNavigate(tabId: string, params: URLSearchParams, playerId?: number): void {
+    if (playerId) {
+      this.handlePlayerDeepLink(playerId);
+      return;
+    }
+    // Close any open modals when navigating back from /player/:id
+    batterProfileModal.hide();
+    pitcherProfileModal.hide();
+    this.switchTabDom(tabId);
+    this.applyViewParams(tabId, params);
+  }
+
+  /** Forward URL query params to the active view's applyUrlParams if it supports it. */
+  private applyViewParams(tabId: string, params: URLSearchParams): void {
+    if (params.toString() === '') return;
+    if (tabId === 'tab-team-ratings' && this.teamRatingsView) {
+      this.teamRatingsView.applyUrlParams(params);
+    }
+    if (tabId === 'tab-parks' && this.parksView) {
+      const teamId = params.get('team');
+      if (teamId) this.parksView.selectTeam(parseInt(teamId, 10));
+    }
+  }
+
+  /** Switch tab DOM without pushing a URL (used by router callback and deep links). */
+  private switchTabDom(tabId: string): void {
+    if (this.activeTabId === tabId) return;
+    this.activeTabId = tabId;
+    localStorage.setItem(this.TAB_PREF_KEY, tabId);
+
     const tabButtons = document.querySelectorAll<HTMLButtonElement>('[data-tab-target]');
     const tabPanels = document.querySelectorAll<HTMLElement>('.tab-panel');
-    tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tabTarget === 'tab-true-ratings'));
-    tabPanels.forEach(p => p.classList.toggle('active', p.id === 'tab-true-ratings'));
+    tabButtons.forEach(b => b.classList.toggle('active', b.dataset.tabTarget === tabId));
+    tabPanels.forEach(p => p.classList.toggle('active', p.id === tabId));
 
-    this.trueRatingsView.openPlayerDeepLink(playerId);
+    // Lazy init views on tab activation
+    if (tabId === 'tab-true-ratings') this.trueRatingsView.syncTeamSelection();
+    if (tabId === 'tab-trade-analyzer' && this.tradeAnalyzerView) this.tradeAnalyzerView.syncTeamSelection();
+    this.ensureViewLoaded(tabId);
+
+    const badgeSlot = document.getElementById('header-data-source-badges');
+    if (badgeSlot) {
+      if (App.TABS_WITHOUT_BADGES.has(tabId)) badgeSlot.style.display = 'none';
+      else window.dispatchEvent(new CustomEvent('wbl:request-data-source-badges'));
+    }
+  }
+
+  /** Dynamically import and initialize a view if not already loaded. */
+  private async ensureViewLoaded(tabId: string): Promise<void> {
+    if (this.lazyViewsInitialized.has(tabId)) return;
+    this.lazyViewsInitialized.add(tabId);
+
+    switch (tabId) {
+      case 'tab-projections':
+        if (!this.projectionsView) {
+          const { ProjectionsView } = await import('./views/ProjectionsView');
+          this.projectionsView = new ProjectionsView(this.projectionsContainer);
+        }
+        break;
+      case 'tab-team-ratings':
+        if (!this.teamRatingsView) {
+          const { TeamRatingsView } = await import('./views/TeamRatingsView');
+          this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);
+        }
+        break;
+      case 'tab-team-planning':
+        if (!this.teamPlanningView) {
+          const { TeamPlanningView } = await import('./views/TeamPlanningView');
+          this.teamPlanningView = new TeamPlanningView(this.teamPlanningContainer);
+        }
+        break;
+      case 'tab-trade-analyzer':
+        if (!this.tradeAnalyzerView) {
+          const { TradeAnalyzerView } = await import('./views/TradeAnalyzerView');
+          this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
+        }
+        break;
+      case 'tab-parks':
+        if (!this.parksView) {
+          const { ParksView } = await import('./views/ParksView');
+          this.parksView = new ParksView(this.parksContainer);
+        }
+        break;
+      case 'tab-calculators':
+        if (this.lazyContainers.calculators) {
+          const { CalculatorsView } = await import('./views/CalculatorsView');
+          new CalculatorsView(this.lazyContainers.calculators);
+        }
+        break;
+      case 'tab-draft':
+        if (this.lazyContainers.draftBoard) {
+          const { DraftBoardView } = await import('./views/DraftBoardView');
+          new DraftBoardView(this.lazyContainers.draftBoard);
+        }
+        break;
+      case 'tab-farm-rankings':
+        if (this.lazyContainers.farmRankings) {
+          const { FarmRankingsView } = await import('./views/FarmRankingsView');
+          new FarmRankingsView(this.lazyContainers.farmRankings);
+        }
+        break;
+      case 'tab-data-management':
+        if (this.lazyContainers.dataManagement) {
+          const { DataManagementView } = await import('./views/DataManagementView');
+          new DataManagementView(this.lazyContainers.dataManagement);
+        }
+        break;
+      case 'tab-about':
+        if (this.lazyContainers.about) {
+          const { AboutView } = await import('./views/AboutView');
+          new AboutView(this.lazyContainers.about);
+        }
+        break;
+    }
+  }
+
+  /** Initialize secondary views after first paint to keep initial load fast. */
+  private initDeferredViews(): void {
+    // Pre-warm views the user is likely to visit (but not the active one — already loaded)
+    const deferredTabs = ['tab-farm-rankings', 'tab-draft', 'tab-about'];
+    for (const tabId of deferredTabs) {
+      if (tabId !== this.activeTabId) {
+        this.ensureViewLoaded(tabId);
+      }
+    }
   }
 
   /**
    * Initialize the app asynchronously
    */
+  /** App data version — bump this to force a full cache/DB bust for all users. */
+  private static readonly APP_DATA_VERSION = '2.0';
+
   static async init(): Promise<App> {
+    // Full cache bust: if stored version doesn't match, wipe IndexedDB + wbl-* localStorage
+    const DATA_VERSION_KEY = 'wbl-data-version';
+    const storedVersion = localStorage.getItem(DATA_VERSION_KEY);
+    if (storedVersion !== App.APP_DATA_VERSION) {
+      console.log(`🔄 Data version mismatch (${storedVersion} → ${App.APP_DATA_VERSION}) — clearing all cached data`);
+      // Delete IndexedDB entirely
+      try {
+        indexedDB.deleteDatabase('wbl_stats_db');
+      } catch { /* ignore */ }
+      // Clear all wbl-* localStorage keys (preserves non-app keys)
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key?.startsWith('wbl-')) keysToRemove.push(key);
+      }
+      keysToRemove.forEach(k => localStorage.removeItem(k));
+      // Set new version so this only runs once
+      localStorage.setItem(DATA_VERSION_KEY, App.APP_DATA_VERSION);
+      console.log(`✅ Cache bust complete — cleared ${keysToRemove.length} localStorage keys + IndexedDB`);
+    }
+
     // Initialize IndexedDB FIRST before any data operations
     try {
       await indexedDBService.init();
@@ -221,17 +385,13 @@ class App {
     }
   }
 
-  private restoreTabPreference(): void {
-    const savedTab = localStorage.getItem(this.TAB_PREF_KEY);
-    if (savedTab) {      
-        this.activeTabId = savedTab;      
-    }
-  }
+  // Tab preference now resolved from URL via router.resolveInitialTab(),
+  // falling back to localStorage for bare-domain visits.
 
   private initializeDOM(): void {
     const app = document.querySelector<HTMLDivElement>('#app');
     if (!app) throw new Error('App container not found');
-    const logoUrl = new URL('./images/logo.jpg', import.meta.url).href;
+    const logoUrl = new URL('./images/logo-120.jpg', import.meta.url).href;
 
     app.innerHTML = `
       <header class="app-header">
@@ -244,9 +404,12 @@ class App {
         </div>
         <div class="app-header-search" id="global-search-container"></div>
         <div class="app-header-date">
+          <div class="header-badges-row">
+            <div id="header-data-source-badges"></div>
+            <div id="scouting-login-badge"></div>
+          </div>
           <span class="game-date-label">Game Date</span>
           <span class="game-date-value" id="game-date">Loading...</span>
-          <div id="header-data-source-badges"></div>
         </div>
       </header>
       <div id="rate-limit-container"></div>
@@ -276,11 +439,15 @@ class App {
           <span style="font-size:1.1rem; line-height:1;">🔄</span>
           <span>Trade Analyzer</span>
         </button>
+        <button class="tab-button ${this.activeTabId === 'tab-parks' ? 'active' : ''}" data-tab-target="tab-parks">
+          <span style="font-size:1.1rem; line-height:1;">🏟️</span>
+          <span>Parks</span>
+        </button>
         <button class="tab-button ${this.activeTabId === 'tab-calculators' ? 'active' : ''}" data-tab-target="tab-calculators">
           <span style="font-size:1.1rem; line-height:1;">🔢</span>
           <span>Rating Calculators</span>
         </button>
-        <button class="tab-button ${this.activeTabId === 'tab-data-management' ? 'active' : ''}" data-tab-target="tab-data-management">
+        <button class="tab-button ${this.activeTabId === 'tab-data-management' ? 'active' : ''}" data-tab-target="tab-data-management" style="display:none;">
           <span style="font-size:1.1rem; line-height:1;">💾</span>
           <span>Data Management</span>
         </button>
@@ -325,6 +492,10 @@ class App {
           <div id="trade-analyzer-container"></div>
         </section>
 
+        <section id="tab-parks" class="tab-panel ${this.activeTabId === 'tab-parks' ? 'active' : ''}">
+          <div id="parks-container"></div>
+        </section>
+
         <section id="tab-data-management" class="tab-panel ${this.activeTabId === 'tab-data-management' ? 'active' : ''}">
           <div id="data-management-container"></div>
         </section>
@@ -349,6 +520,7 @@ class App {
     const teamRatingsContainer = document.querySelector<HTMLElement>('#team-ratings-container')!;
     const teamPlanningContainer = document.querySelector<HTMLElement>('#team-planning-container')!;
     const tradeAnalyzerContainer = document.querySelector<HTMLElement>('#trade-analyzer-container')!;
+    const parksContainer = document.querySelector<HTMLElement>('#parks-container')!;
     const dataManagementContainer = document.querySelector<HTMLElement>('#data-management-container')!;
     const loadingContainer = document.querySelector<HTMLElement>('#loading-container')!;
     const errorContainer = document.querySelector<HTMLElement>('#error-container')!;
@@ -375,33 +547,31 @@ class App {
       onPlayerSelect: (player) => this.handlePlayerSelect(player),
     });
 
-    new CalculatorsView(calculatorsContainer);
-    new DraftBoardView(draftBoardContainer);
     this.trueRatingsView = new TrueRatingsView(trueRatingsContainer);
     this.projectionsContainer = projectionsContainer;
-    new FarmRankingsView(farmRankingsContainer);
     this.teamRatingsContainer = teamRatingsContainer;
     this.teamPlanningContainer = teamPlanningContainer;
     this.tradeAnalyzerContainer = tradeAnalyzerContainer;
-    new DataManagementView(dataManagementContainer);
-    const aboutContainer = document.querySelector<HTMLElement>('#about-container')!;
-    new AboutView(aboutContainer);
+    this.parksContainer = parksContainer;
     this.loadingView = new LoadingView(loadingContainer);
     this.errorView = new ErrorView(errorContainer);
     this.rateLimitView = new ErrorView(rateLimitContainer);
-    // Initialize any views that are for the active tab (if they use lazy loading)
-    if (this.activeTabId === 'tab-projections') {
-      this.projectionsView = new ProjectionsView(this.projectionsContainer);
-    }
-    if (this.activeTabId === 'tab-team-ratings') {
-      this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);
-    }
-    if (this.activeTabId === 'tab-team-planning') {
-      this.teamPlanningView = new TeamPlanningView(this.teamPlanningContainer);
-    }
-    if (this.activeTabId === 'tab-trade-analyzer') {
-      this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
-    }
+
+    // Lazy-load non-essential views: defer to after first paint or on tab activation
+    // Store containers for views that initialize on-demand in switchTabDom()
+    this.lazyContainers = {
+      calculators: calculatorsContainer,
+      draftBoard: draftBoardContainer,
+      farmRankings: farmRankingsContainer,
+      dataManagement: dataManagementContainer,
+      about: document.querySelector<HTMLElement>('#about-container')!,
+    };
+
+    // Initialize the active tab's view immediately (if it needs lazy loading)
+    this.ensureViewLoaded(this.activeTabId);
+
+    // Defer non-active secondary views until after first paint
+    requestIdleCallback(() => this.initDeferredViews(), { timeout: 3000 });
   }
 
   private setupRateLimitHandling(): void {
@@ -458,11 +628,18 @@ class App {
     window.addEventListener('wbl:open-trade-analyzer', async (event) => {
       const { myTeamId, targetTeamId, targetPlayerId, targetIsProspect, matchPlayerId, matchPlayerIsProspect, scrollY } =
         (event as CustomEvent<{ myTeamId: number; targetTeamId: number; targetPlayerId: number; targetIsProspect: boolean; matchPlayerId?: number; matchPlayerIsProspect: boolean; scrollY: number }>).detail;
-      if (!this.tradeAnalyzerView) {
-        this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
-      }
+      await this.ensureViewLoaded('tab-trade-analyzer');
       this.setActiveTab('tab-trade-analyzer');
-      await this.tradeAnalyzerView.initWithTrade(myTeamId, targetTeamId, targetPlayerId, targetIsProspect, scrollY, matchPlayerId, matchPlayerIsProspect);
+      await this.tradeAnalyzerView!.initWithTrade(myTeamId, targetTeamId, targetPlayerId, targetIsProspect, scrollY, matchPlayerId, matchPlayerIsProspect);
+    });
+
+    window.addEventListener('wbl:open-parks', (event) => {
+      const { teamId } = (event as CustomEvent<{ teamId: number }>).detail;
+      this.setActiveTab('tab-parks');
+      getRouter().replace('tab-parks', { team: String(teamId) });
+      if (this.parksView) {
+        this.parksView.selectTeam(teamId);
+      }
     });
 
     // Single-click logo → About page; double-click → analytics (localhost only)
@@ -491,6 +668,23 @@ class App {
       slot.innerHTML = renderDataSourceBadges(seasonMode, scoutingMode);
       slot.style.display = '';
     });
+
+    // Scouting login badge
+    this.renderScoutingBadge();
+    window.addEventListener('wbl:scouting-login-changed', () => this.renderScoutingBadge());
+    window.addEventListener('scoutingDataUpdated', () => this.renderScoutingBadge());
+  }
+
+  private renderScoutingBadge(): void {
+    const slot = document.getElementById('scouting-login-badge');
+    if (!slot) return;
+    const isLoggedIn = supabaseDataService.hasCustomScouting;
+    if (isLoggedIn) {
+      slot.innerHTML = `<span class="scouting-badge scouting-badge-active" id="scouting-badge-btn" role="button" tabindex="0" title="Using your team's scouting data. Click to re-fetch.">My Scout Active</span>`;
+    } else {
+      slot.innerHTML = `<span class="scouting-badge scouting-badge-login" id="scouting-badge-btn" role="button" tabindex="0" title="Click to load your team's private scouting">Using OSA Data &mdash; Login</span>`;
+    }
+    slot.querySelector('#scouting-badge-btn')?.addEventListener('click', () => scoutingLoginModal.show());
   }
 
   private static readonly TAB_NAMES: Record<string, string> = {
@@ -502,61 +696,25 @@ class App {
     'tab-trade-analyzer': 'Trade Analyzer',
     'tab-calculators': 'Calculators',
     'tab-data-management': 'Data Management',
+    'tab-parks': 'Parks',
     'tab-search': 'Search',
     'tab-about': 'About',
   };
 
   private setActiveTab(tabId: string): void {
     if (this.activeTabId === tabId) return;
-    this.activeTabId = tabId;
-    localStorage.setItem(this.TAB_PREF_KEY, tabId);
 
     analyticsService.trackTabVisit(tabId, App.TAB_NAMES[tabId] ?? tabId);
 
-    const tabButtons = document.querySelectorAll<HTMLButtonElement>('[data-tab-target]');
-    const tabPanels = document.querySelectorAll<HTMLElement>('.tab-panel');
+    // Update DOM and internal state
+    this.switchTabDom(tabId);
 
-    tabButtons.forEach((button) => {
-      button.classList.toggle('active', button.dataset.tabTarget === tabId);
-    });
-
-    tabPanels.forEach((panel) => {
-      panel.classList.toggle('active', panel.id === tabId);
-    });
+    // Push URL
+    getRouter().navigate(tabId);
 
     // Scroll the active tab into view in the tab strip (mobile horizontal scroll)
     document.querySelector<HTMLButtonElement>(`[data-tab-target="${tabId}"]`)
       ?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
-
-    if (tabId === 'tab-true-ratings') {
-      this.trueRatingsView.syncTeamSelection();
-    }
-    if (tabId === 'tab-projections' && !this.projectionsView) {
-      this.projectionsView = new ProjectionsView(this.projectionsContainer);
-    }
-    if (tabId === 'tab-team-ratings' && !this.teamRatingsView) {
-      this.teamRatingsView = new TeamRatingsView(this.teamRatingsContainer);
-    }
-    if (tabId === 'tab-team-planning' && !this.teamPlanningView) {
-      this.teamPlanningView = new TeamPlanningView(this.teamPlanningContainer);
-    }
-    if (tabId === 'tab-trade-analyzer') {
-      if (!this.tradeAnalyzerView) {
-        this.tradeAnalyzerView = new TradeAnalyzerView(this.tradeAnalyzerContainer);
-      } else {
-        this.tradeAnalyzerView.syncTeamSelection();
-      }
-    }
-
-    // Update header badges — hide for tabs that don't have badge state, request re-emit for others
-    const badgeSlot = document.getElementById('header-data-source-badges');
-    if (badgeSlot) {
-      if (App.TABS_WITHOUT_BADGES.has(tabId)) {
-        badgeSlot.style.display = 'none';
-      } else {
-        window.dispatchEvent(new CustomEvent('wbl:request-data-source-badges'));
-      }
-    }
   }
 
   private bindController(): void {

@@ -18,3 +18,4 @@ export * from './TeamPlanningView';
 export * from './TradeAnalyzerView';
 export * from './AnalyticsDashboardView';
 export * from './AboutView';
+export * from './ParksView';

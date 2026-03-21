@@ -18,6 +18,7 @@ import { leagueStatsService } from '../services/LeagueStatsService';
 import { leagueBattingAveragesService, LeagueBattingAverages } from '../services/LeagueBattingAveragesService';
 import { teamRatingsService, HitterFarmData, FarmData } from '../services/TeamRatingsService';
 import { analyticsService } from '../services/AnalyticsService';
+import { applyScrollAffordance } from '../utils/scrollAffordance';
 import { hasComponentUpside } from '../utils/tfrUpside';
 import { hitterScoutingDataService } from '../services/HitterScoutingDataService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
@@ -998,6 +999,7 @@ export class TrueRatingsView {
     this.bindPitcherColumnDragAndDrop();
     this.bindPlayerNameClicks();
     this.bindFlipCardLocking();
+    applyScrollAffordance(tableContainer);
   }
 
   private triggerBarAnimations(): void {

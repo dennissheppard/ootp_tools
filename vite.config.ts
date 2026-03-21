@@ -28,6 +28,22 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    // Disable modulepreload polyfill — prevents Vite from eagerly preloading
+    // lazy chunks (e.g. ApexCharts 579KB) that aren't needed for initial render.
+    modulePreload: false,
+    // Don't inline images as base64 — keep them as separate files for caching.
+    assetsInlineLimit: 0,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          apexcharts: ['apexcharts'],
+        },
+      },
+    },
+    // CSS is still render-blocking in <head>; the inline <style> in index.html
+    // handles FCP. The full stylesheet loads in parallel and applies on arrival.
+  },
   test: {
     globals: true,
     environment: 'jsdom',

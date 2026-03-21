@@ -24,6 +24,8 @@ import { fipWarService } from '../services/FipWarService';
 import { emitDataSourceBadges } from '../utils/dataSourceBadges';
 import { teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
+import { ParkFactorRow, computeEffectiveParkFactors, computePitcherParkHrFactor } from '../services/ParkFactorService';
+import { supabaseDataService } from '../services/SupabaseDataService';
 
 interface DraftPick {
   id: string;
@@ -81,6 +83,10 @@ export class TradeAnalyzerView {
   // Canonical True Ratings (consistent with profile modals)
   private canonicalPitcherTR: Map<number, TrueRatingResult> = new Map();
   private canonicalBatterTR: Map<number, HitterTrueRatingResult> = new Map();
+
+  // Park factors for WAR re-projection to destination parks
+  private parkFactorsMap: Map<number, ParkFactorRow> = new Map();
+  private parkFactorsLoaded = false;
 
   // Initialization promise — awaited by initWithTrade to ensure data is ready
   private initPromise: Promise<void> | null = null;
@@ -1249,6 +1255,20 @@ export class TradeAnalyzerView {
           .catch(e => { console.warn('Failed to load contracts:', e); this.contractsLoaded = true; })
       );
     }
+    if (!this.parkFactorsLoaded) {
+      promises.push(
+        supabaseDataService.getPrecomputed('park_factors')
+          .then(data => {
+            if (data) {
+              for (const [k, v] of Object.entries(data)) {
+                this.parkFactorsMap.set(parseInt(k, 10), v as ParkFactorRow);
+              }
+            }
+            this.parkFactorsLoaded = true;
+          })
+          .catch(e => { console.warn('Failed to load park factors:', e); this.parkFactorsLoaded = true; })
+      );
+    }
     if (promises.length > 0) await Promise.all(promises);
   }
 
@@ -1308,7 +1328,7 @@ export class TradeAnalyzerView {
             <span class="war-change-inline ${analysis.team1Gain ? 'positive' : ''}">${analysis.team1WarChange.toFixed(1)} WAR</span>
           </div>
           <div class="war-detail">
-            ${this.renderWarDetail(this.team1State, 1)}
+            ${this.renderWarDetail(this.team1State, 1, this.team2State.teamId || undefined)}
           </div>
         </div>
 
@@ -1331,7 +1351,7 @@ export class TradeAnalyzerView {
             <span class="war-change-inline ${analysis.team2Gain ? 'positive' : ''}">${analysis.team2WarChange.toFixed(1)} WAR</span>
           </div>
           <div class="war-detail">
-            ${this.renderWarDetail(this.team2State, 2)}
+            ${this.renderWarDetail(this.team2State, 2, this.team1State.teamId || undefined)}
           </div>
         </div>
       </div>
@@ -1401,7 +1421,7 @@ export class TradeAnalyzerView {
     });
   }
 
-  private renderWarDetail(state: TradeTeamState, teamNum: 1 | 2): string {
+  private renderWarDetail(state: TradeTeamState, teamNum: 1 | 2, destTeamId?: number): string {
     const items: string[] = [];
 
     // Pitchers
@@ -1409,11 +1429,13 @@ export class TradeAnalyzerView {
       const badge = this.isProspectPitcher(p)
         ? '<span class="asset-type-badge badge-prospect">Prospect</span>'
         : '<span class="asset-type-badge badge-mlb">MLB</span>';
+      const parkDelta = destTeamId ? this.computePitcherParkWarDelta(p, destTeamId) : undefined;
+      const deltaHtml = parkDelta ? this.formatWarParkDelta(p.projectedStats.war, parkDelta.delta) : '';
       items.push(`
         <div class="player-war-item">
           ${badge}
           <span class="war-player-name player-name-link" data-player-id="${p.playerId}">${p.name}</span>
-          <span class="war-value">${p.projectedStats.war.toFixed(1)} WAR</span>
+          <span class="war-value">${p.projectedStats.war.toFixed(1)} WAR${deltaHtml}</span>
           <button class="war-remove-btn" data-player-id="${p.playerId}" data-team="${teamNum}" data-type="pitcher" title="Remove">×</button>
         </div>
       `);
@@ -1424,11 +1446,13 @@ export class TradeAnalyzerView {
       const badge = this.isProspectBatter(b)
         ? '<span class="asset-type-badge badge-prospect">Prospect</span>'
         : '<span class="asset-type-badge badge-mlb">MLB</span>';
+      const parkDelta = destTeamId ? this.computeBatterParkWarDelta(b, destTeamId) : undefined;
+      const deltaHtml = parkDelta ? this.formatWarParkDelta(b.projectedStats.war, parkDelta.delta) : '';
       items.push(`
         <div class="player-war-item">
           ${badge}
           <span class="war-player-name player-name-link" data-player-id="${b.playerId}">${b.name}</span>
-          <span class="war-value">${b.projectedStats.war.toFixed(1)} WAR</span>
+          <span class="war-value">${b.projectedStats.war.toFixed(1)} WAR${deltaHtml}</span>
           <button class="war-remove-btn" data-player-id="${b.playerId}" data-team="${teamNum}" data-type="batter" title="Remove">×</button>
         </div>
       `);
@@ -1454,8 +1478,14 @@ export class TradeAnalyzerView {
   }
 
   private renderRatingsTable(): string {
-    const allPitchers = [...this.team1State.tradingPlayers, ...this.team2State.tradingPlayers];
-    const allBatters = [...this.team1State.tradingBatters, ...this.team2State.tradingBatters];
+    // Tag each player with their destination team for park-adjusted WAR
+    const team1Pitchers = this.team1State.tradingPlayers.map(p => ({ p, destTeamId: this.team2State.teamId || undefined }));
+    const team2Pitchers = this.team2State.tradingPlayers.map(p => ({ p, destTeamId: this.team1State.teamId || undefined }));
+    const allPitchers = [...team1Pitchers, ...team2Pitchers];
+
+    const team1Batters = this.team1State.tradingBatters.map(b => ({ b, destTeamId: this.team2State.teamId || undefined }));
+    const team2Batters = this.team2State.tradingBatters.map(b => ({ b, destTeamId: this.team1State.teamId || undefined }));
+    const allBatters = [...team1Batters, ...team2Batters];
 
     if (allPitchers.length === 0 && allBatters.length === 0) {
       return '<p class="empty-text">Add players to view ratings</p>';
@@ -1474,26 +1504,32 @@ export class TradeAnalyzerView {
           </tr>
         </thead>
         <tbody>
-          ${allPitchers.map(p => `
+          ${allPitchers.map(({ p, destTeamId }) => {
+            const parkDelta = destTeamId ? this.computePitcherParkWarDelta(p, destTeamId) : undefined;
+            const deltaHtml = parkDelta ? this.formatWarParkDelta(p.projectedStats.war, parkDelta.delta) : '';
+            return `
             <tr>
               <td><span class="player-name-link" data-player-id="${p.playerId}">${p.name}</span></td>
               <td><span class="badge ${this.getTrueRatingClass(p.currentTrueRating)}">${p.currentTrueRating.toFixed(1)}</span></td>
-              <td>${p.projectedStats.war.toFixed(1)}</td>
+              <td>${p.projectedStats.war.toFixed(1)}${deltaHtml}</td>
               <td>${p.projectedStats.k9.toFixed(2)}</td>
               <td>${p.projectedStats.bb9.toFixed(2)}</td>
               <td>${p.projectedStats.hr9.toFixed(2)}</td>
             </tr>
-          `).join('')}
-          ${allBatters.map(b => `
+          `; }).join('')}
+          ${allBatters.map(({ b, destTeamId }) => {
+            const parkDelta = destTeamId ? this.computeBatterParkWarDelta(b, destTeamId) : undefined;
+            const deltaHtml = parkDelta ? this.formatWarParkDelta(b.projectedStats.war, parkDelta.delta) : '';
+            return `
             <tr>
               <td><span class="player-name-link" data-player-id="${b.playerId}">${b.name}</span></td>
               <td><span class="badge ${this.getTrueRatingClass(b.currentTrueRating)}">${b.currentTrueRating.toFixed(1)}</span></td>
-              <td>${b.projectedStats.war.toFixed(1)}</td>
+              <td>${b.projectedStats.war.toFixed(1)}${deltaHtml}</td>
               <td>${b.projectedStats.avg.toFixed(3)}</td>
               <td>${b.projectedStats.bbPct != null ? b.projectedStats.bbPct.toFixed(1) + '%' : '-'}</td>
               <td>${b.projectedStats.hrPct != null ? b.projectedStats.hrPct.toFixed(1) + '%' : '-'}</td>
             </tr>
-          `).join('')}
+          `; }).join('')}
         </tbody>
       </table>
     `;
@@ -1951,23 +1987,115 @@ export class TradeAnalyzerView {
     return b.isProspect === true;
   }
 
-  private calculateTeamWar(state: TradeTeamState): { current: number; future: number; total: number } {
+  /**
+   * Resolve the MLB parent team ID for a player (minors use parentTeamId).
+   */
+  private resolveOrgTeamId(teamId: number, parentTeamId?: number): number {
+    if (parentTeamId && parentTeamId !== 0) return parentTeamId;
+    // Check if this team itself has a parent (minor league affiliate)
+    const team = this.allTeams.find(t => t.id === teamId);
+    if (team && team.parentTeamId && team.parentTeamId !== 0) return team.parentTeamId;
+    return teamId;
+  }
+
+  /**
+   * Compute park-adjusted WAR delta for a batter moving to a destination team.
+   * Uses the HR factor ratio as the primary driver (HR factor dominates park-adjusted WAR).
+   * Returns { destWar, delta } or undefined if park factors unavailable.
+   */
+  private computeBatterParkWarDelta(
+    batter: ProjectedBatter,
+    destTeamId: number
+  ): { destWar: number; delta: number } | undefined {
+    const originOrgId = this.resolveOrgTeamId(batter.teamId, batter.parentTeamId);
+    const destOrgId = this.resolveOrgTeamId(destTeamId);
+    if (originOrgId === destOrgId) return undefined; // same park
+
+    const originPark = this.parkFactorsMap.get(originOrgId);
+    const destPark = this.parkFactorsMap.get(destOrgId);
+    if (!originPark || !destPark) return undefined;
+
+    // Look up batter handedness for hand-specific factors
+    const player = this.findPlayer(batter.playerId);
+    const bats = player?.bats || 'R';
+
+    const originEff = computeEffectiveParkFactors(originPark, bats);
+    const destEff = computeEffectiveParkFactors(destPark, bats);
+
+    // HR factor is the dominant driver of batter WAR variation by park.
+    // Approximate: WAR delta ~= currentWAR * (originHr - destHr) * scaleFactor
+    // A lower HR factor at destination means fewer HR → lower offensive WAR for batters.
+    // Scale factor of 0.5 captures that HR accounts for ~50% of park-driven WAR variation.
+    const war = batter.projectedStats.war;
+    const delta = war * (destEff.hr - originEff.hr) * 0.5;
+    return { destWar: war + delta, delta };
+  }
+
+  /**
+   * Compute park-adjusted WAR delta for a pitcher moving to a destination team.
+   * Lower HR factor at destination = fewer HR allowed = better for pitchers.
+   */
+  private computePitcherParkWarDelta(
+    pitcher: ProjectedPlayer,
+    destTeamId: number
+  ): { destWar: number; delta: number } | undefined {
+    const originOrgId = this.resolveOrgTeamId(pitcher.teamId, pitcher.parentTeamId);
+    const destOrgId = this.resolveOrgTeamId(destTeamId);
+    if (originOrgId === destOrgId) return undefined; // same park
+
+    const originPark = this.parkFactorsMap.get(originOrgId);
+    const destPark = this.parkFactorsMap.get(destOrgId);
+    if (!originPark || !destPark) return undefined;
+
+    const originHr = computePitcherParkHrFactor(originPark);
+    const destHr = computePitcherParkHrFactor(destPark);
+
+    // For pitchers, lower HR factor = fewer HR allowed = higher WAR.
+    // WAR delta ~= currentWAR * (originHr - destHr) * scaleFactor
+    const war = pitcher.projectedStats.war;
+    const delta = war * (originHr - destHr) * 0.4;
+    return { destWar: war + delta, delta };
+  }
+
+  /**
+   * Format a WAR park delta indicator as an HTML string.
+   * Shows: "3.2 -> 3.5 (+0.3)" with green/red coloring.
+   */
+  private formatWarParkDelta(origWar: number, delta: number): string {
+    if (Math.abs(delta) < 0.05) return '';
+    const destWar = origWar + delta;
+    const sign = delta > 0 ? '+' : '';
+    const cls = delta > 0 ? 'war-park-up' : 'war-park-down';
+    return ` <span class="war-park-delta ${cls}" title="Park-adjusted WAR at destination">\u2192 ${destWar.toFixed(1)} (${sign}${delta.toFixed(1)})</span>`;
+  }
+
+  private calculateTeamWar(state: TradeTeamState, destTeamId?: number): { current: number; future: number; total: number } {
     let current = 0;
     let future = 0;
 
     for (const p of state.tradingPlayers) {
+      let war = p.projectedStats.war;
+      if (destTeamId) {
+        const adj = this.computePitcherParkWarDelta(p, destTeamId);
+        if (adj) war = adj.destWar;
+      }
       if (this.isProspectPitcher(p)) {
-        future += p.projectedStats.war;
+        future += war;
       } else {
-        current += p.projectedStats.war;
+        current += war;
       }
     }
 
     for (const b of state.tradingBatters) {
+      let war = b.projectedStats.war;
+      if (destTeamId) {
+        const adj = this.computeBatterParkWarDelta(b, destTeamId);
+        if (adj) war = adj.destWar;
+      }
       if (this.isProspectBatter(b)) {
-        future += b.projectedStats.war;
+        future += war;
       } else {
-        current += b.projectedStats.war;
+        current += war;
       }
     }
 
@@ -1980,8 +2108,9 @@ export class TradeAnalyzerView {
   }
 
   private calculateTradeAnalysis(): TradeAnalysis {
-    const team1War = this.calculateTeamWar(this.team1State);
-    const team2War = this.calculateTeamWar(this.team2State);
+    // Team 1's players go to Team 2's park and vice versa
+    const team1War = this.calculateTeamWar(this.team1State, this.team2State.teamId || undefined);
+    const team2War = this.calculateTeamWar(this.team2State, this.team1State.teamId || undefined);
 
     const team1WarChange = team1War.total;
     const team2WarChange = team2War.total;

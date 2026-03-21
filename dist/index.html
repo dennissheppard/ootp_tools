@@ -42,10 +42,47 @@
     <meta name="apple-mobile-web-app-title" content="WBL Stats" />
 
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚾</text></svg>" />
-    <script type="module" crossorigin src="/assets/index-DxJ9a4cO.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-U5ALJ_Ou.css">
+    <style>
+      /* Critical inline CSS for app shell — enables FCP before main stylesheet loads */
+      body { margin:0; padding:0; background:#0f1419; color:#e7e9ea; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; }
+      #app { max-width:1200px; margin:0 auto; padding:2rem; }
+      .app-header { display:flex; justify-content:space-between; align-items:center; gap:1.5rem; margin-bottom:2rem; flex-wrap:wrap; }
+      .app-header-brand { display:flex; align-items:center; gap:1rem; }
+      .app-title { font-size:2rem; font-weight:700; margin:0 0 0.5rem; }
+      .app-subtitle { font-size:1rem; color:#8b98a5; margin:0; }
+      .app-header-date { display:flex; flex-direction:column; align-items:flex-end; gap:0.25rem; }
+      .game-date-label { font-size:0.75rem; font-weight:600; color:#8b98a5; text-transform:uppercase; }
+      .game-date-value { font-size:1.25rem; font-weight:700; color:#1d9bf0; }
+      .tabs { display:flex; justify-content:space-around; gap:0.5rem; margin:1.5rem 0; padding:0.5rem; background:rgba(255,255,255,0.03); border:1px solid #38444d; border-radius:8px; }
+      .tab-button { padding:0.75rem 1rem; border:none; background:transparent; color:#8b98a5; font-size:0.85rem; cursor:pointer; border-radius:6px; }
+      .tab-button.active { color:#1d9bf0; font-weight:600; box-shadow:0 0 0 1px rgba(29,155,240,0.3); }
+    </style>
+    <script type="module" crossorigin src="/assets/index-DoNQgRn6.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-C6xyrskx.css">
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <!-- Static app shell — paints before JS loads, replaced by initializeDOM() -->
+      <header class="app-header">
+        <div class="app-header-brand">
+          <div class="app-logo" style="width:56px;height:56px;border-radius:10px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.08);"></div>
+          <div class="app-header-main">
+            <h1 class="app-title">True Ratings</h1>
+            <p class="app-subtitle">World Baseball League</p>
+          </div>
+        </div>
+        <div class="app-header-date">
+          <span class="game-date-label">Game Date</span>
+          <span class="game-date-value">Loading...</span>
+        </div>
+      </header>
+      <nav class="tabs">
+        <button class="tab-button active"><span>True Ratings</span></button>
+        <button class="tab-button"><span>Player Projections</span></button>
+        <button class="tab-button"><span>Farm Rankings</span></button>
+        <button class="tab-button"><span>Team Ratings</span></button>
+      </nav>
+      <div style="padding:3rem;text-align:center;color:#8b98a5;">Loading...</div>
+    </div>
   </body>
 </html>

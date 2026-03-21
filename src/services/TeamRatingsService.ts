@@ -18,6 +18,7 @@ import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { prospectDevelopmentCurveService } from './ProspectDevelopmentCurveService';
 import { supabaseDataService } from './SupabaseDataService';
+import { ParkFactorRow, computePitcherParkHrFactor } from './ParkFactorService';
 
 export interface RatedPlayer {
   playerId: number;
@@ -882,6 +883,20 @@ class TeamRatingsService {
       const teamMap = new Map(teams.map(t => [t.id, t]));
       const scoutingMap = new Map(scoutingData.ratings.map(s => [s.playerId, s]));
 
+      // Load park factors for pitcher TFR park HR adjustment
+      let pitcherParkFactorsMap: Map<number, ParkFactorRow> | undefined;
+      if (supabaseDataService.isConfigured) {
+        try {
+          const pfData = await supabaseDataService.getPrecomputed('park_factors');
+          if (pfData && typeof pfData === 'object') {
+            pitcherParkFactorsMap = new Map<number, ParkFactorRow>();
+            for (const [key, value] of Object.entries(pfData)) {
+              pitcherParkFactorsMap.set(Number(key), value as ParkFactorRow);
+            }
+          }
+        } catch { /* park factors optional */ }
+      }
+
       // Use FipWarService calibrated defaults (replacementFip=5.20, runsPerWin=8.50)
 
       const orgGroups = new Map<number, { rotation: RatedProspect[], bullpen: RatedProspect[] }>();
@@ -977,7 +992,19 @@ class TeamRatingsService {
               projectedIp = Math.max(40, Math.min(80, projectedIp));
           }
 
-          const peakWar = fipWarService.calculateWar(tfr.projFip, projectedIp);
+          // Apply park HR factor to pitcher prospect's FIP if available
+          let adjustedFip = tfr.projFip;
+          let adjustedHr9 = tfr.projHr9;
+          if (pitcherParkFactorsMap && pitcherParkFactorsMap.size > 0) {
+            const parkRow = pitcherParkFactorsMap.get(orgId);
+            if (parkRow) {
+              const hrFactor = computePitcherParkHrFactor(parkRow);
+              adjustedHr9 = tfr.projHr9 * hrFactor;
+              adjustedFip = fipWarService.calculateFip({ hr9: adjustedHr9, bb9: tfr.projBb9, k9: tfr.projK9, ip: 0 });
+            }
+          }
+
+          const peakWar = fipWarService.calculateWar(adjustedFip, projectedIp);
 
           // IC players have level=6 (set by CLI from contract league_id=-200)
           const levelLabel = player.level === 6 ? 'IC' : this.getLevelLabel(player.level);
@@ -1002,16 +1029,16 @@ class TeamRatingsService {
               teamId: player.teamId,
               orgId: orgId,
               parentOrg: teamMap.get(orgId)?.nickname ?? team?.nickname ?? '',
-              peakFip: tfr.projFip,
+              peakFip: adjustedFip,
               peakWar: peakWar,
               peakIp: projectedIp,
               projK9: tfr.projK9,
               projBb9: tfr.projBb9,
-              projHr9: tfr.projHr9,
+              projHr9: adjustedHr9,
               potentialRatings: {
                   stuff: tfr.projK9,
                   control: tfr.projBb9,
-                  hra: tfr.projHr9
+                  hra: adjustedHr9
               },
               scoutingRatings: {
                   stuff: scouting?.stuff ?? 0,
@@ -1313,11 +1340,34 @@ class TeamRatingsService {
       // Build empirical PA distributions from MLB peak-age data by injury category
       const empiricalPaByInjury = await hitterTrueFutureRatingService.buildMLBPaByInjury(scoutingMap);
 
+      // Load park factors for TFR park adjustment
+      let parkFactorsMap: Map<number, ParkFactorRow> | undefined;
+      let playerInfoMap: Map<number, { teamId: number; bats: string }> | undefined;
+      if (supabaseDataService.isConfigured) {
+        try {
+          const pfData = await supabaseDataService.getPrecomputed('park_factors');
+          if (pfData && typeof pfData === 'object') {
+            parkFactorsMap = new Map<number, ParkFactorRow>();
+            for (const [key, value] of Object.entries(pfData)) {
+              parkFactorsMap.set(Number(key), value as ParkFactorRow);
+            }
+          }
+        } catch { /* park factors optional */ }
+      }
+      if (parkFactorsMap && parkFactorsMap.size > 0) {
+        playerInfoMap = new Map<number, { teamId: number; bats: string }>();
+        prospectPlayerMap.forEach(({ player }, playerId) => {
+          const team = teamMap.get(player.teamId);
+          const orgId = team ? (team.parentTeamId !== 0 ? team.parentTeamId : team.id) : 0;
+          playerInfoMap!.set(playerId, { teamId: orgId, bats: player.bats ?? 'R' });
+        });
+      }
+
       // Calculate True Future Ratings for both scout priorities
       // Pass injury PA map so the service computes all derived fields (wrcPlus, projObp, etc.)
       const [tfrResults, tfrResultsOsa] = await Promise.all([
-          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs, leagueAvg ?? undefined, empiricalPaByInjury),
-          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputsOsa, leagueAvg ?? undefined, empiricalPaByInjury),
+          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputs, leagueAvg ?? undefined, empiricalPaByInjury, parkFactorsMap, playerInfoMap),
+          hitterTrueFutureRatingService.calculateTrueFutureRatings(tfrInputsOsa, leagueAvg ?? undefined, empiricalPaByInjury, parkFactorsMap, playerInfoMap),
       ]);
 
       // Build maps for both TFR runs

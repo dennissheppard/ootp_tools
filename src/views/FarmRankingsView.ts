@@ -735,11 +735,13 @@ export class FarmRankingsView {
       }).join('');
 
       return `
-        <div class="stats-table-container">            
+        <div class="stats-table-container">
+            <div class="scroll-x">
             <table class="stats-table" style="width: 100%;">
                 <thead><tr>${headerRow}</tr></thead>
                 <tbody>${rows}</tbody>
             </table>
+            </div>
         </div>
       `;
   }
@@ -1731,6 +1733,7 @@ export class FarmRankingsView {
       return `
         <div class="stats-table-container">
             <h3 class="section-title">Top 100 Prospects <span class="note-text">(by True Future Rating)</span></h3>
+            <div class="scroll-x">
             <table class="stats-table" style="width: 100%;">
                 <thead>
                     <tr>
@@ -1741,6 +1744,7 @@ export class FarmRankingsView {
                     ${rows}
                 </tbody>
             </table>
+            </div>
         </div>
       `;
   }
@@ -1837,6 +1841,7 @@ export class FarmRankingsView {
       return `
         <div class="stats-table-container">
             <h3 class="section-title">Top 100 Hitter Prospects <span class="note-text">(by True Future Rating)</span></h3>
+            <div class="scroll-x">
             <table class="stats-table" style="width: 100%;">
                 <thead>
                     <tr>
@@ -1847,6 +1852,7 @@ export class FarmRankingsView {
                     ${rows}
                 </tbody>
             </table>
+            </div>
         </div>
       `;
   }

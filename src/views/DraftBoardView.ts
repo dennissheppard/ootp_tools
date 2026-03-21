@@ -423,7 +423,7 @@ export class DraftBoardView {
         </div>
         <button class="btn btn-primary btn-sm" id="draft-add-all" style="margin-left: auto;">Add All (${filtered.filter(p => !boardSet.has(p.id)).length})</button>
       </div>
-      <div class="draft-table-wrap" style="max-height: calc(100vh - 200px); overflow-y: auto;">
+      <div class="draft-table-wrap scroll-x" style="max-height: calc(100vh - 200px); overflow-y: auto;">
         <table class="stats-table draft-list-table">
           <thead><tr>${this.getPlayerListHeaders(boardSet)}</tr></thead>
           <tbody>${this.getPlayerListRows(filtered, boardSet)}</tbody>
@@ -649,7 +649,7 @@ export class DraftBoardView {
       ` : ''}
       ${totalOnBoard === 0
         ? '<div style="text-align:center; padding: 3rem; color: var(--color-text-muted);">No players on your board yet. Switch to Player List to add some.</div>'
-        : `<div class="draft-table-wrap" style="max-height: calc(100vh - 200px); overflow-y: auto;">
+        : `<div class="draft-table-wrap scroll-x" style="max-height: calc(100vh - 200px); overflow-y: auto;">
             <table class="stats-table draft-board-table">
               <thead><tr>${this.getBoardHeaders()}</tr></thead>
               <tbody>${displayPlayers.map(p => this.renderBoardRow(p, boardRank.get(p.id) ?? 0)).join('')}</tbody>

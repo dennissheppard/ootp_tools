@@ -20,7 +20,7 @@ import { standingsService } from '../services/StandingsService';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
-import { formatParkFactor } from '../services/ParkFactorService';
+import { applyScrollAffordance } from '../utils/scrollAffordance';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -162,11 +162,54 @@ export class ProjectionsView {
         }},
         { key: 'park', label: 'Park', sortKey: 'parkHrFactor', accessor: p => {
             const hrF = p.parkHrFactor;
+            const raw = p.parkRaw;
             if (hrF === undefined) return '-';
-            const cls = hrF > 1.025 ? 'pf-hitter-friendly' : hrF < 0.975 ? 'pf-pitcher-friendly' : 'pf-neutral';
-            const label = formatParkFactor(hrF);
-            const title = p.parkName ? `${p.parkName} — HR: ${label}` : `HR: ${label}`;
-            return `<span class="park-factor-cell ${cls}" title="${title}">${label}</span>`;
+
+            // Effective factors (75% RHB / 25% LHB batters faced, half home / half away)
+            const avgF = raw ? (raw.avg_r * 0.75 + raw.avg_l * 0.25 + 1.0) / 2.0 : 1.0;
+            const dF = raw ? (raw.d + 1.0) / 2.0 : 1.0;
+            const tF = raw ? (raw.t + 1.0) / 2.0 : 1.0;
+
+            // FIP impact from HR/9: delta_FIP = 13 * hr9 * (hrF - 1) / 9
+            const hr9 = p.projectedStats.hr9;
+            const fipDelta = 13 * hr9 * (hrF - 1) / 9;
+
+            // ERA impact: FIP component + BABIP/XBH component
+            const eraPct = (avgF - 1) * 0.40 + (hrF - 1) * 0.35 + (dF - 1) * 0.15 + (tF - 1) * 0.05;
+
+            // Helps/hurts from pitcher's perspective: lower offensive output = helps
+            const helps = eraPct < -0.005;
+            const hurts = eraPct > 0.005;
+            const arrow = helps ? '↑' : hurts ? '↓' : '·';
+            const helpHurt = helps ? 'Helps' : hurts ? 'Hurts' : 'Neutral';
+            const cls = helps ? 'pf-pitcher-friendly' : hurts ? 'pf-hitter-friendly' : 'pf-neutral';
+
+            // Build tooltip lines
+            const lines: string[] = [];
+            if (p.parkName) lines.push(p.parkName);
+            lines.push('');
+            // HR
+            const hrPct = Math.round((hrF - 1) * 100);
+            lines.push(`HR: ${hrPct >= 0 ? '+' : ''}${hrPct}%${hrPct > 0 ? ' more homers allowed' : hrPct < 0 ? ' fewer homers allowed' : ''}`);
+            // AVG against
+            const avgPct = Math.round((avgF - 1) * 100);
+            if (avgPct !== 0) lines.push(`AVG against: ${avgPct > 0 ? '+' : ''}${avgPct}%${avgPct > 0 ? ' higher' : ' lower'}`);
+            // Doubles
+            const dPct = Math.round((dF - 1) * 100);
+            if (dPct !== 0) lines.push(`Doubles: ${dPct > 0 ? '+' : ''}${dPct}%${dPct > 0 ? ' more' : ' fewer'}`);
+            // Triples
+            const tPct = Math.round((tF - 1) * 100);
+            if (tPct !== 0) lines.push(`Triples: ${tPct > 0 ? '+' : ''}${tPct}%${tPct > 0 ? ' more' : ' fewer'}`);
+            lines.push('');
+            // FIP impact
+            lines.push(`FIP impact: ${fipDelta >= 0 ? '+' : ''}${fipDelta.toFixed(2)} (from HR)`);
+            // Overall ERA estimate
+            const eraPctRound = Math.round(eraPct * 100);
+            lines.push(`Est. ERA impact: ${eraPctRound >= 0 ? '+' : ''}${eraPctRound}% (incl. hits/XBH)`);
+            lines.push('');
+            lines.push(helps ? 'Park suppresses offense → his stats look better here' : hurts ? 'Park boosts offense → his stats look worse here' : 'Minimal park effect');
+
+            return `<span class="park-factor-cell ${cls}" title="${lines.join('\n')}">${arrow} ${helpHurt}</span>`;
         }},
         { key: 'projIP', label: 'Proj IP', sortKey: 'projectedStats.ip', accessor: p => {
             const val = p.projectedStats.ip;
@@ -224,17 +267,37 @@ export class ProjectionsView {
       { key: 'park', label: 'Park', sortKey: 'parkHrSort', accessor: b => {
         const pf = b.parkFactors;
         if (!pf) return '-';
-        const hrF = pf.hr;
-        const cls = hrF > 1.025 ? 'pf-hitter-friendly' : hrF < 0.975 ? 'pf-pitcher-friendly' : 'pf-neutral';
-        const hrLabel = formatParkFactor(hrF);
-        const title = [
-          b.parkName ?? '',
-          `HR: ${hrLabel}`,
-          `AVG: ${formatParkFactor(pf.avg)}`,
-          `2B: ${formatParkFactor(pf.d)}`,
-          `3B: ${formatParkFactor(pf.t)}`,
-        ].filter(Boolean).join(' — ');
-        return `<span class="park-factor-cell ${cls}" title="${title}">${hrLabel}</span>`;
+
+        // Combined offensive impact
+        const combinedFactor = pf.hr * 0.35 + pf.avg * 0.30 + pf.d * 0.20 + pf.t * 0.05 + 1.0 * 0.10;
+        const offWar = Math.max(0, b.projectedStats.war * 0.7);
+        const warDelta = offWar * (combinedFactor - 1);
+        const arrow = warDelta >= 0.05 ? '↑' : warDelta <= -0.05 ? '↓' : '·';
+        const helpHurt = warDelta >= 0.05 ? 'Helps' : warDelta <= -0.05 ? 'Hurts' : 'Neutral';
+        const cls = warDelta >= 0.05 ? 'pf-hitter-friendly' : warDelta <= -0.05 ? 'pf-pitcher-friendly' : 'pf-neutral';
+
+        const lines: string[] = [];
+        if (b.parkName) lines.push(b.parkName);
+        lines.push('');
+        // HR
+        const hrPct = Math.round((pf.hr - 1) * 100);
+        lines.push(`HR: ${hrPct >= 0 ? '+' : ''}${hrPct}%${hrPct > 0 ? ' more homers' : hrPct < 0 ? ' fewer homers' : ''}`);
+        // AVG
+        const avgPct = Math.round((pf.avg - 1) * 100);
+        if (avgPct !== 0) lines.push(`AVG: ${avgPct > 0 ? '+' : ''}${avgPct}%${avgPct > 0 ? ' higher' : ' lower'}`);
+        // Doubles
+        const dPct = Math.round((pf.d - 1) * 100);
+        if (dPct !== 0) lines.push(`Doubles: ${dPct > 0 ? '+' : ''}${dPct}%${dPct > 0 ? ' more' : ' fewer'}`);
+        // Triples
+        const tPct = Math.round((pf.t - 1) * 100);
+        if (tPct !== 0) lines.push(`Triples: ${tPct > 0 ? '+' : ''}${tPct}%${tPct > 0 ? ' more' : ' fewer'}`);
+        lines.push('');
+        const sign = warDelta >= 0 ? '+' : '';
+        lines.push(`Est. WAR impact: ${sign}${warDelta.toFixed(1)}`);
+        lines.push('');
+        lines.push(warDelta >= 0.05 ? 'Park boosts offense → his stats look better here' : warDelta <= -0.05 ? 'Park suppresses offense → his stats look worse here' : 'Minimal park effect');
+
+        return `<span class="park-factor-cell ${cls}" title="${lines.join('\n')}">${arrow} ${helpHurt}</span>`;
       }}
     );
 
@@ -2523,7 +2586,7 @@ export class ProjectionsView {
       const headerHtml = visibleCols.map(col => {
           const sortKey = String(col.sortKey ?? col.key);
           const isActive = this.sortKey === sortKey;
-          return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
+          return `<th data-key="${col.key}" data-col-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
       }).join('');
 
       const rowsHtml = pageData.map(p => {
@@ -2566,6 +2629,7 @@ export class ProjectionsView {
 
       this.updatePagination(this.stats.length);
       this.bindTableEvents();
+      applyScrollAffordance(container as HTMLElement);
   }
 
   private renderBatterTable(): void {
@@ -2589,7 +2653,7 @@ export class ProjectionsView {
       const headerHtml = visibleBatterCols.map(col => {
           const sortKey = String(col.sortKey ?? col.key);
           const isActive = this.sortKey === sortKey;
-          return `<th data-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
+          return `<th data-key="${col.key}" data-col-key="${col.key}" data-sort="${sortKey}" class="${isActive ? 'sort-active' : ''}" draggable="true">${col.label}</th>`;
       }).join('');
 
       const batterBarColumns = new Set(['projWoba', 'projOps', 'projWrcPlus', 'projWAR', 'projHrPct', 'bbPct', 'kPct', 'projAvg', 'projObp', 'projSlg']);
@@ -2640,6 +2704,7 @@ export class ProjectionsView {
 
       this.updatePagination(this.batterStats.length);
       this.bindBatterTableEvents();
+      applyScrollAffordance(container as HTMLElement);
   }
 
   private bindBatterTableEvents(): void {

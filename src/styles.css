@@ -3911,9 +3911,16 @@ th .stat-tooltip {
   }
 
   .app-header {
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: wrap;
     align-items: flex-start;
-    gap: 0.75rem;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .app-header-brand {
+    flex: 0 0 auto;
   }
 
   .app-header-main {
@@ -3921,21 +3928,30 @@ th .stat-tooltip {
   }
 
   .app-header-date {
-    align-items: flex-start;
+    flex: 1 1 auto;
+    align-items: flex-end;
+    margin-left: auto;
   }
 
   #header-data-source-badges .data-source-badges {
-    justify-content: flex-start;
+    justify-content: flex-end;
   }
 
   .app-header-search {
     order: 3;
     width: 100%;
     max-width: 100%;
+    flex: 0 0 100%;
+    min-width: 0;
   }
 
   .app-title {
     font-size: 1.5rem;
+    margin-bottom: 0.25rem;
+  }
+
+  .tabs {
+    margin: 0.75rem 0;
   }
 
   .search-box {
@@ -10740,6 +10756,22 @@ th .stat-tooltip {
 }
 
 /* Reset Edits button */
+.tp-autofill-btn {
+  padding: 0.35rem 0.75rem;
+  flex-shrink: 0;
+  font-size: 0.75rem;
+  background: rgba(29, 155, 240, 0.1);
+  color: var(--color-primary);
+  border: 1px solid rgba(29, 155, 240, 0.3);
+  border-radius: var(--border-radius);
+  cursor: pointer;
+}
+
+.tp-autofill-btn:hover {
+  background: rgba(29, 155, 240, 0.2);
+  border-color: rgba(29, 155, 240, 0.5);
+}
+
 .tp-reset-btn {
   padding: 0.35rem 0.75rem;
   flex-shrink: 0;
@@ -11057,12 +11089,10 @@ th .stat-tooltip {
     display: none;
   }
 
-  /* Filter bar: horizontally scrollable strip instead of wrapping */
+  /* Filter bar: allow wrapping so custom dropdown menus aren't clipped */
   .true-ratings-controls .filter-bar {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    flex-wrap: wrap;
+    overflow: visible;
     padding-bottom: 2px;
   }
 
@@ -11402,5 +11432,282 @@ span.pf-neutral, td.pf-neutral { color: var(--color-text-muted); }
   border: 1px solid var(--color-border) !important;
   border-radius: var(--border-radius) !important;
   padding: 0.5rem 1rem !important;
+}
+
+/* =============================================================
+   SCROLL AFFORDANCE: right-edge fade for scrollable containers
+   ============================================================= */
+
+.scroll-affordance {
+  position: relative;
+}
+
+.scroll-affordance::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 24px;
+  background: linear-gradient(to right, transparent, var(--color-bg));
+  pointer-events: none;
+  z-index: 4;
+  transition: opacity 0.2s;
+}
+
+.scroll-affordance.scrolled-end::after {
+  opacity: 0;
+}
+
+/* =============================================================
+   RESPONSIVE: Phone (≤480px) — iPhone 390px target
+   ============================================================= */
+
+@media (max-width: 480px) {
+
+  /* ── 1A. Compact Header ── */
+
+  #app {
+    padding: 0.75rem;
+  }
+
+  .app-header {
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+
+  .app-logo {
+    width: 36px;
+    height: 36px;
+  }
+
+  .app-title {
+    font-size: 1.15rem;
+  }
+
+  .app-subtitle {
+    display: none;
+  }
+
+  .game-date-label {
+    display: none;
+  }
+
+  .game-date-value {
+    font-size: 0.85rem;
+  }
+
+  #header-data-source-badges .data-source-chip {
+    font-size: 0.6rem;
+    padding: 0.1rem 0.3rem;
+  }
+
+  .tabs {
+    margin: 0.5rem 0;
+    gap: 0.25rem;
+  }
+
+  .tab-button {
+    padding: 0.45rem 0.6rem;
+    font-size: 0.75rem;
+  }
+
+  .tab-button .tab-icon {
+    display: none;
+  }
+
+  /* ── 1B. Table Base Density ── */
+
+  .stats-table {
+    font-size: 0.72rem;
+  }
+
+  .stats-table th,
+  .stats-table td {
+    padding: 0.3rem 0.35rem;
+  }
+
+  .stats-table tbody tr {
+    min-height: 44px;
+  }
+
+  .player-name-link {
+    padding: 0.3rem 0;
+    display: inline-block;
+    min-height: 44px;
+    line-height: 1.4;
+  }
+
+  /* ── 1D. Filter Bar ── */
+
+  .filter-bar select {
+    max-width: 110px;
+    font-size: 0.75rem;
+    padding: 0.3rem 0.4rem;
+  }
+
+  .toggle-btn {
+    padding: 0.3rem 0.5rem;
+    font-size: 0.72rem;
+  }
+
+  /* ── 2A. TrueRatingsView — Pitcher: additional column hiding ── */
+  /* (existing <639px hides k, bb, hra, r, er, ra9war, wpa)
+     → at 480px also hide ip, bbPer9, hraPer9
+     → visible: Pos, Name, Age, WAR, K/9, FIP */
+
+  .true-ratings-table th[data-col-key="ip"],
+  .true-ratings-table td[data-col-key="ip"],
+  .true-ratings-table th[data-col-key="bbPer9"],
+  .true-ratings-table td[data-col-key="bbPer9"],
+  .true-ratings-table th[data-col-key="hraPer9"],
+  .true-ratings-table td[data-col-key="hraPer9"] {
+    display: none;
+  }
+
+  /* ── 2B. TrueRatingsView — Batter Raw Mode: hide low-priority columns ── */
+  /* visible: Pos, Name, Age, TR, %, AVG, HR, BB%, wOBA, WAR */
+
+  .true-ratings-table th[data-col-key="pa"],
+  .true-ratings-table td[data-col-key="pa"],
+  .true-ratings-table th[data-col-key="obp"],
+  .true-ratings-table td[data-col-key="obp"],
+  .true-ratings-table th[data-col-key="hrPct"],
+  .true-ratings-table td[data-col-key="hrPct"],
+  .true-ratings-table th[data-col-key="k"],
+  .true-ratings-table td[data-col-key="k"],
+  .true-ratings-table th[data-col-key="kPct"],
+  .true-ratings-table td[data-col-key="kPct"],
+  .true-ratings-table th[data-col-key="ops"],
+  .true-ratings-table td[data-col-key="ops"],
+  .true-ratings-table th[data-col-key="opsPlus"],
+  .true-ratings-table td[data-col-key="opsPlus"],
+  .true-ratings-table th[data-col-key="bb"],
+  .true-ratings-table td[data-col-key="bb"] {
+    display: none;
+  }
+
+  /* ── 2C. TrueRatingsView — Batter TR Mode: hide Future columns + percentile ── */
+  /* visible: Pos, Name, Age, TR, True Contact, True Pow, True Eye */
+
+  .true-ratings-table th[data-col-key="percentile"],
+  .true-ratings-table td[data-col-key="percentile"],
+  .true-ratings-table th[data-col-key="tfrContact"],
+  .true-ratings-table td[data-col-key="tfrContact"],
+  .true-ratings-table th[data-col-key="tfrPower"],
+  .true-ratings-table td[data-col-key="tfrPower"],
+  .true-ratings-table th[data-col-key="tfrEye"],
+  .true-ratings-table td[data-col-key="tfrEye"] {
+    display: none;
+  }
+
+  /* ── 2D/2E. ProjectionsView — hide low-priority columns ── */
+  /* Pitcher visible: Pos, Name, Age, TR, K/9, BB/9, HR/9, FIP, WAR */
+  /* Batter visible:  Pos, Name, Age, TR, wOBA, wRC+, WAR, AVG */
+
+  .true-ratings-table th[data-col-key="teamName"],
+  .true-ratings-table td[data-col-key="teamName"],
+  .true-ratings-table th[data-col-key="park"],
+  .true-ratings-table td[data-col-key="park"],
+  .true-ratings-table th[data-col-key="projIP"],
+  .true-ratings-table td[data-col-key="projIP"],
+  .true-ratings-table th[data-col-key="projDef"],
+  .true-ratings-table td[data-col-key="projDef"],
+  .true-ratings-table th[data-col-key="projOps"],
+  .true-ratings-table td[data-col-key="projOps"],
+  .true-ratings-table th[data-col-key="projHrPct"],
+  .true-ratings-table td[data-col-key="projHrPct"],
+  .true-ratings-table th[data-col-key="projHr"],
+  .true-ratings-table td[data-col-key="projHr"],
+  .true-ratings-table th[data-col-key="projSb"],
+  .true-ratings-table td[data-col-key="projSb"],
+  .true-ratings-table th[data-col-key="bbPct"],
+  .true-ratings-table td[data-col-key="bbPct"],
+  .true-ratings-table th[data-col-key="kPct"],
+  .true-ratings-table td[data-col-key="kPct"],
+  .true-ratings-table th[data-col-key="projObp"],
+  .true-ratings-table td[data-col-key="projObp"],
+  .true-ratings-table th[data-col-key="projSlg"],
+  .true-ratings-table td[data-col-key="projSlg"],
+  .true-ratings-table th[data-col-key="projPa"],
+  .true-ratings-table td[data-col-key="projPa"] {
+    display: none;
+  }
+
+  /* ── 2F. FarmRankingsView — hide Org + secondary columns ── */
+
+  .stats-table th[data-col-key="team"],
+  .stats-table td[data-col-key="team"],
+  .stats-table th[data-col-key="peakFip"],
+  .stats-table td[data-col-key="peakFip"] {
+    display: none;
+  }
+
+  /* ── 3A. Profile Modals — full-screen on phone ── */
+
+  .batter-profile-modal .modal-lg,
+  .pitcher-profile-modal .modal-lg {
+    width: 100vw;
+    max-width: 100vw;
+    max-height: 100dvh;
+    border-radius: 0;
+  }
+
+  .batter-profile-modal,
+  .pitcher-profile-modal {
+    padding: 0;
+  }
+
+  .batter-profile-modal .profile-header,
+  .pitcher-profile-modal .profile-header {
+    padding: 0.5rem 0.75rem;
+    gap: 0.5rem;
+  }
+
+  .batter-profile-modal .modal-body,
+  .pitcher-profile-modal .modal-body {
+    padding: 0 0.75rem 0.75rem;
+  }
+
+  /* ── 3B. Modal stats tables — horizontal scroll ── */
+
+  .profile-tab-content .table-wrapper,
+  .projection-table-container,
+  .batter-profile-modal .stats-history .table-wrapper,
+  .pitcher-profile-modal .stats-history .table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .profile-stats-table {
+    font-size: 0.7rem;
+  }
+
+  .profile-stats-table th,
+  .profile-stats-table td {
+    padding: 0.25rem 0.3rem;
+  }
+
+  /* ── 4A. TeamRatingsView — tighter density ── */
+
+  .projections-table,
+  .team-ratings-table {
+    font-size: 0.7rem;
+  }
+
+  /* ── 4B. DraftBoardView — tighter density ── */
+
+  .draft-list-table,
+  .draft-board-table {
+    font-size: 0.7rem;
+  }
+
+  .draft-list-table th,
+  .draft-list-table td,
+  .draft-board-table th,
+  .draft-board-table td {
+    padding: 0.35rem 0.3rem;
+  }
+
 }
 

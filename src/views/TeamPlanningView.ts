@@ -231,6 +231,7 @@ export class TeamPlanningView {
   private cachedOrgPitchers: RatedProspect[] = [];
   private cachedAllPitcherProspects: RatedProspect[] = [];
   private cachedTradeProfiles: Map<number, TeamTradeProfile> = new Map();
+  private positionRatingsMap: Map<number, Record<string, number>> = new Map();
   private tradeMarketYear: number = parseInt(localStorage.getItem('wbl-tp-marketYear') ?? '0', 10); // offset from gameYear (0 = current season)
   private analysisYear: number = parseInt(localStorage.getItem('wbl-tp-analysisYear') ?? '-1', 10); // -1 = all years, 0+ = offset from gameYear
 
@@ -728,6 +729,9 @@ export class TeamPlanningView {
         }
       }
 
+      // Load position ratings for best-position assignment in prospect filling
+      this.positionRatingsMap = await supabaseDataService.getBulkPositionRatings();
+
       this.fillProspects(farmHitters, orgPitchers);
 
       // Re-sort rotation by rating each year so the best pitcher is always SP1
@@ -891,8 +895,22 @@ export class TeamPlanningView {
           : (this.prospectCurrentRatingMap.get(prospect.playerId) ?? prospect.trueFutureRating);
         const prospectProjected = this.projectPlanningRating(prospectCurrentRating, prospect.trueFutureRating, prospect.age, yi);
 
+        // Determine all positions this prospect can play:
+        // 1. Their stated position (always eligible)
+        // 2. Any position where they have a scouting pos rating >= 40 (competent)
+        const posRatings = this.positionRatingsMap.get(prospect.playerId);
+        const eligiblePositions = new Set<number>([prospect.position]);
+        if (posRatings) {
+          for (const [key, rating] of Object.entries(posRatings)) {
+            if (rating >= 40) {
+              const posCode = parseInt(key.replace('pos', ''), 10);
+              eligiblePositions.add(posCode);
+            }
+          }
+        }
+
         for (const slot of slotsToFill) {
-          if (!slot.canPlay.includes(prospect.position)) continue;
+          if (!slot.canPlay.some(p => eligiblePositions.has(p))) continue;
           const row = lineupRowMap.get(slot.label)!;
           const current = row.cells.get(year);
           const incumbentRating = current?.rating ?? 0;
@@ -1418,6 +1436,7 @@ export class TeamPlanningView {
           <span class="legend-item"><span class="legend-swatch legend-swatch-empty"></span>Empty / Gap</span>
           <span class="legend-item"><span class="legend-swatch legend-swatch-override"></span>Manual Edit</span>
         </div>
+        <button class="btn tp-autofill-btn" id="tp-autofill-btn">Auto-Fill Gaps</button>
         <button class="btn tp-reset-btn" id="tp-reset-btn" ${hasOverrides ? '' : 'style="display:none;"'}>Reset Edits</button>
       </div>
       <div class="team-planning-table-wrapper">
@@ -1480,6 +1499,10 @@ export class TeamPlanningView {
     const resetBtn = gridContainer.querySelector<HTMLElement>('#tp-reset-btn');
     if (resetBtn) {
       resetBtn.addEventListener('click', () => this.handleResetEdits());
+    }
+    const autoFillBtn = gridContainer.querySelector('#tp-autofill-btn');
+    if (autoFillBtn) {
+      autoFillBtn.addEventListener('click', () => this.handleAutoFillGaps());
     }
 
     // Apply current view mode
@@ -2688,6 +2711,135 @@ export class TeamPlanningView {
     }
   }
 
+  /**
+   * Auto-fill empty grid cells with the best available eligible player from the org.
+   * Only fills cells in the current year (year 0) that are empty (no player assigned).
+   * Uses a greedy approach: highest-rated player first, assigned to the empty slot
+   * where they're eligible. Each player is only placed once.
+   */
+  private async handleAutoFillGaps(): Promise<void> {
+    if (!this.selectedTeamId || !this.cachedRanking) return;
+
+    const yearRange = this.getYearRange();
+
+    // Collect occupied player IDs per year (a player can fill one slot per year)
+    const occupiedByYear = new Map<number, Set<number>>();
+    for (let yi = 0; yi < yearRange.length; yi++) {
+      const year = yearRange[yi];
+      const ids = new Set<number>();
+      for (const row of this.gridRows) {
+        const cell = row.cells.get(year);
+        if (cell?.playerId) ids.add(cell.playerId);
+      }
+      occupiedByYear.set(year, ids);
+    }
+
+    // Find empty cells across all years
+    const emptyCells: { row: GridRow; year: number; yi: number }[] = [];
+    for (const row of this.gridRows) {
+      for (let yi = 0; yi < yearRange.length; yi++) {
+        const year = yearRange[yi];
+        const cell = row.cells.get(year);
+        if (!cell || cell.contractStatus === 'empty' || !cell.playerId) {
+          emptyCells.push({ row, year, yi });
+        }
+      }
+    }
+
+    if (emptyCells.length === 0) return;
+
+    // Build candidate pools from playerMap — same source as cell edit modal.
+    // This includes all org players (MLB roster, bench, depth, prospects).
+    const allBatters: { id: number; name: string; position: number; rating: number; age: number; tfr?: number; isProspect: boolean }[] = [];
+    const allPitchers: { id: number; name: string; rating: number; age: number; tfr?: number; isProspect: boolean }[] = [];
+
+    for (const [pid, player] of this.playerMap) {
+      if (player.retired) continue;
+      const rating = this.resolveCurrentRatingForProjection(pid);
+      const tfr = this.playerTfrMap.get(pid);
+      const age = this.playerAgeMap.get(pid) ?? player.age;
+      const isProspect = player.level !== undefined && player.level > 1;
+
+      if (player.position === 1) { // Pitcher
+        allPitchers.push({ id: pid, name: `${player.firstName} ${player.lastName}`, rating, age, tfr, isProspect });
+      } else {
+        allBatters.push({ id: pid, name: `${player.firstName} ${player.lastName}`, position: player.position, rating, age, tfr, isProspect });
+      }
+    }
+
+    // Sort by rating desc (best players fill first)
+    allBatters.sort((a, b) => b.rating - a.rating);
+    allPitchers.sort((a, b) => b.rating - a.rating);
+
+    const records: TeamPlanningOverrideRecord[] = [];
+
+    // Greedy fill: for each empty cell, find best available eligible player
+    // Track used players PER YEAR so the same player can fill their slot across multiple years
+    for (let yi = 0; yi < yearRange.length; yi++) {
+      const year = yearRange[yi];
+      const usedThisYear = occupiedByYear.get(year) ?? new Set<number>();
+      const yearCells = emptyCells.filter(c => c.yi === yi);
+
+      for (const { row } of yearCells) {
+        const isPitcherRow = row.section === 'rotation' || row.section === 'bullpen';
+
+        let bestPlayer: typeof allBatters[0] | typeof allPitchers[0] | undefined;
+
+        if (isPitcherRow) {
+          bestPlayer = allPitchers.find(p => !usedThisYear.has(p.id));
+        } else {
+          const slot = POSITION_SLOTS.find(s => s.label === row.position);
+          if (!slot) continue;
+          bestPlayer = allBatters.find(b => {
+            if (usedThisYear.has(b.id)) return false;
+            // Check stated position first, then scouting position ratings
+            if (slot.canPlay.includes(b.position)) return true;
+            const posRatings = this.positionRatingsMap.get(b.id);
+            if (!posRatings) return false;
+            return slot.canPlay.some(p => (posRatings[`pos${p}`] ?? 0) >= 40);
+          });
+        }
+
+        if (!bestPlayer) continue;
+
+        usedThisYear.add(bestPlayer.id);
+
+        const yearOffset = year - this.planningStartYear;
+        const baseAge = bestPlayer.age;
+        const peakRating = bestPlayer.tfr && bestPlayer.tfr > bestPlayer.rating ? bestPlayer.tfr : bestPlayer.rating;
+        const cellRating = this.projectPlanningRating(bestPlayer.rating, peakRating, baseAge, yearOffset);
+        const salaryBasisRating = this.resolveBestKnownRating(bestPlayer.id, year);
+        const serviceYears = this.playerServiceYearsMap.get(bestPlayer.id) ?? 0;
+        const serviceYear = serviceYears > 0 ? serviceYears : Math.max(1, bestPlayer.age - TYPICAL_DEBUT_AGE + 1);
+        const cellSalary = estimateTeamControlSalary(serviceYear, salaryBasisRating || cellRating);
+
+        const key = `${this.selectedTeamId}_${row.position}_${year}`;
+        const record: TeamPlanningOverrideRecord = {
+          key,
+          teamId: this.selectedTeamId,
+          position: row.position,
+          year,
+          playerId: bestPlayer.id,
+          playerName: bestPlayer.name,
+          age: baseAge + yearOffset,
+          rating: cellRating,
+          salary: cellSalary,
+          contractStatus: 'under-contract',
+          isProspect: bestPlayer.isProspect,
+          sourceType: 'org',
+          createdAt: Date.now(),
+        };
+        records.push(record);
+        this.overrides.set(key, record);
+      }
+    }
+
+    if (records.length === 0) return;
+
+    await indexedDBService.saveTeamPlanningOverrides(records);
+    await this.buildAndRenderGrid();
+  }
+
   // =====================================================================
   // Trade Market — Analysis
   // =====================================================================
@@ -3669,10 +3821,14 @@ export class TeamPlanningView {
   ): number {
     let rating = currentRating;
 
-    // Growth phase: linear interpolation toward peakRating
+    // Growth phase: front-loaded curve (sqrt) so young prospects develop faster
+    // in early years. A 22yo with current 2.5 and peak 4.0 projects:
+    //   yr 0: 2.5, yr 1: 3.2, yr 2: 3.5, yr 3: 3.7, yr 4: 3.9, yr 5: 4.0
+    // (vs old linear: 2.5, 2.8, 3.1, 3.4, 3.7, 4.0)
     if (currentAge < peakAge && peakRating > currentRating) {
       const yearsToGo = peakAge - currentAge;
-      const fraction = Math.min(yearOffset / yearsToGo, 1.0);
+      const t = Math.min(yearOffset / yearsToGo, 1.0);
+      const fraction = Math.sqrt(t); // front-loaded: fast early, tapers near peak
       rating = currentRating + (peakRating - currentRating) * fraction;
     } else {
       // Already at or past peak — start from peakRating (or currentRating if no upside)

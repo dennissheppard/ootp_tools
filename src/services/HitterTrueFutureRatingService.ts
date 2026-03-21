@@ -16,6 +16,7 @@ import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { trueRatingsService } from './TrueRatingsService';
 import { LeagueBattingAverages } from './LeagueBattingAveragesService';
 import { supabaseDataService } from './SupabaseDataService';
+import { ParkFactorRow, computeEffectiveParkFactors } from './ParkFactorService';
 
 // ============================================================================
 // Interfaces
@@ -507,7 +508,8 @@ class HitterTrueFutureRatingService {
     hrPct: number,
     avg: number,
     gap: number = 50,    // Default to league average
-    speed: number = 50   // Default to league average
+    speed: number = 50,  // Default to league average
+    parkAdj?: { d: number; t: number }  // Optional park factor multipliers for 2B/3B
   ): number {
     // Convert percentages to rates per PA
     const bbRate = bbPct / 100;
@@ -523,8 +525,14 @@ class HitterTrueFutureRatingService {
 
     // Calculate expected doubles and triples rates from Gap/Speed ratings
     // These return rates on AB basis, need to convert to PA basis
-    const rawDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
-    const rawTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+    let rawDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
+    let rawTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+
+    // Apply park factor adjustments to doubles/triples if provided
+    if (parkAdj) {
+      rawDoublesRate *= parkAdj.d;
+      rawTriplesRate *= parkAdj.t;
+    }
 
     // Convert AB-basis to PA-basis by multiplying by (1 - bbRate)
     const doublesRatePA = rawDoublesRate * (1 - bbRate);
@@ -565,7 +573,8 @@ class HitterTrueFutureRatingService {
     hrPct: number,
     avg: number,
     gap: number,
-    speed: number
+    speed: number,
+    parkAdj?: { d: number; t: number }  // Optional park factor multipliers for 2B/3B
   ): number {
     const bbRate = bbPct / 100;
     const hrRate = hrPct / 100;
@@ -575,8 +584,14 @@ class HitterTrueFutureRatingService {
     const nonHrHitRate = Math.max(0, hitRate - hrRate);
 
     // Get doubles and triples rates (AB-basis)
-    const rawDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
-    const rawTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+    let rawDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
+    let rawTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+
+    // Apply park factor adjustments to doubles/triples if provided
+    if (parkAdj) {
+      rawDoublesRate *= parkAdj.d;
+      rawTriplesRate *= parkAdj.t;
+    }
 
     // Convert to PA-basis
     const doublesRatePA = rawDoublesRate * (1 - bbRate);
@@ -1071,7 +1086,9 @@ class HitterTrueFutureRatingService {
   async calculateTrueFutureRatings(
     inputs: HitterTrueFutureRatingInput[],
     leagueBattingAverages?: LeagueBattingAverages,
-    injuryPaMap?: Map<string, number>
+    injuryPaMap?: Map<string, number>,
+    parkFactorsMap?: Map<number, ParkFactorRow>,
+    playerInfoMap?: Map<number, { teamId: number; bats: string }>
   ): Promise<HitterTrueFutureRatingResult[]> {
     if (inputs.length === 0) {
       return [];
@@ -1128,11 +1145,26 @@ class HitterTrueFutureRatingService {
       projHrPct = Math.max(0.3, Math.min(10.0, projHrPct));
       projAvg = Math.max(0.180, Math.min(0.380, projAvg));
 
+      // Apply park factors to projected rates if available
+      let parkAdj: { d: number; t: number } | undefined;
+      if (parkFactorsMap && playerInfoMap) {
+        const pInfo = playerInfoMap.get(result.playerId);
+        if (pInfo) {
+          const parkRow = parkFactorsMap.get(pInfo.teamId);
+          if (parkRow) {
+            const eff = computeEffectiveParkFactors(parkRow, pInfo.bats);
+            projAvg *= eff.avg;
+            projHrPct *= eff.hr;
+            parkAdj = { d: eff.d, t: eff.t };
+          }
+        }
+      }
+
       // Calculate peak wOBA from blended rates
-      const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg, gap, speed);
+      const projWoba = this.calculateWobaFromRates(projBbPct, projKPct, projHrPct, projAvg, gap, speed, parkAdj);
 
       // Derived rate stats
-      const projIso = this.calculateIsoFromRates(projBbPct, projHrPct, projAvg, gap, speed);
+      const projIso = this.calculateIsoFromRates(projBbPct, projHrPct, projAvg, gap, speed, parkAdj);
       const projSlg = projAvg + projIso;
       const projObp = projAvg + (projBbPct / 100) * (1 - projAvg);
       const projOps = projObp + projSlg;
