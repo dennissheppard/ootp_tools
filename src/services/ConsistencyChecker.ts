@@ -75,7 +75,7 @@ function reportMismatch(m: Mismatch): void {
 
 const TOLERANCES: Record<string, number> = {
   war: 0.15,
-  'war (formula)': 0.3, // Wider: batter formula excludes SB runs (~0.2 WAR max)
+  'war (formula)': 0.5, // Wider: batter formula excludes SB runs (high-SB players can have ~0.4 WAR in SB runs)
   pa: 5,
   ip: 5,
   hr: 3,
