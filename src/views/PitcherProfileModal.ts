@@ -675,8 +675,9 @@ export class PitcherProfileModal {
       this.currentStats = allStats;
 
       // Projected stats: read from precomputed cache (canonical, injury/park adjusted)
+      // Includes promotion-ready prospects who now get current-year projections
       this.projectedIp = null;
-      if (data.projIp === undefined && !data.isProspect
+      if (data.projIp === undefined
           && supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
         try {
           const cachedCtx = await projectionService.getProjectionsWithContext(currentYear);
@@ -690,6 +691,12 @@ export class PitcherProfileModal {
             data.projHr9 = cachedProj.projectedStats.hr9;
             data.projFip = cachedProj.projectedStats.fip;
             this.projectedIp = cachedProj.projectedStats.ip;
+            // Prospect with current-year projection: enable current/peak toggle
+            if (data.isProspect) {
+              data.hasTfrUpside = true;
+              // trueRating must be set for the toggle to appear (showToggle check)
+              if (data.trueRating === undefined) data.trueRating = cachedProj.currentTrueRating ?? cachedProj.projectedTrueRating ?? 1.0;
+            }
           }
         } catch { /* cache not available */ }
       }

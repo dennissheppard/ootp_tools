@@ -2020,6 +2020,18 @@ async function computeProjections(
         if (isUpperMinors && (isQualityProspect || tr.trueRating >= 2.0)) isMlbReady = true;
         if (ovr >= 50) isMlbReady = true;
       }
+      // Promotion-ready prospect gate: upper minors (AAA/AA) with devTR >= 1.5 or devRatio > 0.5
+      if (!isMlbReady) {
+        const isUpperMinors2 = aaaOrAaPlayerIds.has(tr.playerId);
+        if (isUpperMinors2) {
+          const tfrEntry = pitcherTfrMap.get(tr.playerId);
+          const devTR = typeof tfrEntry?.developmentTR === 'number' ? tfrEntry.developmentTR : (tfrEntry?.developmentTR?.trueRating ?? 0);
+          const scoutOvr = scouting?.ovr ?? 0;
+          const scoutPot = scouting?.pot ?? 1;
+          const devRatio = scoutOvr / scoutPot;
+          if (devTR >= 1.5 || devRatio > 0.5) isMlbReady = true;
+        }
+      }
       if (!isMlbReady) continue;
     }
 
@@ -2301,6 +2313,109 @@ async function computeProjections(
       projectedTrueRating: 0,
       isProspect: !hasRecentMlb,
     });
+  }
+
+  // Promotion-ready prospects: compute current-year projections for prospects not in TR results
+  // Uses developmentTR (current-ability ratings from dev curves) instead of peak TFR
+  {
+    const existingIds = new Set(tempPitcherProjections.map(p => p.playerId));
+    let promotionProspectCount = 0;
+    for (const [playerId, tfrData] of pitcherTfrMap) {
+      if (existingIds.has(playerId)) continue; // Already has a projection
+      const player = playerMap.get(playerId);
+      if (!player || player.retired) continue;
+
+      const scouting = pitcherScoutMap.get(playerId);
+      const ovr = scouting?.ovr ?? 0;
+      const pot = scouting?.pot ?? 1;
+      const devRatio = ovr / pot;
+      const isUpperMinors = aaaOrAaPlayerIds.has(playerId);
+      const devTR = typeof tfrData.developmentTR === 'number' ? tfrData.developmentTR : (tfrData.developmentTR?.trueRating ?? 0);
+
+      // Must be upper minors (AAA/AA) with either devTR >= 1.5 or devRatio > 0.5
+      if (!isUpperMinors) continue;
+      if (devTR < 1.5 && devRatio <= 0.5) continue;
+
+      // Use development-curve TR ratings for current-ability projection
+      const devRatings = tfrData.developmentTR?.ratings ?? tfrData.trueRatings ?? {};
+      const stuff = devRatings.stuff ?? scouting?.stuff ?? 50;
+      const control = devRatings.control ?? scouting?.control ?? 50;
+      const hra = devRatings.hra ?? scouting?.hra ?? 50;
+
+      // IP from scouting stamina (same formula as main path)
+      const stamina = scouting?.stamina ?? 40;
+      const pitches = scouting?.pitches ?? {};
+      const usablePitches = Object.values(pitches).filter((r: any) => r >= 25).length;
+      const isSp = usablePitches >= 3 && stamina >= 35;
+      let baseIp: number;
+      if (isSp) {
+        baseIp = 10 + (stamina * 3.0);
+        baseIp = Math.max(100, Math.min(280, baseIp));
+      } else {
+        baseIp = 30 + (stamina * 0.6);
+        baseIp = Math.max(30, Math.min(100, baseIp));
+      }
+
+      // Injury modifier (same as main path)
+      const proneness = (scouting?.injury_proneness ?? 'Normal').toLowerCase();
+      let injuryMod = 1.0;
+      switch (proneness) {
+        case 'iron man': injuryMod = 1.15; break;
+        case 'durable': injuryMod = 1.10; break;
+        case 'fragile': injuryMod = 0.90; break;
+        case 'wrecked': injuryMod = 0.75; break;
+      }
+      baseIp *= injuryMod;
+
+      // Skill modifier based on projected FIP
+      const projK9 = (stuff + 28) / 13.5;
+      const projBb9 = (100.4 - control) / 19.2;
+      const projHr9 = (86.7 - hra) / 41.7;
+      const projFip = ((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47;
+      let skillMod = 1.0;
+      if (projFip <= 3.50) skillMod = 1.20;
+      else if (projFip <= 4.00) skillMod = 1.10;
+      else if (projFip <= 4.50) skillMod = 1.0;
+      else if (projFip <= 5.00) skillMod = 0.90;
+      else skillMod = 0.80;
+      baseIp *= skillMod;
+
+      const projIp = Math.round(baseIp);
+      const projWar = fipWarService.calculateWar(Math.round(projFip * 100) / 100, projIp);
+      const fipLike = trueRatingsCalculationService.calculateFipLike(projK9, projBb9, projHr9);
+      const playerAge = typeof player.age === 'string' ? parseInt(player.age, 10) : (player.age ?? 25);
+      const teamId = player.team_id ?? 0;
+
+      tempPitcherProjections.push({
+        playerId,
+        name: tfrData.playerName ?? `${player.first_name} ${player.last_name}`,
+        teamId,
+        teamName: teamMap.get(teamId) || 'FA',
+        position: player.position,
+        level: typeof player.level === 'string' ? parseInt(player.level, 10) : (player.level ?? 2),
+        parentTeamId: player.parent_team_id ?? 0,
+        age: playerAge,
+        currentTrueRating: devTR,
+        currentPercentile: 0,
+        projectedStats: {
+          k9: Math.round(projK9 * 100) / 100,
+          bb9: Math.round(projBb9 * 100) / 100,
+          hr9: Math.round(projHr9 * 100) / 100,
+          fip: Math.round(projFip * 100) / 100,
+          war: projWar,
+          ip: projIp,
+        },
+        projectedRatings: { stuff, control, hra },
+        isSp,
+        fipLike,
+        projectedTrueRating: 0,
+        isProspect: true,
+      });
+      promotionProspectCount++;
+    }
+    if (promotionProspectCount > 0) {
+      console.log(`  🔄 Promotion-ready prospect projections: ${promotionProspectCount} pitchers`);
+    }
   }
 
   // Injury adjustment: reduce IP proportionally to days missed

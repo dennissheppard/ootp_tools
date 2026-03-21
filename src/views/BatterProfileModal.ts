@@ -542,9 +542,9 @@ export class BatterProfileModal {
       } catch { /* lookups not available */ }
     }
 
-    // Overlay precomputed projection for current-year non-prospects (injury/park adjusted).
-    // The precomputed cache is the canonical source — avoids independent recomputation.
-    if (!data.isProspect && supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
+    // Overlay precomputed projection (injury/park adjusted).
+    // The precomputed cache is the canonical source — includes promotion-ready prospects.
+    if (supabaseDataService.isConfigured && !supabaseDataService.hasCustomScouting) {
       try {
         const cachedCtx = await batterProjectionService.getProjectionsWithContext(currentYear);
         if (generation !== this.showGeneration) return;
@@ -554,15 +554,21 @@ export class BatterProfileModal {
           data.projWar = cachedProj.projectedStats.war;
           data.projHr = cachedProj.projectedStats.hr;
           data.projSb = cachedProj.projectedStats.sb;
-        } else {
-          // Player not in cache (e.g. called up mid-season) — clear so modal recomputes
+          // Prospect with current-year projection: enable current/peak toggle
+          if (data.isProspect) {
+            data.hasTfrUpside = true;
+            if (data.trueRating === undefined) data.trueRating = (cachedProj as any).currentTrueRating ?? 1.0;
+          }
+        } else if (!data.isProspect) {
+          // Non-prospect not in cache (e.g. called up mid-season) — clear so modal recomputes
           data.projPa = undefined;
           data.projWar = undefined;
         }
       } catch {
-        // Cache not available — clear so modal recomputes
-        data.projPa = undefined;
-        data.projWar = undefined;
+        if (!data.isProspect) {
+          data.projPa = undefined;
+          data.projWar = undefined;
+        }
       }
     } else if (!data.isProspect) {
       // Custom scouting or non-Supabase — clear so modal recomputes from canonical TR

@@ -452,7 +452,9 @@ export function computeBatterProjection(
   deps: BatterProjectionDeps,
 ): BatterProjectionResult {
   const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
-  const isPeakMode = (deps.projectionMode === 'peak' && showToggle) || (data.isProspect === true);
+  // Prospects with current-year projections (from cache) get the toggle — don't force peak
+  const hasCurrentProj = data.projPa !== undefined || data.projWar !== undefined;
+  const isPeakMode = (deps.projectionMode === 'peak' && showToggle) || (data.isProspect === true && !hasCurrentProj);
 
   // Select ratings source
   const usePower = isPeakMode ? (data.tfrPower ?? data.estimatedPower) : data.estimatedPower;
@@ -762,7 +764,9 @@ export function computePitcherProjection(
   deps: PitcherProjectionDeps,
 ): PitcherProjectionResult {
   const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
-  const isPeakMode = (deps.projectionMode === 'peak' && showToggle) || (data.isProspect === true);
+  // Prospects with current-year projections (from cache) get the toggle — don't force peak
+  const hasCurrentProj = data.projIp !== undefined || data.projWar !== undefined;
+  const isPeakMode = (deps.projectionMode === 'peak' && showToggle) || (data.isProspect === true && !hasCurrentProj);
 
   // Select ratings source
   const useStuff = isPeakMode ? (data.tfrStuff ?? data.estimatedStuff) : data.estimatedStuff;
