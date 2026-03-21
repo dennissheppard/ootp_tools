@@ -12,7 +12,6 @@ import { playerService } from './PlayerService';
 import { trueFutureRatingService } from './TrueFutureRatingService';
 import { hitterTrueFutureRatingService, HitterTrueFutureRatingInput } from './HitterTrueFutureRatingService';
 import { hitterScoutingDataService } from './HitterScoutingDataService';
-import { HitterRatingEstimatorService } from './HitterRatingEstimatorService';
 import { batterProjectionService } from './BatterProjectionService';
 import { minorLeagueBattingStatsService } from './MinorLeagueBattingStatsService';
 import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
