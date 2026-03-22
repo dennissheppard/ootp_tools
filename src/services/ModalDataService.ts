@@ -452,10 +452,11 @@ export function computeBatterProjection(
   stats: BatterSeasonStatsForProjection[],
   deps: BatterProjectionDeps,
 ): BatterProjectionResult {
-  const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
-  // Prospects with a current/peak toggle (hasTfrUpside + trueRating set by cache lookup) use the toggle.
-  // Pure prospects (no trueRating) always use peak mode.
-  const isPeakMode = (deps.projectionMode === 'peak' && showToggle) || (data.isProspect === true && !showToggle);
+  // Show toggle for any player with TFR upside — prospects can use current scouting ratings
+  // for "Current" mode even without a trueRating (MLB stats-derived TR).
+  const showToggle = data.hasTfrUpside === true && (data.trueRating !== undefined || data.isProspect === true);
+  // Prospects default to peak mode, but toggle allows switching to current.
+  const isPeakMode = showToggle ? deps.projectionMode === 'peak' : (data.isProspect === true);
 
   // Select ratings source
   const usePower = isPeakMode ? (data.tfrPower ?? data.estimatedPower) : data.estimatedPower;
@@ -764,10 +765,11 @@ export function computePitcherProjection(
   _stats: PitcherSeasonStatsForProjection[],
   deps: PitcherProjectionDeps,
 ): PitcherProjectionResult {
-  const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
-  // Prospects with a current/peak toggle (hasTfrUpside + trueRating set by cache lookup) use the toggle.
-  // Pure prospects (no trueRating) always use peak mode.
-  const isPeakMode = (deps.projectionMode === 'peak' && showToggle) || (data.isProspect === true && !showToggle);
+  // Show toggle for any player with TFR upside — prospects can use current scouting ratings
+  // for "Current" mode even without a trueRating (MLB stats-derived TR).
+  const showToggle = data.hasTfrUpside === true && (data.trueRating !== undefined || data.isProspect === true);
+  // Prospects default to peak mode, but toggle allows switching to current.
+  const isPeakMode = showToggle ? deps.projectionMode === 'peak' : (data.isProspect === true);
 
   // Select ratings source
   const useStuff = isPeakMode ? (data.tfrStuff ?? data.estimatedStuff) : data.estimatedStuff;

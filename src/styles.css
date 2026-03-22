@@ -6838,6 +6838,7 @@ th .stat-tooltip {
   min-height: 200px;
   display: flex;
   flex-direction: column;
+  margin-top: 15px;
 }
 .analysis-pane {
   flex: 1;

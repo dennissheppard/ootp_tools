@@ -165,21 +165,14 @@ export class DraftBoardView {
     if (this.loaded) return;
 
     const year = await dateService.getCurrentYear();
-    const [allPlayersList, pitcherFarm, hitterFarm] = await Promise.all([
-      playerService.getAllPlayers(),
+    const [draftPlayers, pitcherFarm, hitterFarm] = await Promise.all([
+      playerService.getDraftEligiblePlayers(),
       teamRatingsService.getUnifiedPitcherTfrData(year),
       teamRatingsService.getUnifiedHitterTfrData(year),
     ]);
 
-    // Build draftee player set
-    const drafteeIds = new Set<number>();
-    for (const p of allPlayersList) {
-      if (p.draftEligible) {
-        drafteeIds.add(p.id);
-      }
-    }
-
-    const playerMap = new Map<number, Player>(allPlayersList.map(p => [p.id, p]));
+    const drafteeIds = new Set<number>(draftPlayers.map(p => p.id));
+    const playerMap = new Map<number, Player>(draftPlayers.map(p => [p.id, p]));
 
     // Load scouting for both sources
     const [pitcherScoutMy, pitcherScoutOsa, hitterScoutMy, hitterScoutOsa] = await Promise.all([

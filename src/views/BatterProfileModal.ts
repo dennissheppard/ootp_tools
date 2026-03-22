@@ -525,8 +525,7 @@ export class BatterProfileModal {
             data.posAdj = entry[1];
           }
         }
-        const allPlayers = await playerService.getAllPlayers();
-        const player = allPlayers.find(p => p.id === data.playerId);
+        const player = await playerService.getPlayerById(data.playerId);
         // Active injury days for projection adjustment
         this.injuryDaysRemaining = player?.injuryDaysRemaining ?? 0;
         if (parkFactorsData && player) {
@@ -1883,7 +1882,7 @@ export class BatterProfileModal {
       }
     }
 
-    const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
+    const showToggle = data.hasTfrUpside === true && (data.trueRating !== undefined || data.isProspect === true);
     const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;
     const lgObp = this.leagueAvg?.lgObp ?? 0.320;
     const lgSlg = this.leagueAvg?.lgSlg ?? 0.400;

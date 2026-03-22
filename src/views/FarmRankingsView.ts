@@ -1,4 +1,5 @@
 import { osaBannerHtml, bindOsaBannerEvents } from '../utils/scoutingBanner';
+import { getRouter } from '../router';
 import {
   teamRatingsService,
   FarmData,
@@ -42,6 +43,7 @@ export class FarmRankingsView {
   private top100HitterProspects: RatedHitterProspect[] = [];
   private selectedTeam: string = localStorage.getItem('wbl-selected-team') || 'all';
   private selectedPosition: string = 'all';
+  private includeDraftPool: boolean = false;
 
   // Sorting and Dragging state
   private systemsSortKey: string = 'totalWar';
@@ -102,8 +104,38 @@ export class FarmRankingsView {
 
   private hasLoadedData = false; // Track if data has been loaded (for lazy loading)
 
+  private getUrlParams(): Record<string, string> {
+    const params: Record<string, string> = {};
+    if (this.viewMode !== 'top-systems') params.view = this.viewMode;
+    if (this.selectedTeam !== 'all') params.team = this.selectedTeam;
+    if (this.selectedPosition !== 'all') params.pos = this.selectedPosition;
+    if (!this.showPitchers) params.type = 'hitters';
+    else if (!this.showHitters) params.type = 'pitchers';
+    if (this.includeDraftPool) params.draft = '1';
+    return params;
+  }
+
+  private syncUrl(): void {
+    getRouter().replace('tab-farm-rankings', this.getUrlParams());
+  }
+
+  applyUrlParams(params: URLSearchParams): void {
+    const view = params.get('view') as 'top-systems' | 'top-100' | 'reports' | null;
+    if (view && ['top-systems', 'top-100', 'reports'].includes(view)) this.viewMode = view;
+    const team = params.get('team');
+    if (team) this.selectedTeam = team;
+    const pos = params.get('pos');
+    if (pos) this.selectedPosition = pos;
+    const type = params.get('type');
+    if (type === 'pitchers') { this.showPitchers = true; this.showHitters = false; }
+    else if (type === 'hitters') { this.showPitchers = false; this.showHitters = true; }
+    if (params.get('draft') === '1') this.includeDraftPool = true;
+  }
+
   constructor(container: HTMLElement) {
     this.container = container;
+    // Apply URL params before initial render so filters reflect the URL state
+    this.applyUrlParams(new URLSearchParams(window.location.search));
     this.renderLayout();
 
     // Defer data loading until tab is activated (lazy loading)
@@ -201,42 +233,39 @@ export class FarmRankingsView {
               </div>
               -->
 
-              <button class="toggle-btn active" data-view-mode="top-systems" aria-pressed="true">Top Systems</button>
-              <button class="toggle-btn" data-view-mode="top-100" aria-pressed="false">Top 100</button>
+              <button class="toggle-btn ${this.viewMode === 'top-systems' ? 'active' : ''}" data-view-mode="top-systems" aria-pressed="${this.viewMode === 'top-systems'}">Top Systems</button>
+              <button class="toggle-btn ${this.viewMode === 'top-100' ? 'active' : ''}" data-view-mode="top-100" aria-pressed="${this.viewMode === 'top-100'}">Top 100</button>
               
-              <span id="prospect-type-toggles" style="display: none;">
+              <span id="prospect-type-toggles" style="${this.viewMode === 'top-100' ? '' : 'display: none;'}">
                 <span class="filter-separator"></span>
-                <button class="toggle-btn active" data-prospect-type="pitchers" aria-pressed="true">Pitchers</button>
-                <button class="toggle-btn active" data-prospect-type="hitters" aria-pressed="true">Hitters</button>
+                <button class="toggle-btn ${this.showPitchers ? 'active' : ''}" data-prospect-type="pitchers" aria-pressed="${this.showPitchers}">Pitchers</button>
+                <button class="toggle-btn ${this.showHitters ? 'active' : ''}" data-prospect-type="hitters" aria-pressed="${this.showHitters}">Hitters</button>
               </span>
               
-              <div class="filter-dropdown" data-filter="team" style="display: none;">
+              <div class="filter-dropdown" data-filter="team" style="${this.viewMode === 'top-100' ? '' : 'display: none;'}">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
-                  Team: <span id="selected-team-display">All</span> ▾
+                  Team: <span id="selected-team-display">${this.selectedTeam === 'all' ? 'All' : this.selectedTeam}</span> ▾
                 </button>
                 <div class="filter-dropdown-menu" id="team-dropdown-menu">
                   <div class="filter-dropdown-item selected" data-value="all">All</div>
                 </div>
               </div>
 
-              <div class="filter-dropdown" data-filter="position" style="display: none;">
+              <div class="filter-dropdown" data-filter="position" style="${this.viewMode === 'top-100' ? '' : 'display: none;'}">
                 <button class="filter-dropdown-btn" aria-haspopup="true" aria-expanded="false">
-                  Pos: <span id="selected-position-display">All</span> ▾
+                  Pos: <span id="selected-position-display">${this.selectedPosition === 'all' ? 'All' : this.selectedPosition}</span> ▾
                 </button>
                 <div class="filter-dropdown-menu" id="position-dropdown-menu">
-                  <div class="filter-dropdown-item selected" data-value="all">All</div>
-                  <div class="filter-dropdown-item" data-value="P">P</div>
-                  <div class="filter-dropdown-item" data-value="C">C</div>
-                  <div class="filter-dropdown-item" data-value="1B">1B</div>
-                  <div class="filter-dropdown-item" data-value="2B">2B</div>
-                  <div class="filter-dropdown-item" data-value="SS">SS</div>
-                  <div class="filter-dropdown-item" data-value="3B">3B</div>
-                  <div class="filter-dropdown-item" data-value="LF">LF</div>
-                  <div class="filter-dropdown-item" data-value="CF">CF</div>
-                  <div class="filter-dropdown-item" data-value="RF">RF</div>
-                  <div class="filter-dropdown-item" data-value="DH">DH</div>
+                  ${['all','P','C','1B','2B','SS','3B','LF','CF','RF','DH'].map(v =>
+                    `<div class="filter-dropdown-item ${this.selectedPosition === v ? 'selected' : ''}" data-value="${v}">${v === 'all' ? 'All' : v}</div>`
+                  ).join('')}
                 </div>
               </div>
+
+              <span id="draft-pool-toggle" style="${this.viewMode === 'top-100' ? '' : 'display: none;'}">
+                <span class="filter-separator"></span>
+                <button class="toggle-btn ${this.includeDraftPool ? 'active' : ''}" data-toggle="draft-pool" aria-pressed="${this.includeDraftPool}">Include Draft Pool</button>
+              </span>
 
               <button class="toggle-btn" data-view-mode="reports" aria-pressed="false" style="border-right: none; border-top-right-radius: var(--border-radius); border-bottom-right-radius: var(--border-radius);">Depth Rankings</button>
               <button class="toggle-btn" id="export-tfr-btn" title="Export TFR data for automated testing" style="display: none;">Export for Testing</button>
@@ -324,10 +353,20 @@ export class FarmRankingsView {
             button.classList.toggle('active', type === 'pitchers' ? this.showPitchers : this.showHitters);
             button.setAttribute('aria-pressed', String(type === 'pitchers' ? this.showPitchers : this.showHitters));
 
-            // Reload data for the new filter
+            this.syncUrl();
             this.showLoadingState();
             this.loadData();
         });
+    });
+
+    // Draft Pool toggle
+    this.container.querySelector('[data-toggle="draft-pool"]')?.addEventListener('click', (e) => {
+      this.includeDraftPool = !this.includeDraftPool;
+      const btn = e.target as HTMLElement;
+      btn.classList.toggle('active', this.includeDraftPool);
+      btn.setAttribute('aria-pressed', String(this.includeDraftPool));
+      this.syncUrl();
+      this.renderView();
     });
 
     this.container.querySelectorAll('[data-view-mode]').forEach(btn => {
@@ -342,6 +381,7 @@ export class FarmRankingsView {
                 b.setAttribute('aria-pressed', String(isActive));
             });
 
+            this.syncUrl();
             this.renderView();
         });
     });
@@ -437,16 +477,23 @@ export class FarmRankingsView {
           });
       }
 
+      // Separate real orgs from "Draft Pool" pseudo-team
+      const hasDraftPool = teams.has('Draft Pool');
+      teams.delete('Draft Pool');
       const sortedTeams = Array.from(teams).sort();
 
       // Validate saved team exists in options
-      if (this.selectedTeam !== 'all' && !sortedTeams.includes(this.selectedTeam)) {
+      if (this.selectedTeam !== 'all' && this.selectedTeam !== 'Draft Pool' && !sortedTeams.includes(this.selectedTeam)) {
           this.selectedTeam = 'all';
       }
 
-      const items = ['all', ...sortedTeams].map(t => {
+      const allOptions = ['all', ...sortedTeams];
+      if (hasDraftPool) allOptions.push('Draft Pool');
+
+      const items = allOptions.map(t => {
           const selectedClass = t === this.selectedTeam ? 'selected' : '';
           if (t === 'all') return `<div class="filter-dropdown-item ${selectedClass}" data-value="all">All</div>`;
+          if (t === 'Draft Pool') return `<div class="filter-dropdown-item ${selectedClass}" data-value="Draft Pool" style="border-top: 1px solid var(--color-border); margin-top: 4px; padding-top: 8px;">🎓 Draft Pool</div>`;
           const logoUrl = getTeamLogoUrl(t);
           const logoHtml = logoUrl ? `<img class="team-dropdown-logo" src="${logoUrl}" alt="">` : '';
           return `<div class="filter-dropdown-item ${selectedClass}" data-value="${t}">${logoHtml}${t}</div>`;
@@ -499,6 +546,7 @@ export class FarmRankingsView {
               // Close dropdown
               (item as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
+              this.syncUrl();
               this.renderView();
           });
       });
@@ -522,6 +570,7 @@ export class FarmRankingsView {
 
               (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
+              this.syncUrl();
               this.renderView();
           });
       });
@@ -623,6 +672,12 @@ export class FarmRankingsView {
       if (prospectToggles) {
           // Show in both top-systems and top-100 modes
           prospectToggles.style.display = (this.viewMode === 'top-systems' || this.viewMode === 'top-100') ? 'inline' : 'none';
+      }
+
+      // Show/Hide Draft Pool toggle
+      const draftPoolToggle = this.container.querySelector<HTMLElement>('#draft-pool-toggle');
+      if (draftPoolToggle) {
+          draftPoolToggle.style.display = this.viewMode === 'top-100' ? '' : 'none';
       }
 
       // Show reports button - now supports both pitchers and hitters
@@ -1162,9 +1217,12 @@ export class FarmRankingsView {
 
       const combined: UnifiedProspect[] = [];
 
+      const excludeDraft = !this.includeDraftPool && this.selectedTeam !== 'Draft Pool';
+
       // Add pitchers
       if (this.data?.prospects) {
           for (const p of this.data.prospects) {
+              if (excludeDraft && p.orgId === 0) continue;
               combined.push({
                   playerId: p.playerId,
                   name: p.name,
@@ -1176,7 +1234,7 @@ export class FarmRankingsView {
                   level: p.level,
                   isPitcher: true,
                   percentile: p.percentile || 0,
-                  originalRank: this.data.prospects.indexOf(p) + 1,
+                  originalRank: 0,
               });
           }
       }
@@ -1184,6 +1242,7 @@ export class FarmRankingsView {
       // Add hitters
       if (this.hitterData?.prospects) {
           for (const p of this.hitterData.prospects) {
+              if (excludeDraft && p.orgId === 0) continue;
               combined.push({
                   playerId: p.playerId,
                   name: p.name,
@@ -1195,7 +1254,7 @@ export class FarmRankingsView {
                   level: p.level,
                   isPitcher: false,
                   percentile: p.percentile || 0,
-                  originalRank: this.hitterData.prospects.indexOf(p) + 1,
+                  originalRank: 0,
               });
           }
       }
@@ -1657,9 +1716,14 @@ export class FarmRankingsView {
   private renderTopProspects(): string {
       if (!this.data || this.data.prospects.length === 0) return '<p class="no-stats">No prospect data available.</p>';
 
+      let baseProspects = this.top100Prospects;
+      // Exclude draft pool unless explicitly included or filtered to
+      if (!this.includeDraftPool && this.selectedTeam !== 'Draft Pool') {
+          baseProspects = baseProspects.filter(p => p.orgId !== 0);
+      }
       let filteredProspects = this.selectedTeam === 'all'
-          ? this.top100Prospects
-          : this.top100Prospects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
+          ? baseProspects
+          : baseProspects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
 
       // Position filter: pitcher-only view only shows pitchers, so only filter if "P" or "all" selected
       if (this.selectedPosition !== 'all' && this.selectedPosition !== 'P') {
@@ -1759,9 +1823,13 @@ export class FarmRankingsView {
   private renderHitterTopProspects(): string {
       if (!this.hitterData || this.hitterData.prospects.length === 0) return '<p class="no-stats">No hitter prospect data available.</p>';
 
+      let baseHitterProspects = this.top100HitterProspects;
+      if (!this.includeDraftPool && this.selectedTeam !== 'Draft Pool') {
+          baseHitterProspects = baseHitterProspects.filter(p => p.orgId !== 0);
+      }
       let filteredProspects = this.selectedTeam === 'all'
-          ? this.top100HitterProspects
-          : this.top100HitterProspects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
+          ? baseHitterProspects
+          : baseHitterProspects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
 
       // Filter by position
       if (this.selectedPosition !== 'all') {
@@ -2443,6 +2511,9 @@ export class FarmRankingsView {
                   if (parent) parentLabel = parent.nickname;
               }
           }
+      } else {
+          // No team = free agent or draft-eligible — modal uses 'Free Agent' to trigger draft label logic
+          teamLabel = 'Free Agent';
       }
 
       // Check if player is a hitter
@@ -2605,7 +2676,8 @@ export class FarmRankingsView {
           const sys = this.hitterData.systems.find(s => s.teamId === teamId);
           if (sys) return sys.teamName;
       }
-      return 'Org';
+      // orgId=0 = unsigned draft-eligible players (no team assignment)
+      return 'Draft Pool';
   }
 
   private getProspectPercentile(playerId: number, isPitcher: boolean): number {

@@ -26,6 +26,7 @@ import { PlayerCategory } from '../utils/playerLevel';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { supabaseDataService } from '../services/SupabaseDataService';
 import type { PitcherProfileData } from './PitcherProfileModal';
+import { getRouter } from '../router';
 
 type StatsMode = 'pitchers' | 'batters';
 
@@ -230,6 +231,8 @@ export class TrueRatingsView {
     this.container = container;
     this.preferences = this.loadPreferences();
     this.restorePreferences();
+    // URL params override localStorage-restored preferences
+    this.applyUrlParams(new URLSearchParams(window.location.search));
     this.updatePitcherColumns();
     this.renderLayout();
     // Defer data loading until tab is activated (lazy loading)
@@ -348,6 +351,38 @@ export class TrueRatingsView {
       sortKey: this.sortKey,
       sortDirection: this.sortDirection,
     });
+    this.syncUrl();
+  }
+
+  private getUrlParams(): Record<string, string> {
+    const params: Record<string, string> = {};
+    if (this.mode !== 'pitchers') params.mode = this.mode;
+    if (this.selectedTeam !== 'all') params.team = this.selectedTeam;
+    if (this.selectedPosition !== 'all-pitchers' && this.selectedPosition !== 'all-batters') params.pos = this.selectedPosition;
+    if (this.showRawStats && !this.showTrueRatings) params.view = 'raw';
+    if (this.showMinorLeaguers && !this.showMlbPlayers) params.level = 'minors';
+    else if (!this.showMinorLeaguers && this.showMlbPlayers) params.level = 'mlb';
+    else if (this.showDraftees) params.level = 'draftees';
+    return params;
+  }
+
+  private syncUrl(): void {
+    getRouter().replace('tab-true-ratings', this.getUrlParams());
+  }
+
+  applyUrlParams(params: URLSearchParams): void {
+    const mode = params.get('mode') as StatsMode | null;
+    if (mode && ['pitchers', 'batters'].includes(mode)) this.mode = mode;
+    const team = params.get('team');
+    if (team) this.selectedTeam = team;
+    const pos = params.get('pos');
+    if (pos) this.selectedPosition = pos;
+    const view = params.get('view');
+    if (view === 'raw') { this.showRawStats = true; this.showTrueRatings = false; }
+    const level = params.get('level');
+    if (level === 'minors') { this.showMinorLeaguers = true; this.showMlbPlayers = false; this.showDraftees = false; }
+    else if (level === 'mlb') { this.showMinorLeaguers = false; this.showMlbPlayers = true; this.showDraftees = false; }
+    else if (level === 'draftees') { this.showMinorLeaguers = false; this.showMlbPlayers = false; this.showDraftees = true; }
   }
 
   private renderLayout(): void {
@@ -1056,16 +1091,19 @@ export class TrueRatingsView {
         const hsc = (row as any).hsc;
         if (!hsc || hsc === '') return false;
       } else if (this.selectedTeam === 'all') {
-        // All Players: show everyone — apply level toggles
+        // All Players: apply level toggles
         if (cat === 'mlb' && !this.showMlbPlayers) return false;
         if (cat === 'minors' && !this.showMinorLeaguers) return false;
-        // Free agents and draftees always visible in "All Players"
+        // Draft-eligible/HSC only show via explicit draftees/hscol filter
+        if (cat === 'draftee') return false;
+        // Free agents always visible in "All Players"
       } else {
         // Specific team selected: only that team's players
         if (teamValue !== this.selectedTeam) return false;
         // Within a team, apply level toggles
         if (cat === 'mlb' && !this.showMlbPlayers) return false;
         if (cat === 'minors' && !this.showMinorLeaguers) return false;
+        if (cat === 'draftee') return false;
       }
 
       // Filter by position
@@ -1257,11 +1295,12 @@ export class TrueRatingsView {
   }
 
   private async getPitcherStatsWithRosterFallback(): Promise<{ rows: PitcherRow[]; hasStats: boolean }> {
+    // Fetch stats for the actual selected year (not statsYear which clamps for TR computation)
     let pitchingStats: TruePlayerStats[] = [];
     try {
-      pitchingStats = await trueRatingsService.getTruePitchingStats(this.statsYear);
+      pitchingStats = await trueRatingsService.getTruePitchingStats(this.selectedYear);
     } catch (error) {
-      console.warn(`Pitching stats unavailable for ${this.statsYear}, falling back to roster.`, error);
+      console.warn(`Pitching stats unavailable for ${this.selectedYear}, falling back to roster.`, error);
     }
 
     if (pitchingStats.length === 0) {
@@ -1274,11 +1313,12 @@ export class TrueRatingsView {
   }
 
   private async getBatterStatsWithRosterFallback(): Promise<{ rows: BatterRow[]; hasStats: boolean }> {
+    // Fetch stats for the actual selected year (not statsYear which clamps for TR computation)
     let battingStats: TruePlayerBattingStats[] = [];
     try {
-      battingStats = await trueRatingsService.getTrueBattingStats(this.statsYear);
+      battingStats = await trueRatingsService.getTrueBattingStats(this.selectedYear);
     } catch (error) {
-      console.warn(`Batting stats unavailable for ${this.statsYear}, falling back to roster.`, error);
+      console.warn(`Batting stats unavailable for ${this.selectedYear}, falling back to roster.`, error);
     }
 
     if (battingStats.length === 0) {
@@ -1293,8 +1333,15 @@ export class TrueRatingsView {
     };
   }
 
-  private async getActiveMlbRoster(forceRefresh: boolean): Promise<Player[]> {
-    const players = await playerService.getAllPlayers(forceRefresh);
+  private async getActiveMlbRoster(_forceRefresh: boolean): Promise<Player[]> {
+    // Try precomputed lookup first (1 request vs 16)
+    const lookup = await supabaseDataService.getPlayerLookup();
+    if (lookup) {
+      return [...lookup.values()]
+        .filter(p => p.parentTeamId === 0)
+        .map(p => ({ ...p, retired: false }) as any);
+    }
+    const players = await playerService.getAllPlayers();
     return players.filter(player => !player.retired && player.parentTeamId === 0);
   }
 
@@ -1427,17 +1474,23 @@ export class TrueRatingsView {
 
   private async buildTrueRatingsStats(statRows: PitcherRow[]): Promise<PitcherRow[]> {
     // === Players-first approach ===
-    // 1. Load ALL non-retired pitchers from the players table (authoritative roster)
-    // 2. Enrich each with stats, TR, scouting, and farm/TFR data where available
-    // 3. Players without any enrichment still get a row
+    // Use precomputed player lookup (1 request) instead of getAllPlayers (16 requests)
+    // Fallback to getAllPlayers only when precomputed lookup is unavailable
 
-    const allPlayers = await playerService.getAllPlayers();
-    const pitcherPlayers = allPlayers.filter(p => !p.retired && p.position === 1);
+    let pitcherPlayers: Player[];
+    const playerLookup = await supabaseDataService.getPlayerLookup();
+    if (playerLookup) {
+      pitcherPlayers = ([...playerLookup.values()] as Player[]).filter(p => p.position === 1);
+    } else {
+      const allPlayers = await playerService.getAllPlayers();
+      pitcherPlayers = allPlayers.filter(p => !p.retired && p.position === 1);
+    }
 
     // Build lookup maps for enrichment
     const canonicalTR = await trueRatingsService.getPitcherTrueRatings(this.statsYear);
     const scoutingLookup = new Map(this.scoutingRatings.map(s => [s.playerId, s]));
     const statsMap = new Map(statRows.map(s => [s.player_id, s]));
+
     const teams = await teamService.getAllTeams();
     const teamMap = new Map(teams.map(t => [t.id, t]));
 
@@ -1469,15 +1522,19 @@ export class TrueRatingsView {
       } else if (orgTeam) {
         teamFilter = orgTeam.nickname;
         teamIsMajor = true;
+        // Resolve effective level: scouting 'lev' is authoritative for IC players
+        const scoutLev = scouting?.lev;
+        const effectiveLevel = scoutLev === 'INT' ? 6 : player.level;
         const levelLabels: Record<number, string> = { 2: 'AAA', 3: 'AA', 4: 'A', 5: 'R', 6: 'IC' };
-        const levelLabel = levelLabels[player.level];
+        const levelLabel = levelLabels[effectiveLevel];
         teamDisplay = levelLabel
           ? `${orgTeam.nickname} <span class="league-level">(${levelLabel})</span>`
           : orgTeam.nickname;
       }
 
-      // Determine if this is a prospect (farm-eligible, under 30)
-      const isProspect = !!farmProspect && player.age < 30;
+      // Resolve effective level for category assignment
+      const effectivePitcherLevel = scouting?.lev === 'INT' ? 6 : player.level;
+      const isProspect = !!farmProspect?.isFarmEligible && player.age < 30;
 
       // Base row from stats if available, otherwise create empty
       const baseRow: PitcherRow = stats ? { ...stats } : {
@@ -1520,12 +1577,18 @@ export class TrueRatingsView {
             : scoutTr;
           (baseRow as any).scoutOverall = scoutOverall;
         } else {
-          // Free agents / other players without MLB stats: use as current TR
-          (baseRow as any).estimatedStuff = scouting.stuff;
-          (baseRow as any).estimatedControl = scouting.control;
-          (baseRow as any).estimatedHra = scouting.hra;
+          // Players without MLB stats: scale potential ratings by devRatio (OVR/POT)
+          // to estimate current ability. devRatio=1.0 means fully developed.
+          const devRatio = (scouting.ovr && scouting.pot && scouting.pot > 0)
+            ? Math.min(1.0, scouting.ovr / scouting.pot) : 1.0;
+          const scaleRating = (r: number) => 50 + (r - 50) * devRatio;
+          (baseRow as any).estimatedStuff = Math.round(scaleRating(scouting.stuff));
+          (baseRow as any).estimatedControl = Math.round(scaleRating(scouting.control));
+          (baseRow as any).estimatedHra = Math.round(scaleRating(scouting.hra));
           (baseRow as any).scoutOverall = scoutOverall;
-          baseRow.trueRating = scoutTr;
+          const scaledOverall = this.averageRating(
+            scaleRating(scouting.stuff), scaleRating(scouting.control), scaleRating(scouting.hra));
+          baseRow.trueRating = Math.round((0.5 + (scaledOverall - 20) / 60 * 4.5) * 2) / 2;
         }
       }
 
@@ -1544,7 +1607,7 @@ export class TrueRatingsView {
       let category: PlayerCategory;
       if (player.retired) category = 'freeAgent'; // shouldn't appear, but fallback
       else if (player.draftEligible) category = 'draftee';
-      else if (player.status === 'active') category = isProspect ? 'minors' : (player.level > 1 ? 'minors' : 'mlb');
+      else if (player.status === 'active') category = effectivePitcherLevel > 1 ? 'minors' : 'mlb';
       else category = 'freeAgent';
       (baseRow as any).playerCategory = category;
       (baseRow as any).hsc = player.hsc ?? '';
@@ -1566,11 +1629,17 @@ export class TrueRatingsView {
    */
   private async buildHitterTrueRatingsStats(statRows: BatterRow[]): Promise<BatterRow[]> {
     // === Players-first approach ===
-    // 1. Load ALL non-retired non-pitcher players from the players table
-    // 2. Enrich each with stats, TR, scouting, and farm/TFR data where available
+    // Use precomputed player lookup (1 request) instead of getAllPlayers (16 requests)
+    // Fallback to getAllPlayers only when precomputed lookup is unavailable
 
-    const allPlayers = await playerService.getAllPlayers();
-    const batterPlayers = allPlayers.filter(p => !p.retired && p.position !== 1);
+    let batterPlayers: Player[];
+    const playerLookup = await supabaseDataService.getPlayerLookup();
+    if (playerLookup) {
+      batterPlayers = ([...playerLookup.values()] as Player[]).filter(p => p.position !== 1);
+    } else {
+      const allPlayers = await playerService.getAllPlayers();
+      batterPlayers = allPlayers.filter(p => !p.retired && p.position !== 1);
+    }
 
     // Build lookup maps for enrichment
     const resultMap = await trueRatingsService.getHitterTrueRatings(this.statsYear);
@@ -1629,14 +1698,21 @@ export class TrueRatingsView {
       } else if (orgTeam) {
         teamFilter = orgTeam.nickname;
         teamIsMajor = true;
+        // Resolve effective level: scouting 'lev' is authoritative for IC players
+        // (WBL API may not set level correctly for IC players)
+        const scoutLev = scouting?.lev;
+        const effectiveLevel = scoutLev === 'INT' ? 6 : player.level;
         const levelLabels: Record<number, string> = { 2: 'AAA', 3: 'AA', 4: 'A', 5: 'R', 6: 'IC' };
-        const levelLabel = levelLabels[player.level];
+        const levelLabel = levelLabels[effectiveLevel];
         teamDisplay = levelLabel
           ? `${orgTeam.nickname} <span class="league-level">(${levelLabel})</span>`
           : orgTeam.nickname;
       }
 
-      const isProspect = !!farmProspect && player.age < 30;
+      // Resolve effective level for category assignment
+      const scoutLev = scouting?.lev;
+      const effectiveLevel = scoutLev === 'INT' ? 6 : player.level;
+      const isProspect = !!farmProspect?.isFarmEligible && player.age < 30;
 
       // Base row from stats if available, otherwise create empty
       const baseRow: BatterRow = stats ? { ...stats } : {
@@ -1649,6 +1725,9 @@ export class TrueRatingsView {
         age: player.age,
         hasStats: false,
       } as unknown as BatterRow;
+
+      // Add handedness
+      (baseRow as any).bats = player.bats ?? '';
 
       // Enrich with TR data
       if (tr) {
@@ -1682,14 +1761,20 @@ export class TrueRatingsView {
             ? Math.round((0.5 + (scouting.pot - 20) / 60 * 4.5) * 2) / 2
             : scoutTr;
         } else {
-          // Free agents / other players without MLB stats: use as current TR
-          (baseRow as any).estimatedPower = scouting.power;
-          (baseRow as any).estimatedEye = scouting.eye;
-          (baseRow as any).estimatedAvoidK = scouting.avoidK;
-          (baseRow as any).estimatedContact = scouting.contact;
-          (baseRow as any).estimatedGap = scouting.gap;
-          (baseRow as any).estimatedSpeed = scouting.speed;
-          baseRow.trueRating = scoutTr;
+          // Players without MLB stats: scale potential ratings by devRatio (OVR/POT)
+          // to estimate current ability. devRatio=1.0 means fully developed.
+          const devRatio = (scouting.ovr && scouting.pot && scouting.pot > 0)
+            ? Math.min(1.0, scouting.ovr / scouting.pot) : 1.0;
+          const scaleRating = (r: number | undefined) => r !== undefined ? Math.round(50 + (r - 50) * devRatio) : undefined;
+          (baseRow as any).estimatedPower = scaleRating(scouting.power);
+          (baseRow as any).estimatedEye = scaleRating(scouting.eye);
+          (baseRow as any).estimatedAvoidK = scaleRating(scouting.avoidK);
+          (baseRow as any).estimatedContact = scaleRating(scouting.contact);
+          (baseRow as any).estimatedGap = scaleRating(scouting.gap);
+          (baseRow as any).estimatedSpeed = scaleRating(scouting.speed);
+          const scaledAvg = ((scaleRating(scouting.contact) ?? 50) + (scaleRating(scouting.power) ?? 50)
+            + (scaleRating(scouting.eye) ?? 50) + (scaleRating(scouting.avoidK) ?? 50)) / 4;
+          baseRow.trueRating = Math.round((0.5 + (scaledAvg - 20) / 60 * 4.5) * 2) / 2;
         }
       }
 
@@ -1708,7 +1793,9 @@ export class TrueRatingsView {
       let category: PlayerCategory;
       if (player.retired) category = 'freeAgent';
       else if (player.draftEligible) category = 'draftee';
-      else if (player.status === 'active') category = isProspect ? 'minors' : (player.level > 1 ? 'minors' : 'mlb');
+      // Category is based on actual roster level, not prospect status.
+      // A young MLB player with TFR upside is still an MLB player for filtering purposes.
+      else if (player.status === 'active') category = effectiveLevel > 1 ? 'minors' : 'mlb';
       else category = 'freeAgent';
       (baseRow as any).playerCategory = category;
       (baseRow as any).hsc = player.hsc ?? '';
@@ -1828,7 +1915,6 @@ export class TrueRatingsView {
 
     const rows = stats.map(player => {
       const isProspect = player.isProspect === true;
-      const prospectHasStats = Boolean(player.prospectHasStats);
       const hasStats = player.hasStats !== false;
       const cells = this.pitcherColumns.map(column => {
         const rawValue = column.accessor ? column.accessor(player) : (player as any)[column.key];
@@ -1836,23 +1922,14 @@ export class TrueRatingsView {
         
         const displayValue = this.formatValue(rawValue, columnKey, player);
 
-        if (isProspect) {
-          const prospectAllowedStatKeys = ['ip', 'k', 'bb', 'hra'];
-          const prospectUnavailableStatKeys = ['r', 'er', 'war', 'ra9war', 'wpa'];
-          if (prospectUnavailableStatKeys.includes(columnKey)) {
-            return `<td data-col-key="${column.key}" class="prospect-stat">${MISSING_STAT_DISPLAY}</td>`;
-          }
-          if (prospectAllowedStatKeys.includes(columnKey) && !prospectHasStats) {
-            return `<td data-col-key="${column.key}" class="prospect-stat">${MISSING_STAT_DISPLAY}</td>`;
-          }
-        }
-
-        if (!isProspect && !hasStats && RAW_PITCHER_STAT_KEYS.has(columnKey)) {
+        // Show — for players without stats (prospect or otherwise)
+        // Prospects WITH MLB stats (young pitchers with TFR upside) should show actual stats
+        if (!hasStats && RAW_PITCHER_STAT_KEYS.has(columnKey)) {
           return `<td data-col-key="${column.key}" class="prospect-stat">${MISSING_STAT_DISPLAY}</td>`;
         }
 
         if (column.key === 'kPer9' || column.key === 'bbPer9' || column.key === 'hraPer9') {
-          if ((isProspect && !prospectHasStats) || (!hasStats && RAW_PITCHER_STAT_KEYS.has(columnKey))) {
+          if (!hasStats) {
             return `<td data-col-key="${column.key}" class="prospect-stat">${MISSING_STAT_DISPLAY}</td>`;
           }
           const ip = player.ipOuts / 3;
@@ -2020,16 +2097,12 @@ export class TrueRatingsView {
           return `<td data-col-key="${key}"${nameColClass}>${col.accessor(s)}</td>`;
         }
 
-        // Handle missing stats for prospects
-        if (isProspect && key !== 'playerName' && key !== 'teamDisplay' && key !== 'position' && key !== 'age'
-            && key !== 'trueRating' && key !== 'percentile' && key !== 'estimatedPower'
+        // Handle missing stats: show — for players without stats (prospect or otherwise)
+        // Prospects WITH MLB stats (young players with TFR upside) should show their actual stats
+        if (!hasStats && key !== 'playerName' && key !== 'teamDisplay' && key !== 'position' && key !== 'age'
+            && key !== 'bats' && key !== 'trueRating' && key !== 'percentile' && key !== 'estimatedPower'
             && key !== 'estimatedEye' && key !== 'estimatedAvoidK' && key !== 'estimatedContact'
             && key !== 'tfrContact' && key !== 'tfrPower' && key !== 'tfrEye') {
-          return `<td data-col-key="${key}" class="prospect-stat">${MISSING_STAT_DISPLAY}</td>`;
-        }
-
-        // Handle missing stats for non-prospects without stats
-        if (!hasStats && !isProspect && key !== 'playerName' && key !== 'teamDisplay' && key !== 'position' && key !== 'age') {
           return `<td data-col-key="${key}" class="prospect-stat">${MISSING_STAT_DISPLAY}</td>`;
         }
 
@@ -2130,6 +2203,7 @@ export class TrueRatingsView {
         }
       },
       { key: 'age', label: 'Age', sortKey: 'age' },
+      { key: 'bats', label: 'B', sortKey: 'bats', accessor: (row) => (row as any).bats ?? '' },
     ];
 
     if (this.shouldShowTeamColumn()) {
@@ -2158,7 +2232,7 @@ export class TrueRatingsView {
           {
             key: 'trueRating',
             label: 'TR',
-            sortKey: 'percentile',
+            sortKey: 'trueRating',
             accessor: (row) => {
               if (row.isProspect) {
                 return this.renderTrueFutureRatingBadge(row.trueFutureRating);
@@ -2519,6 +2593,11 @@ export class TrueRatingsView {
     const key = this.sortKey;
 
     this.stats.sort((a, b) => {
+      // Players without stats always sort to bottom
+      const aHasStats = (a as any).hasStats !== false;
+      const bHasStats = (b as any).hasStats !== false;
+      if (aHasStats !== bHasStats) return aHasStats ? -1 : 1;
+
       let aVal = (a as any)[key];
       let bVal = (b as any)[key];
 

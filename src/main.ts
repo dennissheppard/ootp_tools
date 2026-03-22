@@ -101,8 +101,11 @@ class App {
       if (this.pendingPlayerId) {
         this.handlePlayerDeepLink(this.pendingPlayerId);
       }
-      // Set the initial URL if user arrived at bare domain with a localStorage-restored tab
-      getRouter().navigate(this.activeTabId);
+      // Set the initial URL only if user arrived at bare domain with a localStorage-restored tab
+      // (don't overwrite URL params from direct navigation like /farm_rankings?view=top-100)
+      if (window.location.pathname === '/' && !window.location.search) {
+        getRouter().navigate(this.activeTabId);
+      }
 
       if (!supabaseDataService.isConfigured) {
         this.checkBundledOsaFreshness();
@@ -265,7 +268,8 @@ class App {
   /** Initialize secondary views after first paint to keep initial load fast. */
   private initDeferredViews(): void {
     // Pre-warm views the user is likely to visit (but not the active one — already loaded)
-    const deferredTabs = ['tab-farm-rankings', 'tab-draft', 'tab-about'];
+    // Draft board is hidden (double-tap D) — don't pre-warm it, it triggers heavy data loads
+    const deferredTabs = ['tab-farm-rankings', 'tab-about'];
     for (const tabId of deferredTabs) {
       if (tabId !== this.activeTabId) {
         this.ensureViewLoaded(tabId);
@@ -329,36 +333,44 @@ class App {
       }
     }
 
-    // Auto-detect custom scouting for Supabase users (must run before views initialize)
-    // Flag is restored from localStorage in SupabaseDataService constructor;
-    // we validate against IndexedDB here to warm caches and correct stale flags.
-    if (supabaseDataService.isConfigured) {
-      try {
-        const [myScouting, myHitterScouting] = await Promise.all([
-          scoutingDataService.getLatestScoutingRatings('my'),
-          hitterScoutingDataService.getLatestScoutingRatings('my'),
-        ]);
-        const hasIdbData = myScouting.length > 0 || myHitterScouting.length > 0;
-        console.log(`🔍 Custom scouting check: localStorage=${supabaseDataService.hasCustomScouting}, IndexedDB=${hasIdbData} (${myScouting.length} pitcher, ${myHitterScouting.length} hitter)`);
-        if (hasIdbData || supabaseDataService.hasCustomScouting) {
-          supabaseDataService.hasCustomScouting = true;
-          console.log('🎯 Custom scouting detected — will recompute TR/TFR locally');
-          const year = await dateService.getCurrentYear();
-          const { trueRatingsService } = await import('./services/TrueRatingsService');
-          await trueRatingsService.warmCachesForComputation(year);
-          console.log('🔥 Caches warmed for custom scouting computation');
-        }
-      } catch (err) {
-        console.warn('Failed to check for custom scouting:', err);
-      }
-    }
-
-    // Check if this is first-time setup BEFORE creating app instance
-    // This ensures we render with the correct initial tab
+    // Check if this is first-time user — fast path uses localStorage flag to skip Supabase query
     const isFirstTime = await App.checkIsFirstTimeUser();
 
-    // Create the app instance with first-time flag
-    return new App(isFirstTime);
+    // Create the app instance FIRST so the shell renders immediately (LCP)
+    const app = new App(isFirstTime);
+
+    // Then do heavy async work in the background (custom scouting detection + cache warming)
+    // The hasCustomScouting flag is already restored from localStorage by SupabaseDataService
+    // constructor, so views render correctly. This just validates and warms caches.
+    if (supabaseDataService.isConfigured) {
+      App.warmCustomScoutingCaches().catch(err =>
+        console.warn('Failed to check for custom scouting:', err)
+      );
+    }
+
+    return app;
+  }
+
+  /** Validate custom scouting flag against IndexedDB and warm TR caches. Runs after first paint. */
+  private static async warmCustomScoutingCaches(): Promise<void> {
+    const [myScouting, myHitterScouting] = await Promise.all([
+      scoutingDataService.getLatestScoutingRatings('my'),
+      hitterScoutingDataService.getLatestScoutingRatings('my'),
+    ]);
+    const hasIdbData = myScouting.length > 0 || myHitterScouting.length > 0;
+    console.log(`🔍 Custom scouting check: localStorage=${supabaseDataService.hasCustomScouting}, IndexedDB=${hasIdbData} (${myScouting.length} pitcher, ${myHitterScouting.length} hitter)`);
+    if (hasIdbData || supabaseDataService.hasCustomScouting) {
+      supabaseDataService.hasCustomScouting = true;
+      // Merge custom fielding ratings into position ratings cache
+      if (myHitterScouting.length > 0) {
+        supabaseDataService.mergeCustomPositionRatings(myHitterScouting);
+      }
+      console.log('🎯 Custom scouting detected — will recompute TR/TFR locally');
+      const year = await dateService.getCurrentYear();
+      const { trueRatingsService } = await import('./services/TrueRatingsService');
+      await trueRatingsService.warmCachesForComputation(year);
+      console.log('🔥 Caches warmed for custom scouting computation');
+    }
   }
 
   /**
@@ -568,7 +580,11 @@ class App {
     };
 
     // Initialize the active tab's view immediately (if it needs lazy loading)
-    this.ensureViewLoaded(this.activeTabId);
+    // Then apply any URL query params (e.g. /parks?team=1 on fresh load)
+    this.ensureViewLoaded(this.activeTabId).then(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.toString()) this.applyViewParams(this.activeTabId, params);
+    });
 
     // Defer non-active secondary views until after first paint
     requestIdleCallback(() => this.initDeferredViews(), { timeout: 3000 });

@@ -864,9 +864,10 @@ class TrueFutureRatingService {
       year
     );
 
-    // Fetch all players for age lookup (scouting CSVs often lack age)
-    const allPlayers = await playerService.getAllPlayers();
-    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+    // Fetch only scouting-rated players for age lookup (not all 16K)
+    const scoutingIds = scoutingRatings.map(s => s.playerId).filter(id => id > 0);
+    const relevantPlayers = await playerService.getPlayersByIds(scoutingIds);
+    const playerMap = new Map(relevantPlayers.map(p => [p.id, p]));
 
     for (const scouting of scoutingRatings) {
       // Skip if no valid ID or ratings

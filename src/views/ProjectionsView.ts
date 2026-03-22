@@ -21,6 +21,7 @@ import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadge
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
 import { applyScrollAffordance } from '../utils/scrollAffordance';
+import { getRouter } from '../router';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -120,8 +121,37 @@ export class ProjectionsView {
   private showMlbPlayers = true;
   private showMinorLeaguers = false;
 
+  private getUrlParams(): Record<string, string> {
+    const params: Record<string, string> = {};
+    if (this.mode !== 'pitchers') params.mode = this.mode;
+    if (this.selectedTeam !== 'all') params.team = this.selectedTeam;
+    if (this.selectedPosition !== 'all-pitchers' && this.selectedPosition !== 'all-batters') params.pos = this.selectedPosition;
+    if (this.viewMode !== 'projections') params.view = this.viewMode;
+    return params;
+  }
+
+  private syncUrl(): void {
+    getRouter().replace('tab-projections', this.getUrlParams());
+  }
+
+  applyUrlParams(params: URLSearchParams): void {
+    const mode = params.get('mode') as 'pitchers' | 'batters' | null;
+    if (mode && ['pitchers', 'batters'].includes(mode)) this.mode = mode;
+    const team = params.get('team');
+    if (team) this.selectedTeam = team;
+    const pos = params.get('pos');
+    if (pos) {
+      this.selectedPosition = pos;
+      try { localStorage.setItem('wbl-proj-position', pos); } catch { /* ignore */ }
+    }
+    const view = params.get('view') as 'projections' | 'backcasting' | 'analysis' | null;
+    if (view && ['projections', 'backcasting', 'analysis'].includes(view)) this.viewMode = view;
+  }
+
   constructor(container: HTMLElement) {
     this.container = container;
+    // URL params override localStorage defaults
+    this.applyUrlParams(new URLSearchParams(window.location.search));
     this.initColumns();
     this.renderLayout();
     this.initializeFromGameDate();
@@ -233,6 +263,7 @@ export class ProjectionsView {
       { key: 'position', label: 'Pos', sortKey: 'position', accessor: b => this.renderBatterPositionBadge(b.position) },
       { key: 'name', label: 'Name', accessor: b => this.renderBatterName(b) },
       { key: 'teamName', label: 'Team', accessor: b => this.renderTeamWithLevel(b.teamId, b, b.teamName) },
+      { key: 'bats', label: 'B', sortKey: 'bats', accessor: b => b.bats ?? '' },
       { key: 'age', label: 'Age' },
       { key: 'currentTrueRating', label: this.isDraftView() ? 'TFR' : 'TR', sortKey: 'currentTrueRating', accessor: b => this.renderBatterRatingBadge(b.currentTrueRating) },
       { key: 'projWoba', label: 'Proj wOBA', sortKey: 'projectedStats.woba', accessor: b => b.projectedStats.woba.toFixed(3) },
@@ -558,6 +589,7 @@ export class ProjectionsView {
               if (!mode || mode === this.viewMode) return;
               this.viewMode = mode;
               this.updateModeControls();
+              this.syncUrl();
 
               if (this.viewMode === 'analysis') {
                   this.renderAnalysisLanding();
@@ -682,7 +714,7 @@ export class ProjectionsView {
               playerId: player.id,
               name: `${player.firstName} ${player.lastName}`,
               teamId: 0,
-              teamName: '',
+              teamName: player.draftEligible ? `Draft Eligible (${currentYear})` : (player.hsc || 'Draft Eligible'),
               position: 1,
               age: player.age,
               currentTrueRating: 0,
@@ -828,7 +860,7 @@ export class ProjectionsView {
               playerId: player.id,
               name: `${player.firstName} ${player.lastName}`,
               teamId: 0,
-              teamName: '',
+              teamName: player.draftEligible ? `Draft Eligible (${currentYear})` : (player.hsc || 'Draft Eligible'),
               position: player.position,
               positionLabel: posLabels[player.position] ?? '',
               age: player.age,
@@ -2144,6 +2176,7 @@ export class ProjectionsView {
 
               this.initColumns(); // Refresh column labels (e.g., TR → TFR for draft views)
               this.updateSubtitle();
+              this.syncUrl();
               this.filterAndRender();
           });
       });
@@ -2196,6 +2229,7 @@ export class ProjectionsView {
 
               this.updateSubtitle();
               this.initColumns(); // Refresh column labels (e.g., TR → TFR for draft views)
+              this.syncUrl();
 
               // If mode changed, need to fetch new data
               if (previousMode !== this.mode) {
@@ -2263,6 +2297,7 @@ export class ProjectionsView {
               // Close dropdown
               (e.target as HTMLElement).closest('.filter-dropdown')?.classList.remove('open');
 
+              this.syncUrl();
               this.showLoadingState();
               this.fetchData();
           });
@@ -2329,8 +2364,8 @@ export class ProjectionsView {
         // Filter by MLB vs minor leaguers (only for team views)
         filtered = filtered.filter(p => {
           const player = playerMap.get(p.playerId);
-          // Draft-eligible/HSC players: only show when Minor Leaguers toggle is on
-          if (player?.draftEligible || player?.hsc) return this.showMinorLeaguers;
+          // Draft-eligible/HSC players only show via explicit draftees/hscol filter
+          if (player?.draftEligible || player?.hsc) return false;
           const isMinor = this.isMinorLeaguer(p);
           if (isMinor && !this.showMinorLeaguers) return false;
           if (!isMinor && !this.showMlbPlayers) return false;
@@ -2380,7 +2415,8 @@ export class ProjectionsView {
       if (!isSpecialGroup) {
         filtered = filtered.filter(b => {
           const player = playerMap.get(b.playerId);
-          if (player?.draftEligible || player?.hsc) return this.showMinorLeaguers;
+          // Draft-eligible/HSC players only show via explicit draftees/hscol filter
+          if (player?.draftEligible || player?.hsc) return false;
           const isMinor = this.isMinorLeaguer(b);
           if (isMinor && !this.showMinorLeaguers) return false;
           if (!isMinor && !this.showMlbPlayers) return false;
@@ -2507,8 +2543,9 @@ export class ProjectionsView {
 
   private async getPlayerMap(): Promise<Map<number, import('../models/Player').Player>> {
     if (!this._playerMap) {
-      const allPlayers = await playerService.getAllPlayers();
-      this._playerMap = new Map(allPlayers.map(p => [p.id, p]));
+      // Only need draft-eligible/HSC players (not all 14K) — used to add draftee peak projections
+      const draftPlayers = await playerService.getDraftEligiblePlayers();
+      this._playerMap = new Map(draftPlayers.map(p => [p.id, p]));
     }
     return this._playerMap;
   }

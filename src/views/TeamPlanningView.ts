@@ -730,7 +730,8 @@ export class TeamPlanningView {
       }
 
       // Load position ratings for best-position assignment in prospect filling
-      this.positionRatingsMap = await supabaseDataService.getBulkPositionRatings();
+      // Reads from precomputed cache (1 request, cached in memory)
+      this.positionRatingsMap = await supabaseDataService.getPositionRatings();
 
       this.fillProspects(farmHitters, orgPitchers);
 

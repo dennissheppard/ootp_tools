@@ -74,6 +74,8 @@ export interface ProjectedBatter {
     avoidK: number;
     contact: number;
   };
+  /** Batting handedness: R, L, S (switch) */
+  bats?: string;
   /** Flag indicating this is a prospect-like asset in canonical modal path */
   isProspect?: boolean;
   /** Effective park factors (half home / half away) for this batter's team+hand */
@@ -173,6 +175,8 @@ interface BatterProjectionPlayerInfo {
   /** Precomputed defensive value from defensive_lookup cache */
   defRuns?: number;
   posAdj?: number;
+  /** Batting handedness: R, L, S */
+  bats?: string;
   /** Effective park factors (half home / half away) */
   parkFactors?: { avg: number; hr: number; d: number; t: number };
   /** Park name for display */
@@ -208,9 +212,8 @@ class BatterProjectionService {
 
     const preSeasonOnly = options?.preSeasonOnly ?? false;
     const leagueAvgYear = preSeasonOnly ? year - 1 : year;
-    // Get all required data
-    const [allPlayers, allTeams, scoutingList, leagueAvgCurrent, currentYear] = await Promise.all([
-      playerService.getAllPlayers(),
+    // Get all required data — load only relevant players, not all 16K
+    const [allTeams, scoutingList, leagueAvgCurrent, currentYear] = await Promise.all([
       teamService.getAllTeams(),
       hitterScoutingDataService.getLatestScoutingRatings('osa'),
       leagueBattingAveragesService.getLeagueAverages(leagueAvgYear),
@@ -256,15 +259,22 @@ class BatterProjectionService {
 
     // Build lookup maps
     const teamMap = new Map<number, Team>(allTeams.map(t => [t.id, t]));
-    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
     const battingStatsMap = new Map<number, TruePlayerBattingStats>();
     for (const stat of battingStats) {
       battingStatsMap.set(stat.player_id, stat);
     }
 
     // Use canonical TR — same source of truth as the modal.
-    // This eliminates divergence between the projection table and the modal.
     const canonicalTR = await trueRatingsService.getHitterTrueRatings(currentYear);
+
+    // Load only players in TR map + draft-eligible (not all 16K)
+    const trPlayerIds = [...canonicalTR.keys()];
+    const [trPlayers, draftPlayers] = await Promise.all([
+      playerService.getPlayersByIds(trPlayerIds),
+      playerService.getDraftEligiblePlayers(),
+    ]);
+    const allPlayers = [...trPlayers, ...draftPlayers.filter(d => !canonicalTR.has(d.id))];
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
 
     // Load defensive lookup and park factors for browser-side projections
     let defensiveLookup: Record<number, [number, number, string]> | null = null;
@@ -314,6 +324,7 @@ class BatterProjectionService {
         level: player.level,
         parentTeamId: player.parentTeamId,
         name: playerName,
+        bats: player.bats,
         scouting: scoutingInfo?.rating,
         fromMyScout: scoutingInfo?.fromMyScout ?? false,
         defRuns: defEntry?.[0],
@@ -689,6 +700,7 @@ class BatterProjectionService {
         avoidK: scouting.avoidK,
         contact: scouting.contact ?? 50,
       } : undefined,
+      bats: info.bats,
       parkFactors: info.parkFactors,
       parkName: info.parkName,
     };

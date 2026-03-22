@@ -484,8 +484,7 @@ export class PitcherProfileModal {
 
       // Load player data for park factors + injury
       {
-        const allPlayers = await playerService.getAllPlayers();
-        const player = allPlayers.find(p => p.id === data.playerId);
+        const player = await playerService.getPlayerById(data.playerId);
         this.injuryDaysRemaining = player?.injuryDaysRemaining ?? 0;
         if (parkFactorsData && data.parkHrFactor === undefined && player) {
           const parentTeamId = player.parentTeamId || player.teamId;
@@ -1974,7 +1973,7 @@ export class PitcherProfileModal {
       }
     }
 
-    const showToggle = data.hasTfrUpside === true && data.trueRating !== undefined;
+    const showToggle = data.hasTfrUpside === true && (data.trueRating !== undefined || data.isProspect === true);
     const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;
 
     const formatStat = (val: number, decimals: number = 2) => val.toFixed(decimals);

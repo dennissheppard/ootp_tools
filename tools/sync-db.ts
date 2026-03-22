@@ -29,6 +29,7 @@ import {
   BATTING_COLS,
   filterColumns,
   dedupRows,
+  supabasePatch,
 } from './lib/supabase-client';
 
 import {
@@ -89,9 +90,24 @@ const explicitYear = args.find(a => a.startsWith('--year='))?.split('=')[1];
 const skipCompute = args.includes('--skip-compute');
 const forceSync = args.includes('--force');
 
+/**
+ * Resolve team display name for projections.
+ * Draft-eligible/HSC players show their status instead of "FA".
+ */
+function resolveTeamName(teamId: number, player: any, teamMap: Map<number, string>, gameYear?: number): string {
+  const teamName = teamMap.get(teamId);
+  if (teamName) return teamName;
+  const draftYear = gameYear ? ` (${gameYear})` : '';
+  if (player.draft_eligible) return `Draft Eligible${draftYear}`;
+  if (player.hsc) return player.hsc;
+  return 'FA';
+}
+
 // ──────────────────────────────────────────────
 // WBL API → Supabase contract mapping
 // ──────────────────────────────────────────────
+
+const STATSPLUS_CONTRACT_URL = 'https://atl-01.statsplus.net/world/api/contract/';
 
 function mapContractRow(row: any, playerLeagueMap: Map<number, number>): any {
   const salaries: number[] = [];
@@ -113,6 +129,54 @@ function mapContractRow(row: any, playerLeagueMap: Map<number, number>): any {
     last_year_player_option: !!row.last_year_player_option,
     last_year_vesting_option: !!row.last_year_vesting_option,
   };
+}
+
+/**
+ * Fetch contracts from WBL API, verify they're current, fall back to StatsPlus CSV if stale.
+ * The WBL API /contract endpoint sometimes doesn't include extensions/new contracts.
+ */
+async function fetchContracts(year: number, playerLeagueMap: Map<number, number>): Promise<any[]> {
+  // Try WBL API first
+  try {
+    const data = await wblFetchJson<{ contracts: any[] }>('/api/contract');
+    const wblContracts = data.contracts;
+
+    // Check staleness: do any contracts have season_year matching the current year?
+    const maxSeasonYear = Math.max(...wblContracts.map((c: any) => c.season_year || 0));
+    if (maxSeasonYear >= year) {
+      console.log(`  ✅ WBL API contracts look current (max season_year=${maxSeasonYear}, game year=${year})`);
+      return wblContracts.map(c => mapContractRow(c, playerLeagueMap));
+    }
+
+    console.warn(`  ⚠️ WBL API contracts are stale (max season_year=${maxSeasonYear}, game year=${year}) — falling back to StatsPlus`);
+  } catch (err) {
+    console.warn(`  ⚠️ WBL API contract fetch failed — falling back to StatsPlus:`, err);
+  }
+
+  // Fallback: StatsPlus CSV (public, no auth)
+  const res = await fetch(STATSPLUS_CONTRACT_URL);
+  if (!res.ok) throw new Error(`StatsPlus contract fetch failed: ${res.status}`);
+  const csvText = await res.text();
+  const lines = csvText.split('\n').filter(l => l.trim());
+  if (lines.length < 2) throw new Error('StatsPlus contract CSV is empty');
+
+  const headers = lines[0].split(',');
+  const rows: any[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const values = lines[i].split(',');
+    if (values.length < headers.length) continue;
+    const row: any = {};
+    for (let j = 0; j < headers.length; j++) {
+      const h = headers[j].trim();
+      const v = values[j]?.trim() ?? '';
+      // Numeric fields
+      row[h] = /^\d+$/.test(v) ? parseInt(v, 10) : v;
+    }
+    rows.push(mapContractRow(row, playerLeagueMap));
+  }
+
+  console.log(`  ✅ StatsPlus fallback: ${rows.length} contracts (max season_year=${Math.max(...rows.map(r => r.season_year))})`);
+  return rows;
 }
 
 // ──────────────────────────────────────────────
@@ -741,6 +805,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
           team_id: null, parent_team_id: null, level: null,
           position: null, role: null, age: null,
           retired: true, status: 'retired',
+          draft_eligible: false,
           injury_days_remaining: 0,
         };
       }
@@ -784,6 +849,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
         age: p.age ? parseInt(p.age, 10) : null,
         retired: isRetired,
         status,
+        draft_eligible: status === 'draftee',
         injury_days_remaining: injuryMap.get(id) ?? 0,
       };
     })
@@ -842,11 +908,10 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
     })());
   }
 
-  // Contracts
+  // Contracts (WBL API with StatsPlus CSV fallback if stale)
   parallelPromises.push((async () => {
     console.log('  Fetching contracts...');
-    const data = await wblFetchJson<{ contracts: any[] }>('/api/contract');
-    const contracts = data.contracts.map(c => mapContractRow(c, playerLeagueMap));
+    const contracts = await fetchContracts(year, playerLeagueMap);
     const deduped = dedupRows(contracts, r => String(r.player_id));
     stats.contracts = await supabaseUpsertBatches('contracts', deduped, BATCH_SIZE, 'player_id');
     console.log(`  ✅ Contracts: ${stats.contracts} rows`);
@@ -904,6 +969,22 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
   })());
 
   await Promise.all(parallelPromises);
+
+  // Patch IC player levels: contract league_id=-200 → level='6'
+  // The WBL API doesn't reliably set level for IC players, so we derive it from contracts
+  const icIds: number[] = [];
+  for (const c of dedupedPlayers) {
+    // Check if this player has an IC contract (league_id=-200 in playerLeagueMap)
+    if (playerLeagueMap.get(c.id) === -200) icIds.push(c.id);
+  }
+  if (icIds.length > 0) {
+    const BATCH = 200;
+    for (let i = 0; i < icIds.length; i += BATCH) {
+      const batch = icIds.slice(i, i + BATCH);
+      await supabasePatch('players', `id=in.(${batch.join(',')})`, { level: '6' });
+    }
+    console.log(`  ✅ Patched ${icIds.length} IC players → level=6`);
+  }
 
   return stats;
 }
@@ -2125,7 +2206,7 @@ async function computeProjections(
           playerId: tr.playerId,
           name: tr.playerName,
           teamId,
-          teamName: teamMap.get(teamId) || 'FA',
+          teamName: resolveTeamName(teamId, player, teamMap, year),
           position: player.position,
           level: typeof player.level === 'string' ? parseInt(player.level, 10) : (player.level ?? 1),
           parentTeamId: player.parent_team_id ?? 0,
@@ -2167,7 +2248,7 @@ async function computeProjections(
           playerId: tr.playerId,
           name: tr.playerName,
           teamId,
-          teamName: teamMap.get(teamId) || 'FA',
+          teamName: resolveTeamName(teamId, player, teamMap, year),
           position: player.position,
           level: typeof player.level === 'string' ? parseInt(player.level, 10) : (player.level ?? 1),
           parentTeamId: player.parent_team_id ?? 0,
@@ -2292,7 +2373,7 @@ async function computeProjections(
       playerId: tr.playerId,
       name: tr.playerName,
       teamId,
-      teamName: teamMap.get(teamId) || 'FA',
+      teamName: resolveTeamName(teamId, player, teamMap, year),
       position: player.position,
       level: typeof player.level === 'string' ? parseInt(player.level, 10) : (player.level ?? 1),
       parentTeamId: player.parent_team_id ?? 0,
@@ -2390,7 +2471,7 @@ async function computeProjections(
         playerId,
         name: tfrData.playerName ?? `${player.first_name} ${player.last_name}`,
         teamId,
-        teamName: teamMap.get(teamId) || 'FA',
+        teamName: resolveTeamName(teamId, player, teamMap, year),
         position: player.position,
         level: typeof player.level === 'string' ? parseInt(player.level, 10) : (player.level ?? 2),
         parentTeamId: player.parent_team_id ?? 0,
@@ -2633,7 +2714,7 @@ async function computeProjections(
     batterInfoMap.set(playerId, {
       age: playerAge,
       teamId,
-      teamName: teamMap.get(teamId) || 'FA',
+      teamName: resolveTeamName(teamId, player, teamMap, year),
       position,
       name: playerName,
       scouting: scoutingRatings,
@@ -2903,6 +2984,7 @@ async function computeProjections(
         avoidK: scouting.avoidK,
         contact: scouting.contact ?? 50,
       } : undefined,
+      bats: playerForBatter?.bats ?? undefined,
       parkFactors,
       parkName: teamParkFactors?.park_name,
       injuryDays: batterInjDays > 0 ? batterInjDays : undefined,
@@ -3136,11 +3218,43 @@ async function computeLeagueContext(ctx: SyncContext, pitcherTrResults?: any[]):
     hitterScoutLookup[hPid] = [s.contact ?? 50, s.power, s.eye, s.avoid_k, s.gap ?? 50, s.speed ?? 50, s.ovr ?? 0, s.pot ?? 0, lev, s.hsc || '', s.player_name || '', s.age || 0, s.stealing_aggressiveness ?? 0, s.stealing_ability ?? 0, s.injury_proneness || ''];
   }
 
+  // Position ratings lookup: { [playerId]: { pos2: N, pos3: N, ... } }
+  // Compact fielding position ratings for Team Planner prospect slotting
+  const posRatingsLookup: Record<string, Record<string, number>> = {};
+  for (const [hPid, s] of ctx.hitterScoutMapOsa) {
+    const fielding = s.raw_data?.fielding;
+    if (!fielding) continue;
+    const posRatings: Record<string, number> = {};
+    for (let i = 2; i <= 9; i++) {
+      const val = parseInt(fielding[`pos${i}`], 10);
+      if (val > 0) posRatings[`pos${i}`] = val;
+    }
+    if (Object.keys(posRatings).length > 0) {
+      posRatingsLookup[hPid] = posRatings;
+    }
+  }
+
   // Contract lookup: { [playerId]: [salary, leagueId, yearsRemaining] }
   const contractLookup: Record<string, number[]> = {};
   for (const c of ctx.contracts) {
     const salary = (c.salaries ?? [])[c.current_year ?? 0] ?? 0;
     contractLookup[c.player_id] = [salary, c.league_id ?? 0, (c.years ?? 0) - (c.current_year ?? 0)];
+  }
+
+  // Player lookup: { [playerId]: [firstName, lastName, position, age, teamId, parentTeamId, level, status, draftEligible, hsc, bats] }
+  // Non-retired players only — replaces getAllPlayers() in views
+  const playerLookup: Record<string, (string | number | boolean | null)[]> = {};
+  for (const [pid, p] of ctx.playerMap) {
+    if (p.retired) continue;
+    // IC players (contract league_id=-200) have level 6, but ctx.playerMap may still show level 1
+    const level = ctx.icPlayerIds.has(pid) ? 6
+      : (typeof p.level === 'string' ? parseInt(p.level, 10) : (p.level ?? 1));
+    playerLookup[pid] = [
+      p.first_name || '', p.last_name || '',
+      p.position ?? 0, typeof p.age === 'string' ? parseInt(p.age, 10) : (p.age ?? 0),
+      p.team_id ?? 0, p.parent_team_id ?? 0,
+      level, p.status || 'active', p.draft_eligible ?? false, p.hsc || '', p.bats || '',
+    ];
   }
 
   // DOB lookup from context
@@ -3149,14 +3263,22 @@ async function computeLeagueContext(ctx: SyncContext, pitcherTrResults?: any[]):
     dobLookup[id] = dob.getFullYear();
   }
 
-  await Promise.all([
-    supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_scouting_lookup', data: pitcherScoutLookup }], 1, 'key'),
-    supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_scouting_lookup', data: hitterScoutLookup }], 1, 'key'),
-    supabaseUpsertBatches('precomputed_cache', [{ key: 'contract_lookup', data: contractLookup }], 1, 'key'),
-    supabaseUpsertBatches('precomputed_cache', [{ key: 'dob_lookup', data: dobLookup }], 1, 'key'),
-  ]);
+  // Write lookups sequentially — large JSONB upserts can timeout on free-tier Supabase
+  const lookups: [string, any][] = [
+    ['pitcher_scouting_lookup', pitcherScoutLookup],
+    ['hitter_scouting_lookup', hitterScoutLookup],
+    ['contract_lookup', contractLookup],
+    ['dob_lookup', dobLookup],
+    ['position_ratings_lookup', posRatingsLookup],
+    ['player_lookup', playerLookup],
+  ];
+  for (const [key, data] of lookups) {
+    await supabaseUpsertBatches('precomputed_cache', [{ key, data }], 1, 'key');
+  }
   console.log(`  ✅ Pitcher scouting lookup: ${Object.keys(pitcherScoutLookup).length} entries`);
   console.log(`  ✅ Hitter scouting lookup: ${Object.keys(hitterScoutLookup).length} entries`);
+  console.log(`  ✅ Position ratings lookup: ${Object.keys(posRatingsLookup).length} entries`);
+  console.log(`  ✅ Player lookup: ${Object.keys(playerLookup).length} entries`);
   console.log(`  ✅ Contract lookup: ${Object.keys(contractLookup).length} entries`);
   console.log(`  ✅ DOB lookup: ${Object.keys(dobLookup).length} entries`);
 }

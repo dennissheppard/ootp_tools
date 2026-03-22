@@ -160,12 +160,47 @@ export async function supabaseUpsertBatches(
 // ──────────────────────────────────────────────
 
 export async function supabaseRpc<T = any>(fn: string, args: Record<string, any> = {}): Promise<T> {
-  const url = `${SUPABASE_URL}/rest/v1/rpc/${fn}`;
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: HEADERS,
-    body: JSON.stringify(args),
-  });
+  // PostgREST limits RPC results to 1000 rows by default.
+  // Use GET with query params to enable auto-pagination via limit/offset.
+  const hasArgs = Object.keys(args).length > 0;
+  if (hasArgs) {
+    // POST for RPCs with arguments
+    const url = `${SUPABASE_URL}/rest/v1/rpc/${fn}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify(args),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`RPC ${fn} failed (${response.status}): ${body}`);
+    }
+    const text = await response.text();
+    return text ? JSON.parse(text) : (undefined as any);
+  }
+  // No-arg RPCs: paginate with offset/limit to get all rows (PostgREST caps at 1000 per request)
+  const PAGE_SIZE = 1000;
+  const allRows: any[] = [];
+  let offset = 0;
+  while (true) {
+    const url = `${SUPABASE_URL}/rest/v1/rpc/${fn}?offset=${offset}&limit=${PAGE_SIZE}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: HEADERS,
+      body: JSON.stringify(args),
+    });
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`RPC ${fn} failed (${response.status}): ${body}`);
+    }
+    const text = await response.text();
+    if (!text || text === '[]') break;
+    const rows = JSON.parse(text);
+    allRows.push(...rows);
+    if (rows.length < PAGE_SIZE) break;
+    offset += PAGE_SIZE;
+  }
+  return allRows as T;
 
   if (!response.ok) {
     const body = await response.text().catch(() => '');

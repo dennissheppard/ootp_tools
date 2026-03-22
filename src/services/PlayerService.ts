@@ -10,6 +10,28 @@ export class PlayerService {
   private players: Player[] = [];
   private loading: Promise<Player[]> | null = null;
 
+  /** Map a Supabase player row to the Player interface */
+  private mapSupabaseRow(r: any): Player {
+    return {
+      id: r.id,
+      firstName: r.first_name,
+      lastName: r.last_name,
+      teamId: r.team_id,
+      parentTeamId: r.parent_team_id,
+      level: typeof r.level === 'string' ? parseInt(r.level, 10) : r.level,
+      position: r.position as Position,
+      role: r.role,
+      age: r.age,
+      retired: r.retired ?? false,
+      status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
+      draftEligible: r.draft_eligible ?? false,
+      hsc: r.hsc ?? null,
+      bats: r.bats ?? undefined,
+      throws: r.throws ?? undefined,
+      injuryDaysRemaining: r.injury_days_remaining ?? 0,
+    };
+  }
+
   async getAllPlayers(forceRefresh = false): Promise<Player[]> {
     // Return cached if available
     if (this.players.length > 0 && !forceRefresh) {
@@ -29,6 +51,7 @@ export class PlayerService {
       return this.loading;
     }
 
+    console.warn('⚠️ PlayerService.getAllPlayers(): fetching all players from Supabase', new Error().stack);
     this.loading = this.fetchPlayers();
     try {
       this.players = await this.loading;
@@ -123,28 +146,19 @@ export class PlayerService {
       return this.players.filter(p => idSet.has(p.id));
     }
 
-    // Supabase: targeted query by IDs
+    // Supabase: targeted query by IDs, batched to stay within URL limits
     if (supabaseDataService.isConfigured) {
       try {
-        const idList = ids.join(',');
-        const rows = await supabaseDataService.query<any>('players',
-          `select=*&first_name=not.is.null&id=in.(${idList})`);
-        if (rows.length > 0) {
-          return rows.map((r: any) => ({
-            id: r.id,
-            firstName: r.first_name,
-            lastName: r.last_name,
-            teamId: r.team_id,
-            parentTeamId: r.parent_team_id,
-            level: typeof r.level === 'string' ? parseInt(r.level, 10) : r.level,
-            position: r.position as Position,
-            role: r.role,
-            age: r.age,
-            retired: r.retired ?? false,
-            status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
-            draftEligible: r.draft_eligible ?? false,
-            hsc: r.hsc ?? null,
-          }));
+        const BATCH = 200;
+        const allRows: any[] = [];
+        for (let i = 0; i < ids.length; i += BATCH) {
+          const batch = ids.slice(i, i + BATCH);
+          const rows = await supabaseDataService.query<any>('players',
+            `select=*&first_name=not.is.null&id=in.(${batch.join(',')})`);
+          allRows.push(...rows);
+        }
+        if (allRows.length > 0) {
+          return allRows.map((r: any) => this.mapSupabaseRow(r));
         }
       } catch { /* fall through */ }
     }
@@ -167,21 +181,7 @@ export class PlayerService {
         const rows = await supabaseDataService.query<any>('players',
           `select=*&first_name=not.is.null&or=(team_id.eq.${orgTeamId},parent_team_id.eq.${orgTeamId})`);
         if (rows.length > 0) {
-          return rows.map((r: any) => ({
-            id: r.id,
-            firstName: r.first_name,
-            lastName: r.last_name,
-            teamId: r.team_id,
-            parentTeamId: r.parent_team_id,
-            level: typeof r.level === 'string' ? parseInt(r.level, 10) : r.level,
-            position: r.position as Position,
-            role: r.role,
-            age: r.age,
-            retired: r.retired ?? false,
-            status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
-            draftEligible: r.draft_eligible ?? false,
-            hsc: r.hsc ?? null,
-          }));
+          return rows.map((r: any) => this.mapSupabaseRow(r));
         }
       } catch { /* fall through */ }
     }
@@ -189,6 +189,26 @@ export class PlayerService {
     // Fallback: load all and filter
     const all = await this.getAllPlayers();
     return all.filter(p => p.teamId === orgTeamId || p.parentTeamId === orgTeamId);
+  }
+
+  async getDraftEligiblePlayers(): Promise<Player[]> {
+    // If full cache exists, filter it
+    if (this.players.length > 0) {
+      return this.players.filter(p => p.draftEligible);
+    }
+
+    // Supabase: targeted query for draft-eligible only (~200-400 players vs 14K all)
+    if (supabaseDataService.isConfigured) {
+      try {
+        const rows = await supabaseDataService.query<any>('players',
+          `select=*&first_name=not.is.null&draft_eligible=eq.true`);
+        return rows.map((r: any) => this.mapSupabaseRow(r));
+      } catch { /* fall through */ }
+    }
+
+    // Fallback
+    const all = await this.getAllPlayers();
+    return all.filter(p => p.draftEligible);
   }
 
   async searchPlayers(query: string): Promise<Player[]> {
@@ -222,22 +242,7 @@ export class PlayerService {
       try {
         const rows = await supabaseDataService.query<any>('players', `select=*&id=eq.${id}`);
         if (rows.length > 0) {
-          const r = rows[0];
-          return {
-            id: r.id,
-            firstName: r.first_name,
-            lastName: r.last_name,
-            teamId: r.team_id,
-            parentTeamId: r.parent_team_id,
-            level: typeof r.level === 'string' ? parseInt(r.level, 10) : r.level,
-            position: r.position as Position,
-            role: r.role,
-            age: r.age,
-            retired: r.retired ?? false,
-            status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
-            draftEligible: r.draft_eligible ?? false,
-            hsc: r.hsc ?? null,
-          };
+          return this.mapSupabaseRow(rows[0]);
         }
       } catch {
         // Fall through to bulk fetch
@@ -284,25 +289,7 @@ export class PlayerService {
       try {
         const rows = await supabaseDataService.getPlayers();
         if (rows.length > 0) {
-          // Players loaded from Supabase
-          return rows.map((r: any) => ({
-            id: r.id,
-            firstName: r.first_name,
-            lastName: r.last_name,
-            teamId: r.team_id,
-            parentTeamId: r.parent_team_id,
-            level: typeof r.level === 'string' ? parseInt(r.level, 10) : r.level,
-            position: r.position as Position,
-            role: r.role,
-            age: r.age,
-            retired: r.retired ?? false,
-            status: r.status ?? (r.retired ? 'retired' : r.team_id ? 'active' : 'free_agent'),
-            draftEligible: r.draft_eligible ?? false,
-            hsc: r.hsc ?? null,
-            bats: r.bats ?? undefined,
-            throws: r.throws ?? undefined,
-            injuryDaysRemaining: r.injury_days_remaining ?? 0,
-          }));
+          return rows.map((r: any) => this.mapSupabaseRow(r));
         } else {
           console.warn('⚠️ Supabase returned 0 players. Run: npx tsx tools/sync-db.ts');
         }

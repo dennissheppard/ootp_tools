@@ -2,7 +2,7 @@ import { ParkFactorRow, ParkDimensions, parseParksCsv, formatParkFactor, getPark
 import { supabaseDataService } from '../services/SupabaseDataService';
 import { teamService } from '../services/TeamService';
 import { Team } from '../models/Team';
-import { playerService } from '../services/PlayerService';
+// playerService import removed — bats data now comes from ProjectedBatter
 import { batterProjectionService, ProjectedBatter } from '../services/BatterProjectionService';
 import { projectionService, ProjectedPlayer } from '../services/ProjectionService';
 import { dateService } from '../services/DateService';
@@ -25,31 +25,30 @@ export class ParksView {
 
   constructor(container: HTMLElement) {
     this.container = container;
-    this.render();
+    this.init();
+  }
+
+  /** Kick off initial load and render. */
+  private async init(): Promise<void> {
+    this.container.innerHTML = '<div style="padding: 2rem; color: var(--color-text-muted);">Loading parks data...</div>';
+    await this.ensureLoaded();
+    // Only render if selectTeam hasn't already been called while we were loading
+    if (!this._pendingTeamId) {
+      this.renderContent();
+    }
   }
 
   /** Select a park by team ID and re-render. Called from external navigation. */
   async selectTeam(teamId: number): Promise<void> {
     this.selectedTeamId = teamId;
-    if (this.loadPromise) await this.loadPromise;
-    if (!this.loaded) {
-      await this.ensureLoaded();
-    }
-    // Update custom dropdown display
-    const team = this.teams.find(t => t.id === teamId);
-    const pf = this.parkFactorsMap.get(teamId);
-    const display = this.container.querySelector('.parks-dropdown-display');
-    if (display && team && pf) {
-      display.innerHTML = `${teamLogoImg(team.nickname, 'team-btn-logo')}${team.name} — ${pf.park_name}`;
-    }
-    const menu = this.container.querySelector('.parks-dropdown-menu');
-    if (menu) {
-      menu.querySelectorAll('.filter-dropdown-item').forEach(item => {
-        item.classList.toggle('selected', (item as HTMLElement).dataset.value === String(teamId));
-      });
-    }
-    this.renderParkDetails();
+    this._pendingTeamId = teamId;
+    await this.ensureLoaded();
+    // Set selection and do a full render (the dropdown + details)
+    this.selectedTeamId = teamId;
+    this.renderContent();
   }
+
+  private _pendingTeamId: number | null = null;
 
   private async ensureLoaded(): Promise<void> {
     if (this.loaded) return;
@@ -57,12 +56,6 @@ export class ParksView {
       this.loadPromise = this.loadData();
     }
     await this.loadPromise;
-    this.renderContent();
-  }
-
-  async render(): Promise<void> {
-    this.container.innerHTML = '<div style="padding: 2rem; color: var(--color-text-muted);">Loading parks data...</div>';
-    await this.ensureLoaded();
   }
 
   private async loadData(): Promise<void> {
@@ -110,17 +103,17 @@ export class ParksView {
     } catch { /* fallback: no park mapping */ }
 
     // Load projections, teams, and player data
-    const [batters, pitchers, teams, allPlayers] = await Promise.all([
+    const [batters, pitchers, teams] = await Promise.all([
       batterProjectionService.getProjections(year),
       projectionService.getProjections(year),
       teamService.getAllTeams(),
-      playerService.getAllPlayers(),
     ]);
     this.allBatterProjections = batters;
     this.allPitcherProjections = pitchers;
     this.teams = teams;
-    for (const p of allPlayers) {
-      if (p.bats) this.playerBats.set(p.id, p.bats);
+    // Build bats map from projections (bats field added to ProjectedBatter)
+    for (const b of batters) {
+      if (b.bats) this.playerBats.set(b.playerId, b.bats);
     }
 
     // Default to user's team if set, otherwise no selection (prompt to pick)

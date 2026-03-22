@@ -205,12 +205,10 @@ class ProjectionService {
     }
 
     // 1. Fetch Data
-    const forceRosterRefresh = options?.forceRosterRefresh ?? false;
     const useEnsemble = options?.useEnsemble ?? true; // DEFAULT: Use ensemble (calibrated Jan 2026)
     const preSeasonOnly = options?.preSeasonOnly ?? false;
-    const [scoutingFallback, allPlayers, allTeams] = await Promise.all([
+    const [scoutingFallback, allTeams] = await Promise.all([
       scoutingDataFallbackService.getScoutingRatingsWithFallback(),
-      playerService.getAllPlayers(forceRosterRefresh),
       teamService.getAllTeams()
     ]);
     const scoutingRatings = scoutingFallback.ratings;
@@ -254,7 +252,6 @@ class ProjectionService {
     ]);
 
     // 2. Maps
-    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
     const teamMap = new Map(allTeams.map(t => [t.id, t]));
     const scoutingMap = new Map<number, PitcherScoutingRatings>();
     const scoutingByName = new Map<string, PitcherScoutingRatings[]>();
@@ -273,11 +270,23 @@ class ProjectionService {
 
     const statsMap = new Map(pitchingStats.map(stat => [stat.player_id, stat]));
 
-    // Fetch Minor League Stats for Readiness Check
-    const [aaaStats, aaStats] = await Promise.all([
+    // 3. Prepare TR Inputs — collect IDs first, then fetch only those players
+    const playerIds = new Set<number>();
+    multiYearStats.forEach((_stats, playerId) => {
+      playerIds.add(playerId);
+    });
+    pitchingStats.forEach(stat => playerIds.add(stat.player_id));
+
+    // Fetch only relevant players + draft-eligible (not all 16K)
+    const [trPlayers, draftPlayers, aaaStats, aaStats] = await Promise.all([
+      playerService.getPlayersByIds([...playerIds]),
+      playerService.getDraftEligiblePlayers(),
       minorLeagueStatsService.getStats(statsYear, 'aaa'),
-      minorLeagueStatsService.getStats(statsYear, 'aa')
+      minorLeagueStatsService.getStats(statsYear, 'aa'),
     ]);
+    const allPlayers = [...trPlayers, ...draftPlayers.filter(d => !playerIds.has(d.id))];
+    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+
     const aaaOrAaPlayerIds = new Set<number>([
         ...aaaStats.map(s => s.id),
         ...aaStats.map(s => s.id)
@@ -288,13 +297,6 @@ class ProjectionService {
     if (supabaseDataService.isConfigured) {
       parkFactorsData = await supabaseDataService.getPrecomputed('park_factors');
     }
-
-    // 3. Prepare TR Inputs
-    const playerIds = new Set<number>();
-    multiYearStats.forEach((_stats, playerId) => {
-      playerIds.add(playerId);
-    });
-    pitchingStats.forEach(stat => playerIds.add(stat.player_id));
 
     const inputs = Array.from(playerIds).map(playerId => {
         const stat = statsMap.get(playerId);

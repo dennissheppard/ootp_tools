@@ -141,7 +141,6 @@ class CanonicalCurrentProjectionService {
 
   private async loadLeagueData(year: number): Promise<LeagueData> {
     const [
-      allPlayers,
       allTeams,
       pitcherTrMap,
       batterTrMap,
@@ -154,7 +153,6 @@ class CanonicalCurrentProjectionService {
       pitchingYears,
       battingYears,
     ] = await Promise.all([
-      playerService.getAllPlayers(),
       teamService.getAllTeams(),
       trueRatingsService.getPitcherTrueRatings(year),
       trueRatingsService.getHitterTrueRatings(year),
@@ -177,6 +175,10 @@ class CanonicalCurrentProjectionService {
       // Ensure IP distributions are loaded for synchronous calculateProjectedIp calls
       projectionService.ensureDistributionsLoaded(),
     ]);
+
+    // Load only players referenced by TR maps (not all 16K)
+    const relevantIds = [...new Set([...pitcherTrMap.keys(), ...batterTrMap.keys()])];
+    const allPlayers = await playerService.getPlayersByIds(relevantIds);
 
     const teamById = new Map(allTeams.map(t => [t.id, t]));
     const pitcherTfrMap = new Map((unifiedPitcherTfr?.prospects ?? []).map(p => [p.playerId, p]));

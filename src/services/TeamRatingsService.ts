@@ -446,7 +446,23 @@ class TeamRatingsService {
     const mlbBattingStats = battingStats.filter(stat => stat.level_id === 1 && stat.position !== 1);
 
     // 4. Use canonical hitter True Ratings (shared cache with TrueRatingsView)
-    const batterTrMap = await trueRatingsService.getHitterTrueRatings(year);
+    // Also load precomputed projected WAR for lineup optimization (accounts for PA, injury, defense)
+    // Only use precomputed cache — never trigger full recompute (which loads 14K players)
+    const projWarMap = new Map<number, number>();
+    const [batterTrMap] = await Promise.all([
+      trueRatingsService.getHitterTrueRatings(year),
+      (async () => {
+        if (!supabaseDataService.isConfigured) return;
+        try {
+          const cached = await supabaseDataService.getPrecomputed('batter_projections');
+          if (cached?.projections) {
+            for (const p of cached.projections) {
+              projWarMap.set(p.playerId, p.projectedStats.war);
+            }
+          }
+        } catch { /* precomputed cache unavailable */ }
+      })(),
+    ]);
 
     // 5. Build team rosters from stats data (not from player service)
     const teamMap = new Map(allTeams.map(t => [t.id, t]));
@@ -587,7 +603,7 @@ class TeamRatingsService {
           blendedDoublesRate: trData?.blendedDoublesRate,
           blendedTriplesRate: trData?.blendedTriplesRate,
           woba: trData?.woba,
-          projWar: trData?.war,
+          projWar: projWarMap.get(stat.player_id) ?? trData?.war,
           percentile: trData?.percentile,
           stats: {
             pa: stat.pa,
@@ -619,7 +635,11 @@ class TeamRatingsService {
         console.warn(`[TeamRatings] ${team.name}: Pitching issue - ${rotation.length}/5 rotation, ${bullpen.length}/8 bullpen (${ratedPitchers.length} total pitchers)`);
       }
 
-      const lineup = this.constructOptimalLineup(ratedBatters);
+      // Use projected WAR for lineup construction (accounts for PA, injury, defense)
+      // Falls back to TR when projections aren't available
+      const lineup = this.constructOptimalLineup(ratedBatters,
+        (b) => b.projWar ?? b.trueRating
+      );
 
       // Debug: Only log when lineup is incomplete
       if (lineup.length < 9) {
@@ -629,10 +649,10 @@ class TeamRatingsService {
         console.warn(`[TeamRatings] ${team.name}: Missing lineup positions: ${missing.join(', ')} (${ratedBatters.length} batters available)`);
       }
 
-      // Build bench: top 4 remaining batters, but ensure a backup catcher is included
+      // Build bench: top 4 remaining batters by projected WAR
       const benchCandidates = ratedBatters
         .filter(b => !lineup.some(l => l.playerId === b.playerId))
-        .sort((a, b) => b.trueRating - a.trueRating);
+        .sort((a, b) => (b.projWar ?? b.trueRating) - (a.projWar ?? a.trueRating));
       const bench = benchCandidates.slice(0, 4);
       // If no catcher on bench but one exists in remaining candidates, swap in the best backup C
       if (!bench.some(b => b.position === 2) && lineup.some(b => b.position === 2)) {
@@ -866,8 +886,7 @@ class TeamRatingsService {
           scoutingData = await scoutingDataFallbackService.getScoutingRatingsWithFallback();
       }
 
-      const [allPlayers, tfrResults, tfrResultsOsa, teams, careerMlbIpMap] = await Promise.all([
-          playerService.getAllPlayers(),
+      const [tfrResults, tfrResultsOsa, teams, careerMlbIpMap] = await Promise.all([
           trueFutureRatingService.getProspectTrueFutureRatings(year),
           trueFutureRatingService.getProspectTrueFutureRatings(year, 'osa'),
           teamService.getAllTeams(),
@@ -878,7 +897,14 @@ class TeamRatingsService {
       const tfrMyMap = new Map(tfrResults.map(t => [t.playerId, t]));
       const tfrOsaMap = new Map(tfrResultsOsa.map(t => [t.playerId, t]));
 
-      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+      // Load only players referenced by scouting/TFR data (not all 16K)
+      const relevantIds = new Set([
+        ...scoutingData.ratings.map(s => s.playerId),
+        ...tfrResults.map(t => t.playerId),
+        ...tfrResultsOsa.map(t => t.playerId),
+      ]);
+      const relevantPlayers = await playerService.getPlayersByIds([...relevantIds]);
+      const playerMap = new Map(relevantPlayers.map(p => [p.id, p]));
       const teamMap = new Map(teams.map(t => [t.id, t]));
       const scoutingMap = new Map(scoutingData.ratings.map(s => [s.playerId, s]));
 
@@ -1005,8 +1031,8 @@ class TeamRatingsService {
 
           const peakWar = fipWarService.calculateWar(adjustedFip, projectedIp);
 
-          // IC players have level=6 (set by CLI from contract league_id=-200)
-          const levelLabel = player.level === 6 ? 'IC' : this.getLevelLabel(player.level);
+          // Draft-eligible players (no team) show HS/Col status instead of minor league level
+          const levelLabel = (player.draftEligible && player.hsc) ? player.hsc : this.getLevelLabel(player.level);
           const careerIp = careerMlbIpMap.get(tfr.playerId) ?? 0;
           const isFarmEligible = careerIp <= 50;
 
@@ -1280,13 +1306,14 @@ class TeamRatingsService {
           console.warn(`[UnifiedHitterTfr] No league averages found for ${year}, using defaults.`);
       }
 
-      // Fetch player and team data
-      const [allPlayers, teams] = await Promise.all([
-          playerService.getAllPlayers(),
+      // Fetch only players referenced by scouting data (not all 16K)
+      const scoutingIds = [...new Set([...scoutingMap.keys(), ...scoutingMapOsa.keys()])];
+      const [relevantPlayers, teams] = await Promise.all([
+          playerService.getPlayersByIds(scoutingIds),
           teamService.getAllTeams()
       ]);
 
-      const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+      const playerMap = new Map(relevantPlayers.map(p => [p.id, p]));
       const teamMap = new Map(teams.map(t => [t.id, t]));
 
       // Fetch minor league batting stats for TFR calculation
@@ -1388,8 +1415,8 @@ class TeamRatingsService {
           // Unsigned draftees (no team) get orgId=0
           const orgId = team ? (team.parentTeamId !== 0 ? team.parentTeamId : team.id) : 0;
 
-          // IC players have level=6 (set by CLI from contract league_id=-200)
-          const hitterLevelLabel = player.level === 6 ? 'IC' : this.getLevelLabel(player.level);
+          // Draft-eligible players (no team) show HS/Col status instead of minor league level
+          const hitterLevelLabel = (player.draftEligible && player.hsc) ? player.hsc : this.getLevelLabel(player.level);
 
           const prospect: RatedHitterProspect = {
               playerId: tfr.playerId,
@@ -1766,21 +1793,19 @@ class TeamRatingsService {
       return map;
   }
 
-  private getLevelLabel(level: number): string {
-      // WBL-specific level mapping (verified with actual 2020 data)
-      // 1: MLB, 2: AAA (league_id 201), 3: AA (league_id 202),
-      // 4: A (league_id 203), 6: R (league_id 204)
-      // WBL does NOT have Short-A, A+, or A- levels
-      switch(level) {
+  private getLevelLabel(level: number | string): string {
+      // PostgREST returns level as a string — normalize to number
+      const n = typeof level === 'string' ? parseInt(level, 10) : level;
+      // WBL-specific level mapping:
+      // 1: MLB, 2: AAA, 3: AA, 4: A, 5: R, 6: IC (set by CLI from contract league_id=-200)
+      switch(n) {
           case 1: return 'MLB';
           case 2: return 'AAA';
           case 3: return 'AA';
           case 4: return 'A';
-          case 5: return 'R'; // WBL uses level 5 as Rookie (generic OOTP = Short-A)
-          case 6: return 'R'; // Rookie
-          case 7: return 'R'; // Also Rookie (fallback)
-          case 8: return 'IC'; // International Complex
-          default: return `Lvl ${level}`;
+          case 5: return 'R';
+          case 6: return 'IC';
+          default: return 'R';
       }
   }
 

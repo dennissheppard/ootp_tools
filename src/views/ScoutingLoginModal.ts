@@ -286,6 +286,8 @@ class ScoutingLoginModal {
 
       if (supabaseDataService.isConfigured) {
         supabaseDataService.hasCustomScouting = true;
+        // Merge custom fielding ratings into position ratings cache
+        supabaseDataService.mergeCustomPositionRatings(hitterRatings);
         trueRatingsService.clearCaches();
         teamRatingsService.clearTfrCaches();
 

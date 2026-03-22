@@ -28,4 +28,6 @@ export const supabaseDataService = {
   getPlayerRatings: jest.fn().mockResolvedValue(null),
   getGameDate: jest.fn().mockResolvedValue(null),
   clearCaches: jest.fn(),
+  getPositionRatings: jest.fn().mockResolvedValue(new Map()),
+  mergeCustomPositionRatings: jest.fn(),
 };

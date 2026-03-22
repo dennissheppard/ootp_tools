@@ -183,7 +183,8 @@ class TrueRatingsService {
     const allRows = await supabaseDataService.getPitchingStatsBulk(needed[0], needed[needed.length - 1], 200);
     if (allRows.length === 0) return;
 
-    const players = await playerService.getAllPlayers();
+    const statPlayerIds = [...new Set(allRows.map(r => r.player_id))];
+    const players = await playerService.getPlayersByIds(statPlayerIds);
     const playerMap = new Map<number, Player>();
     for (const p of players) playerMap.set(p.id, p);
 
@@ -217,7 +218,8 @@ class TrueRatingsService {
     const allRows = await supabaseDataService.getBattingStatsBulk(needed[0], needed[needed.length - 1], 200);
     if (allRows.length === 0) return;
 
-    const players = await playerService.getAllPlayers();
+    const statPlayerIds = [...new Set(allRows.map(r => r.player_id))];
+    const players = await playerService.getPlayersByIds(statPlayerIds);
     const playerMap = new Map<number, Player>();
     for (const p of players) playerMap.set(p.id, p);
 
@@ -397,7 +399,8 @@ class TrueRatingsService {
         );
 
         if (allRows.length > 0) {
-          const players = await playerService.getAllPlayers();
+          const statPlayerIds = [...new Set(allRows.map(r => r.player_id))];
+          const players = await playerService.getPlayersByIds(statPlayerIds);
           const playerMap = new Map<number, Player>();
           for (const player of players) playerMap.set(player.id, player);
 
@@ -444,7 +447,8 @@ class TrueRatingsService {
         const rawStats = this.parseStatsCsv(csvText, 'pitching') as TruePitchingStats[];
         if (rawStats.length === 0) continue;
 
-        const players = await playerService.getAllPlayers();
+        const csvPlayerIds = rawStats.map(s => s.player_id);
+        const players = await playerService.getPlayersByIds(csvPlayerIds);
         const playerMap = new Map<number, Player>();
         for (const player of players) playerMap.set(player.id, player);
 
@@ -1476,16 +1480,18 @@ class TrueRatingsService {
       yearWeights = getPitcherYearWeights(progress);
     }
 
-    const [multiYearStats, leagueAverages, scoutingFallback, allPlayers] = await Promise.all([
+    const [multiYearStats, leagueAverages, scoutingFallback] = await Promise.all([
       this.getMultiYearPitchingStats(year),
       this.getLeagueAverages(year),
       scoutingDataFallbackService.getScoutingRatingsWithFallback(year),
-      playerService.getAllPlayers(),
     ]);
 
     // Build scouting lookup
     const scoutingMap = new Map(scoutingFallback.ratings.map(r => [r.playerId, r]));
-    const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+    // Load only players referenced by stats or scouting (not all 16K)
+    const relevantIds = [...new Set([...multiYearStats.keys(), ...scoutingMap.keys()])];
+    const relevantPlayers = await playerService.getPlayersByIds(relevantIds);
+    const playerMap = new Map(relevantPlayers.map(p => [p.id, p]));
 
     // Get player names from single-year stats
     const allPitchers = await this.getTruePitchingStats(year);
@@ -1875,9 +1881,10 @@ class TrueRatingsService {
           Math.min(year, currentYear)
         );
 
-        // Build TFR inputs for all prospects at this date
-        const allPlayers = await playerService.getAllPlayers();
-        const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+        // Build TFR inputs for prospects at this date — load only snapshot players
+        const snapshotIds = hitterSnapshotsAtDate.map(s => s.playerId);
+        const snapshotPlayers = await playerService.getPlayersByIds(snapshotIds);
+        const playerMap = new Map(snapshotPlayers.map(p => [p.id, p]));
 
         const tfrInputs: HitterTrueFutureRatingInput[] = [];
         for (const snap of hitterSnapshotsAtDate) {
@@ -1983,9 +1990,10 @@ class TrueRatingsService {
           Math.min(year, currentYear)
         );
 
-        // Build TFR inputs for all prospects at this date
-        const allPlayers = await playerService.getAllPlayers();
-        const playerMap = new Map(allPlayers.map(p => [p.id, p]));
+        // Build TFR inputs for prospects at this date — load only snapshot players
+        const snapshotIds = pitcherSnapshotsAtDate.map(s => s.playerId);
+        const snapshotPlayers = await playerService.getPlayersByIds(snapshotIds);
+        const playerMap = new Map(snapshotPlayers.map(p => [p.id, p]));
 
         const tfrInputs: TrueFutureRatingInput[] = [];
         for (const snap of pitcherSnapshotsAtDate) {

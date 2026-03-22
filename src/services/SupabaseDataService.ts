@@ -408,33 +408,57 @@ class SupabaseDataService {
     } catch { return null; }
   }
 
+  // In-memory position ratings cache (loaded from precomputed_cache, merged with custom scouting)
+  private _positionRatingsCache: Map<number, Record<string, number>> | null = null;
+
   /**
-   * Bulk fetch position ratings (pos2-pos9) for all hitters with scouting data.
-   * Returns Map<playerId, Record<string, number>> where keys are "pos2"-"pos9" (20-80 scale).
+   * Get position ratings (pos2-pos9) for all players.
+   * Reads from precomputed_cache (1 request, cached in memory + localStorage).
+   * Custom scouting fielding data is merged on top via mergeCustomPositionRatings().
    */
-  async getBulkPositionRatings(): Promise<Map<number, Record<string, number>>> {
-    if (!this.configured) return new Map();
+  async getPositionRatings(): Promise<Map<number, Record<string, number>>> {
+    if (this._positionRatingsCache) {
+      console.log(`⚡ Position ratings: ${this._positionRatingsCache.size} entries (from memory cache)`);
+      return this._positionRatingsCache;
+    }
+    const map = new Map<number, Record<string, number>>();
     try {
-      const rows = await this.query<{ player_id: number; raw_data: any }>(
-        'hitter_scouting',
-        `select=player_id,raw_data&source=eq.osa&order=player_id,snapshot_date.desc`
-      );
-      const map = new Map<number, Record<string, number>>();
-      for (const row of rows) {
-        if (map.has(row.player_id)) continue; // only latest snapshot per player
-        const fielding = row.raw_data?.fielding;
-        if (!fielding) continue;
-        const posRatings: Record<string, number> = {};
-        for (let i = 2; i <= 9; i++) {
-          const val = parseInt(fielding[`pos${i}`], 10);
-          if (val > 0) posRatings[`pos${i}`] = val;
+      const data = await this.getPrecomputed('position_ratings_lookup');
+      if (data) {
+        for (const [id, posRatings] of Object.entries(data)) {
+          map.set(Number(id), posRatings as Record<string, number>);
         }
-        if (Object.keys(posRatings).length > 0) {
-          map.set(row.player_id, posRatings);
-        }
+        console.log(`⚡ Position ratings: ${map.size} entries (from precomputed cache)`);
+      } else {
+        console.warn('⚠️ Position ratings: precomputed lookup not found — run sync-db --force to populate');
       }
-      return map;
-    } catch { return new Map(); }
+    } catch { /* precomputed cache unavailable */ }
+    this._positionRatingsCache = map;
+    return map;
+  }
+
+  /**
+   * Merge custom scouting fielding data into the position ratings cache.
+   * Called after custom scouting upload to overlay team-specific fielding ratings.
+   */
+  mergeCustomPositionRatings(ratings: { playerId: number; fielding?: Record<string, string> }[]): void {
+    if (!this._positionRatingsCache) this._positionRatingsCache = new Map();
+    let merged = 0;
+    for (const r of ratings) {
+      if (!r.fielding) continue;
+      const posRatings: Record<string, number> = {};
+      for (let i = 2; i <= 9; i++) {
+        const val = parseInt(r.fielding[`pos${i}`], 10);
+        if (val > 0) posRatings[`pos${i}`] = val;
+      }
+      if (Object.keys(posRatings).length > 0) {
+        this._positionRatingsCache.set(r.playerId, posRatings);
+        merged++;
+      }
+    }
+    if (merged > 0) {
+      console.log(`🎯 Position ratings: merged ${merged} custom scouting entries (total: ${this._positionRatingsCache.size})`);
+    }
   }
 
   // ──────────────────────────────────────────────
@@ -632,6 +656,35 @@ class SupabaseDataService {
     const map = new Map<number, number>();
     for (const [id, birthYear] of Object.entries(data)) {
       map.set(Number(id), birthYear as number);
+    }
+    return map;
+  }
+
+  /**
+   * Lightweight player roster from precomputed cache.
+   * Format: { [playerId]: [firstName, lastName, position, age, teamId, parentTeamId, level, status, draftEligible, hsc, bats] }
+   * Non-retired players only. Replaces getAllPlayers() for view rendering.
+   */
+  async getPlayerLookup(): Promise<Map<number, { id: number; firstName: string; lastName: string; position: number; age: number; teamId: number; parentTeamId: number; level: number; status: string; draftEligible: boolean; hsc: string | null; bats?: string }> | null> {
+    const data = await this.getPrecomputed('player_lookup');
+    if (!data) return null;
+    const map = new Map<number, any>();
+    for (const [id, vals] of Object.entries(data)) {
+      const v = vals as (string | number | boolean | null)[];
+      map.set(Number(id), {
+        id: Number(id),
+        firstName: v[0] as string,
+        lastName: v[1] as string,
+        position: v[2] as number,
+        age: v[3] as number,
+        teamId: v[4] as number,
+        parentTeamId: v[5] as number,
+        level: v[6] as number,
+        status: v[7] as string,
+        draftEligible: v[8] as boolean,
+        hsc: (v[9] as string) || null,
+        bats: (v[10] as string) || undefined,
+      });
     }
     return map;
   }
