@@ -64,15 +64,9 @@ class DateService {
     try {
       // Ensure the API has been called so cachedSeason is populated
       const date = await this.getCurrentDate();
-      let season = this.cachedSeason ?? parseInt(date.split('-')[0], 10);
-      // API season may lag on opening day (date is Apr 2022 but API still says season 2021).
-      // If the date's calendar year exceeds the season and it's April+, the new season has started.
-      const calendarYear = parseInt(date.split('-')[0], 10);
-      const month = parseInt(date.split('-')[1], 10);
-      if (calendarYear > season && month >= 4) {
-        season = calendarYear;
-      }
-      return season;
+      if (this.cachedSeason) return this.cachedSeason;
+      // Fallback: derive from date (pre-existing behavior)
+      return parseInt(date.split('-')[0], 10);
     } catch {
       return new Date().getFullYear();
     }
@@ -156,19 +150,10 @@ class DateService {
     }
     const data = await response.json();
     // WBL returns { in_game_date: { date: "2022-01-06" }, season: "2021", ... }
-    const date = data.in_game_date.date;
     if (data.season) {
-      let season = parseInt(data.season, 10);
-      // API season may lag on opening day (date is Apr 2022 but season still says 2021).
-      // If the date's calendar year exceeds the reported season, use the calendar year.
-      const calendarYear = parseInt(date.split('-')[0], 10);
-      if (calendarYear > season) {
-        const month = parseInt(date.split('-')[1], 10);
-        if (month >= 4) season = calendarYear; // Apr+ means the new season has started
-      }
-      this.cachedSeason = season;
+      this.cachedSeason = parseInt(data.season, 10);
     }
-    return date;
+    return data.in_game_date.date;
   }
 
   /**
@@ -192,13 +177,21 @@ class DateService {
   }
 
   /**
-   * Whether the game is in the offseason (Nov–Mar).
-   * Nov-Dec: game year hasn't rolled yet (e.g. 2021-11-xx).
-   * Jan-Mar: OOTP rolled to next calendar year (e.g. 2022-01-xx).
+   * Whether the game is in the offseason.
+   * True when: month is Nov-Mar, OR the calendar year of the game date
+   * exceeds the API season year (e.g. date=2022-04-04 but season=2021
+   * means opening day hasn't been played yet).
    */
   async isOffseason(): Promise<boolean> {
-    const month = await this.getGameMonth();
-    return month >= 11 || month <= 3;
+    const date = await this.getCurrentDate();
+    const month = parseInt(date.split('-')[1], 10);
+    if (month >= 11 || month <= 3) return true;
+    // Pre-opening-day: API still reports prior season even though calendar rolled
+    if (this.cachedSeason) {
+      const calendarYear = parseInt(date.split('-')[0], 10);
+      if (calendarYear > this.cachedSeason) return true;
+    }
+    return false;
   }
 
   /**

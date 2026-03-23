@@ -175,30 +175,14 @@ export function redistributeTeamPA<T extends ProjectionForRedist>(
   // Original total PA for this team (preserve aggregate)
   const originalTotalPa = all.reduce((sum, p) => sum + p.projectedStats.pa, 0);
 
-  // Group by assigned position label
+  // Group ONLY lineup starters by assigned position label.
+  // Bench players keep their original PA — they should not compete
+  // for starter-level playing time within position groups.
   const groups = new Map<string, T[]>();
   for (const p of lineup) {
     const key = p.positionLabel ?? 'DH';
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key)!.push(p);
-  }
-  // Bench players: find which position group they'd compete in
-  for (const b of bench) {
-    // Try to match an existing position group by the bench player's natural position
-    let assigned = false;
-    for (const [label, members] of groups) {
-      const slot = POSITION_SLOTS.find(s => s.label === label);
-      if (slot && slot.canPlay.includes(b.position)) {
-        members.push(b);
-        assigned = true;
-        break;
-      }
-    }
-    // If no match (e.g. extra utility player), assign to DH group
-    if (!assigned) {
-      if (!groups.has('DH')) groups.set('DH', []);
-      groups.get('DH')!.push(b);
-    }
   }
 
   // Redistribute within each position group
