@@ -18,6 +18,7 @@ import { leagueBattingAveragesService } from './LeagueBattingAveragesService';
 import { prospectDevelopmentCurveService } from './ProspectDevelopmentCurveService';
 import { supabaseDataService } from './SupabaseDataService';
 import { ParkFactorRow, computePitcherParkHrFactor } from './ParkFactorService';
+import { constructOptimalLineup } from './LineupConstructionService';
 
 export interface RatedPlayer {
   playerId: number;
@@ -637,7 +638,7 @@ class TeamRatingsService {
 
       // Use projected WAR for lineup construction (accounts for PA, injury, defense)
       // Falls back to TR when projections aren't available
-      const lineup = this.constructOptimalLineup(ratedBatters,
+      const { lineup } = constructOptimalLineup(ratedBatters,
         (b) => b.projWar ?? b.trueRating
       );
 
@@ -739,104 +740,6 @@ class TeamRatingsService {
     return allRankings.sort((a, b) => b.teamRating - a.teamRating);
   }
 
-  /**
-   * Construct optimal 9-player lineup with position flexibility
-   * Uses scarcity-based assignment: fill most constrained positions first
-   * to avoid putting flexible players where specialists should go.
-   *
-   * Position flexibility rules:
-   * - SS can play 1B, 2B, 3B, SS
-   * - CF can play LF, CF, RF
-   * - LF can play LF, RF
-   * - RF can play LF, RF
-   * - All other positions: natural position only
-   */
-  private constructOptimalLineup(
-    batters: RatedBatter[],
-    getValue: (b: RatedBatter) => number = (b) => b.trueRating
-  ): RatedBatter[] {
-    const lineup: RatedBatter[] = [];
-    const used = new Set<number>();
-
-    // Sort batters by the provided value function (TR for power rankings, WAR for projections)
-    const sorted = [...batters].sort((a, b) => getValue(b) - getValue(a));
-
-    // Position slots and which player positions can fill them
-    // Based on flexibility rules: SS→1B/2B/3B/SS, CF→LF/CF/RF, LF↔RF
-    const positionSlots = [
-      { label: 'C', position: 2, canPlay: [2] },           // C only
-      { label: '1B', position: 3, canPlay: [3, 6] },       // 1B or SS
-      { label: '2B', position: 4, canPlay: [4, 6] },       // 2B or SS
-      { label: 'SS', position: 6, canPlay: [6] },          // SS only
-      { label: '3B', position: 5, canPlay: [5, 6] },       // 3B or SS
-      { label: 'LF', position: 7, canPlay: [7, 8, 9] },    // LF, CF, or RF
-      { label: 'CF', position: 8, canPlay: [8] },          // CF only
-      { label: 'RF', position: 9, canPlay: [9, 7, 8] },    // RF, LF, or CF
-    ];
-
-    // Fill positions by scarcity - most constrained positions first
-    // This prevents putting a SS at 1B when a dedicated 1B exists
-    const remainingSlots = [...positionSlots];
-
-    while (remainingSlots.length > 0) {
-      // Count eligible players for each remaining slot
-      const slotScarcity = remainingSlots.map(slot => {
-        const eligibleCount = sorted.filter(b =>
-          !used.has(b.playerId) && slot.canPlay.includes(b.position)
-        ).length;
-        return { slot, eligibleCount };
-      });
-
-      // Sort by scarcity (fewest eligible players first)
-      slotScarcity.sort((a, b) => a.eligibleCount - b.eligibleCount);
-
-      // Fill the most constrained slot
-      const { slot } = slotScarcity[0];
-      let filled = false;
-
-      for (const batter of sorted) {
-        if (used.has(batter.playerId)) continue;
-        if (slot.canPlay.includes(batter.position)) {
-          lineup.push({
-            ...batter,
-            position: slot.position,
-            positionLabel: slot.label
-          });
-          used.add(batter.playerId);
-          filled = true;
-          break;
-        }
-      }
-
-      // Remove this slot from remaining
-      const slotIndex = remainingSlots.findIndex(s => s.label === slot.label);
-      remainingSlots.splice(slotIndex, 1);
-
-      // If not filled with eligible player, try fallback with best available
-      if (!filled) {
-        for (const batter of sorted) {
-          if (used.has(batter.playerId)) continue;
-          lineup.push({
-            ...batter,
-            position: slot.position,
-            positionLabel: slot.label
-          });
-          used.add(batter.playerId);
-          break;
-        }
-      }
-    }
-
-    // Assign best remaining player to DH
-    for (const batter of sorted) {
-      if (used.has(batter.playerId)) continue;
-      lineup.push({ ...batter, position: 10, positionLabel: 'DH' });
-      used.add(batter.playerId);
-      break;
-    }
-
-    return lineup;
-  }
 
   private getPositionLabel(position: number): string {
     const labels: Record<number, string> = {
@@ -2029,17 +1932,13 @@ class TeamRatingsService {
           // Build lineup with position-aware assignment (scarcity-based, avoids duplicate positions).
           // Uses projected WAR as the value function so best players get priority.
           const allBattersForTeam: RatedBatter[] = (group as any).batters;
-          const lineup = this.constructOptimalLineup(allBattersForTeam, (b) => b.stats?.war ?? 0);
-          const usedIds = new Set(lineup.map((b: RatedBatter) => b.playerId));
-          const benchCandidates = allBattersForTeam
-            .filter(b => !usedIds.has(b.playerId))
-            .sort((a, b) => (b.stats?.war ?? 0) - (a.stats?.war ?? 0));
-          const bench = benchCandidates.slice(0, 4);
-          // Ensure a backup catcher is on the bench (same logic as getPowerRankings)
-          if (!bench.some(b => b.position === 2) && lineup.some((b: RatedBatter) => b.position === 2)) {
-            const backupC = benchCandidates.find(b => b.position === 2);
-            if (backupC && !bench.some(b => b.playerId === backupC.playerId)) {
-              bench[bench.length - 1] = backupC; // Replace worst bench player
+          const { lineup, bench: benchFromLineup } = constructOptimalLineup(allBattersForTeam, (b: RatedBatter) => b.stats?.war ?? 0);
+          const bench = benchFromLineup.slice(0, 4);
+          // Ensure a backup catcher is on the bench
+          if (!bench.some((b: RatedBatter) => b.position === 2) && lineup.some((b: RatedBatter) => b.position === 2)) {
+            const backupC = benchFromLineup.find((b: RatedBatter) => b.position === 2);
+            if (backupC && !bench.some((b: RatedBatter) => b.playerId === backupC.playerId)) {
+              bench[bench.length - 1] = backupC;
             }
           }
 

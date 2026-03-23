@@ -921,16 +921,8 @@ export class TeamRatingsView {
   // ── Standings Mode ──────────────────────────────────────────────
 
   private calculateRawTeamWar(team: TeamRatingResult): number {
-      // Use totalWar from service (rotation + bullpen + lineup, no bench)
-      // Bench WAR excluded: bench slots 10-13 are near-replacement players
-      // whose WAR inflates deep teams disproportionately
-      return team.totalWar ?? (team.rotationWar + (team.lineupWar ?? 0) + team.bullpenWar);
-  }
-
-  private calculateProjectedWins(rawWar: number, medianWar: number): number {
-      const dev = rawWar - medianWar;
-      const slope = dev > 0 ? STANDINGS_UPPER_SLOPE : STANDINGS_LOWER_SLOPE;
-      return Math.round(81 + dev * slope);
+      return (team.totalWar ?? (team.rotationWar + (team.lineupWar ?? 0) + team.bullpenWar))
+          + (team.benchWar ?? 0);
   }
 
   private getRsNormalizationScale(): number {
@@ -958,12 +950,22 @@ export class TeamRatingsView {
   }
 
   private sortStandingsData(): void {
+      // Pre-compute normalized wins matching the render path (with winOffset)
       const medianWar = this.getMedianTeamWar();
+      const rawWinsByTeam = new Map<TeamRatingResult, number>();
+      this.results.forEach(t => {
+          const dev = this.calculateRawTeamWar(t) - medianWar;
+          const slope = dev > 0 ? STANDINGS_UPPER_SLOPE : STANDINGS_LOWER_SLOPE;
+          rawWinsByTeam.set(t, 81 + dev * slope);
+      });
+      const numTeams = this.results.length;
+      const expectedTotalWins = numTeams * (SEASON_GAMES / 2);
+      const currentTotalWins = Array.from(rawWinsByTeam.values()).reduce((s, w) => s + w, 0);
+      const winOffset = numTeams > 0 ? (expectedTotalWins - currentTotalWins) / numTeams : 0;
+
       this.results.sort((a, b) => {
-          const aRaw = this.calculateRawTeamWar(a);
-          const bRaw = this.calculateRawTeamWar(b);
-          const aWins = this.calculateProjectedWins(aRaw, medianWar);
-          const bWins = this.calculateProjectedWins(bRaw, medianWar);
+          const aWins = Math.round((rawWinsByTeam.get(a) ?? 81) + winOffset);
+          const bWins = Math.round((rawWinsByTeam.get(b) ?? 81) + winOffset);
 
           let aVal: number;
           let bVal: number;
@@ -1627,6 +1629,38 @@ export class TeamRatingsView {
 
       const leaderboardHtml = this.renderSimLeaderboards(this.simulationResults.leaderboards);
 
+      // Backtest summary for simulation
+      let simBacktestHtml = '';
+      if (hasActuals) {
+        const diffs: number[] = [];
+        for (const s of teamSummaries) {
+          const actual = this.actualStandingsMap?.get(s.teamName) ?? null;
+          if (actual) diffs.push(s.meanWins - actual.wins);
+        }
+        if (diffs.length > 0) {
+          const mae = diffs.reduce((sum, d) => sum + Math.abs(d), 0) / diffs.length;
+          const maxMiss = Math.max(...diffs.map(d => Math.abs(d)));
+          const meanActual = diffs.length > 0
+              ? teamSummaries.reduce((sum, s) => sum + (this.actualStandingsMap?.get(s.teamName)?.wins ?? 0), 0) / diffs.length
+              : 81;
+          const ssRes = diffs.reduce((sum, d) => sum + d * d, 0);
+          const ssTot = teamSummaries.reduce((sum, s) => {
+              const actual = this.actualStandingsMap?.get(s.teamName);
+              return actual ? sum + (actual.wins - meanActual) ** 2 : sum;
+          }, 0);
+          const r2 = ssTot > 0 ? 1 - ssRes / ssTot : 0;
+          simBacktestHtml = `
+            <p class="note-text" style="margin: 0.25rem 0 0;">${this.selectedYear} backtest — simulated vs actual results.</p>
+            <div class="standings-summary" style="margin-bottom: 0.75rem;">
+                <span class="standings-summary-item" title="Mean Absolute Error — average miss in wins">MAE: <strong>${mae.toFixed(1)}</strong> wins</span>
+                <span class="standings-summary-item" title="R² — fraction of variance explained">R²: <strong>${r2.toFixed(3)}</strong></span>
+                <span class="standings-summary-item" title="Worst single-team miss">Max miss: <strong>${Math.round(maxMiss)}</strong> wins</span>
+                <span class="standings-summary-item">${diffs.length}/${teamSummaries.length} teams matched</span>
+            </div>
+          `;
+        }
+      }
+
       container.innerHTML = `
         <div class="stats-table-container">
           <h3 class="section-title">${this.selectedYear} Simulated Standings
@@ -1635,6 +1669,7 @@ export class TeamRatingsView {
           <p class="note-text" style="margin: 0.25rem 0 0.75rem; line-height: 1.4;">
             Each season simulates every game using per-PA matchup probabilities (batter vs pitcher via log5). Includes division-weighted scheduling, rotation cycling, and bullpen management.
           </p>
+          ${simBacktestHtml}
           <div style="margin-bottom: 0.75rem; display: flex; gap: 0.5rem; align-items: center;">
             <button id="sim-rerun-btn" class="toggle-btn" style="padding: 0.35rem 1rem; font-size: 0.8rem;">
               Re-run Simulation
@@ -2708,11 +2743,14 @@ export class TeamRatingsView {
           return;
         }
 
-        // Fallback for other modes
+        // Fallback: try playerRowLookup first, then direct ID lookup
         const fallbackKey = Array.from(this.playerRowLookup.keys())
           .find(key => key.endsWith(`-${playerId}`));
         if (fallbackKey) {
           this.openPlayerProfile(fallbackKey);
+        } else {
+          // Simulation leaderboards — open profile by ID directly
+          this.openPlayerProfileById(playerId);
         }
       });
     });
@@ -3118,6 +3156,10 @@ export class TeamRatingsView {
 
       await this.batterProfileModal.show(profileData, playerSeasonYear ?? this.selectedYear);
     }
+  }
+
+  private openPlayerProfileById(playerId: number): void {
+    getRouter().openPlayer(playerId);
   }
 
   private async openPlayerProfile(playerKey: string): Promise<void> {

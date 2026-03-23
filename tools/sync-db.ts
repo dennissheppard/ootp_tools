@@ -68,6 +68,7 @@ import { resolveCanonicalBatterData, computeBatterProjection } from '../src/serv
 import { leagueBattingAveragesService } from '../src/services/LeagueBattingAveragesService';
 import { projectDefensiveValue, parseFieldingScouting } from '../src/services/DefensiveProjectionService';
 import { parseParkFactorsCsv, computeEffectiveParkFactors, computePitcherParkHrFactor, type ParkFactorRow } from '../src/services/ParkFactorService';
+import { constructOptimalLineup, redistributeTeamPA } from '../src/services/LineupConstructionService';
 
 // ──────────────────────────────────────────────
 // Config
@@ -2003,6 +2004,16 @@ async function computeProjections(
     const totalIpForPlayer = yearlyStats.reduce((sum, s) => sum + s.ip, 0);
     if (totalIpForPlayer < 10 && !scouting) continue;
 
+    // Skip position players who haven't pitched in the last 2 years
+    // (filters out former two-way players who transitioned to hitting)
+    const pos = typeof player?.position === 'string' ? parseInt(player.position, 10) : (player?.position ?? 0);
+    if (pos !== 1 && pos !== 0) {
+      const recentIp = yearlyStats
+        .filter(s => s.year >= year - 1)
+        .reduce((sum, s) => sum + s.ip, 0);
+      if (recentIp < 10) continue;
+    }
+
     const scoutingRatings: PitcherScoutingRatings | undefined = scouting ? {
       playerId,
       playerName: scouting.player_name,
@@ -3049,6 +3060,28 @@ async function computeProjections(
     }
   }
 
+  // ────────── Roster-aware PA redistribution ──────────
+  const teamBatterGroups = new Map<number, typeof batterProjections>();
+  for (const proj of batterProjections) {
+    const teamId = proj.parentTeamId || proj.teamId;
+    if (!teamId) continue;
+    if (!teamBatterGroups.has(teamId)) teamBatterGroups.set(teamId, []);
+    teamBatterGroups.get(teamId)!.push(proj);
+  }
+
+  let redistTeams = 0;
+  for (const [_teamId, teamBatters] of teamBatterGroups) {
+    if (teamBatters.length < 2) continue;
+    const { lineup, bench } = constructOptimalLineup(teamBatters, (b: any) => b.projectedStats.war);
+    redistributeTeamPA(lineup, bench, {
+      recalcWar: (woba, pa, sbRuns, defRuns, posAdj) => {
+        return leagueBattingAveragesService.calculateBattingWar(woba, pa, leagueAvg, sbRuns, defRuns, posAdj);
+      }
+    });
+    redistTeams++;
+  }
+  console.log(`  ✅ PA redistribution: ${redistTeams} teams rebalanced`);
+
   // ────────── Store in precomputed_cache ──────────
   const pitcherData = {
     projections: pitcherProjections,
@@ -3344,7 +3377,7 @@ async function main(): Promise<void> {
 
       writePromise = timed('Write ratings + TFR cache', async () => {
         await Promise.all([
-          supabaseUpsertBatches('player_ratings', deduped, 200, 'player_id,rating_type', 4),
+          supabaseUpsertBatches('player_ratings', deduped, 100, 'player_id,rating_type', 2),
           supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_tfr_prospects', data: pitcherTfrData }], 1, 'key'),
           supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_tfr_prospects', data: hitterTfrData }], 1, 'key'),
         ]);

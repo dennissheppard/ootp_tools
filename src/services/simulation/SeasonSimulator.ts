@@ -862,8 +862,8 @@ function determinePlayoffs(
   teamMap: Map<number, TeamSnapshot>,
   league: LeagueAverageRates,
 ): void {
-  // 4 division winners + best records get playoff spots
-  // Format: 4 division winners, 2 wild cards per league = 12 total
+  // WBL Playoffs: 2 division winners + 3 wild cards per league = 5 per league, 10 total
+  // Format: #4 vs #5 Play-In Game (PIG), PIG winner vs #1 DS, #2 vs #3 DS, LCS, WS
   const divisionTeams = new Map<number, TeamSeasonRecord[]>();
   for (const t of teams) {
     const rec = records.get(t.teamId)!;
@@ -873,7 +873,6 @@ function determinePlayoffs(
   }
 
   // Find division winners
-  const divWinners: TeamSeasonRecord[] = [];
   const wildCardPool: TeamSeasonRecord[] = [];
 
   for (const [, divTeams] of divisionTeams) {
@@ -881,16 +880,13 @@ function determinePlayoffs(
     for (let i = 0; i < divTeams.length; i++) {
       divTeams[i].divisionRank = i + 1;
     }
-    divWinners.push(divTeams[0]);
     divTeams[0].madePlayoffs = true;
-    // Non-winners eligible for wild card
     for (let i = 1; i < divTeams.length; i++) {
       wildCardPool.push(divTeams[i]);
     }
   }
-  void divWinners;
 
-  // Wild cards: 2 per league (4 total)
+  // Wild cards: 3 per league (6 total)
   for (const leagueId of [1, 2]) {
     const leagueWC = wildCardPool
       .filter(r => {
@@ -898,16 +894,14 @@ function determinePlayoffs(
         return t?.leagueId === leagueId;
       })
       .sort((a, b) => b.wins - a.wins);
-    for (let i = 0; i < Math.min(2, leagueWC.length); i++) {
+    for (let i = 0; i < Math.min(3, leagueWC.length); i++) {
       leagueWC[i].madePlayoffs = true;
     }
   }
 
-  // Simulate playoffs: simple bracket
-  // Each league: WC1 vs DivWinner2, WC2 vs DivWinner1, then LCS, then WS
   const playoffTeams = [...records.values()].filter(r => r.madePlayoffs);
 
-  // Group by league
+  // Simulate playoffs per league
   for (const leagueId of [1, 2]) {
     const leaguePO = playoffTeams
       .filter(r => {
@@ -916,18 +910,27 @@ function determinePlayoffs(
       })
       .sort((a, b) => b.wins - a.wins);
 
-    if (leaguePO.length < 2) continue;
+    if (leaguePO.length < 4) continue;
 
-    // Simple: best record vs worst, 2nd vs 3rd
-    const ds1Winner = simulatePlayoffSeries(leaguePO[0], leaguePO[3] ?? leaguePO[leaguePO.length - 1], 5, homeBoostedTeamMap, teamMap, league, rng);
-    const ds2Winner = simulatePlayoffSeries(leaguePO[1], leaguePO[2] ?? leaguePO[leaguePO.length - 1], 5, homeBoostedTeamMap, teamMap, league, rng);
+    // Play-In Game: #4 vs #5 (single game, #4 has home field)
+    let pigWinner: number;
+    if (leaguePO.length >= 5) {
+      pigWinner = simulatePlayoffSeries(leaguePO[3], leaguePO[4], 1, homeBoostedTeamMap, teamMap, league, rng);
+    } else {
+      pigWinner = leaguePO[3].teamId;
+    }
+
+    // DS: PIG winner vs #1 (Bo5), #2 vs #3 (Bo5)
+    const ds1Winner = simulatePlayoffSeries(leaguePO[0], records.get(pigWinner)!, 5, homeBoostedTeamMap, teamMap, league, rng);
+    const ds2Winner = simulatePlayoffSeries(leaguePO[1], leaguePO[2], 5, homeBoostedTeamMap, teamMap, league, rng);
+
+    // LCS: DS winners (Bo7)
     const pennantWinner = simulatePlayoffSeries(
       records.get(ds1Winner)!,
       records.get(ds2Winner)!,
       7, homeBoostedTeamMap, teamMap, league, rng,
     );
 
-    // Tag pennant winner for WS
     (records.get(pennantWinner)! as any)._pennant = leagueId;
   }
 

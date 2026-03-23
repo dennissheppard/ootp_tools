@@ -9,6 +9,7 @@ import { dateService } from '../services/DateService';
 import { batterProfileModal } from './BatterProfileModal';
 import { pitcherProfileModal } from './PitcherProfileModal';
 import { teamLogoImg } from '../utils/teamLogos';
+import { constructOptimalLineup } from '../services/LineupConstructionService';
 
 export class ParksView {
   private container: HTMLElement;
@@ -410,8 +411,9 @@ export class ParksView {
 
   private renderHomeLineup(): string {
     const pf = this.parkFactorsMap.get(this.selectedTeamId);
-    const teamBatters = this.constructLineup(
-      this.allBatterProjections.filter(b => (b.parentTeamId || b.teamId) === this.selectedTeamId && b.projectedStats.pa >= 200)
+    const { lineup: teamBatters } = constructOptimalLineup(
+      this.allBatterProjections.filter(b => (b.parentTeamId || b.teamId) === this.selectedTeamId && b.projectedStats.pa >= 200),
+      b => b.projectedStats.war
     );
 
     const teamPitchers = this.allPitcherProjections
@@ -439,7 +441,7 @@ export class ParksView {
         const effects = this.computeBatterEffects(b, eff);
 
         html += `<tr class="park-lineup-card-row" data-player-id="${b.playerId}" data-type="batter" style="cursor:pointer;">
-          <td class="pos-badge">${b.lineupPos}</td>
+          <td class="pos-badge">${b.positionLabel}</td>
           <td>${b.name}</td>
           <td>${bats}</td>
           <td>${this.fmtStatEffect(b.projectedStats.avg, '.avg', effects.avgDelta)}</td>
@@ -483,55 +485,6 @@ export class ParksView {
     }
 
     return html;
-  }
-
-  /**
-   * Greedy scarcity-based lineup construction (mirrors TeamRatingsService.constructOptimalLineup).
-   * Fills the most constrained position first to avoid duplicating slots.
-   */
-  private constructLineup(batters: ProjectedBatter[]): (ProjectedBatter & { lineupPos: string })[] {
-    const sorted = [...batters].sort((a, b) => b.projectedStats.war - a.projectedStats.war);
-    const used = new Set<number>();
-    const result: (ProjectedBatter & { lineupPos: string })[] = [];
-
-    const slots = [
-      { label: 'C',  canPlay: [2] },
-      { label: '1B', canPlay: [3, 6] },
-      { label: '2B', canPlay: [4, 6] },
-      { label: 'SS', canPlay: [6] },
-      { label: '3B', canPlay: [5, 6] },
-      { label: 'LF', canPlay: [7, 8, 9] },
-      { label: 'CF', canPlay: [8] },
-      { label: 'RF', canPlay: [9, 7, 8] },
-    ];
-
-    const remaining = [...slots];
-    while (remaining.length > 0) {
-      // Pick the most constrained slot (fewest eligible unused players)
-      const scored = remaining.map(slot => ({
-        slot,
-        eligible: sorted.filter(b => !used.has(b.playerId) && slot.canPlay.includes(b.position)).length,
-      }));
-      scored.sort((a, b) => a.eligible - b.eligible);
-      const { slot } = scored[0];
-
-      // Fill with best eligible player, or best available as fallback
-      const pick = sorted.find(b => !used.has(b.playerId) && slot.canPlay.includes(b.position))
-        ?? sorted.find(b => !used.has(b.playerId));
-      if (pick) {
-        result.push({ ...pick, lineupPos: slot.label, positionLabel: slot.label });
-        used.add(pick.playerId);
-      }
-      remaining.splice(remaining.findIndex(s => s.label === slot.label), 1);
-    }
-
-    // DH: best remaining batter
-    const dh = sorted.find(b => !used.has(b.playerId));
-    if (dh) {
-      result.push({ ...dh, lineupPos: 'DH', positionLabel: 'DH' });
-    }
-
-    return result;
   }
 
   /** Compute park-adjusted stat deltas for a batter. */

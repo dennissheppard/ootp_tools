@@ -322,6 +322,15 @@ class ProjectionService {
         // Prevents position players with mop-up innings from entering pitcher projections.
         const totalIp = input.yearlyStats.reduce((sum, s) => sum + s.ip, 0);
         if (totalIp < 10 && !input.scoutingRatings) return false;
+        // Skip position players who haven't pitched in the last 2 years
+        // (filters out former two-way players who transitioned to hitting)
+        const player = playerMap.get(input.playerId);
+        if (player && player.position !== 1) {
+            const recentIp = input.yearlyStats
+                .filter(s => s.year >= statsYear - 1)
+                .reduce((sum, s) => sum + s.ip, 0);
+            if (recentIp < 10) return false;
+        }
         return true;
     });
 

@@ -24,6 +24,7 @@ import { HitterScoutingRatings } from '../models/ScoutingData';
 import { supabaseDataService } from './SupabaseDataService';
 import { resolveCanonicalBatterData, computeBatterProjection } from './ModalDataService';
 import { computeEffectiveParkFactors } from './ParkFactorService';
+import { constructOptimalLineup, redistributeTeamPA } from './LineupConstructionService';
 // BatterProfileData type used indirectly via 'any' cast in calculateProjectionFromTrueRating
 
 export interface ProjectedBatter {
@@ -534,6 +535,28 @@ class BatterProjectionService {
         pa: p.projectedStats.pa, hr: p.projectedStats.hr,
         pwr: p.estimatedRatings.power, eye: p.estimatedRatings.eye,
       })));
+    }
+
+    // Roster-aware PA redistribution
+    const teamGroups = new Map<number, ProjectedBatter[]>();
+    for (const proj of projections) {
+      const teamId = proj.parentTeamId || proj.teamId;
+      if (!teamId) continue; // skip free agents
+      if (!teamGroups.has(teamId)) teamGroups.set(teamId, []);
+      teamGroups.get(teamId)!.push(proj);
+    }
+
+    for (const [_teamId, teamBatters] of teamGroups) {
+      if (teamBatters.length < 2) continue;
+      const { lineup, bench } = constructOptimalLineup<ProjectedBatter>(teamBatters, b => b.projectedStats.war);
+      redistributeTeamPA<ProjectedBatter>(lineup, bench, {
+        recalcWar: (woba, pa, sbRuns, defRuns, posAdj) => {
+          if (leagueAvg) {
+            return leagueBattingAveragesService.calculateBattingWar(woba, pa, leagueAvg, sbRuns, defRuns, posAdj);
+          }
+          return Math.round(pa / 600 * 2 * 10) / 10; // rough fallback
+        }
+      });
     }
 
     // Sort by WAR descending

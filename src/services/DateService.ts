@@ -64,9 +64,15 @@ class DateService {
     try {
       // Ensure the API has been called so cachedSeason is populated
       const date = await this.getCurrentDate();
-      if (this.cachedSeason) return this.cachedSeason;
-      // Fallback: derive from date (pre-existing behavior)
-      return parseInt(date.split('-')[0], 10);
+      let season = this.cachedSeason ?? parseInt(date.split('-')[0], 10);
+      // API season may lag on opening day (date is Apr 2022 but API still says season 2021).
+      // If the date's calendar year exceeds the season and it's April+, the new season has started.
+      const calendarYear = parseInt(date.split('-')[0], 10);
+      const month = parseInt(date.split('-')[1], 10);
+      if (calendarYear > season && month >= 4) {
+        season = calendarYear;
+      }
+      return season;
     } catch {
       return new Date().getFullYear();
     }
@@ -150,10 +156,19 @@ class DateService {
     }
     const data = await response.json();
     // WBL returns { in_game_date: { date: "2022-01-06" }, season: "2021", ... }
+    const date = data.in_game_date.date;
     if (data.season) {
-      this.cachedSeason = parseInt(data.season, 10);
+      let season = parseInt(data.season, 10);
+      // API season may lag on opening day (date is Apr 2022 but season still says 2021).
+      // If the date's calendar year exceeds the reported season, use the calendar year.
+      const calendarYear = parseInt(date.split('-')[0], 10);
+      if (calendarYear > season) {
+        const month = parseInt(date.split('-')[1], 10);
+        if (month >= 4) season = calendarYear; // Apr+ means the new season has started
+      }
+      this.cachedSeason = season;
     }
-    return data.in_game_date.date;
+    return date;
   }
 
   /**

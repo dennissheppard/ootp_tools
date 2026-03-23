@@ -5,8 +5,13 @@ module.exports = {
   testEnvironment: 'node',
   testPathIgnorePatterns: [
     '/node_modules/',
-    // This test uses Vitest imports and is run by npx vitest instead
+    // Vitest-only tests (run via npx vitest)
     'src/services/simulation/SeasonSimulator.test.ts',
+    'src/router\\.test\\.ts',
+    // DOM-dependent tests (need jsdom environment)
+    'src/views/TeamPlanningView\\.test\\.ts',
+    // Worktree copies
+    '\\.claude/worktrees/',
   ],
   moduleNameMapper: {
     '^(\.{1,2}/.*)\\.js$': '$1',
