@@ -6,7 +6,7 @@ import { leagueStatsService } from './LeagueStatsService';
 import { fipWarService } from './FipWarService';
 import { RatingEstimatorService } from './RatingEstimatorService';
 import { PitcherScoutingRatings, HitterScoutingRatings } from '../models/ScoutingData';
-import { projectionService } from './ProjectionService';
+import { projectionService, classifyPitcherRole } from './ProjectionService';
 import { dateService } from './DateService';
 import { playerService } from './PlayerService';
 import { trueFutureRatingService } from './TrueFutureRatingService';
@@ -526,24 +526,19 @@ class TeamRatingsService {
         const trData = pitcherTrMap.get(stat.player_id);
         const scouting = scoutingMap.get(stat.player_id);
 
-        // Determine role (SP vs RP) - use multiple signals like getTeamRatings does
-        const pitches = scouting?.pitches ?? {};
-        const usablePitchCount = Object.values(pitches).filter(v => v >= 45).length;
-        const stamina = scouting?.stamina ?? 0;
-
-        // Priority 1: Check historical stats (most reliable)
+        // Determine role (SP vs RP) — canonical classifier
         const historicalStats = multiYearPitchingStats.get(stat.player_id) ?? [];
-        const totalGs = historicalStats.reduce((sum, s) => sum + (s.gs ?? 0), 0);
-        const hasStarterHistory = totalGs >= 5;
-
-        // Priority 2: Check current year stats
-        const hasStarterRole = stat.gs >= 5;
-
-        // Priority 3: Check scouting profile
-        const hasStarterProfile = usablePitchCount >= 3 && stamina >= 30;
-
-        // Classify as SP if they have any evidence of being a starter
-        const isSp = hasStarterHistory || hasStarterRole || hasStarterProfile;
+        const { isSp } = classifyPitcherRole({
+          pitches: scouting?.pitches,
+          stamina: scouting?.stamina,
+          currentGS: stat.gs,
+          historicalStats: historicalStats.map(s => ({
+            ip: trueRatingsService.parseIp(s.ip),
+            gs: s.gs ?? 0,
+          })),
+          trueRating: pitcherTrMap.get(stat.player_id)?.trueRating,
+          hasRecentMlb: true,
+        });
 
         const ip = trueRatingsService.parseIp(stat.ip);
 
@@ -844,13 +839,11 @@ class TeamRatingsService {
           processedCount++;
           const scouting = scoutingMap.get(tfr.playerId);
 
-          const pitches = scouting?.pitches ?? {};
-          const pitchCount = Object.values(pitches).filter(v => v >= 45).length; // Usable pitches
           const stamina = scouting?.stamina ?? 0;
           const injury = scouting?.injuryProneness;
 
-          // Classification: SP if Stamina >= 30 AND 3+ Usable Pitches
-          const isSp = stamina >= 30 && pitchCount >= 3;
+          // Classification: canonical SP/RP classifier (prospects, no MLB history)
+          const { isSp } = classifyPitcherRole({ pitches: scouting?.pitches, stamina: scouting?.stamina });
 
           // Calculate realistic IP projection based on stamina and injury proneness
           // PEAK PROJECTION: Age 27 peak assumes healthy, full workload season
@@ -973,7 +966,7 @@ class TeamRatingsService {
                   control: scouting?.control ?? 0,
                   hra: scouting?.hra ?? 0,
                   stamina,
-                  pitches: pitchCount
+                  pitches: Object.values(scouting?.pitches ?? {}).filter(v => v >= 25).length
               },
               stats: {
                   ip: projectedIp,
@@ -2083,65 +2076,28 @@ class TeamRatingsService {
             if (matches && matches.length === 1) scouting = matches[0];
         }
 
-        const pitches = scouting?.pitches ?? {};
-        const allPitchCount = Object.keys(pitches).length;
-        const usablePitchCount = Object.values(pitches).filter(rating => rating >= 45).length;
-
-        // Classification Logic
-        // Priority 1: Check multi-year GS history (most reliable)
+        // Classification: canonical SP/RP classifier
         const historicalStats = multiYearStats.get(stat.player_id) ?? [];
-        const totalGs = historicalStats.reduce((sum, s) => sum + (s.gs ?? 0), 0);
-        const hasStarterHistory = totalGs >= 5;
-
-        // Priority 2: Check current year stats
-        const hasStarterRole = stat.gs >= 5;
-
-        // Priority 3: Check scouting profile (usable pitches + stamina)
         const stamina = scouting?.stamina ?? 0;
-        const hasStarterProfile = usablePitchCount >= 3 && stamina >= 30;
+        const usablePitchCount = Object.values(scouting?.pitches ?? {}).filter(r => r >= 25).length;
 
-        // Classify as SP if they have starter history OR current starter role OR clear starter profile
-        // BUT require at least some evidence (not just 3 weak pitches)
-        let isSp = false;
-        let classificationReason = 'RP (default)';
-
+        let isSp: boolean;
         if (isHistoricalYear) {
-            if (hasStarterRole) {
-                isSp = true;
-                classificationReason = `SP (${stat.gs} GS this year)`;
-            } else {
-                classificationReason = `RP (${stat.gs} GS this year)`;
-            }
+            // For historical years, only use that year's GS
+            isSp = stat.gs >= 5;
         } else {
-            if (hasStarterHistory || hasStarterRole) {
-                // Stats say starter
-                isSp = true;
-                classificationReason = hasStarterHistory
-                    ? `SP (${totalGs} total GS in last 3 years)`
-                    : `SP (${stat.gs} GS this year)`;
-            } else if (hasStarterProfile && allPitchCount > 0) {
-                // Scouting says starter (only if we have actual scouting data)
-                isSp = true;
-                classificationReason = `SP (${usablePitchCount} pitches, ${stamina} stam)`;
-            } else if (allPitchCount === 0 && stat.gs >= 1) {
-                // Fallback: No scouting data, but started some games this year
-                isSp = true;
-                classificationReason = `SP (${stat.gs} GS, no scouting)`;
-            } else {
-                classificationReason = `RP (${usablePitchCount}/${allPitchCount} pitches, ${stamina} stam, ${totalGs} GS)`;
-            }
-        }
-
-        // Debug logging for high-rated relievers in rotations
-        if (isSp && (stat.playerName.includes('DEBUG') || Math.random() < 0.01)) {
-            console.log(`[Team Ratings] ${stat.playerName}: ${classificationReason}`, {
-                currentGS: stat.gs,
-                totalGs,
-                usablePitchCount,
-                allPitchCount,
-                stamina,
-                historicalStats: historicalStats.map(s => ({ year: s.year, gs: s.gs, ip: s.ip }))
+            const roleResult = classifyPitcherRole({
+              pitches: scouting?.pitches,
+              stamina: scouting?.stamina,
+              currentGS: stat.gs,
+              historicalStats: historicalStats.map(s => ({
+                ip: trueRatingsService.parseIp(s.ip),
+                gs: s.gs ?? 0,
+              })),
+              trueRating: trData?.trueRating ?? fallback?.trueRating,
+              hasRecentMlb: true,
             });
+            isSp = roleResult.isSp;
         }
 
         const ratedPlayer: RatedPlayer = {

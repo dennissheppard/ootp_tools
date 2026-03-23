@@ -14,6 +14,64 @@ import { supabaseDataService } from './SupabaseDataService';
 import { fipWarService } from './FipWarService';
 import { computePitcherParkHrFactor } from './ParkFactorService';
 
+// ──────────────────────────────────────────────
+// Canonical SP/RP classification — single source of truth
+// Used by: ProjectionService, sync-db, TeamRatingsService
+// ──────────────────────────────────────────────
+
+export interface PitcherRoleInput {
+  pitches?: Record<string, number>;  // pitch name → rating (20-80)
+  stamina?: number;                  // 20-80 scouting rating
+  ootpRole?: number;                 // 11 = SP, 12 = RP
+  currentGS?: number;               // games started this season
+  historicalStats?: { ip: number; gs: number }[];  // sorted newest first
+  hasRecentMlb?: boolean;           // has MLB experience
+  trueRating?: number;              // 0.5-5.0 star TR
+}
+
+/**
+ * Classify a pitcher as SP or RP using a priority-based heuristic:
+ *   1. Scouting profile: 3+ pitches rated >= 25, stamina >= 35
+ *   2. OOTP role: role === 11 (SP)
+ *   3. Current-year GS >= 5
+ *   4. Most recent historical season with 10+ IP has GS >= 5
+ */
+export function classifyPitcherRole(input: PitcherRoleInput): { isSp: boolean; roleReason: string } {
+  // Priority 1: Scouting profile
+  if (input.pitches) {
+    const usablePitches = Object.values(input.pitches).filter(r => r >= 25).length;
+    const stam = input.stamina ?? 0;
+    if (usablePitches >= 3 && stam >= 35) {
+      // Prospects without MLB track record: profile alone is enough
+      // Established players: require TR >= 2.0
+      if (!input.hasRecentMlb || (input.trueRating ?? 0) >= 2.0) {
+return { isSp: true, roleReason: 'scouting-profile' };
+      }
+    }
+  }
+
+  // Priority 2: OOTP role
+  if (input.ootpRole === 11) {
+    return { isSp: true, roleReason: 'ootp-role' };
+  }
+
+  // Priority 3: Current-year stats
+  if (input.currentGS !== undefined && input.currentGS >= 5) {
+    return { isSp: true, roleReason: 'current-stats-gs' };
+  }
+
+  // Priority 4: Historical stats (most recent season with 10+ IP)
+  if (input.historicalStats && input.historicalStats.length > 0) {
+    const recent = input.historicalStats.find(s => s.ip > 10);
+    if (recent && recent.gs >= 5) {
+return { isSp: true, roleReason: 'historical-gs' };
+    }
+  }
+
+  const result = { isSp: false, roleReason: 'default-rp' };
+return result;
+}
+
 export interface ProjectedPlayer {
   playerId: number;
   name: string;
@@ -243,12 +301,12 @@ class ProjectionService {
       : currentYearStats;
     this.buildLeagueIpDistribution(distributionStats, scoutingRatings, distributionYear);
 
-    // Always use prior season for multi-year stats to avoid partial season contamination
-    const multiYearEndYear = year - 1;
+    // Include current year in multi-year window so role classification (SP/RP) sees
+    // the most recent season's GS. Matches sync-db's 4-year window that includes current year.
     const [leagueAverages, leagueStats, multiYearStats] = await Promise.all([
       this.getLeagueAveragesSafe(statsYear),
       this.getLeagueStatsSafe(statsYear),
-      this.getMultiYearStatsSafe(multiYearEndYear, 3)
+      this.getMultiYearStatsSafe(year, 4)
     ]);
 
     // 2. Maps
@@ -390,7 +448,6 @@ class ProjectionService {
         // which would assign free agents to their old team from prior year stats.
         const teamId = player.teamId ?? 0;
         const team = teamMap.get(teamId);
-        const ipResult = this.calculateProjectedIp(scouting, preSeasonOnly ? undefined : currentStats, yearlyStats, ageInYear + 1, player.role, tr.trueRating, hasRecentMlb);
 
         const currentRatings = {
             stuff: tr.estimatedStuff,
@@ -403,6 +460,15 @@ class ProjectionService {
             avgFip: leagueStats.avgFip,
             runsPerWin: 8.5
         };
+
+        // Estimate FIP before IP calculation so the skill modifier can apply
+        const projRatingsForFip = agingService.applyAging(currentRatings, ageInYear);
+        const tempFipStats = PotentialStatsService.calculatePitchingStats(
+            { ...projRatingsForFip, movement: 50, babip: 50 }, 150, leagueContext
+        );
+        const estimatedFip = tempFipStats.fip;
+
+        const ipResult = this.calculateProjectedIp(scouting, preSeasonOnly ? undefined : currentStats, yearlyStats, ageInYear + 1, player.role, tr.trueRating, hasRecentMlb, estimatedFip);
 
         let projectedK9: number, projectedBb9: number, projectedHr9: number, projectedFip: number, projectedWar: number;
         let projectedRatings: { stuff: number; control: number; hra: number };
@@ -510,11 +576,9 @@ class ProjectionService {
         hra: scouting.hra,
       };
 
-      // Determine SP/RP from scouting profile
-      const pitches = scouting.pitches ?? {};
-      const usablePitches = Object.values(pitches).filter((r: any) => r >= 25).length;
-      const stam = scouting.stamina ?? 50;
-      const isSp = usablePitches >= 3 && stam >= 35;
+      // Determine SP/RP from scouting profile (prospects: no MLB history)
+      const stam = scouting.stamina ?? 0;
+      const { isSp } = classifyPitcherRole({ pitches: scouting.pitches, stamina: scouting.stamina });
 
       // IP from stamina
       let baseIp = isSp ? 10 + (stam * 3.0) : 30 + (stam * 0.6);
@@ -958,56 +1022,20 @@ class ProjectionService {
       };
     }
 
-    // 1. Determine Role (SP vs RP)
-    let isSp = false;
-
-    // Heuristic 1: Profile (User Priority)
-    // 3+ Pitches (> 25) AND Stamina >= 35
-    // Count pitches > 25 as "real" pitches (not just organizational filler)
-    // For prospects without MLB track record, don't require proven performance
-    // For established players, require TR >= 2.0 to be considered a starter
-    let meetsProfile = false;
-    if (scouting) {
-        const pitches = scouting.pitches ?? {};
-        const pitchValues = Object.values(pitches);
-        // Relaxed threshold: count pitches >= 25 as potentially usable (was > 25)
-        // OSA often rates fringe pitches at 25 or 30, whereas My Scout might be 35+
-        const usablePitches = pitchValues.filter(r => r >= 25).length;
-        const stam = scouting.stamina ?? 0;
-
-        if (usablePitches >= 3 && stam >= 35) {
-            // If prospect (no MLB experience), profile alone is enough
-            // If established player, also require competent performance
-            if (!hasRecentMlb || trueRating >= 2.0) {
-                meetsProfile = true;
-            }
-        }
-    }
-
-    let roleReason = 'fallback';
-    if (meetsProfile) {
-        isSp = true;
-        roleReason = 'scouting-profile';
-    } else if (playerRole === 11) {
-        // Heuristic 2: Explicit Role (SP)
-        isSp = true;
-        roleReason = 'ootp-role';
-    } else {
-        // Heuristic 3: History (Fallback)
-        // Check Stats first (GS >= 5)
-        if (currentStats && currentStats.gs >= 5) {
-            isSp = true;
-            roleReason = 'current-stats-gs';
-        } else if (historicalStats && historicalStats.length > 0) {
-            // Check most recent season with significant IP
-            // Assuming historicalStats is sorted recent first.
-            const recent = historicalStats.find(s => trueRatingsService.parseIp(s.ip) > 10);
-            if (recent && recent.gs >= 5) {
-                isSp = true;
-                roleReason = 'historical-gs';
-            }
-        }
-    }
+    // 1. Determine Role (SP vs RP) — delegate to canonical classifier
+    const roleResult = classifyPitcherRole({
+      pitches: scouting?.pitches,
+      stamina: scouting?.stamina,
+      ootpRole: playerRole,
+      currentGS: currentStats?.gs,
+      historicalStats: historicalStats?.map(s => ({
+        ip: typeof s.ip === 'number' ? s.ip : trueRatingsService.parseIp(s.ip),
+        gs: s.gs,
+      })),
+      hasRecentMlb,
+      trueRating,
+    });
+    const { isSp, roleReason } = roleResult;
 
     if (trace) {
       trace.roleDecision = {

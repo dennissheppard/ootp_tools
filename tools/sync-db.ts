@@ -69,6 +69,7 @@ import { leagueBattingAveragesService } from '../src/services/LeagueBattingAvera
 import { projectDefensiveValue, parseFieldingScouting } from '../src/services/DefensiveProjectionService';
 import { parseParkFactorsCsv, computeEffectiveParkFactors, computePitcherParkHrFactor, type ParkFactorRow } from '../src/services/ParkFactorService';
 import { constructOptimalLineup, redistributeTeamPA } from '../src/services/LineupConstructionService';
+import { classifyPitcherRole, projectionService } from '../src/services/ProjectionService';
 
 // ──────────────────────────────────────────────
 // Config
@@ -2129,38 +2130,26 @@ async function computeProjections(
 
     const teamId = player.team_id ?? currentStats?.team_id ?? 0;
 
-    // Build scouting for IP calculation
+    // Build scouting for IP calculation — pitches are in raw_data.pitches, not the top-level column
     const scoutingForIp: any = scouting ? {
       stamina: scouting.stamina,
       injuryProneness: scouting.injury_proneness,
-      pitches: scouting.pitches,
+      pitches: scouting.raw_data?.pitches ?? scouting.pitches,
       ovr: scouting.ovr,
       pot: scouting.pot,
     } : undefined;
 
-    // Determine SP/RP role (same logic as browser)
-    let isSp = false;
-    let roleReason = 'fallback';
-    if (scoutingForIp) {
-      const pitches = scoutingForIp.pitches ?? {};
-      const usablePitches = Object.values(pitches).filter((r: any) => r >= 25).length;
-      const stam = scoutingForIp.stamina ?? 0;
-      if (usablePitches >= 3 && stam >= 35) {
-        if (!hasRecentMlb || tr.trueRating >= 2.0) {
-          isSp = true;
-          roleReason = 'scouting-profile';
-        }
-      }
-    }
-    if (!isSp) {
-      const ootpRole = player.role ? parseInt(String(player.role), 10) : 0;
-      if (ootpRole === 11) { isSp = true; roleReason = 'ootp-role'; }
-      else if (currentStats && (currentStats.gs ?? 0) >= 5) { isSp = true; roleReason = 'current-stats-gs'; }
-      else if (yearlyStats) {
-        const recent = yearlyStats.find(s => s.ip > 10);
-        if (recent && recent.gs >= 5) { isSp = true; roleReason = 'historical-gs'; }
-      }
-    }
+    // Determine SP/RP role — canonical classifier (same as browser)
+    const ootpRole = player.role ? parseInt(String(player.role), 10) : 0;
+    const { isSp, roleReason } = classifyPitcherRole({
+      pitches: scoutingForIp?.pitches,
+      stamina: scoutingForIp?.stamina,
+      ootpRole,
+      currentGS: currentStats?.gs,
+      historicalStats: yearlyStats?.map(s => ({ ip: s.ip, gs: s.gs })),
+      hasRecentMlb,
+      trueRating: tr.trueRating,
+    });
 
     // Calculate projected IP (replicated from ProjectionService.calculateProjectedIp)
     const stamina = scoutingForIp?.stamina ?? (isSp ? 50 : 30);
