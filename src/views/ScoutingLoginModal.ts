@@ -14,6 +14,7 @@ import { PitcherScoutingRatings, HitterScoutingRatings } from '../models/Scoutin
 import { getTeamLogoUrl } from '../utils/teamLogos';
 import { apiFetch } from '../services/ApiClient';
 import { MessageModal } from './MessageModal';
+import { analyticsService } from '../services/AnalyticsService';
 
 const INJURY_MAP: Record<string, string> = {
   '1': 'Wrecked', '2': 'Fragile', '3': 'Normal', '4': 'Durable', '5': 'Iron Man',
@@ -313,6 +314,7 @@ class ScoutingLoginModal {
 
       this.dismissProgressOverlay();
       this.messageModal.show('Scouting Loaded', resultMessage);
+      analyticsService.trackScoutingLogin({ team: this.selectedTeamNickname || teamAbbr, pitcherCount: pitcherRatings.length, hitterCount: hitterRatings.length, success: true });
 
       // Notify all views + update header badge
       window.dispatchEvent(new CustomEvent('scoutingDataUpdated', { detail: { source: 'my' } }));
@@ -321,6 +323,7 @@ class ScoutingLoginModal {
       console.error('Team scouting fetch failed:', err);
       this.dismissProgressOverlay();
       this.messageModal.show('Fetch Failed', `Could not load scouting data. Check your passphrase and try again.\n\n${err}`);
+      analyticsService.trackScoutingLogin({ team: this.selectedTeamNickname || teamAbbr, pitcherCount: 0, hitterCount: 0, success: false, error: String(err) });
     } finally {
       if (fetchBtn) { fetchBtn.disabled = false; fetchBtn.textContent = 'Fetch Scouting'; }
     }
