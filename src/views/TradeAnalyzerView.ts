@@ -1,13 +1,13 @@
 import { Player, getFullName, isPitcher, getPositionLabel } from '../models/Player';
 import { playerService } from '../services/PlayerService';
 import { teamService } from '../services/TeamService';
-import { ProjectedPlayer } from '../services/ProjectionService';
+import { ProjectedPlayer, projectionService } from '../services/ProjectionService';
 import { Team } from '../models/Team';
 import { dateService } from '../services/DateService';
 import { scoutingDataFallbackService } from '../services/ScoutingDataFallbackService';
 import { pitcherProfileModal } from './PitcherProfileModal';
 import { BatterProfileModal, BatterProfileData } from './BatterProfileModal';
-import { ProjectedBatter } from '../services/BatterProjectionService';
+import { ProjectedBatter, batterProjectionService } from '../services/BatterProjectionService';
 import { teamRatingsService, RatedProspect, RatedHitterProspect, TeamPowerRanking, RatedPitcher, RatedBatter } from '../services/TeamRatingsService';
 import { contractService, Contract } from '../services/ContractService';
 import { trueRatingsService } from '../services/TrueRatingsService';
@@ -229,14 +229,16 @@ export class TradeAnalyzerView {
       console.error('Failed to detect scouting data mode:', e);
     }
 
-    // Load farm data and canonical TR in parallel (lightweight precomputed lookups).
+    // Load farm data, canonical TR, and cached projections in parallel.
     // Power rankings + contracts are deferred to first trade analysis / team selection.
     try {
-      const [pitcherUnifiedData, hitterUnifiedData, pitcherTR, batterTR] = await Promise.all([
+      const [pitcherUnifiedData, hitterUnifiedData, pitcherTR, batterTR, pitcherProjCtx, batterProjCtx] = await Promise.all([
         teamRatingsService.getUnifiedPitcherTfrData(this.currentYear).catch(e => { console.warn('Failed to load unified pitcher TFR data:', e); return null; }),
         teamRatingsService.getUnifiedHitterTfrData(this.currentYear).catch(e => { console.warn('Failed to load unified hitter TFR data:', e); return null; }),
         trueRatingsService.getPitcherTrueRatings(this.currentYear).catch(e => { console.warn('Failed to load canonical pitcher TR:', e); return null; }),
         trueRatingsService.getHitterTrueRatings(this.currentYear).catch(e => { console.warn('Failed to load canonical batter TR:', e); return null; }),
+        projectionService.getProjectionsWithContext(this.currentYear).catch(e => { console.warn('Failed to load pitcher projections:', e); return null; }),
+        batterProjectionService.getProjectionsWithContext(this.currentYear).catch(e => { console.warn('Failed to load batter projections:', e); return null; }),
       ]);
 
       if (pitcherUnifiedData) {
@@ -250,6 +252,16 @@ export class TradeAnalyzerView {
       }
       if (batterTR) {
         this.canonicalBatterTR = batterTR;
+      }
+      if (pitcherProjCtx?.projections) {
+        for (const p of pitcherProjCtx.projections) {
+          this.allProjections.set(p.playerId, p);
+        }
+      }
+      if (batterProjCtx?.projections) {
+        for (const b of batterProjCtx.projections) {
+          this.allBatterProjections.set(b.playerId, b);
+        }
       }
     } catch (e) {
       console.error('Failed to load farm/ranking data:', e);
@@ -1605,9 +1617,25 @@ export class TradeAnalyzerView {
         trueHra: p.projectedRatings.hra,
         role: p.isSp ? 'SP' : 'RP',
       };
-      if (incoming.role === 'SP' && rotation.length < 5) {
-        rotation.push(incoming);
-        gaining.push({ name: p.name, slot: `SP${rotation.length}`, rating: p.currentTrueRating });
+      if (incoming.role === 'SP') {
+        if (rotation.length < 5) {
+          rotation.push(incoming);
+          gaining.push({ name: p.name, slot: `SP${rotation.length}`, rating: p.currentTrueRating });
+        } else {
+          // Rotation full — replace the worst starter if incoming is better
+          const worstIdx = rotation.reduce((min, r, i) => r.trueRating < rotation[min].trueRating ? i : min, 0);
+          if (incoming.trueRating > rotation[worstIdx].trueRating) {
+            const demoted = rotation[worstIdx];
+            rotation[worstIdx] = incoming;
+            bullpen.push(demoted);
+            rotation.sort((a, b) => b.trueRating - a.trueRating);
+            const newIdx = rotation.indexOf(incoming);
+            gaining.push({ name: p.name, slot: `SP${newIdx + 1}`, rating: p.currentTrueRating });
+          } else {
+            bullpen.push(incoming);
+            gaining.push({ name: p.name, slot: 'RP', rating: p.currentTrueRating });
+          }
+        }
       } else {
         bullpen.push(incoming);
         gaining.push({ name: p.name, slot: 'RP', rating: p.currentTrueRating });
