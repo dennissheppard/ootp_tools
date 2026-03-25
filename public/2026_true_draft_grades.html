@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WBL Draft Grades 2026</title>
+<style>
+  :root {
+    --bg:       #ffffff;
+    --bg2:      #f5f5f2;
+    --bg3:      #eeece8;
+    --text:     #1a1a18;
+    --text2:    #5a5a56;
+    --text3:    #8a8a84;
+    --border:   rgba(0,0,0,0.10);
+    --border2:  rgba(0,0,0,0.18);
+    --success-bg:   #eaf3de;
+    --success-text: #3b6d11;
+    --success-border:#639922;
+    --info-bg:      #e6f1fb;
+    --info-text:    #185fa5;
+    --info-border:  #378add;
+    --warn-bg:      #faeeda;
+    --warn-text:    #854f0b;
+    --warn-border:  #ba7517;
+    --danger-bg:    #fcebeb;
+    --danger-text:  #a32d2d;
+    --danger-border:#e24b4a;
+    --havana-bg:    #ddeefa;
+    --row-hover:    #f5f5f2;
+    --radius:       6px;
+  }
+  [data-theme="dark"] {
+    --bg:       #1e1e1c;
+    --bg2:      #2a2a28;
+    --bg3:      #323230;
+    --text:     #e8e6e0;
+    --text2:    #a8a89e;
+    --text3:    #6a6a64;
+    --border:   rgba(255,255,255,0.10);
+    --border2:  rgba(255,255,255,0.18);
+    --success-bg:   #1a2e0a;
+    --success-text: #8dcf52;
+    --success-border:#4a8f1a;
+    --info-bg:      #0a1e35;
+    --info-text:    #6ab0ef;
+    --info-border:  #2a6aaa;
+    --warn-bg:      #2a1a05;
+    --warn-text:    #e8a845;
+    --warn-border:  #9a6010;
+    --danger-bg:    #2a0a0a;
+    --danger-text:  #e87070;
+    --danger-border:#9a3030;
+    --havana-bg:    #0a1e2e;
+    --row-hover:    #2a2a28;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    padding: 32px 24px;
+    font-size: 14px;
+    line-height: 1.5;
+    transition: background 0.2s, color 0.2s;
+  }
+  header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    margin-bottom: 20px;
+    gap: 16px;
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 18px; font-weight: 500; color: var(--text); }
+  .subtitle { font-size: 12px; color: var(--text2); margin-top: 4px; }
+  .controls { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+  .theme-btn {
+    font-size: 12px;
+    padding: 5px 12px;
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border2);
+    background: var(--bg2);
+    color: var(--text2);
+    cursor: pointer;
+  }
+  .theme-btn:hover { background: var(--bg3); color: var(--text); }
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: var(--text3);
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    background: var(--bg2);
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border);
+  }
+  .legend span::before { content: "· "; }
+  .legend span:first-child::before { content: ""; }
+  .table-wrap { overflow-x: auto; border: 0.5px solid var(--border); border-radius: var(--radius); }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 820px; }
+  thead { position: sticky; top: 0; z-index: 2; }
+  th {
+    font-size: 11px;
+    font-weight: 500;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 10px 12px;
+    background: var(--bg2);
+    border-bottom: 0.5px solid var(--border2);
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    text-align: left;
+  }
+  th:hover { color: var(--text); }
+  th.sorted { color: var(--text); }
+  .sort-icon { margin-left: 4px; opacity: 0.35; font-style: normal; font-size: 10px; }
+  th.sorted .sort-icon { opacity: 1; }
+  td {
+    padding: 9px 12px;
+    border-bottom: 0.5px solid var(--border);
+    vertical-align: middle;
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--row-hover); }
+  tr.havana td { background: var(--havana-bg); }
+  tr.havana:hover td { filter: brightness(0.95); }
+  .rank { color: var(--text3); font-size: 12px; }
+  .team-name { font-weight: 500; color: var(--text); }
+  .havana-star { color: var(--info-text); margin-left: 4px; }
+  .grade {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 0.5px solid;
+    white-space: nowrap;
+  }
+  .gA  { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
+  .gAm { background: var(--success-bg); color: var(--success-text); border-color: var(--success-border); }
+  .gBp { background: var(--info-bg);    color: var(--info-text);    border-color: var(--info-border);    }
+  .gB  { background: var(--info-bg);    color: var(--info-text);    border-color: var(--info-border);    }
+  .gBm { background: var(--warn-bg);    color: var(--warn-text);    border-color: var(--warn-border);    }
+  .gCp { background: var(--warn-bg);    color: var(--warn-text);    border-color: var(--warn-border);    }
+  .gC  { background: var(--danger-bg);  color: var(--danger-text);  border-color: var(--danger-border);  }
+  .gD  { background: var(--danger-bg);  color: var(--danger-text);  border-color: var(--danger-border);  }
+  .vop-good { color: var(--success-text); font-weight: 500; }
+  .vop-bad  { color: var(--danger-text);  font-weight: 500; }
+  .vop-neu  { color: var(--text2); }
+  .num { text-align: center; }
+  .pick-name { font-size: 12px; color: var(--text); }
+  .pick-meta { font-size: 11px; color: var(--text3); }
+  .filter-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .filter-row label { font-size: 12px; color: var(--text2); }
+  input[type="text"] {
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: var(--radius);
+    border: 0.5px solid var(--border2);
+    background: var(--bg);
+    color: var(--text);
+    outline: none;
+    width: 180px;
+  }
+  input[type="text"]:focus { border-color: var(--info-border); }
+  .count { font-size: 12px; color: var(--text3); }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>WBL True Draft Grades — 2026</h1>
+    <div class="subtitle">True Future Ratings rank vs actual pick position · VOP = talent rank − pick number</div>
+  </div>
+  <div class="controls">
+    <span class="count" id="count">20 teams</span>
+    <button class="theme-btn" onclick="toggleTheme()">Toggle dark mode</button>
+  </div>
+</header>
+
+<div class="legend">
+  <span>Negative VOP = drafted later than True Future Rating suggests (value / steal)</span>
+  <span>Positive VOP = drafted earlier than True Future Rating suggests (reach)</span>
+  <span>Talent/Pick = total talent points per pick used</span>
+</div>
+
+<div class="filter-row">
+  <label>Filter:</label>
+  <input type="text" id="filterInput" placeholder="Search team name…" oninput="applyFilter()">
+</div>
+
+<div class="table-wrap">
+<table id="draftTable">
+  <thead>
+    <tr>
+      <th onclick="sortTable('rank')">#<i class="sort-icon">↕</i></th>
+      <th onclick="sortTable('team')">Team<i class="sort-icon">↕</i></th>
+      <th onclick="sortTable('grade')">Grade<i class="sort-icon">↕</i></th>
+      <th onclick="sortTable('vop')" class="num">Avg VOP<i class="sort-icon">↕</i></th>
+      <th onclick="sortTable('picks')" class="num">Picks<i class="sort-icon">↕</i></th>
+      <th onclick="sortTable('talent')" class="num">Total Talent Points<i class="sort-icon">↕</i></th>
+      <th onclick="sortTable('talpp')" class="num">Talent Points / Pick<i class="sort-icon">↕</i></th>
+      <th onclick="sortTable('bestvop')">Best Value Pick<i class="sort-icon">↕</i></th>
+      <th onclick="sortTable('reachvop')">Biggest Reach<i class="sort-icon">↕</i></th>
+    </tr>
+  </thead>
+  <tbody id="tbody"></tbody>
+</table>
+</div>
+
+<script>
+const teams = [
+  { team:"Toronto Huskies",          vop:-18.9, picks:10, talent:922,  gkey:0,  gc:"gA",  gr:"A",  bestPick:"R9P11 Ken Lilly",          bestVop:-75, reachPick:"R3P4 Man-ho Kim",          reachVop:98  },
+  { team:"Sint Maarten Sun Chasers", vop:-15.5, picks:10, talent:897,  gkey:1,  gc:"gA",  gr:"A",  bestPick:"R8P15 Raul Molina",         bestVop:-74, reachPick:"R12P15 Brayden Hagerty",   reachVop:58  },
+  { team:"Curacao Blue Wave",        vop:-15.1, picks:18, talent:1989, gkey:2,  gc:"gAm", gr:"A−", bestPick:"R7P7 In-hee Kim",           bestVop:-57, reachPick:"R3P14 Cameron Graham",     reachVop:36  },
+  { team:"Vancouver Homewreckers",   vop:-13.8, picks:9,  talent:762,  gkey:3,  gc:"gAm", gr:"A−", bestPick:"R9P19 Eduardo Martinez",    bestVop:-91, reachPick:"R2P18 Rajko Gvero",       reachVop:18  },
+  { team:"St. Lucia Mermen",         vop:-12.6, picks:7,  talent:565,  gkey:4,  gc:"gAm", gr:"A−", bestPick:"R12P16 Roberto Valverde",   bestVop:-42, reachPick:"R8P16 Arcibaldo Albino",   reachVop:20  },
+  { team:"Havana Sugar Kings",       vop:-10.1, picks:14, talent:1482, gkey:5,  gc:"gBp", gr:"B+", bestPick:"R9P1 Pavle Veselin",        bestVop:-61, reachPick:"R3P2 Liam Mackay",        reachVop:56 },
+  { team:"Lappland Boazu",           vop:-9.7,  picks:12, talent:1179, gkey:6,  gc:"gBp", gr:"B+", bestPick:"R3P19 Gerry Belgrove",      bestVop:-52, reachPick:"R5P10 Ian Johnson",       reachVop:74  },
+  { team:"Amsterdam Dragons",        vop:-5.6,  picks:12, talent:1181, gkey:7,  gc:"gBp", gr:"B+", bestPick:"R6P2 Sam Flynn",            bestVop:-57, reachPick:"R2P16 Adam Raue",         reachVop:61  },
+  { team:"Honolulu Honu",            vop:+0.7,  picks:15, talent:1220, gkey:8,  gc:"gB",  gr:"B",  bestPick:"R9P18 Gabel ten Tije",      bestVop:-79, reachPick:"R8P20 Bryan Slusser",     reachVop:77  },
+  { team:"Dubai Bedouins",           vop:+2.4,  picks:14, talent:1487, gkey:9,  gc:"gB",  gr:"B",  bestPick:"R5P16 C.J. Crocker",        bestVop:-43, reachPick:"R8P8 Jose Masson",        reachVop:75  },
+  { team:"Rome Centurions",          vop:+2.8,  picks:9,  talent:799,  gkey:10, gc:"gB",  gr:"B",  bestPick:"R11P12 Tommy Riggle",       bestVop:-80, reachPick:"R7P12 Andrew Hannah",     reachVop:92  },
+  { team:"Denver Blucifers",         vop:+3.9,  picks:16, talent:1558, gkey:11, gc:"gBm", gr:"B−", bestPick:"R10P9 Alan Wakeham",        bestVop:-69, reachPick:"R4P6 Ricardo Flores",     reachVop:56  },
+  { team:"California Surfers",       vop:+4.6,  picks:15, talent:1447, gkey:12, gc:"gBm", gr:"B−", bestPick:"R7P6 Yoshio Matsuda",       bestVop:-49, reachPick:"R4P18 Jake Ehlers",       reachVop:59  },
+  { team:"Adelaide Bite",            vop:+5.0,  picks:10, talent:930,  gkey:13, gc:"gBm", gr:"B−", bestPick:"R12P20 Calisto Suda",       bestVop:-54, reachPick:"R9P20 In-sung Kim",       reachVop:47  },
+  { team:"Longbow Hunters",          vop:+5.1,  picks:12, talent:1127, gkey:14, gc:"gBm", gr:"B−", bestPick:"R6P14 Yancey Strickland",   bestVop:-53, reachPick:"R2P13 Robby LeBeau",     reachVop:75  },
+  { team:"Cleveland Spiders",        vop:+6.2,  picks:16, talent:1688, gkey:15, gc:"gBm", gr:"B−", bestPick:"R4P10 Joel Ferrua",         bestVop:-43, reachPick:"R8P5 Jorge Fernandez",    reachVop:88  },
+  { team:"London Red Coats",         vop:+11.9, picks:12, talent:1086, gkey:16, gc:"gCp", gr:"C+", bestPick:"R5P4 Stephen Slattery",     bestVop:-33, reachPick:"R2P4 T.J. McKinney",     reachVop:65  },
+  { team:"Galapagos Shellbacks",     vop:+14.9, picks:9,  talent:765,  gkey:17, gc:"gCp", gr:"C+", bestPick:"R12P13 Bill Cagnon",        bestVop:-72, reachPick:"R7P13 Corey Devon",      reachVop:96  },
+  { team:"Tokyo Tigers",             vop:+15.7, picks:7,  talent:605,  gkey:18, gc:"gC",  gr:"C",  bestPick:"R12P3 Jon Huerta",          bestVop:-25, reachPick:"R7P3 Erik Jarquin",      reachVop:80  },
+  { team:"North Korea Outlaws",      vop:+23.6, picks:15, talent:1373, gkey:19, gc:"gD",  gr:"D",  bestPick:"R9P11 Ken Lilly",           bestVop:-75, reachPick:"R5P11 Juan Crisanto",    reachVop:102 },
+];
+
+let currentSort = '';
+let sortAsc = true;
+let filterText = '';
+
+function talpp(t) { return t.talent / t.picks; }
+function vopCls(v) { return v < 0 ? 'vop-good' : (v > 0 ? 'vop-bad' : 'vop-neu'); }
+function vopStr(v) { return (v > 0 ? '+' : '') + v.toFixed(1); }
+
+function render(data) {
+  const tbody = document.getElementById('tbody');
+  tbody.innerHTML = '';
+  const visible = data.filter(t => t.team.toLowerCase().includes(filterText));
+  document.getElementById('count').textContent = visible.length + ' team' + (visible.length !== 1 ? 's' : '');
+  visible.forEach((t, i) => {
+    const tr = document.createElement('tr');
+    if (t.havana) tr.className = 'havana';
+    const pp = talpp(t);
+    tr.innerHTML =
+      `<td class="rank">${i+1}</td>` +
+      `<td class="team-name">${t.team}${t.havana ? '<span class="havana-star">★</span>' : ''}</td>` +
+      `<td><span class="grade ${t.gc}">${t.gr}</span></td>` +
+      `<td class="num ${vopCls(t.vop)}">${vopStr(t.vop)}</td>` +
+      `<td class="num">${t.picks}</td>` +
+      `<td class="num">${t.talent}</td>` +
+      `<td class="num">${pp.toFixed(1)}</td>` +
+      `<td><div class="pick-name">${t.bestPick}</div><div class="pick-meta">VOP ${t.bestVop}</div></td>` +
+      `<td><div class="pick-name">${t.reachPick}</div><div class="pick-meta">VOP +${t.reachVop}</div></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function getSortedData() {
+  return [...teams].sort((a, b) => {
+    let va, vb;
+    if      (currentSort === 'team')     { va = a.team;       vb = b.team; }
+    else if (currentSort === 'grade')    { va = a.gkey;       vb = b.gkey; }
+    else if (currentSort === 'vop')      { va = a.vop;        vb = b.vop; }
+    else if (currentSort === 'picks')    { va = a.picks;      vb = b.picks; }
+    else if (currentSort === 'talent')   { va = a.talent;     vb = b.talent; }
+    else if (currentSort === 'talpp')    { va = talpp(a);     vb = talpp(b); }
+    else if (currentSort === 'bestvop')  { va = a.bestVop;    vb = b.bestVop; }
+    else if (currentSort === 'reachvop') { va = a.reachVop;   vb = b.reachVop; }
+    else                                 { va = a.gkey;       vb = b.gkey; }
+    if (typeof va === 'string') return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+    return sortAsc ? va - vb : vb - va;
+  });
+}
+
+function sortTable(col) {
+  if (currentSort === col) { sortAsc = !sortAsc; }
+  else { currentSort = col; sortAsc = true; }
+  document.querySelectorAll('th').forEach((th, i) => {
+    th.classList.remove('sorted');
+    const icons = th.querySelectorAll('.sort-icon');
+    icons.forEach(ic => ic.textContent = '↕');
+  });
+  const cols = ['rank','team','grade','vop','picks','talent','talpp','bestvop','reachvop'];
+  const idx = cols.indexOf(col);
+  if (idx >= 0) {
+    const th = document.querySelectorAll('th')[idx];
+    th.classList.add('sorted');
+    th.querySelector('.sort-icon').textContent = sortAsc ? '↑' : '↓';
+  }
+  render(getSortedData());
+}
+
+function applyFilter() {
+  filterText = document.getElementById('filterInput').value.toLowerCase();
+  render(getSortedData());
+}
+
+function toggleTheme() {
+  const html = document.documentElement;
+  html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? '' : 'dark');
+}
+
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  document.documentElement.setAttribute('data-theme', 'dark');
+}
+
+sortTable('vop');
+</script>
+</body>
+</html>
