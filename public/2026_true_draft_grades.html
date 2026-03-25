@@ -319,6 +319,29 @@ if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').match
 }
 
 sortTable('vop');
+
+// --- Analytics (same Supabase table as main app) ---
+(function() {
+  var isLocal = location.hostname === 'localhost' || location.hostname === '127.0.0.1';
+  if (isLocal || localStorage.getItem('wbl-analytics-exclude') === '1') return;
+  var key = 'wbl-analytics-session-id';
+  var sid = sessionStorage.getItem(key);
+  if (!sid) { sid = crypto.randomUUID(); sessionStorage.setItem(key, sid); }
+  fetch('https://zymotyxfyschrmpqjtvs.supabase.co/rest/v1/analytics_events', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': 'sb_publishable_EdQN90APp2PAnr4UELyKfg_RkYr1hCh',
+      'Authorization': 'Bearer sb_publishable_EdQN90APp2PAnr4UELyKfg_RkYr1hCh',
+      'Prefer': 'return=minimal'
+    },
+    body: JSON.stringify({
+      session_id: sid,
+      event_type: 'page_view',
+      event_data: { page: '2026_draft_grades' }
+    })
+  }).catch(function(){});
+})();
 </script>
 </body>
 </html>
