@@ -96,7 +96,8 @@
       "Bash(do echo:*)",
       "Bash(du -sh C:UsersneagsDownloadsdev projectswblpublic/data/*/)",
       "Bash(du -sh C:UsersneagsDownloadsdev projectswblpublic/data/*.csv)",
-      "Bash(identify \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\\\\src\\\\images\\\\logos\\\\Dubai.png\")"
+      "Bash(identify \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\\\\src\\\\images\\\\logos\\\\Dubai.png\")",
+      "WebFetch(domain:zymotyxfyschrmpqjtvs.supabase.co)"
     ]
   },
   "enabledPlugins": {

@@ -85,6 +85,12 @@ export class AnalyticsDashboardView {
             <div id="scouting-login-table" style="max-height: 300px; overflow-y: auto;"></div>
           </div>
 
+          <!-- Static Page Views Section -->
+          <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
+            <h3 class="form-title" style="margin-bottom: 1rem;">Static Page Views</h3>
+            <div id="page-views-table" style="max-height: 300px; overflow-y: auto;"></div>
+          </div>
+
           <!-- StatsPlus API Usage Section -->
           <div style="margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.1);">
             <h3 class="form-title" style="margin-bottom: 1rem;">StatsPlus API Usage</h3>
@@ -195,6 +201,10 @@ export class AnalyticsDashboardView {
     // Custom scouting logins section
     const scoutingEvents = events.filter(e => e.event_type === 'scouting_login');
     this.renderScoutingLoginsSection(scoutingEvents);
+
+    // Static page views section
+    const pageViewEvents = last30.filter(e => e.event_type === 'page_view');
+    this.renderPageViewsSection(pageViewEvents);
 
     // API usage section
     this.cachedApiEvents = events.filter(e => e.event_type === 'api_call');
@@ -466,6 +476,52 @@ export class AnalyticsDashboardView {
       tooltip: { theme: 'dark' },
     });
     this.teamChart.render();
+  }
+
+  private renderPageViewsSection(events: AnalyticsEvent[]): void {
+    const el = this.container.querySelector('#page-views-table');
+    if (!el) return;
+
+    if (events.length === 0) {
+      el.innerHTML = '<p style="color: var(--color-text-muted); text-align: center; padding: 1rem;">No page views yet.</p>';
+      return;
+    }
+
+    // Aggregate by page name
+    const pageCounts = new Map<string, { total: number; sessions: Set<string> }>();
+    for (const e of events) {
+      const page = (e.event_data.page as string) ?? 'Unknown';
+      const existing = pageCounts.get(page);
+      if (existing) {
+        existing.total++;
+        existing.sessions.add(e.session_id);
+      } else {
+        pageCounts.set(page, { total: 1, sessions: new Set([e.session_id]) });
+      }
+    }
+
+    const sorted = Array.from(pageCounts.entries()).sort((a, b) => b[1].total - a[1].total);
+
+    el.innerHTML = `
+      <table class="stats-table" style="width: 100%; text-align: left; font-size: 0.85em;">
+        <thead>
+          <tr>
+            <th style="text-align: left;">Page</th>
+            <th style="text-align: right;">Views (30d)</th>
+            <th style="text-align: right;">Unique Sessions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${sorted.map(([page, { total, sessions }]) => `
+            <tr>
+              <td>${this.escapeHtml(page)}</td>
+              <td style="text-align: right;">${total}</td>
+              <td style="text-align: right;">${sessions.size}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
   }
 
   private renderScoutingLoginsSection(scoutingEvents: AnalyticsEvent[]): void {
