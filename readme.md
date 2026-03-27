@@ -32,7 +32,9 @@ Firebase  ──┼──→ CLI (tools/sync-db.ts) ──→ Supabase ──→
 CSV (fallback)─┘
 ```
 
-**Core rule**: `precomputed_cache` is the canonical source of truth for all projected WAR/PA/IP. Browser never recomputes current-year data (except custom scouting or historical years).
+**Core rule**: `precomputed_cache` is the canonical source of truth for all projection components (WAR, wOBA, PA, avg, obp, slg, defRuns, posAdj, bbPct, kPct, hrPct). Browser reads and displays — never recomputes current-year data except during custom scouting upload.
+
+**Two computation points**: (1) sync-db computes everything and writes to Supabase. (2) Custom scouting upload recomputes TR/TFR in-browser with new scouting grades (reuses cached stats and distributions). Every other code path is display-only.
 
 ### CLI Sync Tool
 
@@ -43,7 +45,7 @@ npx tsx tools/sync-db.ts --skip-compute  # Data only, skip TR/TFR
 npx tsx tools/sync-db.ts --force         # Re-sync even if up to date
 ```
 
-**Steps**: Detect date → Clear stale → Fetch all data → Build SyncContext (15 parallel queries) → Compute TR → Compute TFR → Compute projections (injury/park/defense adjusted) → Build lookups → Set game_date
+**Steps**: Detect date → Auto-freeze opening day snapshot (if first in-season sync) → Clear stale → Fetch all data + DOB gap-fill → Build SyncContext (2-wave parallel queries) → Compute TR → Compute TFR → Compute projections (injury/park/defense adjusted) → Build lookups → Set game_date
 
 **Skip detection**: Compares DB `game_date` against WBL API date; exits early if matched. `--force` overrides.
 
@@ -62,7 +64,9 @@ npx tsx tools/sync-db.ts --force         # Re-sync even if up to date
 | `precomputed_cache` | Key-value JSONB: projections, lookups, distributions |
 | `data_version` | `game_date` = "data ready" signal |
 
-Key `precomputed_cache` entries: `batter_projections`, `pitcher_projections`, `hitter_tfr_prospects`, `pitcher_tfr_prospects`, `*_scouting_lookup`, `contract_lookup`, `dob_lookup`, `defensive_lookup`, `league_context`.
+Key `precomputed_cache` entries: `batter_projections`, `pitcher_projections`, `hitter_tfr_prospects`, `pitcher_tfr_prospects`, `*_scouting_lookup`, `contract_lookup`, `dob_lookup`, `defensive_lookup`, `league_context`, `snapshots__index`, `*__snapshot__*` (frozen projection snapshots).
+
+Batter projections include full component breakdown: WAR, wOBA, PA, avg, obp, slg, defRuns, posAdj, bbPct, kPct, hrPct. The modal reads ALL components from the cache — it does not recompute them.
 
 ### IndexedDB (Local-Only, v12)
 
@@ -106,7 +110,21 @@ Pure peak/ceiling projection — projects age-27 peak from 100% scouting potenti
 
 **Pitcher**: Three-model ensemble (optimistic 40%, neutral 30%, pessimistic 30%). FIP-based WAR.
 
-Both paths shared between CLI (sync-db) and browser (recompute only).
+Both use shared pure functions between CLI (sync-db) and browser (custom scouting recompute only). The CLI is the canonical computation point — all views read from the cache.
+
+### Opening Day Snapshots
+Frozen pre-season projections for comparison against in-season updates. Toggle on Projections and Team Ratings views. Global banner when viewing snapshot data.
+
+- `tools/freeze-projections.ts` — manual snapshot creation (`--label`, `--year`, `--delete`)
+- Auto-freeze in sync-db on first in-season sync (if no snapshot exists for the projection year)
+- Snapshot keys use `__snapshot__` delimiter in `precomputed_cache` (e.g., `batter_projections__snapshot__opening_day_2022`)
+- `SupabaseDataService.setSnapshotMode()` transparently redirects all `getPrecomputed()` reads to snapshot keys
+
+### Draft Eligibility
+`draft_eligible.csv` in `public/data/` is the source of truth. sync-db reads it each run. Players in the CSV with no team = draft-eligible. Players in the CSV who are on a team = drafted/signed (API wins). Players not in the CSV = never draft-eligible, regardless of API status.
+
+### DOB Gap-Fill
+sync-db checks if any scouted players are missing DOB. If gaps exist, reads `public/data/player_id_dob_*.csv` (manual OOTP export) to fill them. `tools/check-dobs.ts` for standalone gap checking and fixing.
 
 ## Key Services
 
@@ -121,9 +139,9 @@ Both paths shared between CLI (sync-db) and browser (recompute only).
 | `BatterProjectionService` / `ProjectionService` | Read precomputed projections; recompute for custom scouting/historical |
 | `DefensiveProjectionService` | Fielding scouting → defensive runs + positional adjustment |
 | `ProspectDevelopmentCurveService` | Prospect TR via historical dev curves |
-| `SupabaseDataService` | Primary data layer (PostgREST, pagination, precomputed cache reads) |
+| `SupabaseDataService` | Primary data layer (PostgREST, pagination, precomputed cache reads, snapshot mode) |
 | `ConsistencyChecker` | Dev-only: compares displayed values vs cache vs formula. Amber banner on mismatch |
-| `DateService` | Game date, season year, projection target year, season progress |
+| `DateService` | Game date, season year, projection target year, season progress. Handles API season lag (trusts game date calendar year Apr-Oct) |
 | `SimulationService` | Converts team ratings → Monte Carlo sim snapshots |
 
 ## Views
@@ -157,6 +175,10 @@ Client-side router (`src/router.ts`) using History API. Key routes: `/true_ratin
 | Tool | Usage |
 |-|-|
 | `sync-db.ts` | Primary data pipeline — see above |
+| `freeze-projections.ts` | Snapshot projections: `--year=2022`, `--label=opening_day`, `--delete=opening_day_2022` |
+| `check-projections.ts` | Sanity check cached projections (flags outlier WAR/FIP/IP, shows top/bottom 5) |
+| `check-player.ts` | Quick player lookup across all tables: `npx tsx tools/check-player.ts 17533` |
+| `check-dobs.ts` | DOB gap report and fix: `--fix` fills from local CSV export |
 | `explain-player.ts` | `npx tsx tools/explain-player.ts --playerId=1234 --type=hitter --mode=all --year=2022 --format=markdown` |
 | `validate-ratings.ts` | `npx tsx tools/validate-ratings.ts --year=2020` |
 | `check-db.ts` | Verify Supabase data integrity |

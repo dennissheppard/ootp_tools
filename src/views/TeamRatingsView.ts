@@ -19,6 +19,7 @@ import { runSimulation } from '../services/simulation/SimulationService';
 import type { SimulationResults, TeamSummary } from '../services/simulation/SimulationTypes';
 import { DEFAULT_SIM_CONFIG } from '../services/simulation/SimulationTypes';
 import { getRouter } from '../router';
+import { setSnapshotModeWithBanner } from '../utils/snapshotBanner';
 
 // WAR→Wins calibration constants
 // Recalibrated Feb 2026: piecewise projection-based calibration on 236 team-seasons (2005-2020).
@@ -77,6 +78,8 @@ export class TeamRatingsView {
   private isDraggingColumn = false;
   private teamColumnOrder: Record<'rotation' | 'bullpen', string[]> = { rotation: [], bullpen: [] };
   private teamSortState: Map<string, { key: string; direction: 'asc' | 'desc' }> = new Map();
+  private availableSnapshots: { id: string; label: string; year: number }[] = [];
+  private seasonInProgress = false;
   private projectionsSortKey: string = 'total';
   private projectionsSortDirection: 'asc' | 'desc' = 'desc';
   private projectionsColumns: Array<{ key: string; label: string; sortKey?: string; title?: string }> = [
@@ -166,7 +169,14 @@ export class TeamRatingsView {
 
   private async init(): Promise<void> {
     // Load current game year first so we can default to it
-    await this.loadCurrentGameYear();
+    const [, snapshots, inProgress] = await Promise.all([
+      this.loadCurrentGameYear(),
+      supabaseDataService.getAvailableSnapshots(),
+      dateService.isSeasonInProgress(),
+    ]);
+    this.availableSnapshots = snapshots ?? [];
+    this.seasonInProgress = inProgress;
+
     const maxYear = this.projectionDisplayYear ?? this.currentGameYear!;
     this.yearOptions = Array.from({ length: maxYear - 2000 + 1 }, (_, i) => maxYear - i);
     // Default to projection target year for all modes (2022 during 2021/2022 offseason)
@@ -365,11 +375,8 @@ export class TeamRatingsView {
           subBar.style.display = mode === 'standings' ? '' : 'none';
         }
 
-        // Show/hide stats mode toggle
-        const statsModeToggle = this.container.querySelector('#stats-mode-toggle') as HTMLElement;
-        if (statsModeToggle) {
-          statsModeToggle.style.display = (mode === 'projected' || mode === 'standings') ? '' : 'none';
-        }
+        // Show/hide snapshot + stats mode toggles
+        this.renderSnapshotToggle();
 
         // All-Time is only available in power-rankings mode — switch off if going to projections/standings
         if (this.isAllTime && (mode === 'projected' || mode === 'standings')) {
@@ -465,6 +472,58 @@ export class TeamRatingsView {
         this.loadData();
       });
     });
+
+    // Snapshot mode toggle (Opening Day / Updated)
+    this.container.querySelectorAll<HTMLButtonElement>('[data-snapshot-mode]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.dataset.snapshotMode;
+        if (!mode) return;
+        const snapshotId = mode === 'snapshot' ? this.availableSnapshots[0]?.id ?? null : null;
+        setSnapshotModeWithBanner(snapshotId);
+        this.renderSnapshotToggle();
+        this.simulationResults = null;
+        this.showLoadingState();
+        this.loadData();
+      });
+    });
+
+    // Listen for snapshot mode changes from banner or other views
+    window.addEventListener('wbl:snapshot-mode-changed', () => {
+      this.renderSnapshotToggle();
+      this.simulationResults = null;
+      this.showLoadingState();
+      this.loadData();
+    });
+
+    this.renderSnapshotToggle();
+  }
+
+  private renderSnapshotToggle(): void {
+    const toggle = this.container.querySelector<HTMLElement>('#snapshot-toggle');
+    const statsModeToggle = this.container.querySelector<HTMLElement>('#stats-mode-toggle');
+    if (!toggle) return;
+
+    const showToggle = this.availableSnapshots.length > 0
+      && this.seasonInProgress
+      && (this.viewMode === 'projected' || this.viewMode === 'standings');
+
+    toggle.style.display = showToggle ? '' : 'none';
+
+    const isSnapshot = !!supabaseDataService.getSnapshotMode();
+
+    if (showToggle) {
+      toggle.querySelectorAll<HTMLButtonElement>('[data-snapshot-mode]').forEach(btn => {
+        const isActive = (btn.dataset.snapshotMode === 'snapshot') === isSnapshot;
+        btn.classList.toggle('active', isActive);
+        btn.setAttribute('aria-pressed', String(isActive));
+      });
+    }
+
+    // Hide Pre-Season/Current toggle when in snapshot mode (opening day is inherently pre-season)
+    if (statsModeToggle) {
+      const showStats = (this.viewMode === 'projected' || this.viewMode === 'standings') && !isSnapshot;
+      statsModeToggle.style.display = showStats ? '' : 'none';
+    }
   }
 
   private showLoadingState(): void {
@@ -549,8 +608,10 @@ export class TeamRatingsView {
                 console.error('getProjectedTeamRatings is missing on teamRatingsService!', teamRatingsService);
                 throw new Error('Service method missing. Please refresh the page.');
             }
-            // selectedYear is the target season; getProjectedTeamRatings expects the stats base year (target - 1)
-            this.results = await teamRatingsService.getProjectedTeamRatings(this.selectedYear - 1, { preSeasonOnly: this.statsMode === 'preseason' });
+            // selectedYear is the target season; stats base year = target - 1 in offseason, target in-season
+            const isOff = await dateService.isOffseason();
+            const projBaseYear = isOff ? this.selectedYear - 1 : this.selectedYear;
+            this.results = await teamRatingsService.getProjectedTeamRatings(projBaseYear, { preSeasonOnly: this.statsMode === 'preseason' });
             this.powerRankings = [];
         }
 
@@ -579,7 +640,11 @@ export class TeamRatingsView {
   }
 
   private updateDataSourceBadges(): void {
-    emitDataSourceBadges(this.getSeasonDataMode(), this.scoutingDataMode);
+    const snapshotMode = supabaseDataService.getSnapshotMode();
+    const seasonMode: import('../utils/dataSourceBadges').SeasonDataMode = snapshotMode
+      ? 'opening-day-snapshot'
+      : this.getSeasonDataMode();
+    emitDataSourceBadges(seasonMode, this.scoutingDataMode);
   }
 
   private async refreshScoutingDataMode(): Promise<void> {

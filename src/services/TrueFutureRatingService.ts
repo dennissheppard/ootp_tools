@@ -909,12 +909,16 @@ class TrueFutureRatingService {
   }
 
   /**
-   * Get career MLB IP for all players (last 10 years).
+   * Get career MLB IP for all players.
+   * Cached — result is scouting-independent and survives custom scouting uploads.
    */
-  private async getCareerMlbIpMap(currentYear: number): Promise<Map<number, number>> {
-      const startYear = Math.max(2000, currentYear - 10);
+  private _careerIpCache: Map<number, number> | null = null;
 
-      // Bulk-fetch all years in 1 query (populates per-year caches)
+  private async getCareerMlbIpMap(currentYear: number): Promise<Map<number, number>> {
+      if (this._careerIpCache) return this._careerIpCache;
+
+      const startYear = Math.max(2000, currentYear - 4);
+
       await trueRatingsService.prefetchPitchingStats(startYear, currentYear);
 
       const promises = [];
@@ -924,13 +928,14 @@ class TrueFutureRatingService {
 
       const results = await Promise.all(promises);
       const map = new Map<number, number>();
-      
+
       results.flat().forEach(stat => {
           const ip = trueRatingsService.parseIp(stat.ip);
           const current = map.get(stat.player_id) || 0;
           map.set(stat.player_id, current + ip);
       });
-      
+
+      this._careerIpCache = map;
       return map;
   }
 

@@ -60,28 +60,40 @@ const HEADERS = {
 
 export async function supabaseQuery<T = any>(table: string, params: string): Promise<T[]> {
   const PAGE_SIZE = 1000;
+  const MAX_RETRIES = 2;
   const allRows: T[] = [];
   let offset = 0;
 
   while (true) {
     const sep = params ? '&' : '';
     const url = `${SUPABASE_URL}/rest/v1/${table}?${params}${sep}offset=${offset}&limit=${PAGE_SIZE}`;
-    const response = await fetch(url, {
-      headers: { ...HEADERS, 'Prefer': 'count=exact' },
-    });
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`GET ${table} failed (${response.status}): ${body}`);
+    let lastError = '';
+    let success = false;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const response = await fetch(url, {
+        headers: { ...HEADERS, 'Prefer': 'count=exact' },
+      });
+
+      if (!response.ok) {
+        lastError = await response.text().catch(() => '');
+        if (attempt < MAX_RETRIES && response.status >= 500) {
+          console.warn(`  ⚠️ GET ${table} → ${response.status} (retry ${attempt + 1}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(`GET ${table} failed (${response.status}): ${lastError}`);
+      }
+
+      const rows: T[] = await response.json();
+      allRows.push(...rows);
+      if (rows.length < PAGE_SIZE) return allRows;
+      offset += PAGE_SIZE;
+      success = true;
+      break;
     }
-
-    const rows: T[] = await response.json();
-    allRows.push(...rows);
-    if (rows.length < PAGE_SIZE) break;
-    offset += PAGE_SIZE;
+    if (!success) throw new Error(`GET ${table} failed after retries: ${lastError}`);
   }
-
-  return allRows;
 }
 
 // ──────────────────────────────────────────────
@@ -123,21 +135,29 @@ export async function supabaseUpsertBatches(
     batches.push(rows.slice(i, i + batchSize));
   }
 
-  async function postBatch(batch: any[], batchIdx: number): Promise<void> {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { ...HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
-      body: JSON.stringify(batch),
-    });
+  async function postBatch(batch: any[], batchIdx: number, retries = 2): Promise<void> {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { ...HEADERS, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+        body: JSON.stringify(batch),
+      });
 
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`POST ${table} batch ${batchIdx} failed (${response.status}): ${body}`);
-    }
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        if (attempt < retries && response.status >= 500) {
+          console.warn(`  ⚠️ POST ${table} batch ${batchIdx} → ${response.status} (retry ${attempt + 1}/${retries})`);
+          await new Promise(r => setTimeout(r, 2000 * (attempt + 1)));
+          continue;
+        }
+        throw new Error(`POST ${table} batch ${batchIdx} failed (${response.status}): ${body}`);
+      }
 
-    uploaded += batch.length;
-    if (uploaded % 5000 === 0 || uploaded === rows.length) {
-      console.log(`  ${table}: ${uploaded}/${rows.length} rows`);
+      uploaded += batch.length;
+      if (uploaded % 5000 === 0 || uploaded === rows.length) {
+        console.log(`  ${table}: ${uploaded}/${rows.length} rows`);
+      }
+      return;
     }
   }
 

@@ -184,8 +184,14 @@ body::before {
   border: 1px solid rgba(34, 197, 94, 0.3);
 }
 
+.game-date-inline {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
 .game-date-label {
-  font-size: 0.75rem;
+  font-size: 0.7rem;
   font-weight: 600;
   color: var(--color-text-muted);
   text-transform: uppercase;
@@ -193,7 +199,7 @@ body::before {
 }
 
 .game-date-value {
-  font-size: 1.25rem;
+  font-size: 0.95rem;
   font-weight: 700;
   color: var(--color-primary);
 }
@@ -208,7 +214,8 @@ body::before {
   margin: 0;
 }
 
-#header-data-source-badges .data-source-chip {
+#header-data-source-badges .data-source-chip,
+#scouting-login-badge .data-source-chip {
   font-size: 0.68rem;
   padding: 0.15rem 0.4rem;
 }
@@ -3678,7 +3685,13 @@ th .stat-tooltip {
   color: #fde68a;
 }
 
-.data-chip-scout-my {
+.data-chip-snapshot {
+  background: rgba(14, 165, 233, 0.14);
+  border-color: rgba(14, 165, 233, 0.35);
+  color: #7dd3fc;
+}
+
+.data-chip-scout-my, .data-chip-scout-active {
   background: rgba(34, 197, 94, 0.14);
   border-color: rgba(34, 197, 94, 0.35);
   color: #86efac;

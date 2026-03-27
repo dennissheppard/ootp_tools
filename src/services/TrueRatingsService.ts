@@ -183,10 +183,9 @@ class TrueRatingsService {
     const allRows = await supabaseDataService.getPitchingStatsBulk(needed[0], needed[needed.length - 1], 200);
     if (allRows.length === 0) return;
 
-    const statPlayerIds = [...new Set(allRows.map(r => r.player_id))];
-    const players = await playerService.getPlayersByIds(statPlayerIds);
-    const playerMap = new Map<number, Player>();
-    for (const p of players) playerMap.set(p.id, p);
+    // Use precomputed player lookup (already loaded, 0 extra queries) instead of playerService.getPlayersByIds (N chunk queries)
+    const playerLookup = await supabaseDataService.getPlayerLookup();
+    const playerMap = playerLookup ?? new Map<number, any>();
 
     const byYear = new Map<number, any[]>();
     for (const row of allRows) {
@@ -196,13 +195,14 @@ class TrueRatingsService {
 
     for (const [year, rows] of byYear) {
       if (this.inMemoryPitchingCache.has(year)) continue;
-      const processed = rows.map(stat => ({
-        ...stat,
-        playerName: playerMap.get(stat.player_id)
-          ? `${playerMap.get(stat.player_id)!.firstName} ${playerMap.get(stat.player_id)!.lastName}`
-          : 'Unknown Player',
-        position: playerMap.get(stat.player_id)?.position || 1,
-      })) as TruePlayerStats[];
+      const processed = rows.map(stat => {
+        const p = playerMap.get(stat.player_id);
+        return {
+          ...stat,
+          playerName: p ? `${p.firstName ?? p.first_name ?? ''} ${p.lastName ?? p.last_name ?? ''}`.trim() || 'Unknown Player' : 'Unknown Player',
+          position: p?.position || 1,
+        };
+      }) as TruePlayerStats[];
       this.inMemoryPitchingCache.set(year, this.combinePitchingStats(processed));
     }
   }
@@ -218,10 +218,9 @@ class TrueRatingsService {
     const allRows = await supabaseDataService.getBattingStatsBulk(needed[0], needed[needed.length - 1], 200);
     if (allRows.length === 0) return;
 
-    const statPlayerIds = [...new Set(allRows.map(r => r.player_id))];
-    const players = await playerService.getPlayersByIds(statPlayerIds);
-    const playerMap = new Map<number, Player>();
-    for (const p of players) playerMap.set(p.id, p);
+    // Use precomputed player lookup (already loaded, 0 extra queries)
+    const playerLookup = await supabaseDataService.getPlayerLookup();
+    const playerMap = playerLookup ?? new Map<number, any>();
 
     const byYear = new Map<number, any[]>();
     for (const row of allRows) {
@@ -235,12 +234,11 @@ class TrueRatingsService {
         const b = stat as any;
         b.avg = b.ab > 0 ? b.h / b.ab : 0;
         b.obp = b.pa > 0 ? (b.h + b.bb + (b.hp || 0)) / b.pa : 0;
+        const p = playerMap.get(stat.player_id);
         return {
           ...stat,
-          playerName: playerMap.get(stat.player_id)
-            ? `${playerMap.get(stat.player_id)!.firstName} ${playerMap.get(stat.player_id)!.lastName}`
-            : 'Unknown Player',
-          position: playerMap.get(stat.player_id)?.position || (stat as any).position,
+          playerName: p ? `${p.firstName ?? p.first_name ?? ''} ${p.lastName ?? p.last_name ?? ''}`.trim() || 'Unknown Player' : 'Unknown Player',
+          position: p?.position || (stat as any).position,
         };
       }) as TruePlayerBattingStats[];
       this.inMemoryBattingCache.set(year, this.combineBattingStats(processed));
@@ -1304,7 +1302,9 @@ class TrueRatingsService {
   async warmCachesForComputation(year: number): Promise<void> {
     if (!supabaseDataService.isConfigured) return;
 
-    const startYear = Math.max(LEAGUE_START_YEAR, year - 6);
+    // TR uses a 4-year rolling window (year, year-1, year-2, year-3).
+    // Don't over-fetch — career IP lookups use precomputed RPCs, not raw stats.
+    const startYear = Math.max(LEAGUE_START_YEAR, year - 3);
 
     await Promise.all([
       // MLB batting + pitching stats: 1 bulk query each
@@ -1357,9 +1357,13 @@ class TrueRatingsService {
           this.hitterTrCache.set(year, map);
           return map;
         }
-        console.log('⚠️ player_ratings has 0 hitter_tr rows — falling back to computation');
+        console.warn('⚠️ player_ratings has 0 hitter_tr rows — returning empty (run sync-db to populate)');
+        this.hitterTrCache.set(year, new Map());
+        return new Map();
       } catch (err) {
-        console.warn('⚠️ Failed to load pre-computed hitter TR, falling back to computation:', err);
+        console.warn('⚠️ Failed to load pre-computed hitter TR — returning empty:', err);
+        this.hitterTrCache.set(year, new Map());
+        return new Map();
       }
     }
 
@@ -1465,9 +1469,13 @@ class TrueRatingsService {
           this.pitcherTrCache.set(year, map);
           return map;
         }
-        console.log('⚠️ player_ratings has 0 pitcher_tr rows — falling back to computation');
+        console.warn('⚠️ player_ratings has 0 pitcher_tr rows — returning empty (run sync-db to populate)');
+        this.pitcherTrCache.set(year, new Map());
+        return new Map();
       } catch (err) {
-        console.warn('⚠️ Failed to load pre-computed pitcher TR, falling back to computation:', err);
+        console.warn('⚠️ Failed to load pre-computed pitcher TR — returning empty:', err);
+        this.pitcherTrCache.set(year, new Map());
+        return new Map();
       }
     }
 

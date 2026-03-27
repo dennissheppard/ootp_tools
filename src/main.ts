@@ -28,6 +28,7 @@ import { initRouter, getRouter } from './router';
 import { batterProfileModal } from './views/BatterProfileModal';
 import { pitcherProfileModal } from './views/PitcherProfileModal';
 import { scoutingLoginModal } from './views/ScoutingLoginModal';
+import { updateSnapshotBanner, setSnapshotModeWithBanner } from './utils/snapshotBanner';
 
 setApiCallTracker((endpoint, bytes, status, duration_ms) =>
   analyticsService.trackApiCall(endpoint, bytes, status, duration_ms)
@@ -89,6 +90,15 @@ class App {
     this.preloadPlayers();
 
     analyticsService.trackAppOpen();
+
+    // Restore snapshot mode from localStorage (e.g., "Opening Day" toggle)
+    try {
+      const savedSnapshot = localStorage.getItem('wbl-snapshot-mode');
+      if (savedSnapshot) {
+        supabaseDataService.setSnapshotMode(savedSnapshot);
+        updateSnapshotBanner();
+      }
+    } catch { /* ignore */ }
 
     if (isFirstTime) {
       setTimeout(() => {
@@ -420,8 +430,7 @@ class App {
             <div id="header-data-source-badges"></div>
             <div id="scouting-login-badge"></div>
           </div>
-          <span class="game-date-label">Game Date</span>
-          <span class="game-date-value" id="game-date">Loading...</span>
+          <span class="game-date-inline"><span class="game-date-label">Game Date</span> <span class="game-date-value" id="game-date">Loading...</span></span>
         </div>
       </header>
       <div id="rate-limit-container"></div>
@@ -676,13 +685,42 @@ class App {
     'tab-calculators', 'tab-data-management', 'tab-search', 'tab-draft', 'tab-about',
   ]);
 
+  private _hasSnapshots = false;
+  private _currentSeasonMode: SeasonDataMode = 'preseason-model';
+  private _currentScoutingMode: ScoutingDataMode = 'none';
+
   private setupHeaderBadges(): void {
+    // Check for available snapshots
+    supabaseDataService.getAvailableSnapshots().then(snaps => {
+      this._hasSnapshots = (snaps?.length ?? 0) > 0;
+    }).catch(() => {});
+
     window.addEventListener('wbl:data-source-badges-changed', (event) => {
       const { seasonMode, scoutingMode } = (event as CustomEvent<{ seasonMode: SeasonDataMode; scoutingMode: ScoutingDataMode }>).detail;
-      const slot = document.getElementById('header-data-source-badges');
-      if (!slot) return;
-      slot.innerHTML = renderDataSourceBadges(seasonMode, scoutingMode);
-      slot.style.display = '';
+      this._currentSeasonMode = seasonMode;
+      this._currentScoutingMode = scoutingMode;
+      this.renderHeaderBadge();
+    });
+
+    // Handle click on the season data chip to toggle snapshot mode
+    document.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('[data-action="toggle-snapshot"]');
+      if (!target) return;
+      const snapshotMode = supabaseDataService.getSnapshotMode();
+      if (snapshotMode) {
+        setSnapshotModeWithBanner(null);
+      } else {
+        supabaseDataService.getAvailableSnapshots().then(snaps => {
+          if (snaps && snaps.length > 0) {
+            setSnapshotModeWithBanner(snaps[0].id);
+          }
+        });
+      }
+    });
+
+    // Re-render badge when snapshot mode changes
+    window.addEventListener('wbl:snapshot-mode-changed', () => {
+      this.renderHeaderBadge();
     });
 
     // Scouting login badge
@@ -691,14 +729,25 @@ class App {
     window.addEventListener('scoutingDataUpdated', () => this.renderScoutingBadge());
   }
 
+  private renderHeaderBadge(): void {
+    const slot = document.getElementById('header-data-source-badges');
+    if (!slot) return;
+    // Override season mode when snapshot is active
+    const effectiveMode: SeasonDataMode = supabaseDataService.getSnapshotMode()
+      ? 'opening-day-snapshot'
+      : this._currentSeasonMode;
+    slot.innerHTML = renderDataSourceBadges(effectiveMode, this._currentScoutingMode, this._hasSnapshots);
+    slot.style.display = '';
+  }
+
   private renderScoutingBadge(): void {
     const slot = document.getElementById('scouting-login-badge');
     if (!slot) return;
     const isLoggedIn = supabaseDataService.hasCustomScouting;
     if (isLoggedIn) {
-      slot.innerHTML = `<span class="scouting-badge scouting-badge-active" id="scouting-badge-btn" role="button" tabindex="0" title="Using your team's scouting data. Click to re-fetch.">My Scout Active</span>`;
+      slot.innerHTML = `<span class="data-source-chip data-chip-scout-active" id="scouting-badge-btn" role="button" tabindex="0" title="Using your team's scouting data. Click to re-fetch." style="cursor:pointer;">Scouting: My Scout</span>`;
     } else {
-      slot.innerHTML = `<span class="scouting-badge scouting-badge-login" id="scouting-badge-btn" role="button" tabindex="0" title="Click to load your team's private scouting">Using OSA Data &mdash; Login</span>`;
+      slot.innerHTML = `<span class="data-source-chip data-chip-scout-osa" id="scouting-badge-btn" role="button" tabindex="0" title="Click to load your team's private scouting" style="cursor:pointer;">Scouting: OSA (login)</span>`;
     }
     slot.querySelector('#scouting-badge-btn')?.addEventListener('click', () => scoutingLoginModal.show());
   }

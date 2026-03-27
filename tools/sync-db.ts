@@ -32,6 +32,8 @@ import {
   supabasePatch,
 } from './lib/supabase-client';
 
+import { SNAPSHOT_KEYS } from './freeze-projections';
+
 import {
   wblFetchJson,
   wblFetchCsv,
@@ -475,17 +477,26 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
   const battingYears = [...pitchingYears];
   const milbYears = [year, year - 1, year - 2].filter(y => y >= LEAGUE_START_YEAR);
 
+  // Wave 1a: Players, teams, contracts (light)
+  const [allPlayersRaw, teamsRaw, contractsRaw] = await Promise.all([
+    supabaseQuery<any>('players', 'select=*&order=id'),
+    supabaseQuery<any>('teams', 'select=*&order=id'),
+    supabaseQuery<any>('contracts', 'select=*&order=player_id'),
+  ]);
+
+  // Wave 1b: Scouting tables (heavy JSONB — run sequentially to avoid concurrent timeout)
+  const hitterScoutCols = 'player_id,player_name,power,eye,avoid_k,contact,gap,speed,ovr,pot,pos,stealing_aggressiveness,stealing_ability,injury_proneness,raw_data';
+  const pitcherScoutCols = 'player_id,player_name,stuff,control,hra,stamina,ovr,pot,injury_proneness,babip,raw_data';
+  const pitcherScoutOsa = await supabaseQuery<any>('pitcher_scouting', `select=${pitcherScoutCols}&source=eq.osa&order=snapshot_date.desc`);
+  const hitterScoutOsa = await supabaseQuery<any>('hitter_scouting', `select=${hitterScoutCols}&source=eq.osa&order=snapshot_date.desc`);
+  const hitterScoutMy = await supabaseQuery<any>('hitter_scouting', `select=${hitterScoutCols}&source=eq.my&order=snapshot_date.desc`);
+
+  // Wave 2: Stats + RPCs (lighter, but many rows)
   const [
-    allPlayersRaw,
-    teamsRaw,
-    pitcherScoutOsa,
-    hitterScoutOsa,
-    hitterScoutMy,
     mlbPitching,
     mlbBatting,
     milbPitching,
     milbBatting,
-    contractsRaw,
     precomputedDists,
     careerIpRows,
     careerBatRows,
@@ -493,16 +504,10 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
     aaStatsRows,
     defensiveStatsRaw,
   ] = await Promise.all([
-    supabaseQuery<any>('players', 'select=*&order=id'),
-    supabaseQuery<any>('teams', 'select=*&order=id'),
-    supabaseQuery<any>('pitcher_scouting', 'select=*&source=eq.osa&order=snapshot_date.desc'),
-    supabaseQuery<any>('hitter_scouting', 'select=*&source=eq.osa&order=snapshot_date.desc'),
-    supabaseQuery<any>('hitter_scouting', 'select=*&source=eq.my&order=snapshot_date.desc'),
     supabaseQuery<any>('pitching_stats', `select=*&league_id=eq.200&split_id=eq.1&year=in.(${pitchingYears.join(',')})&order=player_id`),
     supabaseQuery<any>('batting_stats', `select=*&league_id=eq.200&split_id=eq.1&year=in.(${battingYears.join(',')})&order=player_id`),
     supabaseQuery<any>('pitching_stats', `select=*&league_id=in.(201,202,203,204)&split_id=eq.1&year=in.(${milbYears.join(',')})&order=player_id`),
     supabaseQuery<any>('batting_stats', `select=*&league_id=in.(201,202,203,204)&split_id=eq.1&year=in.(${milbYears.join(',')})&order=player_id`),
-    supabaseQuery<any>('contracts', 'select=*&order=player_id'),
     supabaseQuery<any>('precomputed_cache', 'select=*&key=like.*distribution*'),
     supabaseRpc<any[]>('career_pitching_ip'),
     supabaseRpc<any[]>('career_batting_aggregates'),
@@ -611,6 +616,45 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
     if (row.key?.startsWith('hitter_mlb_distribution_')) precomputedHitterDist = row.data;
   }
 
+  // DOB gap-fill: check if any scouted players are missing DOB
+  // (players.age from the API is a stale snapshot — DOB is the real source of truth for age)
+  const scoutedIds = new Set([...pitcherScoutMap.keys(), ...hitterScoutMapOsa.keys()]);
+  let dobGaps = 0;
+  for (const pid of scoutedIds) {
+    if (!dobMap.has(pid)) dobGaps++;
+  }
+  if (dobGaps > 0) {
+    console.log(`  ${dobGaps} scouted players missing DOB — fetching players.csv...`);
+    try {
+      const csv = await wblFetchCsv('/csv/players.csv');
+      const lines = csv.split(/\r?\n/);
+      const header = lines[0]?.split(',') ?? [];
+      const idIdx = header.findIndex((h: string) => h.trim().toLowerCase() === 'player_id' || h.trim().toLowerCase() === 'id');
+      const dobIdx = header.findIndex((h: string) => h.trim().toLowerCase() === 'date_of_birth' || h.trim().toLowerCase() === 'dob');
+      let filled = 0;
+      if (idIdx >= 0 && dobIdx >= 0) {
+        for (let i = 1; i < lines.length; i++) {
+          const cols = lines[i].split(',');
+          const pid = parseInt(cols[idIdx], 10);
+          if (isNaN(pid) || dobMap.has(pid)) continue;
+          const dobStr = cols[dobIdx]?.trim();
+          if (!dobStr) continue;
+          const dob = new Date(dobStr);
+          if (!isNaN(dob.getTime())) {
+            dobMap.set(pid, dob);
+            filled++;
+            // Also update player record for DB write
+            const player = playerMap.get(pid);
+            if (player) player.dob = dobStr;
+          }
+        }
+        console.log(`  ✅ Filled ${filled} DOBs from players.csv (${dobGaps - filled} still missing)`);
+      }
+    } catch (err: any) {
+      console.warn(`  ⚠️ DOB gap-fill failed: ${err.message}`);
+    }
+  }
+
   console.log(`  Players: ${playerMap.size} (${dobMap.size} with DOB)`);
   console.log(`  Teams: ${teamMap.size}`);
   console.log(`  Pitcher scouting: ${pitcherScoutMap.size}`);
@@ -676,17 +720,32 @@ async function detectGameDate(): Promise<{ gameDate: string; year: number; upToD
     year = parseInt(explicitYear, 10);
     console.log(`  Using explicit year: ${year}`);
   } else {
-    year = parseInt(dateResponse.season, 10);
-    if (isNaN(year)) {
-      // Fallback: extract from date
+    const apiSeason = parseInt(dateResponse.season, 10);
+    const calendarYear = parseInt(gameDate.split('-')[0], 10);
+    const month = parseInt(gameDate.split('-')[1], 10);
+
+    if (!isNaN(apiSeason) && !isNaN(calendarYear)) {
+      // Apr-Oct: if calendar year > API season, API is lagging — use calendar year
+      // (same logic as browser DateService.getCurrentYear)
+      if (month >= 4 && month <= 10 && calendarYear > apiSeason) {
+        year = calendarYear;
+        console.log(`  Detected year: ${year} (API says ${apiSeason}, using calendar year — API lag)`);
+      } else {
+        year = apiSeason;
+        console.log(`  Detected year: ${year}`);
+      }
+    } else if (!isNaN(apiSeason)) {
+      year = apiSeason;
+      console.log(`  Detected year: ${year}`);
+    } else {
       const yearMatch = gameDate.match(/\b(20\d{2})\b/);
       if (yearMatch) {
         year = parseInt(yearMatch[1], 10);
       } else {
         throw new Error(`Cannot parse year from game date: "${gameDate}"`);
       }
+      console.log(`  Detected year: ${year} (from date fallback)`);
     }
-    console.log(`  Detected year: ${year}`);
   }
 
   const upToDate = dbGameDate === gameDate;
@@ -791,6 +850,20 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
     console.log(`  🏥 CSV injury fallback: ${injuryMap.size} players`);
   }
 
+  // Load draft-eligible CSV (source of truth for draft pool membership)
+  const draftEligibleIds = new Set<number>();
+  try {
+    const draftCsvPath = path.join(__dirname, '..', 'public', 'data', 'draft_eligible.csv');
+    const draftCsv = fs.readFileSync(draftCsvPath, 'utf-8');
+    for (const line of draftCsv.split(/\r?\n/).slice(1)) {
+      const id = parseInt(line.trim(), 10);
+      if (!isNaN(id)) draftEligibleIds.add(id);
+    }
+    console.log(`  Draft eligible CSV: ${draftEligibleIds.size} players`);
+  } catch {
+    console.log('  ⚠️ No draft_eligible.csv found — draft_eligible will be false for all players');
+  }
+
   // Build player league_id map for contract enrichment
   const playerLeagueMap = new Map<number, number>();
 
@@ -821,22 +894,32 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
       const rosterLeagueId = p.roster_status?.league_id ? parseInt(p.roster_status.league_id, 10) : null;
       if (rosterLeagueId != null) playerLeagueMap.set(id, rosterLeagueId);
 
-      // Player status from API signals:
-      //   Has team_id → active (on a roster)
-      //   No team + roster_status.is_active === "1" → free_agent
-      //   No team + roster_status.is_active === "0" → draftee
-      //   No roster_status at all → retired
+      // Player status: draft_eligible.csv is source of truth for draft pool.
+      // API team_id overrides CSV — if a player is on a team, they were drafted/signed.
+      const playerAge = p.age ? parseInt(p.age, 10) : null;
+      const inDraftCsv = draftEligibleIds.has(id);
       let status: string;
       let isRetired = false;
+      let isDraftEligible = false;
       if (teamId) {
+        // On a team — active, even if they were in the draft pool (means they were drafted/signed)
         status = 'active';
       } else if (!p.roster_status) {
         status = 'retired';
         isRetired = true;
+      } else if (inDraftCsv) {
+        // In draft CSV + no team = draft-eligible
+        status = 'draftee';
+        isDraftEligible = true;
+        // Sanity check: flag if age seems wrong for a draftee
+        if (playerAge !== null && playerAge > 22) {
+          console.warn(`  ⚠️ Draft-eligible player #${id} ${p.name} is ${playerAge} years old — verify draft_eligible.csv`);
+        }
       } else if (p.roster_status.is_active === '1') {
         status = 'free_agent';
       } else {
-        status = 'draftee';
+        // No team, not in draft CSV, is_active=0 → unsigned free agent
+        status = 'free_agent';
       }
 
       return {
@@ -848,10 +931,10 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
         level: p.level ? levelToPlayerLevel(p.level) : null,
         position: p.position ? parseInt(p.position, 10) : null,
         role: isNaN(role as number) ? null : role,
-        age: p.age ? parseInt(p.age, 10) : null,
+        age: playerAge,
         retired: isRetired,
         status,
-        draft_eligible: status === 'draftee',
+        draft_eligible: isDraftEligible,
         injury_days_remaining: injuryMap.get(id) ?? 0,
       };
     })
@@ -1271,7 +1354,12 @@ async function computeTrueFutureRatings(
     const career = careerIpMap.get(playerId) || 0;
     if (career > 50) return; // Not a prospect
 
-    const age = calculateAge(dobMap.get(playerId), year, playerId);
+    // Age: DOB → players.age → scouting.age fallback (draft-eligible players often lack DOB)
+    let age = calculateAge(dobMap.get(playerId), year, playerId);
+    if (!age && scouting.age) {
+      const scoutAge = typeof scouting.age === 'string' ? parseInt(scouting.age, 10) : scouting.age;
+      if (scoutAge >= 15 && scoutAge <= 50) age = scoutAge;
+    }
     if (!age) return;
 
     const tr = pitcherTrMap.get(playerId);
@@ -1506,7 +1594,12 @@ async function computeTrueFutureRatings(
     const career = careerAbMap.get(playerId) || 0;
     if (career > 130) return;
 
-    const age = calculateAge(dobMap.get(playerId), year, playerId);
+    // Age: DOB → players.age → scouting.age fallback (draft-eligible players often lack DOB)
+    let age = calculateAge(dobMap.get(playerId), year, playerId);
+    if (!age && scouting.age) {
+      const scoutAge = typeof scouting.age === 'string' ? parseInt(scouting.age, 10) : scouting.age;
+      if (scoutAge >= 15 && scoutAge <= 50) age = scoutAge;
+    }
     if (!age) return;
 
     const tr = hitterTrMap.get(playerId);
@@ -2590,9 +2683,14 @@ async function computeProjections(
     const fip = p.projectedStats.fip;
     const war = p.projectedStats.war;
     const ip = p.projectedStats.ip;
-    if (!Number.isFinite(fip) || fip < 1.0 || fip > 8.0) pitcherIssues++;
-    if (!Number.isFinite(war) || war < -5 || war > 15) pitcherIssues++;
-    if (p.isSp && (ip < 20 || ip > 300)) pitcherIssues++;
+    const issues: string[] = [];
+    if (!Number.isFinite(fip) || fip < 1.0 || fip > 8.0) issues.push(`FIP=${fip?.toFixed(2) ?? 'NaN'}`);
+    if (!Number.isFinite(war) || war < -5 || war > 15) issues.push(`WAR=${war?.toFixed(1) ?? 'NaN'}`);
+    if (p.isSp && (ip < 20 || ip > 300)) issues.push(`IP=${ip?.toFixed(0) ?? 'NaN'} (SP)`);
+    if (issues.length > 0) {
+      pitcherIssues++;
+      console.warn(`  ⚠️  Pitcher #${p.playerId} ${p.name}: ${issues.join(', ')}`);
+    }
   }
   console.log(`  ✅ Pitcher projections: ${pitcherProjections.length} (${pitcherIssues} sanity issues)`);
 
@@ -2874,7 +2972,13 @@ async function computeProjections(
     });
 
     // Defensive projection: estimate PA first, then compute defRuns/posAdj
-    const paHistory = mlbStats.map(s => ({ year: s.year, pa: s.pa }));
+    // Exclude current in-progress season from PA history. Partial-year counting
+    // stats are categorically wrong for playing-time projection — rate stats
+    // (HR%, BB%, etc.) blend via TR year weights, but PA/HR/SB counts must come
+    // from full completed seasons only.
+    const paHistory = mlbStats
+      .filter(s => s.year < year)
+      .map(s => ({ year: s.year, pa: s.pa }));
     const estPa = paHistory.length > 0
       ? leagueBattingAveragesService.getProjectedPaWithHistory(paHistory, age, scouting?.injuryProneness)
       : leagueBattingAveragesService.getProjectedPa(scouting?.injuryProneness, age);
@@ -2898,7 +3002,11 @@ async function computeProjections(
     const teamParkFactors = ctx.parkFactorsMap.get(teamId);
     const parkFactors = teamParkFactors ? computeEffectiveParkFactors(teamParkFactors, playerBats) : undefined;
 
-    const modalResult = computeBatterProjection(data, mlbStats, {
+    // Filter out current in-progress season from stats passed to projection.
+    // Rate stats are already blended via TR year weights — counting stats (PA, HR, SB)
+    // from a partial season would pollute the projection.
+    const completedSeasonStats = mlbStats.filter(s => s.year < year);
+    const modalResult = computeBatterProjection(data, completedSeasonStats, {
       projectionMode: 'current',
       projectionYear: year + 1,
       leagueAvg: leagueAvg as any,
@@ -2954,7 +3062,7 @@ async function computeProjections(
       currentTrueRating: trResult.trueRating,
       percentile: trResult.percentile,
       projectedStats: {
-        woba: Math.round(modalResult.projWoba * 1000) / 1000,
+        woba: Math.round(modalResult.projWoba * 100000) / 100000,
         avg: Math.round(modalResult.projAvg * 1000) / 1000,
         obp: Math.round(modalResult.projObp * 1000) / 1000,
         slg: Math.round(modalResult.projSlg * 1000) / 1000,
@@ -2970,6 +3078,7 @@ async function computeProjections(
         kPct: Math.round(modalResult.projKPct * 10) / 10,
         defRuns: defProjection.defRuns,
         posAdj: defProjection.posAdj,
+        sbRuns: Math.round(modalResult.projSbRuns * 10) / 10,
         defSource: defProjection.source,
       },
       estimatedRatings: {
@@ -2997,7 +3106,10 @@ async function computeProjections(
   let batterIssues = 0;
   for (const p of batterProjections) {
     const war = p.projectedStats.war;
-    if (!Number.isFinite(war) || war < -5 || war > 15) batterIssues++;
+    if (!Number.isFinite(war) || war < -5 || war > 15) {
+      batterIssues++;
+      console.warn(`  ⚠️  Batter #${p.playerId} ${p.name}: WAR=${war?.toFixed(1) ?? 'NaN'}`);
+    }
   }
   const injuredBatterCount = batterProjections.filter((p: any) => {
     const injDays = ctx.injuryDaysMap.get(p.playerId) ?? 0;
@@ -3093,12 +3205,12 @@ async function computeProjections(
     parkFactorsObj[teamId] = pf;
   }
 
-  await Promise.all([
-    supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_projections', data: pitcherData }], 1, 'key'),
-    supabaseUpsertBatches('precomputed_cache', [{ key: 'batter_projections', data: batterData }], 1, 'key'),
-    supabaseUpsertBatches('precomputed_cache', [{ key: 'defensive_lookup', data: defensiveLookup }], 1, 'key'),
-    supabaseUpsertBatches('precomputed_cache', [{ key: 'park_factors', data: parkFactorsObj }], 1, 'key'),
-  ]);
+  // Write large JSONB entries sequentially — parallel writes compete for
+  // connections and timeout on Supabase free tier (8s statement limit).
+  await supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_projections', data: pitcherData }], 1, 'key');
+  await supabaseUpsertBatches('precomputed_cache', [{ key: 'batter_projections', data: batterData }], 1, 'key');
+  await supabaseUpsertBatches('precomputed_cache', [{ key: 'defensive_lookup', data: defensiveLookup }], 1, 'key');
+  await supabaseUpsertBatches('precomputed_cache', [{ key: 'park_factors', data: parkFactorsObj }], 1, 'key');
   console.log('  ✅ Projections saved to precomputed_cache');
   console.log(`  ✅ Defensive lookup: ${Object.keys(defensiveLookup).length} entries`);
 
@@ -3218,7 +3330,20 @@ async function computeLeagueContext(ctx: SyncContext, pitcherTrResults?: any[]):
     }
   }
 
-  const data = { batterWarMax, pitcherWarMax, fipDistribution, spFipDistribution, rpFipDistribution, dollarPerWar, leagueAverages };
+  // Compute league FIP constant from current-year pitching stats
+  let lgFipConstant = 3.47;
+  {
+    let lgIp = 0, lgEr = 0, lgK = 0, lgBb = 0, lgHr = 0;
+    for (const r of pitchingRows) {
+      const ip = parseFloat(String(r.ip)) || 0;
+      lgIp += ip; lgEr += r.er ?? 0; lgK += r.k ?? 0; lgBb += r.bb ?? 0; lgHr += r.hra ?? r.hr ?? 0;
+    }
+    if (lgIp > 0) {
+      lgFipConstant = (lgEr / lgIp * 9) - ((13 * lgHr + 3 * lgBb - 2 * lgK) / lgIp);
+    }
+  }
+
+  const data = { batterWarMax, pitcherWarMax, fipDistribution, spFipDistribution, rpFipDistribution, dollarPerWar, leagueAverages, fipConstant: lgFipConstant };
   await supabaseUpsertBatches('precomputed_cache', [{ key: 'league_context', data }], 1, 'key');
   console.log('  ✅ League context saved to precomputed_cache');
 
@@ -3319,6 +3444,79 @@ async function finalize(gameDate: string): Promise<void> {
 // Main
 // ──────────────────────────────────────────────
 
+/**
+ * Auto-freeze: if the season has started and no snapshot exists for this year,
+ * snapshot the current precomputed_cache before overwriting with in-season data.
+ */
+async function autoFreezeIfNeeded(gameDate: string, year: number): Promise<void> {
+  // Check if season is in progress (Apr-Oct of the season year)
+  const month = parseInt(gameDate.split('-')[1], 10);
+  const gameDateYear = parseInt(gameDate.split('-')[0], 10);
+  if (month < 4 || month > 10) return; // offseason — no auto-freeze
+
+  // The projection target year is the game date's calendar year (e.g., 2022-04-18 → 2022).
+  // The API `season` field may lag behind (still reporting 2021), so don't rely on it.
+  const projectionYear = gameDateYear;
+
+  // Check if snapshot already exists — check actual data, not just the index
+  // (index may use old delimiter or be missing)
+  const snapshotId = `opening_day_${projectionYear}`;
+  const probeKey = `batter_projections__snapshot__${snapshotId}`;
+  const existing = await supabaseQuery<{ key: string }>(
+    'precomputed_cache',
+    `select=key&key=eq.${probeKey}`
+  );
+  if (existing.length > 0) {
+    console.log(`  Snapshot ${snapshotId} already exists — skipping auto-freeze`);
+    return;
+  }
+
+  // Check that there's existing data to snapshot
+  const probe = await supabaseQuery<{ key: string }>(
+    'precomputed_cache',
+    'select=key&key=eq.batter_projections'
+  );
+  if (probe.length === 0) {
+    console.log('\n  ⚠️  No existing projections to snapshot — skipping auto-freeze');
+    return;
+  }
+
+  console.log(`\n=== Auto-Freeze: Snapshotting opening day projections for ${projectionYear} ===`);
+
+  // Read and copy all snapshot keys
+  const rows: { key: string; data: any }[] = [];
+
+  for (const key of SNAPSHOT_KEYS) {
+    const result = await supabaseQuery<{ key: string; data: any }>(
+      'precomputed_cache',
+      `select=key,data&key=eq.${key}`
+    );
+    if (result.length > 0 && result[0].data) {
+      rows.push({ key: `${key}__snapshot__${snapshotId}`, data: result[0].data });
+    }
+  }
+
+  if (rows.length > 0) {
+    await supabaseUpsertBatches('precomputed_cache', rows, 5, 'key');
+
+    // Read existing index and append
+    const indexRows = await supabaseQuery<{ key: string; data: any }>(
+      'precomputed_cache',
+      'select=data&key=eq.snapshots__index'
+    );
+    const existingSnapshots: any[] = indexRows[0]?.data?.snapshots ?? [];
+    existingSnapshots.push({
+      id: snapshotId,
+      label: 'Opening Day',
+      year: projectionYear,
+      createdAt: new Date().toISOString(),
+    });
+    await supabaseUpsertBatches('precomputed_cache', [{ key: 'snapshots__index', data: { snapshots: existingSnapshots } }], 1, 'key');
+
+    console.log(`  ✅ Auto-froze ${rows.length} keys as ${snapshotId}`);
+  }
+}
+
 async function main(): Promise<void> {
   console.log('=== WBL Sync Tool ===');
   const startTime = Date.now();
@@ -3333,6 +3531,9 @@ async function main(): Promise<void> {
   if (upToDate && forceSync) {
     console.log('\n  ⚠️  DB is already up to date — re-syncing anyway (--force)');
   }
+
+  // Auto-freeze opening day projections before first in-season sync
+  await autoFreezeIfNeeded(gameDate, year);
 
   // Step 2
   await timed('Clear stale data', clearStaleData);
@@ -3365,11 +3566,9 @@ async function main(): Promise<void> {
       const hitterTfrData = tfrResult.rows.filter((r: any) => r.rating_type === 'hitter_tfr').map((r: any) => r.data);
 
       writePromise = timed('Write ratings + TFR cache', async () => {
-        await Promise.all([
-          supabaseUpsertBatches('player_ratings', deduped, 100, 'player_id,rating_type', 2),
-          supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_tfr_prospects', data: pitcherTfrData }], 1, 'key'),
-          supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_tfr_prospects', data: hitterTfrData }], 1, 'key'),
-        ]);
+        await supabaseUpsertBatches('player_ratings', deduped, 100, 'player_id,rating_type', 2);
+        await supabaseUpsertBatches('precomputed_cache', [{ key: 'pitcher_tfr_prospects', data: pitcherTfrData }], 1, 'key');
+        await supabaseUpsertBatches('precomputed_cache', [{ key: 'hitter_tfr_prospects', data: hitterTfrData }], 1, 'key');
         console.log(`  ✅ Wrote ${deduped.length} ratings, TFR: ${pitcherTfrData.length} pitchers, ${hitterTfrData.length} hitters`);
       });
     }

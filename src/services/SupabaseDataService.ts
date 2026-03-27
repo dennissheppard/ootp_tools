@@ -74,6 +74,7 @@ class SupabaseDataService {
   private static readonly CUSTOM_SCOUTING_KEY = 'wbl-has-custom-scouting';
 
   private _hasCustomScouting = false;
+  private _snapshotMode: string | null = null;
 
   get hasCustomScouting(): boolean {
     return this._hasCustomScouting;
@@ -88,6 +89,29 @@ class SupabaseDataService {
         localStorage.removeItem(SupabaseDataService.CUSTOM_SCOUTING_KEY);
       }
     } catch { /* localStorage unavailable */ }
+  }
+
+  /**
+   * Set snapshot mode. When set, all getPrecomputed() calls transparently
+   * read from snapshot-suffixed keys instead of live keys.
+   * Pass null to return to live data.
+   */
+  setSnapshotMode(snapshotId: string | null): void {
+    this._snapshotMode = snapshotId;
+    // Clear in-memory cache so next reads go to Supabase with new keys.
+    // Do NOT clear localStorage — live (wbl-pc-*) entries stay valid.
+    this._precomputedCache.clear();
+  }
+
+  getSnapshotMode(): string | null {
+    return this._snapshotMode;
+  }
+
+  async getAvailableSnapshots(): Promise<{ id: string; label: string; year: number; createdAt: string }[] | null> {
+    if (!this.configured) return null;
+    // Bypass snapshot rewrite — always read the live index
+    const rows = await this.query<{ key: string; data: any }>('precomputed_cache', 'select=data&key=eq.snapshots__index');
+    return rows[0]?.data?.snapshots ?? null;
   }
 
   constructor() {
@@ -575,37 +599,48 @@ class SupabaseDataService {
 
   async getPrecomputed(key: string): Promise<any | null> {
     if (!this.configured) return null;
-    if (this._precomputedCache.has(key)) return this._precomputedCache.get(key);
 
-    const gameDate = await this.getGameDateCached();
+    // Snapshot mode: transparently redirect to snapshot-suffixed keys.
+    // Skip for the snapshot index itself (always read live).
+    const isSnapshot = this._snapshotMode && key !== 'snapshots__index';
+    const resolvedKey = isSnapshot ? `${key}__snapshot__${this._snapshotMode}` : key;
 
-    // Check localStorage (invalidated when game_date changes after CLI sync)
-    if (gameDate) {
-      try {
-        const cached = localStorage.getItem(`wbl-pc-${key}`);
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed.gd === gameDate) {
-            this._precomputedCache.set(key, parsed.data);
-            return parsed.data;
+    if (this._precomputedCache.has(resolvedKey)) return this._precomputedCache.get(resolvedKey);
+
+    // Snapshot keys: memory-only cache (skip localStorage to avoid budget pressure
+    // from duplicating large projection JSONB). Live keys use localStorage as before.
+    if (!isSnapshot) {
+      const gameDate = await this.getGameDateCached();
+      if (gameDate) {
+        try {
+          const cached = localStorage.getItem(`wbl-pc-${key}`);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed.gd === gameDate) {
+              this._precomputedCache.set(resolvedKey, parsed.data);
+              return parsed.data;
+            }
+            // game_date changed — clear all stale entries
+            this.clearStalePrecomputedCache();
           }
-          // game_date changed — clear all stale entries
-          this.clearStalePrecomputedCache();
-        }
-      } catch { /* storage unavailable or corrupt */ }
+        } catch { /* storage unavailable or corrupt */ }
+      }
     }
 
     // Fetch from Supabase
     try {
-      const rows = await this.query<{ key: string; data: any }>('precomputed_cache', `select=data&key=eq.${key}`);
+      const rows = await this.query<{ key: string; data: any }>('precomputed_cache', `select=data&key=eq.${resolvedKey}`);
       const val = rows[0]?.data ?? null;
       if (val !== null) {
-        this._precomputedCache.set(key, val);
-        // Persist to localStorage for future page loads
-        if (gameDate) {
-          try {
-            localStorage.setItem(`wbl-pc-${key}`, JSON.stringify({ gd: gameDate, data: val }));
-          } catch { /* storage full or unavailable */ }
+        this._precomputedCache.set(resolvedKey, val);
+        // Only persist live keys to localStorage (not snapshots)
+        if (!isSnapshot) {
+          const gameDate = await this.getGameDateCached();
+          if (gameDate) {
+            try {
+              localStorage.setItem(`wbl-pc-${key}`, JSON.stringify({ gd: gameDate, data: val }));
+            } catch { /* storage full or unavailable */ }
+          }
         }
       }
       return val;

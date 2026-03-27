@@ -400,7 +400,7 @@
         <tr>
           <td>Profile Modals (current)</td>
           <td><span class="tag canon">Precomputed</span></td>
-          <td>No &mdash; reads cached projection WAR/PA/IP</td>
+          <td>No &mdash; reads ALL cached components (WAR, wOBA, PA, avg, obp, slg, defRuns, posAdj, bbPct, kPct, hrPct)</td>
           <td>Current-year projection + TR ratings + injury badge</td>
         </tr>
         <tr>
@@ -476,10 +476,16 @@
     <div class="notes rules">
       <h2>Invariants &mdash; these must always be true</h2>
       <ul>
-        <li><strong>One number, everywhere.</strong> A player's projected WAR/PA/IP must be identical across the projection table, modal WAR badge, modal projection row, team ratings, power rankings, and trade analyzer. If they differ, it's a bug.</li>
-        <li><strong>Precomputed cache = canonical answer.</strong> For current-year data, the precomputed cache is the single source of truth. Views read it; they do not recompute independently. Adjustments (injury, park factors, defensive value, aging) are applied once in the CLI pipeline and baked into the cache.</li>
-        <li><strong>Browser recompute = exception, not default.</strong> The browser only recomputes projections when custom scouting is active (hasCustomScouting flag) or when viewing historical years. No other path should trigger independent recomputation.</li>
-        <li><strong>CLI = browser math.</strong> sync-db uses the same pure computation functions as the browser (shared imports). When the browser does recompute, it must produce identical results to the CLI for the same inputs.</li>
+        <li><strong>One number, everywhere.</strong> A player's projected WAR/PA/IP/wOBA/defRuns/posAdj must be identical across the projection table, modal WAR badge, modal projection row, team ratings, power rankings, and trade analyzer. If they differ, it's a bug.</li>
+        <li><strong>Exactly two computation points.</strong> Projections are computed in only two places:
+          <ol>
+            <li><strong>sync-db (CLI)</strong> &mdash; computes ALL projection components (WAR, wOBA, PA, defRuns, posAdj, sbRuns, avg, obp, slg, bbPct, kPct, hrPct) and writes them to <code>precomputed_cache</code>. This is the canonical source of truth.</li>
+            <li><strong>Custom scouting upload (browser)</strong> &mdash; recomputes the same components using merged my+osa scouting data. Uses the same <code>computeBatterProjection</code>/<code>computePitcherProjection</code> functions. Stats, MLB distributions, and career aggregates are reused from in-memory caches (scouting-independent data is never re-fetched).</li>
+          </ol>
+          Every other code path is <strong>display only</strong> &mdash; it reads and renders, never computes.
+        </li>
+        <li><strong>Precomputed cache = canonical answer.</strong> For current-year data, the precomputed cache is the single source of truth. Views read it; they do not recompute independently. Adjustments (injury, park factors, defensive value, aging) are applied once in the CLI pipeline and baked into the cache. The modal reads ALL components from the cache (WAR, wOBA, avg, obp, slg, defRuns, posAdj, etc.), not just the final WAR number.</li>
+        <li><strong>CLI = browser math.</strong> sync-db uses the same pure computation functions as the browser (shared imports). When the browser does recompute (custom scouting only), it must produce identical results to the CLI for the same inputs.</li>
         <li><strong>New adjustments go in one place.</strong> Any new projection adjustment (injury, park factor, aging curve, etc.) is added to the CLI pipeline (sync-db Step 5.5). It automatically flows to all views via the precomputed cache. It is NOT added to individual views or modals.</li>
       </ul>
     </div>
@@ -488,7 +494,7 @@
       <h2>Key Design Rules</h2>
       <ul>
         <li><strong>Year dropdown = target season.</strong> User selects the season they want to see (e.g., 2022). Code internally derives the stats base year (2021). The user never sees or thinks about base years.</li>
-        <li><strong>Custom scouting bypasses all fast paths.</strong> When hasCustomScouting is true, all precomputed Supabase caches are skipped and everything computes locally with merged my &gt; osa scouting data.</li>
+        <li><strong>Custom scouting = second computation point.</strong> When hasCustomScouting is true, TR and TFR are recomputed with merged my &gt; osa scouting data. Scouting-independent data (raw stats, MLB distributions, career aggregates) is reused from in-memory caches &mdash; NOT re-fetched from Supabase. This is the only browser code path that computes projections.</li>
         <li><strong>WAR includes defensive value.</strong> Batter WAR = (wRAA + replacementRuns + sbRuns + defRuns + posAdj) / runsPerWin. Precomputed by CLI, cached in defensive_lookup.</li>
         <li><strong>Injury adjustment = PA/IP reduction.</strong> Active injury days (from Firebase) reduce projected PA/IP proportionally: ratio = max(0, 1 - injuryDays/180). Applied once in CLI Step 5.5. Threshold for visual indicator: 18+ days (&ge;10% impact).</li>
         <li><strong>Park factor adjustment.</strong> Batter: effective park factors by batter handedness. Pitcher: HR9 park factor. Applied once in CLI Step 5.5.</li>

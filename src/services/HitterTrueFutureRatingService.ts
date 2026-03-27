@@ -646,11 +646,16 @@ class HitterTrueFutureRatingService {
 
     // Check precomputed cache (static 2015-2020 data that never changes between syncs)
     if (supabaseDataService.isConfigured) {
-      const cached = await supabaseDataService.getPrecomputed(`hitter_mlb_distribution_${cacheKey}`);
-      if (cached && cached.wobaValues) {
-        this._mlbDistCache = cached;
-        this._mlbDistCacheKey = cacheKey;
-        return cached;
+      // Try exact key first, then fallback to def_def_def (sync-db stores with defaults)
+      const keysToTry = [`hitter_mlb_distribution_${cacheKey}`];
+      if (cacheKey !== 'def_def_def') keysToTry.push('hitter_mlb_distribution_def_def_def');
+      for (const key of keysToTry) {
+        const cached = await supabaseDataService.getPrecomputed(key);
+        if (cached && cached.wobaValues) {
+          this._mlbDistCache = cached;
+          this._mlbDistCacheKey = cacheKey;
+          return cached;
+        }
       }
     }
 

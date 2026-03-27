@@ -56,17 +56,24 @@ class DateService {
 
   /**
    * Get the current season year.
-   * Uses the `season` field from the WBL API (e.g. "2021") rather than the
-   * calendar year from the game date (which may be 2022 during offseason).
-   * Falls back to the date's year if season wasn't returned.
+   * Uses the `season` field from the WBL API when reliable (Nov-Mar offseason).
+   * When the game date is Apr-Oct and the calendar year exceeds the API season,
+   * the API is lagging — trust the game date's calendar year instead.
    */
   async getCurrentYear(): Promise<number> {
     try {
-      // Ensure the API has been called so cachedSeason is populated
       const date = await this.getCurrentDate();
-      if (this.cachedSeason) return this.cachedSeason;
-      // Fallback: derive from date (pre-existing behavior)
-      return parseInt(date.split('-')[0], 10);
+      const calendarYear = parseInt(date.split('-')[0], 10);
+      const month = parseInt(date.split('-')[1], 10);
+
+      if (this.cachedSeason) {
+        // Apr-Oct: if calendar year > API season, API is lagging — use calendar year
+        if (month >= 4 && month <= 10 && calendarYear > this.cachedSeason) {
+          return calendarYear;
+        }
+        return this.cachedSeason;
+      }
+      return calendarYear;
     } catch {
       return new Date().getFullYear();
     }
@@ -185,13 +192,22 @@ class DateService {
   async isOffseason(): Promise<boolean> {
     const date = await this.getCurrentDate();
     const month = parseInt(date.split('-')[1], 10);
-    if (month >= 11 || month <= 3) return true;
-    // Pre-opening-day: API still reports prior season even though calendar rolled
-    if (this.cachedSeason) {
-      const calendarYear = parseInt(date.split('-')[0], 10);
-      if (calendarYear > this.cachedSeason) return true;
-    }
-    return false;
+    // Nov-Mar = offseason, Apr-Oct = in-season. Period.
+    // The old check (calendarYear > cachedSeason) caused false positives when the
+    // API season field lagged behind the calendar year during early April.
+    return month >= 11 || month <= 3;
+  }
+
+  /**
+   * Whether the season is actively in progress (games have been played).
+   * Uses the game date directly — avoids isOffseason() which can return
+   * false positives when the API season field lags behind the calendar year.
+   */
+  async isSeasonInProgress(): Promise<boolean> {
+    const date = await this.getCurrentDate();
+    const month = parseInt(date.split('-')[1], 10);
+    // April through October = games are being played
+    return month >= 4 && month <= 10;
   }
 
   /**

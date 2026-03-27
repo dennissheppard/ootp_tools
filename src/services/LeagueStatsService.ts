@@ -1,4 +1,5 @@
 import { trueRatingsService } from './TrueRatingsService';
+import { supabaseDataService } from './SupabaseDataService';
 
 export interface LeagueStats {
     era: number;
@@ -35,6 +36,24 @@ class LeagueStatsService {
             if (cachedData) {
                 const stats = JSON.parse(cachedData);
                 this.leagueStatsCache.set(year, stats); // Also put in in-memory cache
+                return stats;
+            }
+        }
+
+        // Fast path: read fipConstant from precomputed league_context (0 queries)
+        if (supabaseDataService.isConfigured) {
+            const ctx = await supabaseDataService.getPrecomputed('league_context');
+            if (ctx?.fipConstant != null) {
+                const fipConstant = ctx.fipConstant;
+                const avgFip = fipConstant; // FIP constant ≈ league ERA by construction
+                const stats: LeagueStats = {
+                    era: fipConstant, // ERA ≈ FIP constant for league average
+                    fipConstant,
+                    avgFip,
+                    replacementFip: avgFip + 1.00,
+                    ip: 0, k: 0, bb: 0, hr: 0, er: 0, // Totals not needed for FIP calc
+                };
+                this.leagueStatsCache.set(year, stats);
                 return stats;
             }
         }

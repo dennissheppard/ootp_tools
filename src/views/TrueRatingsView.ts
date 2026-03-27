@@ -390,6 +390,7 @@ export class TrueRatingsView {
       <div class="true-ratings-content">
         ${osaBannerHtml()}
           <p class="section-subtitle">A blend of historical stats and scouting ratings produces True Ratings. This blend varies based on player experience, age, position, moon phase, etc.</p>
+          <p class="section-subtitle" id="snapshot-indicator" style="display: none; color: #7dd3fc; font-weight: 500;"></p>
         
         <div class="true-ratings-controls">
           <div class="filter-bar" id="ratings-view-toggle">
@@ -648,6 +649,12 @@ export class TrueRatingsView {
     this.bindPlayerTypeToggle();
     this.updateRatingsControlsVisibility();
 
+    // Listen for snapshot mode changes to update the indicator
+    window.addEventListener('wbl:snapshot-mode-changed', () => {
+      this.updateSnapshotIndicator();
+    });
+    this.updateSnapshotIndicator();
+
     // Listen for scouting data updates from DataManagementView
     window.addEventListener('scoutingDataUpdated', () => {
       // Clear view-level caches so they get rebuilt with new scouting data
@@ -793,6 +800,19 @@ export class TrueRatingsView {
     if (minorsBtn) minorsBtn.style.display = isSpecialGroup ? 'none' : '';
     if (rawStatsBtn) rawStatsBtn.style.display = isSpecialGroup ? 'none' : '';
     if (trueRatingsBtn) trueRatingsBtn.style.display = '';
+  }
+
+  private updateSnapshotIndicator(): void {
+    const indicator = this.container.querySelector<HTMLElement>('#snapshot-indicator');
+    if (!indicator) return;
+    const snapshotMode = supabaseDataService.getSnapshotMode();
+    if (snapshotMode) {
+      const label = snapshotMode.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      indicator.textContent = `Projection data reflects ${label} snapshot`;
+      indicator.style.display = '';
+    } else {
+      indicator.style.display = 'none';
+    }
   }
 
   private async fetchAndRenderStats(): Promise<void> {
@@ -3744,7 +3764,7 @@ export class TrueRatingsView {
           tfrContact: hitterTfr?.trueRatings?.contact,
           tfrGap: hitterTfr?.trueRatings?.gap,
           tfrSpeed: hitterTfr?.trueRatings?.speed,
-          isProspect: !hitterTr && !!hitterTfr,
+          isProspect: !!hitterTfr || player.draftEligible || (!hitterTr && !!hitterTfr),
           retired: player.retired,
         };
 
@@ -3773,7 +3793,7 @@ export class TrueRatingsView {
           tfrStuff: pitcherTfr?.trueRatings?.stuff,
           tfrControl: pitcherTfr?.trueRatings?.control,
           tfrHra: pitcherTfr?.trueRatings?.hra,
-          isProspect: !pitcherTr && !!pitcherTfr,
+          isProspect: !!pitcherTfr || player.draftEligible || (!pitcherTr && !!pitcherTfr),
           retired: player.retired,
         };
 

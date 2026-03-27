@@ -106,6 +106,8 @@ export const consistencyChecker = {
       const now = Date.now();
       for (const [field, value] of Object.entries(displayed)) {
         if (value === undefined || value === null) continue;
+        // WAR and all components now come from the same canonical cache.
+        // Both cache and formula checks should pass.
         const cachedVal = cached[field];
         if (cachedVal === undefined) continue;
         if (!isClose(field, value, cachedVal)) {
@@ -177,6 +179,12 @@ export const consistencyChecker = {
     const expectedWar = Math.round(((wRAA + replacementRuns + sbRuns + defRuns + posAdj) / runsPerWin) * 10) / 10;
 
     if (!isClose('war', displayedWar, expectedWar)) {
+      console.warn(`[CONSISTENCY DEBUG] ${playerName} (#${playerId}):`,
+        `\n  displayedWar=${displayedWar}, expectedWar=${expectedWar}`,
+        `\n  projWoba=${projWoba}, lgWoba=${lgWoba}, wobaScale=${wobaScale}, runsPerWin=${runsPerWin}`,
+        `\n  projPa=${projPa}, sbRuns=${sbRuns}, defRuns=${defRuns}, posAdj=${posAdj}`,
+        `\n  wRAA=${wRAA.toFixed(2)}, replacementRuns=${replacementRuns.toFixed(2)}`,
+        `\n  source=${source}`);
       reportMismatch({
         playerId, playerName, field: 'war (formula)',
         displayed: displayedWar, cached: expectedWar,

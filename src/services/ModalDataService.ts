@@ -667,10 +667,13 @@ export function computeBatterProjection(
   const peakWobaFromRates = deps.computeWoba(projBbPct / 100, projAvg, projDoublesPerAb, projTriplesPerAb, projHrPerAb);
   const projWoba = isPeakMode ? peakWobaFromRates : (data.projWoba ?? peakWobaFromRates);
 
-  // SB runs for WAR — reuse the single SB/CS computation above
-  const projSbRuns = (projSb > 0 || projCs > 0)
-    ? deps.calculateBaserunningRuns(projSb, projCs)
-    : 0;
+  // SB runs for WAR — use cached value when available (canonical from sync-db).
+  // Only compute as fallback for custom scouting or players not in cache.
+  const projSbRuns = data.projSbRuns ?? (
+    (projSb > 0 || projCs > 0)
+      ? deps.calculateBaserunningRuns(projSb, projCs)
+      : 0
+  );
 
   // Defensive value (injected from DefensiveProjectionService, default 0)
   const projDefRuns = deps.defRuns ?? 0;
@@ -683,6 +686,10 @@ export function computeBatterProjection(
     const fallbackAvg = { year: 0, lgObp: 0.320, lgSlg: 0.400, lgWoba: 0.320, lgRpa: 0.115, wobaScale: 1.15, runsPerWin: 10, totalPa: 0, totalRuns: 0 };
     calculatedWar = deps.calculateBattingWar(projWoba, projPa, fallbackAvg, projSbRuns, projDefRuns, projPosAdj);
   }
+  // Use cached WAR when available (canonical value from sync-db).
+  // All displayed components (wOBA, PA, defRuns, posAdj) now also come from the cache,
+  // so everything is from the same computation. calculatedWar is the fallback for
+  // players not in the cache (custom scouting, prospects without precomputed data).
   const projWar = data.projWar ?? calculatedWar;
 
   const projHrPct = projPa > 0 ? (projHr / projPa) * 100 : 0;

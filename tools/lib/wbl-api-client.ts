@@ -22,6 +22,7 @@ export function resetWblStats() {
 export async function wblFetchJson<T = any>(
   endpoint: string,
   params?: Record<string, string | number>,
+  retries = 2,
 ): Promise<T> {
   const url = new URL(endpoint, WBL_BASE);
   if (params) {
@@ -30,19 +31,28 @@ export async function wblFetchJson<T = any>(
     }
   }
 
-  wblCallCount++;
-  const res = await fetch(url.toString(), {
-    headers: { 'x-api-key': WBL_API_KEY },
-  });
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    wblCallCount++;
+    const res = await fetch(url.toString(), {
+      headers: { 'x-api-key': WBL_API_KEY },
+    });
 
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`WBL ${endpoint} → ${res.status}: ${body}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      if (attempt < retries && res.status >= 500) {
+        console.warn(`  ⚠️ WBL ${endpoint} → ${res.status} (retry ${attempt + 1}/${retries})`);
+        await new Promise(r => setTimeout(r, 1000 * (attempt + 1)));
+        continue;
+      }
+      throw new Error(`WBL ${endpoint} → ${res.status}: ${body}`);
+    }
+
+    const text = await res.text();
+    wblBytesTransferred += new TextEncoder().encode(text).byteLength;
+    return JSON.parse(text) as T;
   }
 
-  const text = await res.text();
-  wblBytesTransferred += new TextEncoder().encode(text).byteLength;
-  return JSON.parse(text) as T;
+  throw new Error(`WBL ${endpoint} → exhausted retries`);
 }
 
 /**

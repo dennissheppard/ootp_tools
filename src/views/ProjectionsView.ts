@@ -22,6 +22,7 @@ import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
 import { applyScrollAffordance } from '../utils/scrollAffordance';
 import { getRouter } from '../router';
+import { setSnapshotModeWithBanner } from '../utils/snapshotBanner';
 
 interface ProjectedPlayerWithActuals extends ProjectedPlayer {
   actualStats?: {
@@ -90,6 +91,8 @@ export class ProjectionsView {
   private scoutingMetadata?: { fromMyScout: number; fromOSA: number };
   private scoutingDataMode: ScoutingDataMode = 'none';
   private viewMode: 'projections' | 'backcasting' | 'analysis' = 'projections';
+  private availableSnapshots: { id: string; label: string; year: number }[] = [];
+  private seasonInProgress = false;
   private sortKey: string = this.mode === 'batters' ? 'projectedStats.war' : 'projectedStats.fip';
   private sortDirection: 'asc' | 'desc' = this.mode === 'batters' ? 'desc' : 'asc';
   private columns: ColumnConfig[] = [];
@@ -600,6 +603,26 @@ export class ProjectionsView {
           });
       });
 
+      // Snapshot mode toggle (Opening Day / Updated)
+      this.container.querySelectorAll<HTMLButtonElement>('[data-snapshot-mode]').forEach(button => {
+          button.addEventListener('click', () => {
+              const mode = button.dataset.snapshotMode;
+              if (!mode) return;
+              const snapshotId = mode === 'snapshot' ? this.availableSnapshots[0]?.id ?? null : null;
+              setSnapshotModeWithBanner(snapshotId);
+              this.renderSnapshotToggle();
+              this.showLoadingState();
+              this.fetchData();
+          });
+      });
+
+      // Listen for snapshot mode changes from banner or other views
+      window.addEventListener('wbl:snapshot-mode-changed', () => {
+          this.renderSnapshotToggle();
+          this.showLoadingState();
+          this.fetchData();
+      });
+
       // Player type toggle (MLB Players / Minor Leaguers)
       this.container.querySelectorAll<HTMLButtonElement>('[data-player-toggle]').forEach(button => {
           button.addEventListener('click', () => {
@@ -674,10 +697,13 @@ export class ProjectionsView {
 
       try {
           const currentYear = await dateService.getCurrentYear();
+          const isOff = await dateService.isOffseason();
           const targetYear = this.viewMode === 'backcasting'
             ? this.selectedYear
             : await dateService.getProjectionTargetYear();
-          const statsBaseYear = targetYear - 1;
+          // Offseason: projecting next year from this year's stats (target - 1).
+          // In-season: projecting this year from this year's stats (target = statsYear).
+          const statsBaseYear = isOff ? targetYear - 1 : targetYear;
 
           // Handle batter projections separately
           if (this.mode === 'batters') {
@@ -2355,7 +2381,9 @@ export class ProjectionsView {
           return;
       }
 
-      const playerMap = await this.getPlayerMap();
+      // Use full player lookup for filtering (has status/team/flags for ALL players)
+      const fullLookup = await supabaseDataService.getPlayerLookup();
+      const draftPlayerMap = await this.getPlayerMap();
       let filtered = [...this.allStats];
 
       // Apply team/group filter
@@ -2363,9 +2391,11 @@ export class ProjectionsView {
       if (!isSpecialGroup) {
         // Filter by MLB vs minor leaguers (only for team views)
         filtered = filtered.filter(p => {
-          const player = playerMap.get(p.playerId);
+          const player = fullLookup?.get(p.playerId) ?? draftPlayerMap.get(p.playerId);
           // Draft-eligible/HSC players only show via explicit draftees/hscol filter
           if (player?.draftEligible || player?.hsc) return false;
+          // Non-rostered players (no team, no level) only show via freeAgents/draftees/hscol
+          if (player && !player.teamId && !player.parentTeamId) return false;
           const isMinor = this.isMinorLeaguer(p);
           if (isMinor && !this.showMinorLeaguers) return false;
           if (!isMinor && !this.showMlbPlayers) return false;
@@ -2375,14 +2405,14 @@ export class ProjectionsView {
 
       if (this.selectedTeam === 'freeAgents') {
           filtered = filtered.filter(p => {
-            const player = playerMap.get(p.playerId);
+            const player = fullLookup?.get(p.playerId) ?? draftPlayerMap.get(p.playerId);
             return player?.status === 'free_agent' && !player.draftEligible;
           });
       } else if (this.selectedTeam === 'draftees') {
-          filtered = filtered.filter(p => playerMap.get(p.playerId)?.draftEligible === true);
+          filtered = filtered.filter(p => (fullLookup?.get(p.playerId) ?? draftPlayerMap.get(p.playerId))?.draftEligible === true);
       } else if (this.selectedTeam === 'hscol') {
           filtered = filtered.filter(p => {
-            const player = playerMap.get(p.playerId);
+            const player = fullLookup?.get(p.playerId) ?? draftPlayerMap.get(p.playerId);
             return player?.hsc != null && player.hsc !== '';
           });
       } else if (this.selectedTeam !== 'all') {
@@ -2407,16 +2437,19 @@ export class ProjectionsView {
   }
 
   private async filterAndRenderBatters(): Promise<void> {
-      const playerMap = await this.getPlayerMap();
+      const fullLookup = await supabaseDataService.getPlayerLookup();
+      const draftPlayerMap = await this.getPlayerMap();
       let filtered = [...this.allBatterStats];
 
       // Apply team/group filter
       const isSpecialGroup = ['freeAgents', 'draftees', 'hscol'].includes(this.selectedTeam);
       if (!isSpecialGroup) {
         filtered = filtered.filter(b => {
-          const player = playerMap.get(b.playerId);
+          const player = fullLookup?.get(b.playerId) ?? draftPlayerMap.get(b.playerId);
           // Draft-eligible/HSC players only show via explicit draftees/hscol filter
           if (player?.draftEligible || player?.hsc) return false;
+          // Non-rostered players (no team, no level) only show via freeAgents/draftees/hscol
+          if (player && !player.teamId && !player.parentTeamId) return false;
           const isMinor = this.isMinorLeaguer(b);
           if (isMinor && !this.showMinorLeaguers) return false;
           if (!isMinor && !this.showMlbPlayers) return false;
@@ -2426,14 +2459,14 @@ export class ProjectionsView {
 
       if (this.selectedTeam === 'freeAgents') {
           filtered = filtered.filter(b => {
-            const player = playerMap.get(b.playerId);
+            const player = fullLookup?.get(b.playerId) ?? draftPlayerMap.get(b.playerId);
             return player?.status === 'free_agent' && !player.draftEligible;
           });
       } else if (this.selectedTeam === 'draftees') {
-          filtered = filtered.filter(b => playerMap.get(b.playerId)?.draftEligible === true);
+          filtered = filtered.filter(b => (fullLookup?.get(b.playerId) ?? draftPlayerMap.get(b.playerId))?.draftEligible === true);
       } else if (this.selectedTeam === 'hscol') {
           filtered = filtered.filter(b => {
-            const player = playerMap.get(b.playerId);
+            const player = fullLookup?.get(b.playerId) ?? draftPlayerMap.get(b.playerId);
             return player?.hsc != null && player.hsc !== '';
           });
       } else if (this.selectedTeam !== 'all') {
@@ -3721,7 +3754,14 @@ export class ProjectionsView {
   }
 
   private async initializeFromGameDate(): Promise<void> {
-    const dateStr = await dateService.getCurrentDateWithFallback();
+    const [dateStr, snapshots, inProgress] = await Promise.all([
+      dateService.getCurrentDateWithFallback(),
+      supabaseDataService.getAvailableSnapshots(),
+      dateService.isSeasonInProgress(),
+    ]);
+    this.availableSnapshots = snapshots ?? [];
+    this.seasonInProgress = inProgress;
+
     const parsed = this.parseGameDate(dateStr);
 
     if (parsed) {
@@ -3738,6 +3778,7 @@ export class ProjectionsView {
       this.updateModeControls();
     }
 
+    this.renderSnapshotToggle();
     this.updateSubtitle();
     this.fetchData();
   }
@@ -3811,9 +3852,28 @@ export class ProjectionsView {
       btn.classList.toggle('active', isActive);
       btn.setAttribute('aria-pressed', String(isActive));
     });
+
+    this.renderSnapshotToggle();
   }
 
+  private renderSnapshotToggle(): void {
+    const toggle = this.container.querySelector<HTMLElement>('#snapshot-toggle');
+    if (!toggle) return;
 
+    const showToggle = this.availableSnapshots.length > 0
+      && this.seasonInProgress
+      && this.viewMode === 'projections';
+
+    toggle.style.display = showToggle ? '' : 'none';
+    if (!showToggle) return;
+
+    const isSnapshot = !!supabaseDataService.getSnapshotMode();
+    toggle.querySelectorAll<HTMLButtonElement>('[data-snapshot-mode]').forEach(btn => {
+      const isActive = (btn.dataset.snapshotMode === 'snapshot') === isSnapshot;
+      btn.classList.toggle('active', isActive);
+      btn.setAttribute('aria-pressed', String(isActive));
+    });
+  }
 
   private updateSubtitle(): void {
     const subtitle = this.container.querySelector<HTMLElement>('#projections-subtitle');
@@ -3821,15 +3881,24 @@ export class ProjectionsView {
 
     const targetYear = this.viewMode === 'backcasting' ? this.selectedYear : (this.projectionTargetYear ?? this.yearOptions[0] ?? this.selectedYear);
     const baseYear = this.statsYearUsed ?? (targetYear - 1);
+    const snapshotMode = supabaseDataService.getSnapshotMode();
 
     if (this.selectedTeam === 'draftees') {
       subtitle.innerHTML = `Peak Year Projections for the <strong>${targetYear}</strong> Draft Class based on scouting ratings`;
     } else if (this.selectedTeam === 'hscol') {
       subtitle.innerHTML = `Peak Year Projections for HS / College players based on scouting ratings`;
+    } else if (snapshotMode && this.viewMode === 'projections') {
+      const snapshotLabel = snapshotMode.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      subtitle.innerHTML = `${snapshotLabel} Projections for the <strong>${targetYear}</strong> season`;
     } else {
       const poolNote = '<br><span class="note-text">Only players with MLB stats. For rookie projections, search for a player or see the True Ratings page.</span>';
       if (this.isOffseason) {
         subtitle.innerHTML = `Pre-season Projections for the <strong>${targetYear}</strong> season`;
+      } else if (this.seasonInProgress) {
+        const fallbackNote = this.usedFallbackStats && baseYear !== (targetYear - 1)
+          ? ` <span class="note-text">No ${targetYear - 1} stats yet&mdash;using ${baseYear} data.</span>`
+          : '';
+        subtitle.innerHTML = `Updated Projections for the <strong>${targetYear}</strong> season based on current True Ratings ${fallbackNote}${poolNote}`;
       } else {
         const fallbackNote = this.usedFallbackStats && baseYear !== (targetYear - 1)
           ? ` <span class="note-text">No ${targetYear - 1} stats yet&mdash;using ${baseYear} data.</span>`
@@ -3851,7 +3920,11 @@ export class ProjectionsView {
 
   private updateDataSourceBadges(): void {
     this.inferScoutingDataMode();
-    emitDataSourceBadges('preseason-model', this.scoutingDataMode);
+    const snapshotMode = supabaseDataService.getSnapshotMode();
+    const seasonMode: import('../utils/dataSourceBadges').SeasonDataMode = snapshotMode
+      ? 'opening-day-snapshot'
+      : (this.seasonInProgress ? 'current-ytd' : 'preseason-model');
+    emitDataSourceBadges(seasonMode, this.scoutingDataMode);
   }
 
   private renderPowerQuartileRows(report: any): string {

@@ -771,9 +771,13 @@ class TeamRatingsService {
             this._unifiedPitcherCache.set(year, farmData);
             return farmData;
           }
-          console.log('⚠️ No pitcher TFR data available — falling back to computation');
+          console.warn('⚠️ No pitcher TFR data available — returning empty (run sync-db to populate)');
+          this._unifiedPitcherCache.set(year, { reports: [], systems: [], prospects: [] });
+          return { reports: [], systems: [], prospects: [] };
         } catch (err) {
-          console.warn('⚠️ Failed to load pre-computed pitcher TFR, falling back to computation:', err);
+          console.warn('⚠️ Failed to load pre-computed pitcher TFR — returning empty:', err);
+          this._unifiedPitcherCache.set(year, { reports: [], systems: [], prospects: [] });
+          return { reports: [], systems: [], prospects: [] };
         }
       }
 
@@ -1161,9 +1165,15 @@ class TeamRatingsService {
             this._unifiedHitterCache.set(year, farmData);
             return farmData;
           }
-          console.log('⚠️ No hitter TFR data available — falling back to computation');
+          console.warn('⚠️ No hitter TFR data available — returning empty (run sync-db to populate)');
+          const emptyHitter: HitterFarmData = { reports: [], systems: [], prospects: [] };
+          this._unifiedHitterCache.set(year, emptyHitter);
+          return emptyHitter;
         } catch (err) {
-          console.warn('⚠️ Failed to load pre-computed hitter TFR, falling back to computation:', err);
+          console.warn('⚠️ Failed to load pre-computed hitter TFR — returning empty:', err);
+          const emptyHitter: HitterFarmData = { reports: [], systems: [], prospects: [] };
+          this._unifiedHitterCache.set(year, emptyHitter);
+          return emptyHitter;
         }
       }
 
@@ -1665,8 +1675,12 @@ class TeamRatingsService {
       return map;
   }
 
+  private _careerBattingCache: Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }> | null = null;
+
   private async getCareerMlbStatsMap(currentYear: number): Promise<Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }>> {
-      const startYear = Math.max(2000, currentYear - 6);
+      if (this._careerBattingCache) return this._careerBattingCache;
+
+      const startYear = Math.max(2000, currentYear - 4);
       const promises = [];
       for (let y = startYear; y <= currentYear; y++) {
           promises.push(trueRatingsService.getTrueBattingStats(y));
@@ -1686,6 +1700,7 @@ class TeamRatingsService {
           map.set(stat.player_id, current);
       });
 
+      this._careerBattingCache = map;
       return map;
   }
 

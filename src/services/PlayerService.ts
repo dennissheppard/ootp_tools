@@ -212,12 +212,35 @@ export class PlayerService {
   }
 
   async searchPlayers(query: string): Promise<Player[]> {
-    const players = await this.getAllPlayers();
     const normalizedQuery = query.toLowerCase().trim();
+    if (!normalizedQuery) return [];
 
-    if (!normalizedQuery) {
-      return [];
+    // If full player list is already cached, use it directly
+    if (this.players.length > 0) {
+      return this.players.filter((player) => {
+        const fullName = `${player.firstName} ${player.lastName}`.toLowerCase();
+        const reverseName = `${player.lastName} ${player.firstName}`.toLowerCase();
+        return fullName.includes(normalizedQuery) || reverseName.includes(normalizedQuery);
+      });
     }
+
+    // Fast path: use precomputed player lookup (1 cached read, ~6KB vs 14K+ player rows)
+    if (supabaseDataService.isConfigured) {
+      const lookup = await supabaseDataService.getPlayerLookup();
+      if (lookup) {
+        const results: Player[] = [];
+        for (const p of lookup.values()) {
+          const fullName = `${p.firstName} ${p.lastName}`.toLowerCase();
+          const reverseName = `${p.lastName} ${p.firstName}`.toLowerCase();
+          if (fullName.includes(normalizedQuery) || reverseName.includes(normalizedQuery)) {
+            results.push({ ...p, retired: false } as any);
+          }
+        }
+        return results;
+      }
+    }
+
+    const players = await this.getAllPlayers();
 
     return players.filter((player) => {
       const fullName = `${player.firstName} ${player.lastName}`.toLowerCase();
