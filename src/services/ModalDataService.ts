@@ -470,10 +470,10 @@ export function computeBatterProjection(
   const age = isPeakMode ? 27 : (data.age ?? 27);
   const lgObp = deps.leagueAvg?.lgObp ?? 0.320;
   const lgSlg = deps.leagueAvg?.lgSlg ?? 0.400;
-  // Resolve effective cached data: in "current + toggle visible" mode, all cached
-  // proj* values are TFR-peak for prospects — poison for current projections.
-  // Strip them so every downstream `d.projXxx ?? formula` falls through to formula.
-  const useFormula = showToggle && !isPeakMode;
+  // Resolve effective cached data: for PROSPECTS in current toggle mode, cached
+  // proj* values are TFR-peak — poison for current projections. Strip them.
+  // MLB players' cached proj* values ARE current projections (TR-based) — safe to use.
+  const useFormula = showToggle && !isPeakMode && data.isProspect === true;
   const d = useFormula ? {
     // Only keep non-projection fields; strip all proj*/tfr* cached rates
     ...data,
@@ -794,38 +794,40 @@ export function computePitcherProjection(
 
   const age = isPeakMode ? 27 : (data.age ?? 27);
 
-  // Use cached rates when available (from TFR pipeline with proper adjustments).
-  // Only fall back to crude rating→rate formulas when cached rates are missing.
-  // For toggle-peak on MLB players, recalculate from TFR ratings since cached rates are TR-based.
-  const useFormula = showToggle && !isPeakMode;
+  // For prospects in current toggle mode, compute from current ratings.
+  // For MLB players without toggle, use cached canonical values (display-only).
+  const pitcherUseFormula = showToggle && !isPeakMode && data.isProspect === true;
   const isTogglePeak = isPeakMode && showToggle && !data.isProspect;
+  // Any path that computes its own rates should also compute its own FIP/WAR
+  const computeFromRates = pitcherUseFormula || isTogglePeak;
 
   let projK9: number;
   let projBb9: number;
   let projHr9: number;
 
-  if (isTogglePeak || useFormula) {
-    // Toggle mode: compute from the selected ratings (TFR for peak, current for non-peak)
+  if (computeFromRates) {
+    // Toggle mode: compute from the selected ratings
     projK9 = useStuff !== undefined ? (useStuff + 28) / 13.5 : (data.projK9 ?? 7.5);
     projBb9 = useControl !== undefined ? (100.4 - useControl) / 19.2 : (data.projBb9 ?? 3.5);
     projHr9 = useHra !== undefined ? (86.7 - useHra) / 41.7 : (data.projHr9 ?? 1.2);
   } else {
-    // Default: use cached rates from the TFR/TR pipeline, formula as fallback
+    // Default: use cached rates from the pipeline
     projK9 = data.projK9 ?? (useStuff !== undefined ? (useStuff + 28) / 13.5 : 7.5);
     projBb9 = data.projBb9 ?? (useControl !== undefined ? (100.4 - useControl) / 19.2 : 3.5);
     projHr9 = data.projHr9 ?? (useHra !== undefined ? (86.7 - useHra) / 41.7 : 1.2);
   }
 
-  // Apply park factor to HR rate (pitchers give up more/fewer HR in hitter/pitcher parks)
+  // Apply park factor to HR rate
   if (deps.parkHrFactor && deps.parkHrFactor !== 1.0) {
     projHr9 *= deps.parkHrFactor;
   }
 
-  // FIP and WAR always computed from the rates we're displaying — never from cache.
-  // This guarantees rates → FIP → WAR are internally consistent.
-  const projFip = ((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47;
+  // FIP: use cached when not computing from rates, compute otherwise
+  const projFip = computeFromRates
+    ? ((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47
+    : (data.projFip ?? ((13 * projHr9) + (3 * projBb9) - (2 * projK9)) / 9 + 3.47);
 
-  // IP — peak mode uses precomputed TFR value when available, falls back to estimate
+  // IP
   const s = deps.scoutingData;
   const stamina = s?.stamina ?? data.scoutStamina;
   const injury = s?.injuryProneness ?? data.injuryProneness;
@@ -833,8 +835,10 @@ export function computePitcherProjection(
     ? ((data as any).peakIp ?? deps.estimateIp(stamina ?? 50, injury))
     : (data.projIp ?? deps.projectedIp ?? deps.estimateIp(stamina ?? 50, injury));
 
-  // WAR always from displayed rates — never cached
-  const projWar = deps.calculateWar(projFip, projIp);
+  // WAR: use cached when not computing from rates, compute otherwise
+  const projWar = computeFromRates
+    ? deps.calculateWar(projFip, projIp)
+    : (data.projWar ?? deps.calculateWar(projFip, projIp));
 
   // Counting stats
   const projK = Math.round(projK9 * projIp / 9);
