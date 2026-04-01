@@ -1838,7 +1838,9 @@ export class BatterProfileModal {
 
     let proj: import('../services/ModalDataService').BatterProjectionResult;
 
-    if (hasCachedProjection && !isPeakMode) {
+    // Cache path: only for non-peak, non-toggle scenarios. When the toggle is visible
+    // and set to "current", we must compute (cache holds peak-based precomputed data).
+    if (hasCachedProjection && !isPeakMode && !showToggleCheck) {
       // Display-only path: all values from cache, zero computation.
       const lgObp = this.leagueAvg?.lgObp ?? 0.320;
       const lgSlg = this.leagueAvg?.lgSlg ?? 0.400;
@@ -1925,8 +1927,10 @@ export class BatterProfileModal {
     if (!isPeakMode) {
       consistencyChecker.checkBatter(data.playerId, data.playerName,
         { war: projWar, pa: projPa, hr: projHr, sb: projSb }, 'BatterProfileModal');
-      // Formula check: independently derive WAR from components
-      if (this.leagueAvg && projPa > 0) {
+      // Formula check: independently derive WAR from components.
+      // Formula check requires all WAR components in the cache (sbRuns added post-launch;
+      // older snapshots won't have it, causing a false mismatch).
+      if (this.leagueAvg && projPa > 0 && data.projSbRuns !== undefined) {
         consistencyChecker.checkBatterWarFormula(data.playerId, data.playerName, {
           displayedWar: projWar,
           projWoba: proj.projWoba,
@@ -2022,11 +2026,8 @@ export class BatterProfileModal {
     }
 
     // Projection label
-    const isProspect = data.isProspect === true;
     let projectionLabel: string;
     if (isPeakMode) {
-      projectionLabel = 'Peak Projection <span class="projection-age">(27yo)</span>';
-    } else if (isProspect) {
       projectionLabel = 'Peak Projection <span class="projection-age">(27yo)</span>';
     } else {
       projectionLabel = `${this.projectionYear} Projection <span class="projection-age">(${age}yo)</span>`;

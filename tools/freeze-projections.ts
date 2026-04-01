@@ -145,8 +145,10 @@ async function main() {
     process.exit(1);
   }
 
-  // Write snapshot entries
-  await supabaseUpsertBatches('precomputed_cache', rows, 5, 'key');
+  // Write snapshot entries one at a time (large JSONB rows timeout in batches)
+  for (const row of rows) {
+    await supabaseUpsertBatches('precomputed_cache', [row], 1, 'key');
+  }
   console.log(`  Wrote ${snapshotted}/${SNAPSHOT_KEYS.length} snapshot entries`);
 
   // Update snapshot index

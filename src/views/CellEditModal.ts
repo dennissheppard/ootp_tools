@@ -17,7 +17,7 @@ const POSITION_ELIGIBILITY: Record<string, number[]> = {
 
 // --- Types ---
 
-export type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select' | 'dev-override-set' | 'dev-override-remove' | 'trade-flag' | 'need-flag' | 'salary-override' | 'salary-override-remove';
+export type CellEditAction = 'cancel' | 'clear' | 'extend' | 'org-select' | 'search-select' | 'dev-override-set' | 'dev-override-remove' | 'trade-flag' | 'need-flag' | 'salary-override' | 'salary-override-remove' | 'auto-fill-cell';
 export type OverrideSourceType = 'extend' | 'org' | 'trade-target' | 'fa-target';
 
 export interface CellEditResult {
@@ -227,6 +227,12 @@ export class CellEditModal {
               <div class="cell-edit-player-list cell-edit-search-list"></div>
             </div>
           </div>
+          ${!context.currentCell ? `<div class="cell-edit-action-section">
+            <button class="cell-edit-action-btn" data-action="auto-fill-cell">
+              <span class="action-icon">&#x2728;</span>
+              Auto-fill this slot
+            </button>
+          </div>` : ''}
         </div>
         <div class="cell-edit-footer">
           <button class="cell-edit-footer-btn cell-edit-need-toggle">${context.isNeedOverride ? 'Remove Position of Need' : 'Mark as Position of Need'}</button>
@@ -345,6 +351,11 @@ export class CellEditModal {
           const input = section.querySelector<HTMLInputElement>('.cell-edit-search-input');
           input?.focus();
         }
+      });
+
+      // Auto-fill this cell
+      modal.querySelector('[data-action="auto-fill-cell"]')?.addEventListener('click', () => {
+        this.resolve({ action: 'auto-fill-cell' });
       });
 
       // Search input — lazy-loads all players on first search via searchPlayersFn

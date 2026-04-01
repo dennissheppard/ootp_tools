@@ -208,7 +208,7 @@ export interface TeamPlanningOverrideRecord {
   contractStatus: string;
   level?: string;
   isProspect?: boolean;
-  sourceType: 'extend' | 'org' | 'trade-target' | 'fa-target' | 'clear';
+  sourceType: 'extend' | 'org' | 'trade-target' | 'fa-target' | 'clear' | 'drag';
   createdAt: number;
 }
 

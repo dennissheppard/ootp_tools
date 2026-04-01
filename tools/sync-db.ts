@@ -280,6 +280,29 @@ async function fetchFirebaseInjuries(teamIds: number[]): Promise<Map<string, num
 }
 
 /**
+ * Fetch MLB service days from WBL Firebase playerRosterStatus.
+ * Returns a Map of player_id → total MLB service days.
+ * Firebase stores per-player: { mlb_service_days: "308", mlb_service_years: "1", ... }
+ */
+async function fetchFirebaseServiceDays(): Promise<Map<number, number>> {
+  const map = new Map<number, number>();
+  try {
+    const data = await wblFetchFirebase<Record<string, { mlb_service_days?: string }>>('playerRosterStatus');
+    if (!data) return map;
+    for (const [pid, status] of Object.entries(data)) {
+      const days = parseInt(status?.mlb_service_days ?? '0', 10);
+      if (days > 0) {
+        map.set(parseInt(pid, 10), days);
+      }
+    }
+    console.log(`  ⏱ Firebase service days: ${map.size} players`);
+  } catch (err) {
+    console.warn(`  ⚠️ Firebase service days fetch failed: ${(err as Error).message}`);
+  }
+  return map;
+}
+
+/**
  * Fallback: Parse the WBL players.csv to extract active injury days remaining per player.
  * Returns a Map of player_id → days remaining (only entries > 0).
  */
@@ -372,11 +395,13 @@ function mapHitterScoutingRow(r: any, gameDate: string): any {
 // WBL API → Supabase field mapping
 // ──────────────────────────────────────────────
 
-function mapPitchingRow(row: any): any {
+function mapPitchingRow(row: any, playerTeamMap?: Map<number, number>): any {
   return {
     player_id: row.player_id,
     year: row.Year,
     league_id: levelToLeagueId(row.Level),
+    level_id: parseInt(levelToPlayerLevel(row.Level), 10),
+    team_id: playerTeamMap?.get(row.player_id) ?? null,
     split_id: 1,
     g: row.G ?? null,
     gs: row.GS ?? null,
@@ -395,11 +420,14 @@ function mapPitchingRow(row: any): any {
   };
 }
 
-function mapBattingRow(row: any): any {
+function mapBattingRow(row: any, playerTeamMap?: Map<number, number>): any {
   return {
     player_id: row.player_id,
     year: row.Year,
     league_id: levelToLeagueId(row.Level),
+    level_id: parseInt(levelToPlayerLevel(row.Level), 10),
+    team_id: playerTeamMap?.get(row.player_id) ?? null,
+    position: row.POS ?? null,
     split_id: 1,
     g: row.G ?? null,
     pa: row.PA ?? null,
@@ -809,10 +837,10 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
   stats.teams = await supabaseUpsertBatches('teams', dedupedTeams, BATCH_SIZE, 'id');
   console.log(`  ✅ Teams: ${stats.teams} rows`);
 
-  // Fetch players + injury data (Firebase primary, CSV fallback)
+  // Fetch players + injury + service time data (Firebase primary, CSV fallback)
   const wblTeamIds = dedupedTeams.filter(t => t.league_id === 200).map(t => t.id);
-  console.log('  Fetching players + injury data...');
-  const [playersResponse, firebaseInjuryNames, injuryCsvText] = await Promise.all([
+  console.log('  Fetching players + injury + service time data...');
+  const [playersResponse, firebaseInjuryNames, injuryCsvText, serviceDaysMap] = await Promise.all([
     wblFetchJson<{ players: any[] }>('/api/players'),
     fetchFirebaseInjuries(wblTeamIds).catch(err => {
       console.warn(`  ⚠️ Firebase injury fetch failed: ${err.message}`);
@@ -822,6 +850,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
       console.warn(`  ⚠️ CSV injury fetch failed: ${err.message}`);
       return '';
     }),
+    fetchFirebaseServiceDays(),
   ]);
 
   // Build name→id lookup from the player API response for Firebase name matching
@@ -882,6 +911,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
           retired: true, status: 'retired',
           draft_eligible: false,
           injury_days_remaining: 0,
+          service_days: null,
         };
       }
 
@@ -936,12 +966,20 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
         status,
         draft_eligible: isDraftEligible,
         injury_days_remaining: injuryMap.get(id) ?? 0,
+        service_days: serviceDaysMap.get(id) ?? null,
       };
     })
     .filter((p): p is NonNullable<typeof p> => p !== null);
   const dedupedPlayers = dedupRows(players, r => String(r.id));
   stats.players = await supabaseUpsertBatches('players', dedupedPlayers, BATCH_SIZE, 'id');
   console.log(`  ✅ Players: ${stats.players} rows`);
+
+  // Build player_id → team_id map for stats enrichment
+  // (players are already written above; stats need team_id for browser-side team grouping)
+  const playerTeamMap = new Map<number, number>();
+  for (const p of dedupedPlayers) {
+    if (p.team_id) playerTeamMap.set(p.id, p.team_id);
+  }
 
   // Parallel: MLB stats + MiLB stats + contracts + scouting
   const MILB_LEVELS = ['aaa', 'aa', 'a', 'rl'] as const;
@@ -953,7 +991,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
   parallelPromises.push((async () => {
     console.log('  Fetching MLB pitching...');
     const rows = await wblFetchAllStats('/api/playerpitchstats', { year, level: 'wbl' });
-    const mapped = filterColumns(rows.map(mapPitchingRow), PITCHING_COLS);
+    const mapped = filterColumns(rows.map(r => mapPitchingRow(r, playerTeamMap)), PITCHING_COLS);
     const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
     stats.mlbPitching = await supabaseUpsertBatches('pitching_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id', 4);
     console.log(`  ✅ MLB pitching: ${stats.mlbPitching} rows`);
@@ -963,7 +1001,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
   parallelPromises.push((async () => {
     console.log('  Fetching MLB batting...');
     const rows = await wblFetchAllStats('/api/playerbatstats', { year, level: 'wbl' });
-    const mapped = filterColumns(rows.map(mapBattingRow), BATTING_COLS);
+    const mapped = filterColumns(rows.map(r => mapBattingRow(r, playerTeamMap)), BATTING_COLS);
     const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
     stats.mlbBatting = await supabaseUpsertBatches('batting_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id', 4);
     console.log(`  ✅ MLB batting: ${stats.mlbBatting} rows`);
@@ -973,7 +1011,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
   for (const level of MILB_LEVELS) {
     parallelPromises.push((async () => {
       const rows = await wblFetchAllStats('/api/playerpitchstats', { year, level });
-      const mapped = filterColumns(rows.map(mapPitchingRow), PITCHING_COLS);
+      const mapped = filterColumns(rows.map(r => mapPitchingRow(r, playerTeamMap)), PITCHING_COLS);
       const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
       const count = await supabaseUpsertBatches('pitching_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id');
       stats.milbPitching += count;
@@ -985,7 +1023,7 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
   for (const level of MILB_LEVELS) {
     parallelPromises.push((async () => {
       const rows = await wblFetchAllStats('/api/playerbatstats', { year, level });
-      const mapped = filterColumns(rows.map(mapBattingRow), BATTING_COLS);
+      const mapped = filterColumns(rows.map(r => mapBattingRow(r, playerTeamMap)), BATTING_COLS);
       const deduped = dedupRows(mapped, r => `${r.player_id}_${r.year}_${r.league_id}_${r.split_id}`);
       const count = await supabaseUpsertBatches('batting_stats', deduped, BATCH_SIZE, 'player_id,year,league_id,split_id');
       stats.milbBatting += count;
@@ -1002,12 +1040,12 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
     console.log(`  ✅ Contracts: ${stats.contracts} rows`);
   })());
 
-  // OSA Scouting
+  // OSA Scouting — rows hoisted for CSV gap-fill after parallel phase
+  const pitcherRows: any[] = [];
+  const hitterRows: any[] = [];
   parallelPromises.push((async () => {
     console.log('  Fetching OSA scouting...');
     const allRatings = await wblFetchAllScout('/api/scout', {});
-    const pitcherRows: any[] = [];
-    const hitterRows: any[] = [];
     for (const r of allRatings) {
       if (r.is_pitcher) {
         pitcherRows.push(mapPitcherScoutingRow(r, gameDate));
@@ -1055,12 +1093,149 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
 
   await Promise.all(parallelPromises);
 
-  // Patch IC player levels: contract league_id=-200 → level='6'
-  // The WBL API doesn't reliably set level for IC players, so we derive it from contracts
+  // Gap-fill scouting from players_scouted_ratings.csv for players missing from WBL API.
+  // The WBL API only returns ~5,751 scouted players; the CSV has all ~130K scout reports.
+  // This catches IC players (league_id=-200) that the API omits entirely.
+  const apiScoutedIds = new Set<number>();
+  for (const r of pitcherRows) apiScoutedIds.add(r.player_id);
+  for (const r of hitterRows) apiScoutedIds.add(r.player_id);
+
+  try {
+    const csvPath = path.join(__dirname, '..', 'players_scouted_ratings.csv');
+    const csvText = fs.readFileSync(csvPath, 'utf-8');
+    const csvLines = csvText.split(/\r?\n/);
+    const csvHeaders = csvLines[0].split(',');
+    let csvFillPitchers = 0, csvFillHitters = 0, csvIcDetected = 0;
+
+    for (let li = 1; li < csvLines.length; li++) {
+      const vals = csvLines[li].split(',');
+      if (vals.length < csvHeaders.length) continue;
+
+      const pid = parseInt(vals[0], 10);
+      const leagueId = parseInt(vals[2], 10);
+      const scoutId = parseInt(vals[5], 10);
+
+      // Track IC players from CSV league_id=-200
+      if (leagueId === -200 && !playerLeagueMap.has(pid)) {
+        playerLeagueMap.set(pid, -200);
+        csvIcDetected++;
+      }
+
+      // Only use OSA scout (id -1 or 0) for players missing from the API
+      if (scoutId !== -1 && scoutId !== 0) continue;
+      if (apiScoutedIds.has(pid)) continue;
+
+      const pos = parseInt(vals[3], 10);
+      const isPitcher = pos === 1;
+      const get = (col: string) => {
+        const idx = csvHeaders.indexOf(col);
+        return idx >= 0 ? vals[idx] : '';
+      };
+
+      if (isPitcher) {
+        const row: any = {
+          player_id: pid, is_pitcher: true, position: '1',
+          overall: get('overall_rating'), potential: get('talent_rating'),
+          accuracy: get('scouting_accuracy'), injury_proneness: 'NOR',
+          pitching: {
+            stuff: get('pitching_ratings_talent_stuff'),
+            control: get('pitching_ratings_talent_control'),
+            hra: get('pitching_ratings_talent_hra'),
+            movement: get('pitching_ratings_talent_movement'),
+            stamina: get('pitching_ratings_misc_stamina'),
+            pbabip: get('pitching_ratings_talent_pbabip') || '35',
+            velocity: get('pitching_ratings_misc_velocity'),
+            velPot: get('pitching_ratings_misc_velocity_target'),
+            pitches: {
+              fb: get('pitching_ratings_pitches_talent_fastball'),
+              sl: get('pitching_ratings_pitches_talent_slider'),
+              cb: get('pitching_ratings_pitches_talent_curveball'),
+              ch: get('pitching_ratings_pitches_talent_changeup'),
+              si: get('pitching_ratings_pitches_talent_sinker'),
+              sp: get('pitching_ratings_pitches_talent_splitter'),
+              ct: get('pitching_ratings_pitches_talent_cutter'),
+              fo: get('pitching_ratings_pitches_talent_forkball'),
+              cc: get('pitching_ratings_pitches_talent_circlechange'),
+              sc: get('pitching_ratings_pitches_talent_screwball'),
+              kn: get('pitching_ratings_pitches_talent_knuckleball'),
+              kc: get('pitching_ratings_pitches_talent_knucklecurve'),
+            },
+          },
+        };
+        pitcherRows.push(mapPitcherScoutingRow(row, gameDate));
+        csvFillPitchers++;
+      } else {
+        const row: any = {
+          player_id: pid, is_pitcher: false, position: String(pos),
+          overall: get('overall_rating'), potential: get('talent_rating'),
+          accuracy: get('scouting_accuracy'), injury_proneness: 'NOR',
+          batting: {
+            contact: get('batting_ratings_talent_contact'),
+            gap: get('batting_ratings_talent_gap'),
+            eye: get('batting_ratings_talent_eye'),
+            avoidKs: get('batting_ratings_talent_strikeouts'),
+            power: get('batting_ratings_talent_power'),
+            babip: get('batting_ratings_talent_babip'),
+            speed: get('running_ratings_speed'),
+            sbAgg: get('running_ratings_stealing_rate'),
+            steal: get('running_ratings_stealing'),
+          },
+          fielding: {
+            ifRange: get('fielding_ratings_infield_range'),
+            ifArm: get('fielding_ratings_infield_arm'),
+            ifDP: get('fielding_ratings_turn_doubleplay'),
+            ofRange: get('fielding_ratings_outfield_range'),
+            ofArm: get('fielding_ratings_outfield_arm'),
+            cArm: get('fielding_ratings_catcher_arm'),
+            cBlock: get('fielding_ratings_catcher_ability'),
+            cFrm: get('fielding_ratings_catcher_framing'),
+            pos2: get('fielding_rating_pos2'), pos3: get('fielding_rating_pos3'),
+            pos4: get('fielding_rating_pos4'), pos5: get('fielding_rating_pos5'),
+            pos6: get('fielding_rating_pos6'), pos7: get('fielding_rating_pos7'),
+            pos8: get('fielding_rating_pos8'), pos9: get('fielding_rating_pos9'),
+          },
+        };
+        hitterRows.push(mapHitterScoutingRow(row, gameDate));
+        csvFillHitters++;
+      }
+      apiScoutedIds.add(pid);
+    }
+
+    if (csvFillPitchers > 0 || csvFillHitters > 0) {
+      // Re-upsert with the gap-filled data
+      if (csvFillPitchers > 0) {
+        const deduped = dedupRows(pitcherRows, r => `${r.player_id}_${r.source}_${r.snapshot_date}`);
+        stats.pitcherScouting = await supabaseUpsertBatches('pitcher_scouting', deduped, BATCH_SIZE, 'player_id,source,snapshot_date', 4);
+      }
+      if (csvFillHitters > 0) {
+        const deduped = dedupRows(hitterRows, r => `${r.player_id}_${r.source}_${r.snapshot_date}`);
+        stats.hitterScouting = await supabaseUpsertBatches('hitter_scouting', deduped, BATCH_SIZE, 'player_id,source,snapshot_date', 4);
+      }
+      console.log(`  📋 CSV scouting gap-fill: ${csvFillPitchers} pitchers, ${csvFillHitters} hitters`);
+    }
+    if (csvIcDetected > 0) {
+      console.log(`  📋 CSV IC detection: ${csvIcDetected} additional IC players found`);
+    }
+  } catch (err) {
+    console.warn(`  ⚠️ Scouting CSV gap-fill skipped: ${(err as Error).message}`);
+  }
+
+  // Log players still missing scouting after gap-fill
+  const unscouted: string[] = [];
+  for (const p of dedupedPlayers) {
+    if (p.retired || !p.team_id) continue;
+    if (!apiScoutedIds.has(p.id)) unscouted.push(`#${p.id} ${p.first_name} ${p.last_name}`);
+  }
+  if (unscouted.length > 0) {
+    console.warn(`  ⚠️ ${unscouted.length} active players still missing scouting data: ${unscouted.slice(0, 5).join(', ')}${unscouted.length > 5 ? ` (+${unscouted.length - 5} more)` : ''}`);
+  }
+
+  // Patch IC player levels: contract league_id=-200 OR CSV league_id=-200
+  // OR no scouting data at all (unscouted active players are always IC signees)
   const icIds: number[] = [];
   for (const c of dedupedPlayers) {
-    // Check if this player has an IC contract (league_id=-200 in playerLeagueMap)
-    if (playerLeagueMap.get(c.id) === -200) icIds.push(c.id);
+    if (playerLeagueMap.get(c.id) === -200) { icIds.push(c.id); continue; }
+    if (!c.retired && c.team_id && !apiScoutedIds.has(c.id)) icIds.push(c.id);
   }
   if (icIds.length > 0) {
     const BATCH = 200;
@@ -1467,10 +1642,11 @@ async function computeTrueFutureRatings(
 
     const projWar = fipWarService.calculateWar(adjustedFip, projIp);
 
+    const isDfa = player?.hsc && getLevelLabel(player?.level) === 'MLB' && player?.team_id === player?.parent_team_id;
     const pitcherProspectData: any = {
         ...result,
         name: result.playerName,
-        level: icPlayerIds.has(result.playerId) ? 'IC' : getLevelLabel(player?.level),
+        level: icPlayerIds.has(result.playerId) ? 'IC' : isDfa ? 'DFA' : getLevelLabel(player?.level),
         team: team?.nickname || 'Unknown',
         parentOrg: teamMap.get(player?.parent_team_id || player?.team_id)?.nickname || team?.nickname || 'Unknown',
         teamId: teamId || 0,
@@ -1663,10 +1839,11 @@ async function computeTrueFutureRatings(
     // All derived fields (projObp, projSlg, projOps, wrcPlus, projWar, projPa)
     // are now computed inside calculateTrueFutureRatings() — no duplicate computation needed.
 
+    const isHitterDfa = player?.hsc && getLevelLabel(player?.level) === 'MLB' && player?.team_id === player?.parent_team_id;
     const hitterProspectData: any = {
         ...result,
         name: result.playerName,
-        level: icPlayerIds.has(result.playerId) ? 'IC' : getLevelLabel(player?.level),
+        level: icPlayerIds.has(result.playerId) ? 'IC' : isHitterDfa ? 'DFA' : getLevelLabel(player?.level),
         team: team?.nickname || 'Unknown',
         parentOrg: teamMap.get(player?.parent_team_id || player?.team_id)?.nickname || team?.nickname || 'Unknown',
         teamId: teamId || 0,
@@ -2279,8 +2456,6 @@ async function computeProjections(
     if (isDraftOrHsc && !hasRecentMlb) {
       const tfr = pitcherTfrMap.get(tr.playerId);
       if (tfr) {
-        console.log(`  🎓 [draftee-pitcher] ${tr.playerName} (${tr.playerId}): TFR star=${tfr.trueFutureRating}, pct=${tfr.percentile}, peakFip=${tfr.peakFip}, trueRatings=${JSON.stringify(tfr.trueRatings)}`);
-
         // Use TFR-derived peak projection (already computed in Step 5)
         const peakRatings = {
           stuff: tfr.trueRatings?.stuff ?? scouting?.stuff ?? 50,
@@ -2323,7 +2498,6 @@ async function computeProjections(
         continue;
       }
       // No TFR data — fall back to scouting-only via PotentialStatsService
-      console.log(`  ⚠️ [draftee-pitcher] ${tr.playerName} (${tr.playerId}): NO TFR found, falling back to scouting`);
       if (scouting) {
         const scoutRatings = {
           stuff: scouting.pot >= 50 ? scouting.pot : scouting.stuff,
@@ -2701,10 +2875,6 @@ async function computeProjections(
   });
   if (drafteePitchers.length > 0) {
     console.log(`  🎓 Draftee pitchers: ${drafteePitchers.length}`);
-    const topDraftP = [...drafteePitchers].sort((a: any, b: any) => a.projectedStats.fip - b.projectedStats.fip).slice(0, 5);
-    for (const p of topDraftP) {
-      console.log(`    ${p.name}: FIP ${p.projectedStats.fip.toFixed(2)}, WAR ${p.projectedStats.war.toFixed(1)}, IP ${p.projectedStats.ip}, K/9 ${p.projectedStats.k9.toFixed(1)}, BB/9 ${p.projectedStats.bb9.toFixed(1)}`);
-    }
   }
 
   // Determine statsYear and usedFallbackStats for metadata
@@ -2744,13 +2914,14 @@ async function computeProjections(
   const batterIds = new Set<number>();
   playerBattingStats.forEach((_s, pid) => batterIds.add(pid));
   currentYearBatting.forEach((s: any) => batterIds.add(s.player_id));
-  // Include draft-eligible/HSC batters who have scouting data but no stats
+  // Include batters with scouting data who lack MLB stats (prospects, draftees)
   for (const [pid, player] of playerMap) {
     if (batterIds.has(pid)) continue;
     const pos = typeof player.position === 'string' ? parseInt(player.position, 10) : player.position;
     if (pos === 1) continue; // skip pitchers
-    if (!player.draft_eligible && !player.hsc) continue;
-    if (hitterScoutMap.has(pid)) batterIds.add(pid);
+    if (!hitterScoutMap.has(pid)) continue;
+    // Include if: draft-eligible, has HSC, or has a TFR result (minor-league prospect)
+    if (player.draft_eligible || player.hsc || hitterTfrMap.has(pid)) batterIds.add(pid);
   }
 
   // Current-year batting map
@@ -2867,7 +3038,7 @@ async function computeProjections(
         trueRating: tfrStarRating,
         percentile: tfr?.percentile ?? 0,
         totalPa: 0,
-        isDraftee: true,
+        isDraftee: !!playerMap.get(input.playerId)?.draft_eligible,
       });
     }
   }
@@ -3118,20 +3289,7 @@ async function computeProjections(
   console.log(`  ✅ Batter projections: ${batterProjections.length} (${batterIssues} sanity issues)`);
   if (injuredBatterCount > 0) console.log(`  🏥 Batter injury adjustments: ${injuredBatterCount}`);
   if (drafteeDefNonZero > 0 || drafteeDefZero > 0) {
-    console.log(`  🛡️ Draftee defense: ${drafteeDefNonZero} with non-zero def, ${drafteeDefZero} with zero def`);
-  }
-
-  // Draftee batter diagnostic
-  const drafteeBatters = batterProjections.filter((p: any) => {
-    const player = playerMap.get(p.playerId);
-    return player?.draft_eligible || player?.hsc;
-  });
-  if (drafteeBatters.length > 0) {
-    console.log(`  🎓 Draftee batters: ${drafteeBatters.length}`);
-    const topDraftB = [...drafteeBatters].sort((a: any, b: any) => b.projectedStats.war - a.projectedStats.war).slice(0, 5);
-    for (const p of topDraftB) {
-      console.log(`    ${p.name}: WAR ${p.projectedStats.war.toFixed(1)}, wOBA ${p.projectedStats.woba.toFixed(3)}, AVG ${p.projectedStats.avg.toFixed(3)}, PA ${p.projectedStats.pa}, HR ${p.projectedStats.hr}`);
-    }
+    console.log(`  🛡️ Draftee defense: ${drafteeDefNonZero} non-zero, ${drafteeDefZero} zero`);
   }
 
   // Park factor impact summary
@@ -3533,7 +3691,10 @@ async function main(): Promise<void> {
   }
 
   // Auto-freeze opening day projections before first in-season sync
-  await autoFreezeIfNeeded(gameDate, year);
+  // Skip when --year is explicit (manual override = operator knows what they're doing)
+  if (!explicitYear) {
+    await autoFreezeIfNeeded(gameDate, year);
+  }
 
   // Step 2
   await timed('Clear stale data', clearStaleData);

@@ -28,7 +28,8 @@ CREATE TABLE IF NOT EXISTS players (
   level VARCHAR(10),               -- MLB, AAA, AA, A, R
   role INT,
   age INT,
-  retired BOOLEAN DEFAULT FALSE
+  retired BOOLEAN DEFAULT FALSE,
+  service_days INT                 -- MLB service days from Firebase playerRosterStatus
 );
 CREATE INDEX IF NOT EXISTS idx_players_team ON players(team_id);
 CREATE INDEX IF NOT EXISTS idx_players_parent_team ON players(parent_team_id);

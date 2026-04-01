@@ -398,6 +398,23 @@ export interface TeamRatingResult {
   totalRunsAllowed?: number; // rotationRunsAllowed + bullpenRunsAllowed
 }
 
+/** Get projected WAR for any prospect type. Pitchers use peakWar, hitters use projWar. */
+function getProspectProjectedWar(p: RatedProspect | RatedHitterProspect): number {
+  return (p as RatedProspect).peakWar ?? (p as RatedHitterProspect).projWar ?? 0;
+}
+
+/** Find the top prospect by projected WAR, with TFR as tie-breaker. */
+function findTopProspectByWar<T extends RatedProspect | RatedHitterProspect>(prospects: T[]): T | undefined {
+  if (prospects.length === 0) return undefined;
+  return prospects.reduce((prev, cur) => {
+    const curWar = getProspectProjectedWar(cur);
+    const prevWar = getProspectProjectedWar(prev);
+    if (curWar > prevWar) return cur;
+    if (curWar === prevWar && cur.trueFutureRating > prev.trueFutureRating) return cur;
+    return prev;
+  });
+}
+
 class TeamRatingsService {
   private _unifiedHitterCache = new Map<number, HitterFarmData>();
   private _unifiedPitcherCache = new Map<number, FarmData>();
@@ -931,8 +948,9 @@ class TeamRatingsService {
 
           const peakWar = fipWarService.calculateWar(adjustedFip, projectedIp);
 
-          // Draft-eligible players (no team) show HS/Col status instead of minor league level
-          const levelLabel = (player.draftEligible && player.hsc) ? player.hsc : this.getLevelLabel(player.level);
+          // DFA'd draftees: hsc set + on MLB roster (level 1) + not assigned to a minor league affiliate
+          const levelLabel = (player.hsc && player.level === 1 && player.teamId === player.parentTeamId)
+            ? 'DFA' : this.getLevelLabel(player.level);
           const careerIp = careerMlbIpMap.get(tfr.playerId) ?? 0;
           const isFarmEligible = careerIp <= 50;
 
@@ -1069,12 +1087,7 @@ class TeamRatingsService {
           // 2. System Overview Data
           const allOrgProspects = [...group.rotation, ...group.bullpen];
 
-          // Top Prospect - Highest Peak WAR, with TFR as tie-breaker
-          const topProspect = allOrgProspects.reduce((prev, current) => {
-              if (current.peakWar > prev.peakWar) return current;
-              if (current.peakWar === prev.peakWar && current.trueFutureRating > prev.trueFutureRating) return current;
-              return prev;
-          });
+          const topProspect = findTopProspectByWar(allOrgProspects);
 
           // Tiers - bucket prospects by global rank
           const tierCounts = {
@@ -1104,8 +1117,8 @@ class TeamRatingsService {
               teamName: team.nickname,
               totalWar,
               prospectCount: allOrgProspects.length,
-              topProspectName: topProspect.name,
-              topProspectId: topProspect.playerId,
+              topProspectName: topProspect?.name ?? '',
+              topProspectId: topProspect?.playerId ?? 0,
               tierCounts
           });
       });
@@ -1321,8 +1334,9 @@ class TeamRatingsService {
           // Unsigned draftees (no team) get orgId=0
           const orgId = team ? (team.parentTeamId !== 0 ? team.parentTeamId : team.id) : 0;
 
-          // Draft-eligible players (no team) show HS/Col status instead of minor league level
-          const hitterLevelLabel = (player.draftEligible && player.hsc) ? player.hsc : this.getLevelLabel(player.level);
+          // DFA'd draftees: hsc set + on MLB roster (level 1) + not assigned to a minor league affiliate
+          const hitterLevelLabel = (player.hsc && player.level === 1 && player.teamId === player.parentTeamId)
+            ? 'DFA' : this.getLevelLabel(player.level);
 
           const prospect: RatedHitterProspect = {
               playerId: tfr.playerId,
@@ -1484,7 +1498,7 @@ class TeamRatingsService {
               allProspects: prospects,
           });
 
-          const topProspect = prospects[0];
+          const topProspect = findTopProspectByWar(prospects);
           systems.push({
               teamId: orgId,
               teamName: team.nickname,
@@ -1563,7 +1577,7 @@ class TeamRatingsService {
       }
 
       const totalWar = (tierCounts.elite * 10) + (tierCounts.aboveAvg * 5) + (tierCounts.average * 1);
-      const topProspect = orgProspects[0];
+      const topProspect = findTopProspectByWar(orgProspects);
       const teamName = teamNameMap.get(orgId) ?? '';
 
       reports.push({
@@ -1629,7 +1643,7 @@ class TeamRatingsService {
       }
 
       const totalScore = (tierCounts.elite * 10) + (tierCounts.aboveAvg * 5) + (tierCounts.average * 1);
-      const topProspect = orgProspects[0];
+      const topProspect = findTopProspectByWar(orgProspects);
 
       reports.push({
         teamId: orgId,
@@ -1657,20 +1671,18 @@ class TeamRatingsService {
   }
 
   private async getCareerMlbIpMap(currentYear: number): Promise<Map<number, number>> {
-      const startYear = Math.max(2000, currentYear - 6);
-      const promises = [];
-      for (let y = startYear; y <= currentYear; y++) {
-          promises.push(trueRatingsService.getTruePitchingStats(y));
-      }
+      // Fetch ALL career MLB pitching stats to match sync-db's career_pitching_ip RPC.
+      const gameYear = await dateService.getCurrentYear();
+      const endYear = Math.max(currentYear, gameYear);
+      const rows = await supabaseDataService.getPitchingStatsBulk(2000, endYear, 200);
 
-      const results = await Promise.all(promises);
       const map = new Map<number, number>();
 
-      results.flat().forEach(stat => {
+      for (const stat of rows) {
           const ip = trueRatingsService.parseIp(stat.ip);
           const current = map.get(stat.player_id) ?? 0;
           map.set(stat.player_id, current + ip);
-      });
+      }
 
       return map;
   }
@@ -1680,25 +1692,26 @@ class TeamRatingsService {
   private async getCareerMlbStatsMap(currentYear: number): Promise<Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }>> {
       if (this._careerBattingCache) return this._careerBattingCache;
 
-      const startYear = Math.max(2000, currentYear - 4);
-      const promises = [];
-      for (let y = startYear; y <= currentYear; y++) {
-          promises.push(trueRatingsService.getTrueBattingStats(y));
-      }
+      // Fetch ALL career MLB stats (2000 through actual game year) to match
+      // sync-db's career_batting_aggregates RPC which has no year window.
+      // Using the actual game year (not the display year) ensures in-progress
+      // season stats are included in the career total.
+      const gameYear = await dateService.getCurrentYear();
+      const endYear = Math.max(currentYear, gameYear);
+      const rows = await supabaseDataService.getBattingStatsBulk(2000, endYear, 200);
 
-      const results = await Promise.all(promises);
       const map = new Map<number, { ab: number; pa: number; h: number; bb: number; k: number; hr: number }>();
 
-      results.flat().forEach(stat => {
+      for (const stat of rows) {
           const current = map.get(stat.player_id) ?? { ab: 0, pa: 0, h: 0, bb: 0, k: 0, hr: 0 };
-          current.ab += stat.ab;
-          current.pa += stat.pa;
-          current.h += stat.h;
-          current.bb += stat.bb;
-          current.k += stat.k;
-          current.hr += stat.hr;
+          current.ab += stat.ab ?? 0;
+          current.pa += stat.pa ?? 0;
+          current.h += stat.h ?? 0;
+          current.bb += stat.bb ?? 0;
+          current.k += stat.k ?? 0;
+          current.hr += stat.hr ?? 0;
           map.set(stat.player_id, current);
-      });
+      }
 
       this._careerBattingCache = map;
       return map;

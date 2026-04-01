@@ -236,7 +236,7 @@ export const consistencyChecker = {
     return recentMismatches;
   },
 
-  /** Clear the lookup caches (call after sync-db runs or data refreshes) */
+  /** Clear the lookup caches (call after sync-db runs, data refreshes, or snapshot mode change) */
   invalidate(): void {
     batterProjMap = null;
     pitcherProjMap = null;
@@ -246,6 +246,11 @@ export const consistencyChecker = {
     if (banner) banner.remove();
   },
 };
+
+// Invalidate when snapshot mode changes (cache keys redirect to different data)
+if (typeof window !== 'undefined') {
+  window.addEventListener('wbl:snapshot-mode-changed', () => consistencyChecker.invalidate());
+}
 
 // Self-initializing UI banner (dev only)
 if (isDevMode) {

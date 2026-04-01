@@ -17,6 +17,7 @@ export interface Player {
   bats?: string;   // R, L, S (switch)
   throws?: string; // R, L
   injuryDaysRemaining?: number; // Days until return from current injury (0 = healthy)
+  serviceDays?: number; // Total MLB service days (172 days = 1 service year)
 }
 
 export enum Position {

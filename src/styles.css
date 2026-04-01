@@ -3885,6 +3885,11 @@ th .stat-tooltip {
   color: #ccc;
 }
 
+.level-dfa {
+  background-color: rgba(239, 83, 80, 0.2);
+  color: #ef5350;
+}
+
 /* Minor league row styling */
 .minor-league-row {
   background-color: rgba(255, 255, 255, 0.02);
@@ -8694,6 +8699,63 @@ th .stat-tooltip {
 
 .grid-cell:hover {
   filter: brightness(1.2);
+}
+
+.grid-cell[draggable="true"] {
+  cursor: grab;
+}
+
+.grid-cell.drag-source {
+  opacity: 0.4;
+}
+
+.grid-cell.drag-over {
+  outline: 2px solid var(--color-accent, #1d9bf0);
+  outline-offset: -2px;
+  background: rgba(29, 155, 240, 0.15) !important;
+}
+
+/* Drop action modal */
+.tp-drop-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.tp-drop-modal {
+  background: var(--color-surface, #1e1e2e);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  padding: 1.25rem 1.5rem;
+  min-width: 280px;
+  max-width: 360px;
+}
+
+.tp-drop-modal-title {
+  font-weight: 600;
+  font-size: 0.95rem;
+  margin-bottom: 0.3rem;
+}
+
+.tp-drop-modal-desc {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #888);
+  margin-bottom: 1rem;
+}
+
+.tp-drop-modal-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.tp-drop-modal-actions .btn {
+  width: 100%;
+  text-align: center;
 }
 
 .grid-cell[data-player-id]:hover {

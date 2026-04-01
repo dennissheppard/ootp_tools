@@ -98,8 +98,12 @@
       "Bash(du -sh C:UsersneagsDownloadsdev projectswblpublic/data/*.csv)",
       "Bash(identify \"C:\\\\Users\\\\neags\\\\Downloads\\\\dev projects\\\\wbl\\\\src\\\\images\\\\logos\\\\Dubai.png\")",
       "WebFetch(domain:zymotyxfyschrmpqjtvs.supabase.co)",
-      "WebFetch(domain:wbl-gabs-machine-default-rtdb.firebaseio.com)"
-    ]
+      "WebFetch(domain:wbl-gabs-machine-default-rtdb.firebaseio.com)",
+      "Bash(node -e \":*)",
+      "Bash(for pid:*)",
+      "Bash(do npx:*)"
+    ],
+    "defaultMode": "auto"
   },
   "enabledPlugins": {
     "dev-browser@dev-browser-marketplace": true

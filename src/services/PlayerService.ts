@@ -29,6 +29,7 @@ export class PlayerService {
       bats: r.bats ?? undefined,
       throws: r.throws ?? undefined,
       injuryDaysRemaining: r.injury_days_remaining ?? 0,
+      serviceDays: r.service_days ?? undefined,
     };
   }
 

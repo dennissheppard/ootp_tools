@@ -22,6 +22,7 @@ import { getPositionLabel, getFullName, isPitcher } from '../models/Player';
 import { emitDataSourceBadges, ScoutingDataMode } from '../utils/dataSourceBadges';
 import { getTeamLogoUrl, teamLogoImg } from '../utils/teamLogos';
 import { analyticsService } from '../services/AnalyticsService';
+import { dateService } from '../services/DateService';
 
 interface FarmColumn {
   key: string;
@@ -32,18 +33,19 @@ interface FarmColumn {
 
 export class FarmRankingsView {
   private container: HTMLElement;
-  private selectedYear: number = 2021;
+  private selectedYear: number = 0; // Set from game date on first loadData()
   private viewMode: 'top-systems' | 'top-100' | 'reports' = 'top-systems';
   private showPitchers: boolean = true;
   private showHitters: boolean = true;
   private data: FarmData | null = null;
   private hitterData: HitterFarmData | null = null;
-  private yearOptions = Array.from({ length: 6 }, (_, i) => 2021 - i); // 2021 down to 2016
+  private yearOptions: number[] = []; // Set from game date on first loadData()
   private top100Prospects: RatedProspect[] = [];
   private top100HitterProspects: RatedHitterProspect[] = [];
   private selectedTeam: string = localStorage.getItem('wbl-selected-team') || 'all';
   private selectedPosition: string = 'all';
   private includeDraftPool: boolean = false;
+  private hasDraftPool: boolean = false;
 
   // Sorting and Dragging state
   private systemsSortKey: string = 'totalWar';
@@ -578,6 +580,12 @@ export class FarmRankingsView {
 
   private async loadData(): Promise<void> {
     try {
+        // Set year from game date on first load (replaces hardcoded default)
+        if (this.selectedYear === 0) {
+          this.selectedYear = await dateService.getCurrentYear();
+          this.yearOptions = Array.from({ length: 6 }, (_, i) => this.selectedYear - i);
+        }
+
         // Load data based on which toggles are active
         const shouldLoadPitchers = this.showPitchers;
         const shouldLoadHitters = this.showHitters;
@@ -609,6 +617,11 @@ export class FarmRankingsView {
         }
 
         await Promise.all(loadPromises);
+
+        // Check if any draft-eligible players exist in the DB
+        const playerLookup = await supabaseDataService.getPrecomputed('player_lookup');
+        this.hasDraftPool = !!(playerLookup && Object.values(playerLookup).some((p: any) => p[8] === true));
+
         await this.refreshScoutingDataMode();
         this.updateTeamFilter();
         this.renderView();
@@ -674,10 +687,10 @@ export class FarmRankingsView {
           prospectToggles.style.display = (this.viewMode === 'top-systems' || this.viewMode === 'top-100') ? 'inline' : 'none';
       }
 
-      // Show/Hide Draft Pool toggle
+      // Show/Hide Draft Pool toggle — only when draft-eligible players exist
       const draftPoolToggle = this.container.querySelector<HTMLElement>('#draft-pool-toggle');
       if (draftPoolToggle) {
-          draftPoolToggle.style.display = this.viewMode === 'top-100' ? '' : 'none';
+          draftPoolToggle.style.display = (this.viewMode === 'top-100' && this.hasDraftPool) ? '' : 'none';
       }
 
       // Show reports button - now supports both pitchers and hitters
@@ -1012,11 +1025,10 @@ export class FarmRankingsView {
           } else if (!pId && hId) {
               topProspectName = t.hittingDetails!.topProspectName;
           } else if (pId && hId) {
-              const pPercentile = this.getProspectPercentile(pId, true);
-              const hPercentile = this.getProspectPercentile(hId, false);
-              
-              // Tie goes to pitcher
-              if (pPercentile >= hPercentile) {
+              // Compare by projected WAR — the top prospect is the one with the highest WAR
+              const pWar = this.getProspectWar(pId, true);
+              const hWar = this.getProspectWar(hId, false);
+              if (pWar >= hWar) {
                   topProspectName = t.pitchingDetails!.topProspectName;
               } else {
                   topProspectName = t.hittingDetails!.topProspectName;
@@ -2680,16 +2692,17 @@ export class FarmRankingsView {
       return 'Draft Pool';
   }
 
-  private getProspectPercentile(playerId: number, isPitcher: boolean): number {
+  private getProspectWar(playerId: number, isPitcher: boolean): number {
     if (isPitcher && this.data) {
       const p = this.data.prospects.find(p => p.playerId === playerId);
-      return p?.percentile ?? 0;
+      return p?.peakWar ?? 0;
     } else if (!isPitcher && this.hitterData) {
       const p = this.hitterData.prospects.find(p => p.playerId === playerId);
-      return p?.percentile ?? 0;
+      return p?.projWar ?? 0;
     }
     return 0;
   }
+
 
   private getDynamicThresholds(values: number[]): { high: number; mid: number; low: number } {
     if (values.length === 0) return { high: 0, mid: 0, low: 0 };

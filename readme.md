@@ -66,7 +66,7 @@ npx tsx tools/sync-db.ts --force         # Re-sync even if up to date
 
 Key `precomputed_cache` entries: `batter_projections`, `pitcher_projections`, `hitter_tfr_prospects`, `pitcher_tfr_prospects`, `*_scouting_lookup`, `contract_lookup`, `dob_lookup`, `defensive_lookup`, `league_context`, `snapshots__index`, `*__snapshot__*` (frozen projection snapshots).
 
-Batter projections include full component breakdown: WAR, wOBA, PA, avg, obp, slg, defRuns, posAdj, bbPct, kPct, hrPct. The modal reads ALL components from the cache — it does not recompute them.
+Batter projections include full component breakdown: WAR, wOBA, PA, avg, obp, slg, defRuns, posAdj, sbRuns, bbPct, kPct, hrPct. The modal reads ALL components from the cache — it does not recompute them.
 
 ### IndexedDB (Local-Only, v12)
 
@@ -106,7 +106,7 @@ Pure peak/ceiling projection — projects age-27 peak from 100% scouting potenti
 - Profile modal has Current/Peak projection toggle
 
 ### Projections
-**Batter**: TR blended rates → aging delta → wOBA → PA (historical + injury) → defensive value → WAR. Single function: `ModalDataService.computeBatterProjection()`.
+**Batter**: TR blended rates → aging delta → wOBA → PA (historical full seasons + injury, excluding current in-progress year) → defensive value → WAR. Single function: `ModalDataService.computeBatterProjection()`. Rate stats blend via TR year weights (includes current season); counting stats (PA, HR, SB) come from completed seasons only.
 
 **Pitcher**: Three-model ensemble (optimistic 40%, neutral 30%, pessimistic 30%). FIP-based WAR.
 
