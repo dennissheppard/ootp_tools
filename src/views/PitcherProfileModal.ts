@@ -15,7 +15,6 @@ import { contractService, Contract } from '../services/ContractService';
 import { RadarChart, RadarChartSeries } from '../components/RadarChart';
 import { determinePitcherRole, PitcherRoleInput } from '../models/Player';
 import { fipWarService } from '../services/FipWarService';
-import { PotentialStatsService } from '../services/PotentialStatsService';
 import { projectionService } from '../services/ProjectionService';
 import { PitcherTfrSourceData, teamRatingsService } from '../services/TeamRatingsService';
 import { aiScoutingService, AIScoutingPlayerData, markdownToHtml } from '../services/AIScoutingService';
@@ -26,7 +25,7 @@ import { analyticsService } from '../services/AnalyticsService';
 import { getRouter } from '../router';
 import { playerService } from '../services/PlayerService';
 import { supabaseDataService } from '../services/SupabaseDataService';
-import { consistencyChecker } from '../services/ConsistencyChecker';
+// consistencyChecker no longer needed — display-only path reads from cache, nothing to verify
 
 /** Format injury days as a human-readable duration (e.g. "3 weeks", "5 months") */
 function formatInjuryDuration(days: number): string {
@@ -99,6 +98,9 @@ export interface PitcherProfileData {
   peakIp?: number;
   peakWar?: number;
   peakFip?: number;
+  peakK9?: number;
+  peakBb9?: number;
+  peakHr9?: number;
 
   // Role
   role?: number;
@@ -459,7 +461,10 @@ export class PitcherProfileModal {
     if (tfrEntry) {
       data.peakIp = (tfrEntry as any).peakIp ?? (tfrEntry as any).projIp;
       data.peakWar = (tfrEntry as any).peakWar;
-      data.peakFip = (tfrEntry as any).peakFip;
+      data.peakFip = (tfrEntry as any).peakFip ?? (tfrEntry as any).projFip;
+      data.peakK9 = (tfrEntry as any).projK9;
+      data.peakBb9 = (tfrEntry as any).projBb9;
+      data.peakHr9 = (tfrEntry as any).projHr9;
     }
 
     // Build trBySource so scouting toggle can swap projections
@@ -1046,14 +1051,8 @@ export class PitcherProfileModal {
   }
 
   private calculateProjWar(data: PitcherProfileData): number | undefined {
-    // Prefer cached projection (matches Projections tab exactly)
-    if (this._cachedProj) return this._cachedProj.projWar;
-    if (data.projWar !== undefined) return data.projWar;
-    const stats = this.computeProjectedStats(data);
-    if (stats.projFip !== undefined && stats.projIp !== undefined) {
-      return fipWarService.calculateWar(stats.projFip, stats.projIp);
-    }
-    return undefined;
+    // Display-only: use cached projection, no computation
+    return this._cachedProj?.projWar ?? data.projWar;
   }
 
   private getFipBadgeClass(fip?: number): string {
@@ -1650,6 +1649,10 @@ export class PitcherProfileModal {
     projK9?: number; projBb9?: number; projHr9?: number;
     projFip?: number; projIp?: number; projWar?: number;
   } {
+    // Display-only: prefer cached projection from renderProjectionContent
+    if (this._cachedProj) return this._cachedProj;
+
+    // Fallback to data fields (all from precomputed cache)
     let projK9 = data.projK9;
     let projBb9 = data.projBb9;
     let projHr9 = data.projHr9;
@@ -1938,42 +1941,74 @@ export class PitcherProfileModal {
   // ─── Projection Section ─────────────────────────────────────────────
 
   private renderProjectionContent(data: PitcherProfileData, stats: PitcherSeasonStats[]): string {
-    // Compute projection via pure function
-    const proj = computePitcherProjection(data, stats, {
-      projectionMode: this.projectionMode,
-      scoutingData: this.scoutingData ? {
-        stamina: this.scoutingData.stamina,
-        injuryProneness: this.scoutingData.injuryProneness,
-      } : null,
-      projectedIp: this.projectedIp,
-      estimateIp: (stamina, injury) => this.estimateIp(stamina, injury),
-      calculateWar: (fip, ip) => fipWarService.calculateWar(fip, ip),
-      parkHrFactor: data.parkHrFactor,
-    });
+    const showToggle = data.hasTfrUpside === true && (data.trueRating !== undefined || data.isProspect === true);
+    const isPeakMode = showToggle ? this.projectionMode === 'peak' : (data.isProspect === true);
 
-    // Destructure for template compatibility
-    const { projK9, projBb9, projHr9, projFip, projIp, projWar,
-            projK, projBb, projHr, age, ratingLabel, projNote,
-            isPeakMode, showActualComparison, ratings } = proj;
+    let projK9: number, projBb9: number, projHr9: number, projFip: number, projIp: number, projWar: number;
+    let age: number, ratingLabel: string, projNote: string, showActualComparison: boolean;
+    let ratings: { stuff: number; control: number; hra: number };
+
+    // Display-only path: read from precomputed cache. No computation.
+    // Only fall through to computation for custom scouting.
+    if (!supabaseDataService.hasCustomScouting) {
+      if (isPeakMode) {
+        // Peak: from TFR cache (peakK9/peakBb9/peakHr9/peakFip/peakIp/peakWar)
+        projK9 = data.peakK9 ?? data.projK9 ?? 7.5;
+        projBb9 = data.peakBb9 ?? data.projBb9 ?? 3.5;
+        projHr9 = data.peakHr9 ?? data.projHr9 ?? 1.2;
+        projFip = data.peakFip ?? data.projFip ?? 4.0;
+        projIp = data.peakIp ?? data.projIp ?? 180;
+        projWar = data.peakWar ?? data.projWar ?? 0;
+        age = 27;
+        ratingLabel = 'TFR';
+        projNote = '* Peak projection based on True Future Rating. Assumes full development and peak stamina.';
+        showActualComparison = false;
+        ratings = {
+          stuff: data.tfrStuff ?? data.estimatedStuff ?? 50,
+          control: data.tfrControl ?? data.estimatedControl ?? 50,
+          hra: data.tfrHra ?? data.estimatedHra ?? 50,
+        };
+      } else {
+        // Current: from pitcher_projections cache (projK9/projBb9/projHr9/projFip/projIp/projWar)
+        projK9 = data.projK9 ?? 7.5;
+        projBb9 = data.projBb9 ?? 3.5;
+        projHr9 = data.projHr9 ?? 1.2;
+        projFip = data.projFip ?? 4.0;
+        projIp = data.projIp ?? this.projectedIp ?? 180;
+        projWar = data.projWar ?? 0;
+        age = data.age ?? 27;
+        ratingLabel = 'Estimated';
+        projNote = '* Projection based on True Ratings.';
+        showActualComparison = true;
+        ratings = {
+          stuff: data.estimatedStuff ?? 50,
+          control: data.estimatedControl ?? 50,
+          hra: data.estimatedHra ?? 50,
+        };
+      }
+    } else {
+      // Custom scouting path: computation required
+      const proj = computePitcherProjection(data, stats, {
+        projectionMode: this.projectionMode,
+        scoutingData: this.scoutingData ? {
+          stamina: this.scoutingData.stamina,
+          injuryProneness: this.scoutingData.injuryProneness,
+        } : null,
+        projectedIp: this.projectedIp,
+        estimateIp: (stamina, injury) => this.estimateIp(stamina, injury),
+        calculateWar: (fip, ip) => fipWarService.calculateWar(fip, ip),
+        parkHrFactor: data.parkHrFactor,
+      });
+      ({ projK9, projBb9, projHr9, projFip, projIp, projWar, age, ratingLabel, projNote, showActualComparison, ratings } = proj);
+    }
+
+    // Counting stats from rates
+    const projK = Math.round(projK9 * projIp / 9);
+    const projBb = Math.round(projBb9 * projIp / 9);
+    const projHr = Math.round(projHr9 * projIp / 9);
 
     // Cache for career stats row consistency
     this._cachedProj = { projK9, projBb9, projHr9, projFip, projIp, projWar };
-
-    // Dev-only: verify displayed values match precomputed cache + formula
-    if (!isPeakMode) {
-      consistencyChecker.checkPitcher(data.playerId, data.playerName ?? '',
-        { war: projWar, ip: projIp, fip: projFip }, 'PitcherProfileModal');
-      // Formula check: independently derive WAR from FIP + IP
-      if (projIp > 0 && projFip > 0) {
-        consistencyChecker.checkPitcherWarFormula(data.playerId, data.playerName ?? '', {
-          displayedWar: projWar,
-          projFip,
-          projIp,
-        }, 'PitcherProfileModal');
-      }
-    }
-
-    const showToggle = data.hasTfrUpside === true && (data.trueRating !== undefined || data.isProspect === true);
     const latestStat = showActualComparison ? stats.find(s => s.level === 'MLB' && s.year === this.projectionYear) : undefined;
 
     const formatStat = (val: number, decimals: number = 2) => val.toFixed(decimals);
@@ -2593,18 +2628,15 @@ export class PitcherProfileModal {
       estimatedStuff: data.estimatedStuff,
       estimatedControl: data.estimatedControl,
       estimatedHra: data.estimatedHra,
-      // Compute projections from canonical blended rates for consistency
+      // Use cached projections (display-only)
       ...(() => {
         const stats = this.computeProjectedStats(data);
-        const projWar = stats.projFip !== undefined && stats.projIp !== undefined
-          ? fipWarService.calculateWar(stats.projFip, stats.projIp)
-          : data.projWar;
         return {
           projFip: stats.projFip,
           projK9: stats.projK9,
           projBb9: stats.projBb9,
           projHr9: stats.projHr9,
-          projWar,
+          projWar: stats.projWar,
           projIp: stats.projIp,
         };
       })(),
@@ -2742,11 +2774,20 @@ export class PitcherProfileModal {
             this.currentData.projBb9 = altTfr.projBb9;
             this.currentData.projHr9 = altTfr.projHr9;
             this.currentData.projFip = altTfr.projFip;
+            this.currentData.projWar = altTfr.projWar;
+            this.currentData.projIp = altTfr.projIp;
+            this.currentData.peakK9 = altTfr.projK9;
+            this.currentData.peakBb9 = altTfr.projBb9;
+            this.currentData.peakHr9 = altTfr.projHr9;
+            this.currentData.peakFip = altTfr.projFip;
+            this.currentData.peakWar = altTfr.projWar;
+            this.currentData.peakIp = altTfr.projIp;
           }
-        } else if (this.currentData.isProspect && this.scoutingData) {
+        } else if (this.currentData.isProspect && this.drafteeInitialProj) {
           // Draftee without precomputed tfrBySource
           // If toggling back to initial source, restore exact original values
-          if (this.drafteeInitialProj && this.drafteeInitialSource === sourceKey) {
+          // Restore initial snapshot (display-only, no computation)
+          if (this.drafteeInitialSource === sourceKey) {
             const snap = this.drafteeInitialProj;
             this.currentData.estimatedStuff = snap.stuff;
             this.currentData.estimatedControl = snap.control;
@@ -2756,22 +2797,6 @@ export class PitcherProfileModal {
             this.currentData.projHr9 = snap.hr9;
             this.currentData.projFip = snap.fip;
             this.currentData.projWar = snap.war;
-          } else {
-            // Recompute from the other scouting source
-            const s = this.scoutingData;
-            const peakRatings = { stuff: s.stuff, control: s.control, hra: s.hra };
-            const ip = this.currentData.projIp ?? 180;
-            const peakStats = PotentialStatsService.calculatePitchingStats(
-              { ...peakRatings, movement: 50, babip: 50 }, ip,
-            );
-            this.currentData.estimatedStuff = s.stuff;
-            this.currentData.estimatedControl = s.control;
-            this.currentData.estimatedHra = s.hra;
-            this.currentData.projK9 = peakStats.k9;
-            this.currentData.projBb9 = peakStats.bb9;
-            this.currentData.projHr9 = peakStats.hr9;
-            this.currentData.projFip = peakStats.fip;
-            this.currentData.projWar = fipWarService.calculateWar(peakStats.fip, ip);
           }
         }
 

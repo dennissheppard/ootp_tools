@@ -906,6 +906,7 @@ export class TradeAnalyzerView {
   }
 
   private buildPitcherFallbackFromCanonical(player: Player): ProjectedPlayer | undefined {
+    console.warn(`[TradeAnalyzer] Player ${player.id} ${getFullName(player)} missing from pitcher_projections cache — using fallback computation`);
     const tr = this.canonicalPitcherTR.get(player.id);
     const prospect = this.pitcherProspectMap.get(player.id);
     if (!tr && !prospect) return undefined;
@@ -977,6 +978,7 @@ export class TradeAnalyzerView {
   }
 
   private buildBatterFallbackFromCanonical(player: Player): ProjectedBatter | undefined {
+    console.warn(`[TradeAnalyzer] Player ${player.id} ${getFullName(player)} missing from batter_projections cache — using fallback computation`);
     const tr = this.canonicalBatterTR.get(player.id);
     const prospect = this.hitterProspectMap.get(player.id);
     if (!tr && !prospect) return undefined;

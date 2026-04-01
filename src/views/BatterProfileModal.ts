@@ -1008,71 +1008,9 @@ export class BatterProfileModal {
   }
 
   private calculateProjWar(data: BatterProfileData): number | undefined {
-    const s = this.scoutingData;
-    const sr = s?.stealingAggressiveness ?? data.scoutSR;
-    const ste = s?.stealingAbility ?? data.scoutSTE;
-
-    let projWar = data.projWar;
-    if (projWar === undefined) {
-      const age = data.age ?? 27;
-      const injuryProneness = s?.injuryProneness ?? data.injuryProneness;
-      let projPa: number;
-      if (data.projPa !== undefined) {
-        projPa = data.projPa;
-      } else {
-        const mlbHistory = (this.currentStats ?? [])
-          .filter(s2 => s2.level === 'MLB' && s2.year < this.projectionYear)
-          .map(s2 => ({ year: s2.year, pa: s2.pa }));
-        projPa = mlbHistory.length > 0
-          ? leagueBattingAveragesService.getProjectedPaWithHistory(mlbHistory, age, injuryProneness)
-          : leagueBattingAveragesService.getProjectedPa(injuryProneness, age);
-      }
-
-      // Compute wOBA for WAR calculation
-      let woba: number | undefined;
-      if (data.projWoba !== undefined) {
-        woba = data.projWoba;
-      } else if (data.projAvg !== undefined && data.projBbPct !== undefined && data.projHrPct !== undefined) {
-        const bbRate = data.projBbPct / 100;
-        const hrPerAb = (data.projHrPct / 100) / 0.88;
-        const doublesPerAb = data.projDoublesRate ?? 0.04;
-        const triplesPerAb = data.projTriplesRate ?? 0.005;
-        woba = this.computeWoba(bbRate, data.projAvg, doublesPerAb, triplesPerAb, hrPerAb);
-      } else if (data.estimatedPower !== undefined && data.estimatedEye !== undefined &&
-                 data.estimatedContact !== undefined) {
-        const projBbPct = HitterRatingEstimatorService.expectedBbPct(data.estimatedEye);
-        const projAvg = HitterRatingEstimatorService.expectedAvg(data.estimatedContact);
-        const hrPerAb = (HitterRatingEstimatorService.expectedHrPct(data.estimatedPower) / 100) / 0.88;
-        const gapForBadge = data.tfrGap ?? data.estimatedGap;
-        const speedForBadge = data.tfrSpeed ?? data.estimatedSpeed;
-        const doublesPerAb = gapForBadge !== undefined ? HitterRatingEstimatorService.expectedDoublesRate(gapForBadge) : 0.04;
-        const triplesPerAb = speedForBadge !== undefined ? HitterRatingEstimatorService.expectedTriplesRate(speedForBadge) : 0.005;
-        woba = this.computeWoba(projBbPct / 100, projAvg, doublesPerAb, triplesPerAb, hrPerAb);
-      }
-
-      if (woba !== undefined) {
-        let sbRuns = 0;
-        if (sr !== undefined && ste !== undefined) {
-          // Use historical blending when available (same as projection stat line)
-          const histSbStats = (this.currentStats ?? [])
-            .filter(s2 => s2.level === 'MLB' && s2.pa >= 50)
-            .sort((a, b) => b.year - a.year)
-            .map(s2 => ({ sb: s2.sb, cs: s2.cs, pa: s2.pa }));
-          const sbProj = histSbStats.length > 0
-            ? HitterRatingEstimatorService.projectStolenBasesWithHistory(sr, ste, projPa, histSbStats)
-            : HitterRatingEstimatorService.projectStolenBases(sr, ste, projPa);
-          sbRuns = leagueBattingAveragesService.calculateBaserunningRuns(sbProj.sb, sbProj.cs);
-        }
-        if (this.leagueAvg) {
-          projWar = leagueBattingAveragesService.calculateBattingWar(woba, projPa, this.leagueAvg, sbRuns);
-        } else {
-          // Fallback with hardcoded constants
-          const fallbackAvg: LeagueBattingAverages = { year: 0, lgObp: 0.320, lgSlg: 0.400, lgWoba: 0.320, lgRpa: 0.115, wobaScale: 1.15, runsPerWin: 10, totalPa: 0, totalRuns: 0 };
-          projWar = leagueBattingAveragesService.calculateBattingWar(woba, projPa, fallbackAvg, sbRuns);
-        }
-      }
-    }
-    return projWar;
+    // Display-only: use the projection WAR from renderProjectionContent if available,
+    // otherwise read directly from cached data. No computation.
+    return this._lastProjectionWar ?? data.projWar;
   }
 
   private renderWarEmblem(data: BatterProfileData): string {
@@ -1827,58 +1765,88 @@ export class BatterProfileModal {
   }
 
   private renderProjectionContent(data: BatterProfileData, stats: BatterSeasonStats[]): string {
-    // Determine if we have all cached components (canonical from sync-db).
-    // If so, render directly from cache — no computation. This is display only.
-    const hasCachedProjection = data.projWar !== undefined && data.projWoba !== undefined
-      && data.projAvg !== undefined && data.projObp !== undefined && data.projSlg !== undefined
-      && data.projPa !== undefined && !supabaseDataService.hasCustomScouting;
-
     const showToggleCheck = data.hasTfrUpside === true && (data.trueRating !== undefined || data.isProspect === true);
     const isPeakMode = showToggleCheck ? this.projectionMode === 'peak' : (data.isProspect === true);
 
     let proj: import('../services/ModalDataService').BatterProjectionResult;
 
-    // Cache path: only for non-peak, non-toggle scenarios. When the toggle is visible
-    // and set to "current", we must compute (cache holds peak-based precomputed data).
-    if (hasCachedProjection && !isPeakMode && !showToggleCheck) {
-      // Display-only path: all values from cache, zero computation.
+    // Display-only path: read from precomputed cache. No computation.
+    // Only fall through to computation for custom scouting.
+    if (!supabaseDataService.hasCustomScouting) {
       const lgObp = this.leagueAvg?.lgObp ?? 0.320;
       const lgSlg = this.leagueAvg?.lgSlg ?? 0.400;
-      const projOpsPlus = this.leagueAvg
-        ? leagueBattingAveragesService.calculateOpsPlus(data.projObp!, data.projSlg!, this.leagueAvg)
-        : Math.round(100 * ((data.projObp! / lgObp) + (data.projSlg! / lgSlg) - 1));
 
-      proj = {
-        projAvg: data.projAvg!, projObp: data.projObp!, projSlg: data.projSlg!,
-        projBbPct: data.projBbPct ?? 8.5, projKPct: data.projKPct ?? 22.0,
-        projHrPct: data.projHrPct ?? 0,
-        projPa: data.projPa!, projHr: data.projHr ?? 0,
-        proj2b: 0, proj3b: 0, // Not displayed in main projection row
-        projSb: data.projSb ?? 0, projCs: 0,
-        projWar: data.projWar!,
-        projWoba: data.projWoba!,
-        projSbRuns: data.projSbRuns ?? 0,
-        projDefRuns: data.defRuns ?? 0,
-        projPosAdj: data.posAdj ?? 0,
-        projOps: data.projObp! + data.projSlg!,
-        projOpsPlus,
-        age: data.age ?? 27,
-        ratingLabel: 'Estimated',
-        projNote: '* Projection based on True Ratings.',
-        isPeakMode: false,
-        showActualComparison: true,
-        ratings: {
-          power: data.estimatedPower ?? 50,
-          eye: data.estimatedEye ?? 50,
-          avoidK: data.estimatedAvoidK ?? 50,
-          contact: data.estimatedContact ?? 50,
-          gap: data.estimatedGap ?? 50,
-          speed: data.estimatedSpeed ?? 50,
-        },
-      };
+      if (isPeakMode) {
+        // Peak: from TFR cache (tfrAvg/tfrObp/tfrSlg/tfrPa or projAvg/projObp/projSlg/projWar on TFR data)
+        const avg = data.tfrAvg ?? data.projAvg ?? 0.260;
+        const obp = data.tfrObp ?? data.projObp ?? 0.330;
+        const slg = data.tfrSlg ?? data.projSlg ?? 0.420;
+        const pa = data.tfrPa ?? data.projPa ?? 600;
+        const projOpsPlus = this.leagueAvg
+          ? leagueBattingAveragesService.calculateOpsPlus(obp, slg, this.leagueAvg)
+          : Math.round(100 * ((obp / lgObp) + (slg / lgSlg) - 1));
+
+        proj = {
+          projAvg: avg, projObp: obp, projSlg: slg,
+          projBbPct: data.tfrBbPct ?? data.projBbPct ?? 8.5,
+          projKPct: data.tfrKPct ?? data.projKPct ?? 22.0,
+          projHrPct: data.tfrHrPct ?? data.projHrPct ?? 0,
+          projPa: pa, projHr: data.projHr ?? Math.round(pa * (data.tfrHrPct ?? 3) / 100),
+          proj2b: 0, proj3b: 0, projSb: data.projSb ?? 0, projCs: 0,
+          projWar: data.projWar ?? 0, // For prospects, projWar on data IS the TFR peak WAR
+          projWoba: data.projWoba ?? 0.320,
+          projSbRuns: data.projSbRuns ?? 0,
+          projDefRuns: data.defRuns ?? 0,
+          projPosAdj: data.posAdj ?? 0,
+          projOps: obp + slg, projOpsPlus,
+          age: 27, ratingLabel: 'TFR',
+          projNote: '* Peak projection based on True Future Rating. Assumes full development and everything going right for this guy.',
+          isPeakMode: true, showActualComparison: false,
+          ratings: {
+            power: data.tfrPower ?? data.estimatedPower ?? 50,
+            eye: data.tfrEye ?? data.estimatedEye ?? 50,
+            avoidK: data.tfrAvoidK ?? data.estimatedAvoidK ?? 50,
+            contact: data.tfrContact ?? data.estimatedContact ?? 50,
+            gap: data.tfrGap ?? data.estimatedGap ?? 50,
+            speed: data.tfrSpeed ?? data.estimatedSpeed ?? 50,
+          },
+        };
+      } else {
+        // Current: from batter_projections cache
+        const avg = data.projAvg ?? 0.260;
+        const obp = data.projObp ?? 0.330;
+        const slg = data.projSlg ?? 0.420;
+        const projOpsPlus = this.leagueAvg
+          ? leagueBattingAveragesService.calculateOpsPlus(obp, slg, this.leagueAvg)
+          : Math.round(100 * ((obp / lgObp) + (slg / lgSlg) - 1));
+
+        proj = {
+          projAvg: avg, projObp: obp, projSlg: slg,
+          projBbPct: data.projBbPct ?? 8.5, projKPct: data.projKPct ?? 22.0,
+          projHrPct: data.projHrPct ?? 0,
+          projPa: data.projPa ?? 580, projHr: data.projHr ?? 0,
+          proj2b: 0, proj3b: 0, projSb: data.projSb ?? 0, projCs: 0,
+          projWar: data.projWar ?? 0,
+          projWoba: data.projWoba ?? 0.320,
+          projSbRuns: data.projSbRuns ?? 0,
+          projDefRuns: data.defRuns ?? 0,
+          projPosAdj: data.posAdj ?? 0,
+          projOps: obp + slg, projOpsPlus,
+          age: data.age ?? 27, ratingLabel: 'Estimated',
+          projNote: '* Projection based on True Ratings.',
+          isPeakMode: false, showActualComparison: true,
+          ratings: {
+            power: data.estimatedPower ?? 50,
+            eye: data.estimatedEye ?? 50,
+            avoidK: data.estimatedAvoidK ?? 50,
+            contact: data.estimatedContact ?? 50,
+            gap: data.estimatedGap ?? 50,
+            speed: data.estimatedSpeed ?? 50,
+          },
+        };
+      }
     } else {
-      // Computation path: custom scouting, prospects in peak mode, or players not in cache.
-      // This is computation point 2 (custom scouting) or the peak-mode toggle.
+      // Custom scouting path: computation required
       proj = computeBatterProjection(data, stats, {
         projectionMode: this.projectionMode,
         projectionYear: this.projectionYear,

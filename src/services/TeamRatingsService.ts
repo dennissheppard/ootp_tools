@@ -53,6 +53,8 @@ export interface PitcherTfrSourceData {
     projBb9: number;
     projHr9: number;
     projFip: number;
+    projWar: number;
+    projIp: number;
 }
 
 export interface RatedProspect {
@@ -1002,17 +1004,31 @@ class TeamRatingsService {
           };
 
           // Build tfrBySource from both TFR runs
-          const buildPitcherTfrSource = (t: typeof tfr): PitcherTfrSourceData => ({
-              trueFutureRating: t.trueFutureRating,
-              tfrPercentile: t.percentile,
-              stuff: t.trueStuff,
-              control: t.trueControl,
-              hra: t.trueHra,
-              projK9: t.projK9,
-              projBb9: t.projBb9,
-              projHr9: t.projHr9,
-              projFip: t.projFip,
-          });
+          const buildPitcherTfrSource = (t: typeof tfr): PitcherTfrSourceData => {
+              // Park-adjust FIP for this source's rates
+              let srcFip = t.projFip;
+              let srcHr9 = t.projHr9;
+              if (pitcherParkFactorsMap && pitcherParkFactorsMap.size > 0) {
+                const parkRow = pitcherParkFactorsMap.get(orgId);
+                if (parkRow) {
+                  srcHr9 = t.projHr9 * computePitcherParkHrFactor(parkRow);
+                  srcFip = fipWarService.calculateFip({ hr9: srcHr9, bb9: t.projBb9, k9: t.projK9, ip: 0 });
+                }
+              }
+              return {
+                trueFutureRating: t.trueFutureRating,
+                tfrPercentile: t.percentile,
+                stuff: t.trueStuff,
+                control: t.trueControl,
+                hra: t.trueHra,
+                projK9: t.projK9,
+                projBb9: t.projBb9,
+                projHr9: srcHr9,
+                projFip: srcFip,
+                projWar: fipWarService.calculateWar(srcFip, projectedIp),
+                projIp: projectedIp,
+              };
+          };
           const myTfr = tfrMyMap.get(tfr.playerId);
           const osaTfr = tfrOsaMap.get(tfr.playerId);
           if (myTfr || osaTfr) {
