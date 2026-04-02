@@ -60,6 +60,8 @@ export interface ProjectedBatter {
     defRuns?: number;
     posAdj?: number;
     sbRuns?: number;
+    d2b?: number;
+    t3b?: number;
     defSource?: 'drs' | 'scouting' | 'blended';
   };
   /** Estimated ratings from projected stats */
