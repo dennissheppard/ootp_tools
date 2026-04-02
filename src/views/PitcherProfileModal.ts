@@ -329,7 +329,8 @@ export class PitcherProfileModal {
     // Increment generation to guard against async race conditions
     const generation = ++this.showGeneration;
 
-    this.projectionMode = 'current';
+    // Default to peak for prospects (they have TFR upside), current for MLB players
+    this.projectionMode = (data.isProspect || data.hasTfrUpside) ? 'peak' : 'current';
     this._cachedProj = null;
     this._draftLabel = null;
     this.injuryDaysRemaining = 0;

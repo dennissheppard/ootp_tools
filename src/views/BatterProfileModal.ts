@@ -97,6 +97,8 @@ export interface BatterProfileData {
   projSlg?: number;
   projPa?: number;
   projHr?: number;
+  proj2b?: number;
+  proj3b?: number;
   projRbi?: number;
   projWar?: number;
   projWrcPlus?: number;
@@ -373,8 +375,8 @@ export class BatterProfileModal {
     // Increment generation to guard against async race conditions
     const generation = ++this.showGeneration;
 
-    // Reset projection toggle
-    this.projectionMode = 'current';
+    // Default to peak for prospects (they have TFR upside), current for MLB players
+    this.projectionMode = (data.isProspect || data.hasTfrUpside) ? 'peak' : 'current';
     this._lastProjectionWar = undefined;
     this._lastProjection = undefined;
     this._draftLabel = null;
@@ -554,6 +556,8 @@ export class BatterProfileModal {
           data.projPa = cs.pa;
           data.projWar = cs.war;
           data.projHr = cs.hr;
+          data.proj2b = cs.d2b;
+          data.proj3b = cs.t3b;
           data.projSb = cs.sb;
           data.projWoba = cs.woba;
           data.projAvg = cs.avg;
@@ -1792,7 +1796,7 @@ export class BatterProfileModal {
           projKPct: data.tfrKPct ?? data.projKPct ?? 22.0,
           projHrPct: data.tfrHrPct ?? data.projHrPct ?? 0,
           projPa: pa, projHr: data.projHr ?? Math.round(pa * (data.tfrHrPct ?? 3) / 100),
-          proj2b: 0, proj3b: 0, projSb: data.projSb ?? 0, projCs: 0,
+          proj2b: data.proj2b ?? 0, proj3b: data.proj3b ?? 0, projSb: data.projSb ?? 0, projCs: 0,
           projWar: data.projWar ?? 0, // For prospects, projWar on data IS the TFR peak WAR
           projWoba: data.projWoba ?? 0.320,
           projSbRuns: data.projSbRuns ?? 0,
@@ -1825,7 +1829,7 @@ export class BatterProfileModal {
           projBbPct: data.projBbPct ?? 8.5, projKPct: data.projKPct ?? 22.0,
           projHrPct: data.projHrPct ?? 0,
           projPa: data.projPa ?? 580, projHr: data.projHr ?? 0,
-          proj2b: 0, proj3b: 0, projSb: data.projSb ?? 0, projCs: 0,
+          proj2b: data.proj2b ?? 0, proj3b: data.proj3b ?? 0, projSb: data.projSb ?? 0, projCs: 0,
           projWar: data.projWar ?? 0,
           projWoba: data.projWoba ?? 0.320,
           projSbRuns: data.projSbRuns ?? 0,

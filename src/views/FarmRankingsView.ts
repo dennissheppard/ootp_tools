@@ -46,6 +46,7 @@ export class FarmRankingsView {
   private selectedPosition: string = 'all';
   private includeDraftPool: boolean = false;
   private hasDraftPool: boolean = false;
+  private playerLookup: Map<number, { draftEligible: boolean; hsc: string | null }> | null = null;
 
   // Sorting and Dragging state
   private systemsSortKey: string = 'totalWar';
@@ -470,12 +471,12 @@ export class FarmRankingsView {
 
       if (this.showPitchers && this.data) {
           this.data.prospects.forEach(p => {
-              teams.add(this.getTeamName(p.orgId));
+              teams.add(this.getTeamName(p.orgId, p.playerId));
           });
       }
       if (this.showHitters && this.hitterData) {
           this.hitterData.prospects.forEach(p => {
-              teams.add(this.getTeamName(p.orgId));
+              teams.add(this.getTeamName(p.orgId, p.playerId));
           });
       }
 
@@ -620,7 +621,16 @@ export class FarmRankingsView {
 
         // Check if any draft-eligible players exist in the DB
         const playerLookup = await supabaseDataService.getPrecomputed('player_lookup');
-        this.hasDraftPool = !!(playerLookup && Object.values(playerLookup).some((p: any) => p[8] === true));
+        this.playerLookup = null;
+        this.hasDraftPool = false;
+        if (playerLookup) {
+            this.playerLookup = new Map();
+            for (const [id, p] of Object.entries(playerLookup)) {
+                const arr = p as any[];
+                this.playerLookup.set(parseInt(id, 10), { draftEligible: arr[8] as boolean, hsc: (arr[9] as string) || null });
+                if (arr[8] === true) this.hasDraftPool = true;
+            }
+        }
 
         await this.refreshScoutingDataMode();
         this.updateTeamFilter();
@@ -854,8 +864,8 @@ export class FarmRankingsView {
       let bVal: any;
 
       if (this.prospectsSortKey === 'team') {
-        aVal = this.getTeamName(a.orgId);
-        bVal = this.getTeamName(b.orgId);
+        aVal = this.getTeamName(a.orgId, a.playerId);
+        bVal = this.getTeamName(b.orgId, b.playerId);
       } else if (this.prospectsSortKey === 'percentile') {
         aVal = (a as any)['percentile'];
         bVal = (b as any)['percentile'];
@@ -912,8 +922,8 @@ export class FarmRankingsView {
       let bVal: any;
 
       if (this.prospectsSortKey === 'team') {
-        aVal = this.getTeamName(a.orgId);
-        bVal = this.getTeamName(b.orgId);
+        aVal = this.getTeamName(a.orgId, a.playerId);
+        bVal = this.getTeamName(b.orgId, b.playerId);
       } else if (this.prospectsSortKey === 'percentile') {
         aVal = (a as any)['percentile'];
         bVal = (b as any)['percentile'];
@@ -1234,11 +1244,11 @@ export class FarmRankingsView {
       // Add pitchers
       if (this.data?.prospects) {
           for (const p of this.data.prospects) {
-              if (excludeDraft && p.orgId === 0) continue;
+              if (excludeDraft && p.orgId === 0 && this.playerLookup?.get(p.playerId)?.draftEligible) continue;
               combined.push({
                   playerId: p.playerId,
                   name: p.name,
-                  team: this.getTeamName(p.orgId),
+                  team: this.getTeamName(p.orgId, p.playerId),
                   tfr: p.trueFutureRating,
                   peakWar: p.peakWar,
                   age: p.age,
@@ -1254,11 +1264,11 @@ export class FarmRankingsView {
       // Add hitters
       if (this.hitterData?.prospects) {
           for (const p of this.hitterData.prospects) {
-              if (excludeDraft && p.orgId === 0) continue;
+              if (excludeDraft && p.orgId === 0 && this.playerLookup?.get(p.playerId)?.draftEligible) continue;
               combined.push({
                   playerId: p.playerId,
                   name: p.name,
-                  team: this.getTeamName(p.orgId),
+                  team: this.getTeamName(p.orgId, p.playerId),
                   tfr: p.trueFutureRating,
                   peakWar: p.projWar,
                   age: p.age,
@@ -1729,13 +1739,13 @@ export class FarmRankingsView {
       if (!this.data || this.data.prospects.length === 0) return '<p class="no-stats">No prospect data available.</p>';
 
       let baseProspects = this.top100Prospects;
-      // Exclude draft pool unless explicitly included or filtered to
+      // Exclude draft-eligible players unless explicitly included or filtered to
       if (!this.includeDraftPool && this.selectedTeam !== 'Draft Pool') {
-          baseProspects = baseProspects.filter(p => p.orgId !== 0);
+          baseProspects = baseProspects.filter(p => p.orgId !== 0 || !this.playerLookup?.get(p.playerId)?.draftEligible);
       }
       let filteredProspects = this.selectedTeam === 'all'
           ? baseProspects
-          : baseProspects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
+          : baseProspects.filter(p => this.getTeamName(p.orgId, p.playerId) === this.selectedTeam);
 
       // Position filter: pitcher-only view only shows pitchers, so only filter if "P" or "all" selected
       if (this.selectedPosition !== 'all' && this.selectedPosition !== 'P') {
@@ -1774,7 +1784,7 @@ export class FarmRankingsView {
                 case 'name':
                     return `<td data-col-key="name" style="text-align: left;"><button class="btn-link player-name-link" data-player-id="${p.playerId}" title="ID: ${p.playerId}">${p.name}</button></td>`;
                 case 'team': {
-                    const tn = this.getTeamName(p.orgId);
+                    const tn = this.getTeamName(p.orgId, p.playerId);
                     return `<td data-col-key="team" style="text-align: left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(tn, 'team-btn-logo')}${tn}</div></td>`;
                 }
                 case 'trueFutureRating':
@@ -1837,11 +1847,11 @@ export class FarmRankingsView {
 
       let baseHitterProspects = this.top100HitterProspects;
       if (!this.includeDraftPool && this.selectedTeam !== 'Draft Pool') {
-          baseHitterProspects = baseHitterProspects.filter(p => p.orgId !== 0);
+          baseHitterProspects = baseHitterProspects.filter(p => p.orgId !== 0 || !this.playerLookup?.get(p.playerId)?.draftEligible);
       }
       let filteredProspects = this.selectedTeam === 'all'
           ? baseHitterProspects
-          : baseHitterProspects.filter(p => this.getTeamName(p.orgId) === this.selectedTeam);
+          : baseHitterProspects.filter(p => this.getTeamName(p.orgId, p.playerId) === this.selectedTeam);
 
       // Filter by position
       if (this.selectedPosition !== 'all') {
@@ -1884,7 +1894,7 @@ export class FarmRankingsView {
                 case 'position':
                     return `<td data-col-key="position" style="text-align: center;">${this.renderPositionBadge(p.position)}</td>`;
                 case 'team': {
-                    const tn = this.getTeamName(p.orgId);
+                    const tn = this.getTeamName(p.orgId, p.playerId);
                     return `<td data-col-key="team" style="text-align: left;"><div style="display:flex;align-items:center;gap:0.35rem;">${teamLogoImg(tn, 'team-btn-logo')}${tn}</div></td>`;
                 }
                 case 'trueFutureRating':
@@ -2678,7 +2688,7 @@ export class FarmRankingsView {
       await batterProfileModal.show(batterData, this.selectedYear);
   }
 
-  private getTeamName(teamId: number): string {
+  private getTeamName(teamId: number, playerId?: number): string {
       // Helper to find team name from systems data
       if (this.data) {
           const sys = this.data.systems.find(s => s.teamId === teamId);
@@ -2688,8 +2698,13 @@ export class FarmRankingsView {
           const sys = this.hitterData.systems.find(s => s.teamId === teamId);
           if (sys) return sys.teamName;
       }
-      // orgId=0 = unsigned draft-eligible players (no team assignment)
-      return 'Draft Pool';
+      // orgId=0 = unaffiliated player — check draft/HSC status
+      if (playerId && this.playerLookup) {
+          const info = this.playerLookup.get(playerId);
+          if (info?.draftEligible) return 'Draft Pool';
+          if (info?.hsc) return info.hsc;
+      }
+      return 'Free Agent';
   }
 
   private getProspectWar(playerId: number, isPitcher: boolean): number {

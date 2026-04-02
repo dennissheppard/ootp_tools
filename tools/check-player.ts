@@ -37,6 +37,39 @@ async function main() {
   if (pitcherScout.length === 0) { console.log('  NONE'); }
   else { for (const s of pitcherScout) console.log(`  ${s.player_name}: STU=${s.stuff} CTL=${s.control} HRA=${s.hra} OVR=${s.ovr} POT=${s.pot}`); }
 
+  // Check precomputed projection cache
+  console.log('\n=== Batter Projection (precomputed cache) ===');
+  try {
+    const cacheRows = await supabaseQuery('precomputed_cache', 'key=eq.batter_projections&select=key,data');
+    if (cacheRows.length > 0) {
+      let projData = cacheRows[0].data;
+      if (typeof projData === 'string') projData = JSON.parse(projData);
+      if (!Array.isArray(projData)) projData = projData.projections;
+      const proj = projData.find((x: any) => x.playerId === parseInt(playerId, 10));
+      if (proj) {
+        const s = proj.projectedStats;
+        console.log(`  ${proj.name}: AVG=${s.avg} OBP=${s.obp} SLG=${s.slg} OPS=${(s.obp+s.slg).toFixed(3)}`);
+        console.log(`  PA=${s.pa} HR=${s.hr} 2B=${s.d2b} 3B=${s.t3b} SB=${s.sb} WAR=${s.war}`);
+        console.log(`  bbPct=${s.bbPct} kPct=${s.kPct} hrPct=${s.hrPct}`);
+        if (proj.parkFactors) console.log(`  parkFactors:`, JSON.stringify(proj.parkFactors));
+        if (proj.parkName) console.log(`  park: ${proj.parkName}`);
+        console.log(`  age=${proj.age} level=${proj.level} bats=${proj.bats}`);
+      } else { console.log('  NOT IN BATTER PROJECTIONS'); }
+    }
+  } catch (e: any) { console.log('  (cache lookup failed:', e.message, ')'); }
+
+  // Check TFR data
+  const hitterTfr = await supabaseQuery('player_ratings', `player_id=eq.${playerId}&rating_type=eq.hitter_tfr&select=data`);
+  if (hitterTfr.length > 0) {
+    const d = hitterTfr[0].data;
+    console.log('\n=== Hitter TFR ===');
+    console.log(`  projAvg=${d.projAvg} projObp=${d.projObp} projSlg=${d.projSlg}`);
+    console.log(`  projBbPct=${d.projBbPct} projKPct=${d.projKPct} projHrPct=${d.projHrPct}`);
+    console.log(`  projPa=${d.projPa} projWoba=${d.projWoba}`);
+    console.log(`  trueRatings:`, JSON.stringify(d.trueRatings));
+    console.log(`  developmentTR:`, JSON.stringify(d.developmentTR));
+  }
+
   console.log('');
 }
 

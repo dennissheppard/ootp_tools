@@ -32,6 +32,11 @@ async function main() {
   console.log('=== Import Draft Eligible + HSC Data ===\n');
 
   // --- Draft Eligible ---
+  // Always clear existing draft_eligible values first — CSV is source of truth
+  console.log('  Clearing existing draft_eligible values...');
+  await supabasePatch('players', 'draft_eligible=eq.true', { draft_eligible: false });
+  console.log('  ✅ Cleared all draft_eligible values');
+
   if (fs.existsSync(draftCsvPath)) {
     console.log(`Reading draft-eligible IDs from: ${draftCsvPath}`);
     const raw = fs.readFileSync(draftCsvPath, 'utf-8');
@@ -61,6 +66,11 @@ async function main() {
   }
 
   // --- HSC ---
+  // Always clear existing HSC values first — CSV is source of truth
+  console.log('\n  Clearing existing HSC values...');
+  await supabasePatch('players', 'hsc=not.is.null', { hsc: null });
+  console.log('  ✅ Cleared all HSC values');
+
   if (fs.existsSync(hscCsvPath)) {
     console.log(`\nReading HSC data from: ${hscCsvPath}`);
     const raw = fs.readFileSync(hscCsvPath, 'utf-8');

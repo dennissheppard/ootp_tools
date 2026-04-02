@@ -30,6 +30,7 @@ import {
   filterColumns,
   dedupRows,
   supabasePatch,
+  supabaseDelete,
 } from './lib/supabase-client';
 
 import { SNAPSHOT_KEYS } from './freeze-projections';
@@ -515,9 +516,9 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
   // Wave 1b: Scouting tables (heavy JSONB — run sequentially to avoid concurrent timeout)
   const hitterScoutCols = 'player_id,player_name,power,eye,avoid_k,contact,gap,speed,ovr,pot,pos,stealing_aggressiveness,stealing_ability,injury_proneness,raw_data';
   const pitcherScoutCols = 'player_id,player_name,stuff,control,hra,stamina,ovr,pot,injury_proneness,babip,raw_data';
-  const pitcherScoutOsa = await supabaseQuery<any>('pitcher_scouting', `select=${pitcherScoutCols}&source=eq.osa&order=snapshot_date.desc`);
-  const hitterScoutOsa = await supabaseQuery<any>('hitter_scouting', `select=${hitterScoutCols}&source=eq.osa&order=snapshot_date.desc`);
-  const hitterScoutMy = await supabaseQuery<any>('hitter_scouting', `select=${hitterScoutCols}&source=eq.my&order=snapshot_date.desc`);
+  const pitcherScoutOsa = await supabaseQuery<any>('pitcher_scouting', `select=${pitcherScoutCols}&source=eq.osa&order=snapshot_date.desc,player_id`);
+  const hitterScoutOsa = await supabaseQuery<any>('hitter_scouting', `select=${hitterScoutCols}&source=eq.osa&order=snapshot_date.desc,player_id`);
+  const hitterScoutMy = await supabaseQuery<any>('hitter_scouting', `select=${hitterScoutCols}&source=eq.my&order=snapshot_date.desc,player_id`);
 
   // Wave 2: Stats + RPCs (lighter, but many rows)
   const [
@@ -548,8 +549,13 @@ async function buildSyncContext(year: number): Promise<SyncContext> {
   const playerMap = new Map<number, any>();
   const dobMap = new Map<number, Date>();
   const directAgeMap = new Map<number, number>();
+  const missingNameCount = { total: 0 };
   for (const p of allPlayersRaw) {
-    if (p.first_name) playerMap.set(p.id, p);
+    if (p.first_name) {
+      playerMap.set(p.id, p);
+    } else if (p.id > 0) {
+      missingNameCount.total++;
+    }
     if (p.dob) dobMap.set(p.id, new Date(p.dob));
     if (p.age && !p.dob) directAgeMap.set(p.id, typeof p.age === 'string' ? parseInt(p.age, 10) : p.age);
   }
@@ -787,7 +793,15 @@ async function detectGameDate(): Promise<{ gameDate: string; year: number; upToD
 async function clearStaleData(): Promise<void> {
   console.log('\n=== Step 2: Clear stale data ===');
   await supabaseRpc('clear_for_sync');
-  console.log('  Cleared contracts + player_ratings');
+  // Clear accumulated scouting snapshots — each sync writes fresh data,
+  // and old snapshot_date rows cause 56K+ row pagination issues in buildSyncContext.
+  const [delPitcher, delHitter] = await Promise.all([
+    supabaseDelete('pitcher_scouting', 'id=gt.0'),
+    supabaseDelete('hitter_scouting', 'id=gt.0'),
+    // Reset draft_eligible — CSV is source of truth, applied fresh each sync
+    supabasePatch('players', 'draft_eligible=eq.true', { draft_eligible: false }),
+  ]);
+  console.log(`  Cleared contracts + player_ratings + scouting (${delPitcher} pitcher, ${delHitter} hitter rows)`);
 }
 
 // ──────────────────────────────────────────────
@@ -1106,6 +1120,11 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
     const csvLines = csvText.split(/\r?\n/);
     const csvHeaders = csvLines[0].split(',');
     let csvFillPitchers = 0, csvFillHitters = 0, csvIcDetected = 0;
+    // Build name lookup from already-written players for CSV gap-fill (CSV has no names)
+    const playerNameLookup = new Map<number, string>();
+    for (const p of dedupedPlayers) {
+      if (p.first_name) playerNameLookup.set(p.id, `${p.first_name} ${p.last_name}`);
+    }
 
     for (let li = 1; li < csvLines.length; li++) {
       const vals = csvLines[li].split(',');
@@ -1134,8 +1153,11 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
 
       if (isPitcher) {
         const row: any = {
-          player_id: pid, is_pitcher: true, position: '1',
-          overall: get('overall_rating'), potential: get('talent_rating'),
+          player_id: pid, player_name: playerNameLookup.get(pid) ?? null,
+          is_pitcher: true, position: '1',
+          // CSV uses 2-10 scale; app uses 0.5-5.0 — divide by 2
+          overall: parseInt(get('overall_rating'), 10) / 2 || null,
+          potential: parseInt(get('talent_rating'), 10) / 2 || null,
           accuracy: get('scouting_accuracy'), injury_proneness: 'NOR',
           pitching: {
             stuff: get('pitching_ratings_talent_stuff'),
@@ -1166,8 +1188,11 @@ async function fetchAndWriteData(year: number, gameDate: string): Promise<WriteS
         csvFillPitchers++;
       } else {
         const row: any = {
-          player_id: pid, is_pitcher: false, position: String(pos),
-          overall: get('overall_rating'), potential: get('talent_rating'),
+          player_id: pid, player_name: playerNameLookup.get(pid) ?? null,
+          is_pitcher: false, position: String(pos),
+          // CSV uses 2-10 scale; app uses 0.5-5.0 — divide by 2
+          overall: parseInt(get('overall_rating'), 10) / 2 || null,
+          potential: parseInt(get('talent_rating'), 10) / 2 || null,
           accuracy: get('scouting_accuracy'), injury_proneness: 'NOR',
           batting: {
             contact: get('batting_ratings_talent_contact'),
@@ -1317,7 +1342,7 @@ async function computeTrueRatings(ctx: SyncContext): Promise<{ pitcherTr: number
 
     pitcherInputs.push({
       playerId,
-      playerName: player ? `${player.first_name} ${player.last_name}` : 'Unknown',
+      playerName: player ? `${player.first_name} ${player.last_name}` : (scouting?.player_name ?? 'Unknown'),
       yearlyStats: yearlyStats.sort((a, b) => b.year - a.year),
       scoutingRatings,
       role,
@@ -1397,7 +1422,7 @@ async function computeTrueRatings(ctx: SyncContext): Promise<{ pitcherTr: number
 
     hitterInputs.push({
       playerId,
-      playerName: player ? `${player.first_name} ${player.last_name}` : 'Unknown',
+      playerName: player ? `${player.first_name} ${player.last_name}` : (scouting?.player_name ?? 'Unknown'),
       yearlyStats: yearlyStats.sort((a: any, b: any) => b.year - a.year),
       scoutingRatings,
       targetYear: year,
@@ -1545,9 +1570,10 @@ async function computeTrueFutureRatings(
     // Gate check: age < 26 OR starGap >= 0.5
     if (age >= 26 && starGap < 0.5) return;
 
+    const tfrPlayer = ctx.playerMap.get(playerId);
     pitcherTfrInputs.push({
       playerId,
-      playerName: scouting.player_name || 'Unknown',
+      playerName: scouting.player_name || (tfrPlayer ? `${tfrPlayer.first_name} ${tfrPlayer.last_name}` : 'Unknown'),
       age,
       scouting: {
         playerId,
@@ -1785,9 +1811,10 @@ async function computeTrueFutureRatings(
 
     if (age >= 26 && starGap < 0.5) return;
 
+    const hTfrPlayer = ctx.playerMap.get(playerId);
     hitterTfrInputs.push({
       playerId,
-      playerName: scouting.player_name || 'Unknown',
+      playerName: scouting.player_name || (hTfrPlayer ? `${hTfrPlayer.first_name} ${hTfrPlayer.last_name}` : 'Unknown'),
       age,
       scouting: {
         playerId,
@@ -2309,7 +2336,7 @@ async function computeProjections(
 
     pitcherTrInputs.push({
       playerId,
-      playerName: player ? `${player.first_name} ${player.last_name}` : 'Unknown',
+      playerName: player ? `${player.first_name} ${player.last_name}` : (scouting?.player_name ?? 'Unknown'),
       yearlyStats: yearlyStats.sort((a, b) => b.year - a.year),
       scoutingRatings,
       role,
@@ -2663,29 +2690,30 @@ async function computeProjections(
     });
   }
 
-  // Promotion-ready prospects: compute current-year projections for prospects not in TR results
-  // Uses developmentTR (current-ability ratings from dev curves) instead of peak TFR
+  // Current-year projections for ALL prospects not already in TR results.
+  // Uses developmentTR (devRatio-scaled current-ability ratings) instead of peak TFR.
+  // Every prospect gets a current projection so the modal can show current vs peak.
   {
     const existingIds = new Set(tempPitcherProjections.map(p => p.playerId));
     let promotionProspectCount = 0;
     for (const [playerId, tfrData] of pitcherTfrMap) {
-      if (existingIds.has(playerId)) continue; // Already has a projection
+      // For prospects: OVERRIDE the main loop's projection (which used TFR ratings)
+      // with devRatio-scaled current-ability ratings. MLB players keep theirs.
+      const existingIdx = tempPitcherProjections.findIndex(p => p.playerId === playerId);
+      const existingIsProspect = existingIdx >= 0 && tempPitcherProjections[existingIdx].isProspect;
+      if (existingIdx >= 0 && !existingIsProspect) continue; // MLB player — keep main loop projection
       const player = playerMap.get(playerId);
       if (!player || player.retired) continue;
 
       const scouting = pitcherScoutMap.get(playerId);
-      const ovr = scouting?.ovr ?? 0;
-      const pot = scouting?.pot ?? 1;
-      const devRatio = ovr / pot;
-      const isUpperMinors = aaaOrAaPlayerIds.has(playerId);
       const devTR = typeof tfrData.developmentTR === 'number' ? tfrData.developmentTR : (tfrData.developmentTR?.trueRating ?? 0);
 
-      // Must be upper minors (AAA/AA) with either devTR >= 1.5 or devRatio > 0.5
-      if (!isUpperMinors) continue;
-      if (devTR < 1.5 && devRatio <= 0.5) continue;
-
-      // Use development-curve TR ratings for current-ability projection
-      const devRatings = tfrData.developmentTR?.ratings ?? tfrData.trueRatings ?? {};
+      // Use development-curve TR ratings for current-ability projection.
+      // developmentTR can be a flat { stuff, control, hra } object or { ratings: { ... }, trueRating }
+      const devTRObj = tfrData.developmentTR;
+      const devRatings = (devTRObj && typeof devTRObj === 'object' && 'stuff' in devTRObj)
+        ? devTRObj                     // flat: { stuff: 20, control: 20, hra: 20 }
+        : (devTRObj?.ratings ?? {});   // nested: { ratings: { stuff, control, hra } }
       const stuff = devRatings.stuff ?? scouting?.stuff ?? 50;
       const control = devRatings.control ?? scouting?.control ?? 50;
       const hra = devRatings.hra ?? scouting?.hra ?? 50;
@@ -2733,6 +2761,9 @@ async function computeProjections(
       const fipLike = trueRatingsCalculationService.calculateFipLike(projK9, projBb9, projHr9);
       const playerAge = typeof player.age === 'string' ? parseInt(player.age, 10) : (player.age ?? 25);
       const teamId = player.team_id ?? 0;
+
+      // Remove existing projection if overriding a prospect
+      if (existingIdx >= 0) tempPitcherProjections.splice(existingIdx, 1);
 
       tempPitcherProjections.push({
         playerId,
@@ -2999,23 +3030,27 @@ async function computeProjections(
     if (canonical) {
       hitterTrResults.push(canonical);
     } else if (input.scoutingRatings) {
-      // Scouting-only TR for draft-eligible players — derive blended rates from scouting
+      // Scouting-only TR for prospects/draftees without MLB stats.
+      // Use developmentTR (devRatio-scaled current ability) for blended rates
+      // so the "current" projection reflects where they are NOW, not their peak.
+      // TFR peak data is stored separately and shown directly in peak mode.
       const sr = input.scoutingRatings;
-      const power = sr.power ?? 50;
-      const eye = sr.eye ?? 50;
-      const avoidK = sr.avoidK ?? 50;
-      const contact = sr.contact ?? 50;
-      const gap = sr.gap ?? 50;
-      const speed = sr.speed ?? 50;
-
-      // Use TFR data if available (peak projection from Step 5), else derive from ratings
       const tfr = hitterTfrMap.get(input.playerId);
-      const blendedBbPct = tfr?.projBbPct ?? HitterRatingEstimatorService.expectedBbPct(eye);
-      const blendedKPct = tfr?.projKPct ?? HitterRatingEstimatorService.expectedKPct(avoidK);
-      const blendedHrPct = tfr?.projHrPct ?? HitterRatingEstimatorService.expectedHrPct(power);
-      const blendedAvg = tfr?.projAvg ?? HitterRatingEstimatorService.expectedAvg(contact);
-      const blendedDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(gap);
-      const blendedTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(speed);
+      const devTR = tfr?.developmentTR;
+
+      const curPower = devTR?.power ?? sr.power ?? 50;
+      const curEye = devTR?.eye ?? sr.eye ?? 50;
+      const curAvoidK = devTR?.avoidK ?? sr.avoidK ?? 50;
+      const curContact = devTR?.contact ?? sr.contact ?? 50;
+      const curGap = devTR?.gap ?? sr.gap ?? 50;
+      const curSpeed = devTR?.speed ?? sr.speed ?? 50;
+
+      const blendedBbPct = HitterRatingEstimatorService.expectedBbPct(curEye);
+      const blendedKPct = HitterRatingEstimatorService.expectedKPct(curAvoidK);
+      const blendedHrPct = HitterRatingEstimatorService.expectedHrPct(curPower);
+      const blendedAvg = HitterRatingEstimatorService.expectedAvg(curContact);
+      const blendedDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(curGap);
+      const blendedTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(curSpeed);
 
       // Use TFR star rating if available, fall back to scouting potential
       const tfrStarRating = tfr?.trueFutureRating ?? sr.pot ?? 0;
@@ -3029,12 +3064,12 @@ async function computeProjections(
         blendedAvg,
         blendedDoublesRate,
         blendedTriplesRate,
-        estimatedPower: tfr?.trueRatings?.power ?? power,
-        estimatedEye: tfr?.trueRatings?.eye ?? eye,
-        estimatedAvoidK: tfr?.trueRatings?.avoidK ?? avoidK,
-        estimatedContact: tfr?.trueRatings?.contact ?? contact,
-        estimatedGap: tfr?.trueRatings?.gap ?? gap,
-        estimatedSpeed: tfr?.trueRatings?.speed ?? speed,
+        estimatedPower: curPower,
+        estimatedEye: curEye,
+        estimatedAvoidK: curAvoidK,
+        estimatedContact: curContact,
+        estimatedGap: curGap,
+        estimatedSpeed: curSpeed,
         trueRating: tfrStarRating,
         percentile: tfr?.percentile ?? 0,
         totalPa: 0,
@@ -3078,33 +3113,34 @@ async function computeProjections(
       scoutSpeed: scouting?.speed,
       injuryProneness: scouting?.injuryProneness,
     };
-    // For draftees: pass undefined as playerTR so resolveCanonicalBatterData doesn't
-    // force isProspect=false. Instead, set up peak projection fields manually.
-    if (trResult.isDraftee) {
+    // Scouting-only TR players (no MLB stats) are prospects — set up like draftees.
+    // resolveCanonicalBatterData would set isProspect=false, bypassing the useFormula
+    // path and applying aging to devTR rates (wrong for prospects).
+    if (trResult.totalPa === 0) {
       data.isProspect = true;
       data.hasTfrUpside = true;
-      // Set TFR fields so computeBatterProjection uses them in peak mode
-      data.tfrPower = trResult.estimatedPower;
-      data.tfrEye = trResult.estimatedEye;
-      data.tfrAvoidK = trResult.estimatedAvoidK;
-      data.tfrContact = trResult.estimatedContact;
-      data.tfrGap = trResult.estimatedGap;
-      data.tfrSpeed = trResult.estimatedSpeed;
-      data.tfrBbPct = trResult.blendedBbPct;
-      data.tfrKPct = trResult.blendedKPct;
-      data.tfrHrPct = trResult.blendedHrPct;
-      data.tfrAvg = trResult.blendedAvg;
-      // Derive OBP/SLG from blended rates
-      data.tfrObp = Math.min(0.450, trResult.blendedAvg + (trResult.blendedBbPct / 100) * (1 - trResult.blendedAvg));
-      const hrPerAb = (trResult.blendedHrPct / 100) / 0.88;
-      const iso = trResult.blendedDoublesRate + 2 * trResult.blendedTriplesRate + 3 * hrPerAb;
-      data.tfrSlg = trResult.blendedAvg + iso;
-      data.projBbPct = trResult.blendedBbPct;
-      data.projKPct = trResult.blendedKPct;
-      data.projHrPct = trResult.blendedHrPct;
-      data.projAvg = trResult.blendedAvg;
-      data.projDoublesRate = trResult.blendedDoublesRate;
-      data.projTriplesRate = trResult.blendedTriplesRate;
+      // Set TFR fields from peak data (TFR map), not trResult (which is devTR-scaled)
+      const tfrPeak = hitterTfrMap.get(trResult.playerId);
+      const peakRatings = tfrPeak?.trueRatings;
+      data.tfrPower = peakRatings?.power ?? trResult.estimatedPower;
+      data.tfrEye = peakRatings?.eye ?? trResult.estimatedEye;
+      data.tfrAvoidK = peakRatings?.avoidK ?? trResult.estimatedAvoidK;
+      data.tfrContact = peakRatings?.contact ?? trResult.estimatedContact;
+      data.tfrGap = peakRatings?.gap ?? trResult.estimatedGap;
+      data.tfrSpeed = peakRatings?.speed ?? trResult.estimatedSpeed;
+      data.tfrBbPct = tfrPeak?.projBbPct ?? trResult.blendedBbPct;
+      data.tfrKPct = tfrPeak?.projKPct ?? trResult.blendedKPct;
+      data.tfrHrPct = tfrPeak?.projHrPct ?? trResult.blendedHrPct;
+      data.tfrAvg = tfrPeak?.projAvg ?? trResult.blendedAvg;
+      // Derive OBP/SLG from peak rates
+      const peakAvg = data.tfrAvg;
+      const peakBbPct = data.tfrBbPct;
+      data.tfrObp = tfrPeak?.projObp ?? Math.min(0.450, peakAvg + (peakBbPct / 100) * (1 - peakAvg));
+      const hrPerAb = (data.tfrHrPct / 100) / 0.88;
+      const peakDoublesRate = HitterRatingEstimatorService.expectedDoublesRate(data.tfrGap);
+      const peakTriplesRate = HitterRatingEstimatorService.expectedTriplesRate(data.tfrSpeed);
+      const iso = peakDoublesRate + 2 * peakTriplesRate + 3 * hrPerAb;
+      data.tfrSlg = tfrPeak?.projSlg ?? (peakAvg + iso);
     } else {
       resolveCanonicalBatterData(data, trResult, undefined);
     }
@@ -3242,6 +3278,8 @@ async function computeProjections(
         war: Math.round(adjWar * 10) / 10,
         pa: adjPa,
         hr: adjHr,
+        d2b: batterInjRatio < 1 ? Math.round(modalResult.proj2b * batterInjRatio) : modalResult.proj2b,
+        t3b: batterInjRatio < 1 ? Math.round(modalResult.proj3b * batterInjRatio) : modalResult.proj3b,
         rbi: Math.round(adjHr * 3.5 + adjPa * 0.08),
         sb: adjSb,
         hrPct: Math.round(modalResult.projHrPct * 10) / 10,
@@ -3273,20 +3311,24 @@ async function computeProjections(
 
   batterProjections.sort((a: any, b: any) => b.projectedStats.war - a.projectedStats.war);
 
-  // Batter sanity checks
+  // Batter sanity checks — verbose warnings only for true anomalies (NaN, extreme positive).
+  // Negative WAR is normal for prospects with devTR-scaled ratings.
   let batterIssues = 0;
+  let batterNegWar = 0;
   for (const p of batterProjections) {
     const war = p.projectedStats.war;
-    if (!Number.isFinite(war) || war < -5 || war > 15) {
+    if (!Number.isFinite(war) || war > 15) {
       batterIssues++;
       console.warn(`  ⚠️  Batter #${p.playerId} ${p.name}: WAR=${war?.toFixed(1) ?? 'NaN'}`);
+    } else if (war < -5) {
+      batterNegWar++;
     }
   }
   const injuredBatterCount = batterProjections.filter((p: any) => {
     const injDays = ctx.injuryDaysMap.get(p.playerId) ?? 0;
     return injDays > 0;
   }).length;
-  console.log(`  ✅ Batter projections: ${batterProjections.length} (${batterIssues} sanity issues)`);
+  console.log(`  ✅ Batter projections: ${batterProjections.length} (${batterIssues} sanity issues${batterNegWar > 0 ? `, ${batterNegWar} prospects below -5 WAR` : ''})`);
   if (injuredBatterCount > 0) console.log(`  🏥 Batter injury adjustments: ${injuredBatterCount}`);
   if (drafteeDefNonZero > 0 || drafteeDefZero > 0) {
     console.log(`  🛡️ Draftee defense: ${drafteeDefNonZero} non-zero, ${drafteeDefZero} zero`);
